@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/Xerrion/servicenow-devtools-mcp/compare/v0.2.1...v0.2.2) (2026-02-20)
+
+
+### Bug Fixes
+
+* update publish step to use uv publish command with environment variable ([#25](https://github.com/Xerrion/servicenow-devtools-mcp/issues/25)) ([d1caea5](https://github.com/Xerrion/servicenow-devtools-mcp/commit/d1caea5f696ce66b8b45ddc65176b305ef3ceb6d))
+
 ## [0.2.1](https://github.com/Xerrion/servicenow-devtools-mcp/compare/v0.2.0...v0.2.1) (2026-02-20)
 
 

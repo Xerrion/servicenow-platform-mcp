@@ -6,7 +6,7 @@
   <a href="https://pypi.org/project/servicenow-devtools-mcp/"><img src="https://img.shields.io/pypi/v/servicenow-devtools-mcp?color=00c9a7&style=flat-square" alt="PyPI version"></a>
   <a href="https://pypi.org/project/servicenow-devtools-mcp/"><img src="https://img.shields.io/pypi/pyversions/servicenow-devtools-mcp?style=flat-square" alt="Python versions"></a>
   <a href="https://github.com/xerrion/servicenow-devtools-mcp/blob/main/LICENSE"><img src="https://img.shields.io/github/license/xerrion/servicenow-devtools-mcp?style=flat-square" alt="License"></a>
-  <img src="https://img.shields.io/badge/tools-32-00d4ff?style=flat-square" alt="Tool count">
+  <img src="https://img.shields.io/badge/tools-33-00d4ff?style=flat-square" alt="Tool count">
 </p>
 
 # servicenow-devtools-mcp

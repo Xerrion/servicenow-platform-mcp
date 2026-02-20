@@ -19,9 +19,6 @@ jobs:
     steps:
       - uses: googleapis/release-please-action@v4
         id: release
-        with:
-          release-type: python
-          package-name: servicenow-devtools-mcp
 
   publish:
     name: Publish to PyPI

@@ -1,8 +1,10 @@
 """Investigation: comprehensive health report for a single table."""
 
+import asyncio
 from typing import Any
 
 from servicenow_mcp.client import ServiceNowClient
+from servicenow_mcp.policy import check_table_access, mask_sensitive_fields
 
 
 async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any]:
@@ -23,55 +25,50 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
             "findings": [],
         }
 
-    # 1. Record count via aggregate
-    stats_result = await client.aggregate(table, query="")
+    check_table_access(table)
+
+    # Run all 6 health check queries in parallel
+    stats_result, br_result, cs_result, acl_result, uip_result, syslog_result = await asyncio.gather(
+        client.aggregate(table, query=""),
+        client.query_records(
+            "sys_script",
+            f"collection={table}^active=true",
+            fields=["sys_id", "name", "when"],
+            limit=200,
+        ),
+        client.query_records(
+            "sys_script_client",
+            f"table={table}^active=true",
+            fields=["sys_id", "name", "type"],
+            limit=200,
+        ),
+        client.query_records(
+            "sys_security_acl",
+            f"nameSTARTSWITH{table}",
+            fields=["sys_id", "name", "operation"],
+            limit=200,
+        ),
+        client.query_records(
+            "sys_ui_policy",
+            f"table={table}^active=true",
+            fields=["sys_id", "short_description"],
+            limit=200,
+        ),
+        client.query_records(
+            "syslog",
+            f"level=0^sourceLIKE{table}",
+            fields=["sys_id", "message", "source", "sys_created_on"],
+            limit=20,
+            order_by="sys_created_on",
+        ),
+    )
+
     record_count = int(stats_result.get("stats", {}).get("count", 0))
-
-    # 2. Business rules on this table
-    br_result = await client.query_records(
-        "sys_script",
-        f"collection={table}^active=true",
-        fields=["sys_id", "name", "when"],
-        limit=200,
-    )
-    br_records = br_result["records"]
-
-    # 3. Client scripts on this table
-    cs_result = await client.query_records(
-        "sys_script_client",
-        f"table={table}^active=true",
-        fields=["sys_id", "name", "type"],
-        limit=200,
-    )
-    cs_records = cs_result["records"]
-
-    # 4. ACLs for this table
-    acl_result = await client.query_records(
-        "sys_security_acl",
-        f"nameSTARTSWITH{table}",
-        fields=["sys_id", "name", "operation"],
-        limit=200,
-    )
-    acl_records = acl_result["records"]
-
-    # 5. UI policies on this table
-    uip_result = await client.query_records(
-        "sys_ui_policy",
-        f"table={table}^active=true",
-        fields=["sys_id", "short_description"],
-        limit=200,
-    )
-    uip_records = uip_result["records"]
-
-    # 6. Recent syslog errors mentioning this table
-    syslog_result = await client.query_records(
-        "syslog",
-        f"level=0^sourceLIKE{table}",
-        fields=["sys_id", "message", "source", "sys_created_on"],
-        limit=20,
-        order_by="sys_created_on",
-    )
-    recent_errors = syslog_result["records"]
+    br_records = [mask_sensitive_fields(r) for r in br_result["records"]]
+    cs_records = [mask_sensitive_fields(r) for r in cs_result["records"]]
+    acl_records = [mask_sensitive_fields(r) for r in acl_result["records"]]
+    uip_records = [mask_sensitive_fields(r) for r in uip_result["records"]]
+    recent_errors = [mask_sensitive_fields(r) for r in syslog_result["records"]]
 
     # Build health indicators
     health_indicators: list[str] = []

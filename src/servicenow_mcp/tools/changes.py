@@ -9,7 +9,8 @@ from mcp.server.fastmcp import FastMCP
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
-from servicenow_mcp.utils import format_response, generate_correlation_id
+from servicenow_mcp.policy import check_table_access, mask_audit_entry, mask_sensitive_fields
+from servicenow_mcp.utils import format_response, generate_correlation_id, validate_identifier
 
 # Artifact types that are considered risky when modified
 RISKY_TYPES = {
@@ -57,7 +58,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                     limit=500,
                 )
 
-            members = members_result["records"]
+            members = [mask_sensitive_fields(m) for m in members_result["records"]]
 
             # Group members by type
             groups: dict[str, list[dict]] = defaultdict(list)
@@ -132,6 +133,9 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         """
         correlation_id = generate_correlation_id()
         try:
+            validate_identifier(table)
+            check_table_access(table)
+
             # Build the update name pattern: {table}_{sys_id}
             update_name = f"{table}_{sys_id}"
 
@@ -144,7 +148,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                     order_by="sys_recorded_at",
                 )
 
-            versions = versions_result["records"]
+            versions = [mask_sensitive_fields(v) for v in versions_result["records"]]
 
             if len(versions) < 2:
                 return json.dumps(
@@ -157,10 +161,10 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                     indent=2,
                 )
 
-            old_payload = versions[1].get("payload", "")
-            new_payload = versions[0].get("payload", "")
-            old_date = versions[1].get("sys_recorded_at", "unknown")
-            new_date = versions[0].get("sys_recorded_at", "unknown")
+            old_payload = versions[0].get("payload", "")
+            new_payload = versions[1].get("payload", "")
+            old_date = versions[0].get("sys_recorded_at", "unknown")
+            new_date = versions[1].get("sys_recorded_at", "unknown")
 
             diff_lines = list(
                 difflib.unified_diff(
@@ -209,6 +213,9 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         """
         correlation_id = generate_correlation_id()
         try:
+            validate_identifier(table)
+            check_table_access(table)
+
             async with ServiceNowClient(settings, auth_provider) as client:
                 audit_result = await client.query_records(
                     "sys_audit",
@@ -228,13 +235,14 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
 
             changes = []
             for entry in audit_result["records"]:
+                masked_entry = mask_audit_entry(entry)
                 changes.append(
                     {
-                        "user": entry.get("user", ""),
-                        "field": entry.get("fieldname", ""),
-                        "old_value": entry.get("oldvalue", ""),
-                        "new_value": entry.get("newvalue", ""),
-                        "timestamp": entry.get("sys_created_on", ""),
+                        "user": masked_entry.get("user", ""),
+                        "field": masked_entry.get("fieldname", ""),
+                        "old_value": masked_entry.get("oldvalue", ""),
+                        "new_value": masked_entry.get("newvalue", ""),
+                        "timestamp": masked_entry.get("sys_created_on", ""),
                     }
                 )
 
@@ -289,7 +297,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                     limit=500,
                 )
 
-            members = members_result["records"]
+            members = [mask_sensitive_fields(m) for m in members_result["records"]]
             us_name = update_set.get("name", "Unnamed Update Set")
             us_description = update_set.get("description", "")
             us_state = update_set.get("state", "")

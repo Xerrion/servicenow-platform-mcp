@@ -1,5 +1,6 @@
 """Relationship tools for traversing ServiceNow reference fields."""
 
+import asyncio
 import json
 from typing import Any
 
@@ -8,24 +9,24 @@ from mcp.server.fastmcp import FastMCP
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
-from servicenow_mcp.policy import check_table_access
-from servicenow_mcp.utils import format_response, generate_correlation_id
+from servicenow_mcp.policy import check_table_access, mask_sensitive_fields
+from servicenow_mcp.utils import format_response, generate_correlation_id, validate_identifier
 
 
 def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthProvider) -> None:
     """Register relationship tools on the MCP server."""
 
     @mcp.tool()
-    async def rel_references_to(table: str, sys_id: str, depth: int = 1) -> str:
+    async def rel_references_to(table: str, sys_id: str) -> str:
         """Find records in other tables that reference a given record.
 
         Args:
             table: The table of the target record.
             sys_id: The sys_id of the target record.
-            depth: Maximum depth for recursive reference traversal (default 1).
         """
         correlation_id = generate_correlation_id()
         try:
+            validate_identifier(table)
             check_table_access(table)
             # Query sys_dictionary for reference fields pointing to this table
             async with ServiceNowClient(settings, auth_provider) as client:
@@ -35,12 +36,10 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                     fields=["name", "element", "column_label"],
                     limit=100,
                 )
-                references: list[dict[str, Any]] = []
-                for field in ref_fields["records"]:
-                    ref_table = field.get("name", "")
-                    ref_field = field.get("element", "")
-                    if not ref_table or not ref_field:
-                        continue
+
+                # Build lookup tasks for each valid reference field
+                async def _lookup_ref(ref_table: str, ref_field: str) -> dict[str, Any] | None:
+                    """Look up records referencing the target via a single reference field."""
                     try:
                         check_table_access(ref_table)
                         ref_records = await client.query_records(
@@ -50,16 +49,26 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                             limit=10,
                         )
                         if ref_records["records"]:
-                            references.append(
-                                {
-                                    "table": ref_table,
-                                    "field": ref_field,
-                                    "count": ref_records["count"],
-                                    "sample_records": ref_records["records"][:5],
-                                }
-                            )
+                            masked_records = [mask_sensitive_fields(r) for r in ref_records["records"][:5]]
+                            return {
+                                "table": ref_table,
+                                "field": ref_field,
+                                "count": ref_records["count"],
+                                "sample_records": masked_records,
+                            }
                     except Exception:
-                        continue
+                        pass
+                    return None
+
+                tasks = []
+                for field in ref_fields["records"]:
+                    ref_table = field.get("name", "")
+                    ref_field = field.get("element", "")
+                    if ref_table and ref_field:
+                        tasks.append(_lookup_ref(ref_table, ref_field))
+
+                results = await asyncio.gather(*tasks)
+                references = [r for r in results if r is not None]
 
             return json.dumps(
                 format_response(
@@ -83,20 +92,20 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             )
 
     @mcp.tool()
-    async def rel_references_from(table: str, sys_id: str, depth: int = 1) -> str:
+    async def rel_references_from(table: str, sys_id: str) -> str:
         """Find what a record references by inspecting its reference fields.
 
         Args:
             table: The table of the source record.
             sys_id: The sys_id of the source record.
-            depth: Maximum depth for recursive reference traversal (default 1).
         """
         correlation_id = generate_correlation_id()
         try:
+            validate_identifier(table)
             check_table_access(table)
             async with ServiceNowClient(settings, auth_provider) as client:
                 # Get the record
-                record = await client.get_record(table, sys_id, display_values=True)
+                record = mask_sensitive_fields(await client.get_record(table, sys_id, display_values=True))
 
                 # Get reference fields for this table
                 ref_fields = await client.query_records(

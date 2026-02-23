@@ -3,6 +3,7 @@
 from typing import Any
 
 from servicenow_mcp.client import ServiceNowClient
+from servicenow_mcp.policy import mask_sensitive_fields
 
 # Deprecated patterns to scan for
 DEPRECATED_PATTERNS = [
@@ -58,7 +59,7 @@ async def explain(client: ServiceNowClient, element_id: str) -> dict[str, Any]:
     element_id format: "table:sys_id".
     """
     table, sys_id = element_id.split(":", 1)
-    record = await client.get_record(table, sys_id)
+    record = mask_sensitive_fields(await client.get_record(table, sys_id))
 
     explanation_parts = [
         f"Script '{record.get('name', '')}' in table '{table}' uses deprecated API patterns.",

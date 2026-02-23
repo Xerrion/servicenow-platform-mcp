@@ -4,6 +4,7 @@ from collections import Counter
 from typing import Any
 
 from servicenow_mcp.client import ServiceNowClient
+from servicenow_mcp.policy import mask_sensitive_fields
 
 HEAVY_AUTOMATION_THRESHOLD = 10
 
@@ -29,7 +30,7 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
         fields=["sys_id", "name", "collection", "active"],
         limit=500,
     )
-    br_records = br_result["records"]
+    br_records = [mask_sensitive_fields(r) for r in br_result["records"]]
 
     # Count BRs per table
     table_counts: Counter[str] = Counter()
@@ -56,13 +57,14 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
         limit=limit,
     )
     for rec in sj_result["records"]:
+        masked_rec = mask_sensitive_fields(rec)
         findings.append(
             {
                 "category": "frequent_job",
-                "element_id": f"sysauto_script:{rec.get('sys_id', '')}",
-                "name": rec.get("name", ""),
-                "detail": f"Active scheduled job: {rec.get('name', '')}",
-                "run_type": rec.get("run_type", ""),
+                "element_id": f"sysauto_script:{masked_rec.get('sys_id', '')}",
+                "name": masked_rec.get("name", ""),
+                "detail": f"Active scheduled job: {masked_rec.get('name', '')}",
+                "run_type": masked_rec.get("run_type", ""),
             }
         )
 
@@ -74,12 +76,13 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
         limit=limit,
     )
     for rec in flow_result["records"]:
+        masked_rec = mask_sensitive_fields(rec)
         findings.append(
             {
                 "category": "long_running_flow",
-                "element_id": f"flow_context:{rec.get('sys_id', '')}",
-                "name": rec.get("name", ""),
-                "detail": f"Flow in progress since {rec.get('sys_created_on', '')}",
+                "element_id": f"flow_context:{masked_rec.get('sys_id', '')}",
+                "name": masked_rec.get("name", ""),
+                "detail": f"Flow in progress since {masked_rec.get('sys_created_on', '')}",
             }
         )
 
@@ -98,7 +101,7 @@ async def explain(client: ServiceNowClient, element_id: str) -> dict[str, Any]:
     """
     if ":" in element_id:
         table, sys_id = element_id.split(":", 1)
-        record = await client.get_record(table, sys_id)
+        record = mask_sensitive_fields(await client.get_record(table, sys_id))
         explanation_parts = [
             f"Record from '{table}': {record.get('name', '')}.",
             "This record is flagged as a potential performance bottleneck.",

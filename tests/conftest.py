@@ -15,7 +15,7 @@ def settings():
         "SERVICENOW_USERNAME": "admin",
         "SERVICENOW_PASSWORD": "s3cret",
         "SERVICENOW_ENV": "dev",
-        "MCP_TOOL_PACKAGE": "dev_debug",
+        "MCP_TOOL_PACKAGE": "full",
     }
     with patch.dict("os.environ", env, clear=True):
         return Settings(_env_file=None)
@@ -29,7 +29,7 @@ def prod_settings():
         "SERVICENOW_USERNAME": "admin",
         "SERVICENOW_PASSWORD": "s3cret",
         "SERVICENOW_ENV": "prod",
-        "MCP_TOOL_PACKAGE": "dev_debug",
+        "MCP_TOOL_PACKAGE": "full",
     }
     with patch.dict("os.environ", env, clear=True):
         return Settings(_env_file=None)

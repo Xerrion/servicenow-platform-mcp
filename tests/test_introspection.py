@@ -7,6 +7,7 @@ import pytest
 import respx
 
 from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp.errors import AuthError, ForbiddenError, NotFoundError, ServerError
 from servicenow_mcp.policy import DENIED_TABLES
 
 BASE_URL = "https://test.service-now.com"
@@ -280,3 +281,125 @@ class TestTableAggregate:
 
         assert result["status"] == "error"
         assert "denied" in result["error"].lower()
+
+
+# ── Error propagation tests ──────────────────────────────────────────────
+
+
+class TestErrorPropagation:
+    """Verify that ServiceNowMCPError subclasses raised by the client are caught
+    by the tool layer and returned inside a format_response error envelope."""
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_auth_error_returns_error_envelope(self, settings, auth_provider):
+        """AuthError (401) from client is caught and returned in error envelope."""
+        respx.get(f"{BASE_URL}/api/now/table/incident/abc123").mock(
+            return_value=httpx.Response(
+                401,
+                json={"error": {"message": "User not authenticated"}},
+            )
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["table_get"](table="incident", sys_id="abc123")
+        result = json.loads(raw)
+
+        assert result["status"] == "error"
+        assert "not authenticated" in result["error"].lower()
+        assert "correlation_id" in result
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_forbidden_error_returns_error_envelope(self, settings, auth_provider):
+        """ForbiddenError (403) from client is caught and returned in error envelope."""
+        respx.get(f"{BASE_URL}/api/now/table/incident/abc123").mock(
+            return_value=httpx.Response(
+                403,
+                json={"error": {"message": "Insufficient rights to read"}},
+            )
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["table_get"](table="incident", sys_id="abc123")
+        result = json.loads(raw)
+
+        assert result["status"] == "error"
+        assert "insufficient" in result["error"].lower() or "forbidden" in result["error"].lower()
+        assert "correlation_id" in result
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_not_found_error_returns_error_envelope(self, settings, auth_provider):
+        """NotFoundError (404) from client is caught and returned in error envelope."""
+        respx.get(f"{BASE_URL}/api/now/table/incident/missing").mock(
+            return_value=httpx.Response(
+                404,
+                json={"error": {"message": "Record not found"}},
+            )
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["table_get"](table="incident", sys_id="missing")
+        result = json.loads(raw)
+
+        assert result["status"] == "error"
+        assert "not found" in result["error"].lower()
+        assert "correlation_id" in result
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_server_error_returns_error_envelope(self, settings, auth_provider):
+        """ServerError (500) from client is caught and returned in error envelope."""
+        respx.get(f"{BASE_URL}/api/now/table/sys_dictionary").mock(
+            return_value=httpx.Response(
+                500,
+                json={"error": {"message": "Internal server error"}},
+            )
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["table_describe"](table="incident")
+        result = json.loads(raw)
+
+        assert result["status"] == "error"
+        assert "internal server error" in result["error"].lower() or "server error" in result["error"].lower()
+        assert "correlation_id" in result
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_query_tool_auth_error_returns_error_envelope(self, settings, auth_provider):
+        """AuthError during table_query is caught and returned in error envelope."""
+        respx.get(f"{BASE_URL}/api/now/table/incident").mock(
+            return_value=httpx.Response(
+                401,
+                json={"error": {"message": "Session expired"}},
+            )
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["table_query"](table="incident", query="active=true")
+        result = json.loads(raw)
+
+        assert result["status"] == "error"
+        assert "session expired" in result["error"].lower() or "authentication" in result["error"].lower()
+        assert "correlation_id" in result
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_aggregate_tool_server_error_returns_error_envelope(self, settings, auth_provider):
+        """ServerError during table_aggregate is caught and returned in error envelope."""
+        respx.get(f"{BASE_URL}/api/now/stats/incident").mock(
+            return_value=httpx.Response(
+                502,
+                json={"error": {"message": "Bad gateway"}},
+            )
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["table_aggregate"](table="incident", query="active=true")
+        result = json.loads(raw)
+
+        assert result["status"] == "error"
+        assert result["error"]  # Error message is non-empty
+        assert "correlation_id" in result

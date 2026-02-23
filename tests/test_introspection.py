@@ -7,7 +7,6 @@ import pytest
 import respx
 
 from servicenow_mcp.auth import BasicAuthProvider
-from servicenow_mcp.errors import AuthError, ForbiddenError, NotFoundError, ServerError
 from servicenow_mcp.policy import DENIED_TABLES
 
 BASE_URL = "https://test.service-now.com"

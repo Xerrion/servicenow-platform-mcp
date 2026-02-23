@@ -3,16 +3,6 @@
 # Registry mapping package names to lists of tool group names.
 # Tool groups correspond to modules in servicenow_mcp.tools.
 PACKAGE_REGISTRY: dict[str, list[str]] = {
-    "dev_debug": [
-        "introspection",
-        "relationships",
-        "metadata",
-        "changes",
-        "debug",
-        "developer",
-        "investigations",
-        "documentation",
-    ],
     "introspection_only": [
         "introspection",
         "relationships",

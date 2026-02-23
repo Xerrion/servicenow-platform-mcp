@@ -85,7 +85,7 @@ class TestPreviewTokenStore:
         assert result["table"] == "incident"
 
     def test_consume_at_exact_boundary(self):
-        """consume() at exact TTL boundary still expires (> comparison)."""
+        """consume() at exact TTL boundary is NOT expired (uses > not >=)."""
         fake_time = 1000.0
         with patch("servicenow_mcp.state.time.monotonic", side_effect=lambda: fake_time):
             store = PreviewTokenStore(ttl_seconds=60)

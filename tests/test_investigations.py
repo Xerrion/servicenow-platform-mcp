@@ -294,8 +294,11 @@ class TestTableHealth:
                 headers={"X-Total-Count": "1"},
             )
         )
-        # ACLs
-        respx.get(f"{BASE_URL}/api/now/table/sys_security_acl").mock(
+        # ACLs — query now includes exact name match OR field-level prefix
+        respx.get(
+            f"{BASE_URL}/api/now/table/sys_security_acl",
+            params__contains={"sysparm_query": "name=incident^ORnameSTARTSWITHincident."},
+        ).mock(
             return_value=httpx.Response(
                 200,
                 json={
@@ -339,7 +342,10 @@ class TestAclConflicts:
     @respx.mock
     async def test_detects_overlapping_acls(self, settings, auth_provider):
         """Detects two ACLs with the same name but different conditions."""
-        respx.get(f"{BASE_URL}/api/now/table/sys_security_acl").mock(
+        respx.get(
+            f"{BASE_URL}/api/now/table/sys_security_acl",
+            params__contains={"sysparm_query": "name=incident^ORnameSTARTSWITHincident."},
+        ).mock(
             return_value=httpx.Response(
                 200,
                 json={
@@ -377,7 +383,10 @@ class TestAclConflicts:
     @respx.mock
     async def test_no_conflicts(self, settings, auth_provider):
         """Unique ACL names produce no conflicts."""
-        respx.get(f"{BASE_URL}/api/now/table/sys_security_acl").mock(
+        respx.get(
+            f"{BASE_URL}/api/now/table/sys_security_acl",
+            params__contains={"sysparm_query": "name=incident^ORnameSTARTSWITHincident."},
+        ).mock(
             return_value=httpx.Response(
                 200,
                 json={
@@ -934,3 +943,84 @@ class TestExplainTableHealth:
         assert result["data"]["record_count"] == 10000
         assert "incident" in result["data"]["explanation"]
         assert result["data"]["element"] == "incident"
+
+
+# ── Security restrictions on explain() ───────────────────────────────────
+
+
+class TestExplainSecurityRestrictions:
+    """Tests that explain() rejects element_ids referencing disallowed tables or invalid sys_ids."""
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_deprecated_apis_rejects_disallowed_table(self, settings, auth_provider):
+        """deprecated_apis explain() returns error for a table not in _ALLOWED_TABLES."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["investigate_explain"](
+            investigation="deprecated_apis",
+            element_id="sys_user:abc123456789012345678901234567ab",
+        )
+        result = json.loads(raw)
+
+        assert result["status"] == "success"  # Dispatcher succeeds; module returns error in data
+        assert "error" in result["data"]
+        assert "sys_user" in result["data"]["error"]
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_error_analysis_rejects_non_syslog_table(self, settings, auth_provider):
+        """error_analysis explain() returns error for a table other than syslog."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["investigate_explain"](
+            investigation="error_analysis",
+            element_id="incident:abc123456789012345678901234567ab",
+        )
+        result = json.loads(raw)
+
+        assert result["status"] == "success"
+        assert "error" in result["data"]
+        assert "incident" in result["data"]["error"]
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_slow_transactions_rejects_disallowed_table(self, settings, auth_provider):
+        """slow_transactions explain() returns error for a table not in PERFORMANCE_TABLES."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["investigate_explain"](
+            investigation="slow_transactions",
+            element_id="sys_user:abc123456789012345678901234567ab",
+        )
+        result = json.loads(raw)
+
+        assert result["status"] == "success"
+        assert "error" in result["data"]
+        assert "sys_user" in result["data"]["error"]
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_stale_automations_rejects_disallowed_table(self, settings, auth_provider):
+        """stale_automations explain() returns error for a table not in _ALLOWED_TABLES."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["investigate_explain"](
+            investigation="stale_automations",
+            element_id="sys_user:abc123456789012345678901234567ab",
+        )
+        result = json.loads(raw)
+
+        assert result["status"] == "success"
+        assert "error" in result["data"]
+        assert "sys_user" in result["data"]["error"]
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_invalid_sys_id_format(self, settings, auth_provider):
+        """Any investigation rejects element_id with an invalid sys_id format."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["investigate_explain"](
+            investigation="error_analysis",
+            element_id="syslog:not-a-sys-id",
+        )
+        result = json.loads(raw)
+
+        assert result["status"] == "error"
+        assert "Invalid identifier" in result["error"]

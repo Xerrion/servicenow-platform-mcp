@@ -1,6 +1,7 @@
 """Tests for change intelligence tools (changes_updateset_inspect, changes_diff_artifact, changes_last_touched, changes_release_notes)."""
 
 import json
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
@@ -177,7 +178,7 @@ class TestChangesDiffArtifact:
     @respx.mock
     async def test_returns_diff_between_versions(self, settings, auth_provider):
         """Returns a text diff between the two most recent versions."""
-        respx.get(f"{BASE_URL}/api/now/table/sys_update_version").mock(
+        route = respx.get(f"{BASE_URL}/api/now/table/sys_update_version").mock(
             return_value=httpx.Response(
                 200,
                 json={
@@ -207,6 +208,16 @@ class TestChangesDiffArtifact:
         assert result["status"] == "success"
         assert "diff" in result["data"]
 
+        # Verify the query includes inline ordering via ^ORDERBY
+        request = route.calls[0].request
+        url_str = str(request.url)
+        assert "ORDERBYDESCsys_recorded_at" in url_str
+
+        # Verify that order_by is NOT sent as a separate sysparm_orderby parameter
+        parsed = urlparse(url_str)
+        qs = parse_qs(parsed.query)
+        assert "sysparm_orderby" not in qs
+
     @pytest.mark.asyncio
     @respx.mock
     async def test_returns_error_when_no_versions(self, settings, auth_provider):
@@ -224,6 +235,50 @@ class TestChangesDiffArtifact:
         result = json.loads(raw)
 
         assert result["status"] == "error"
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_diff_version_ordering(self, settings, auth_provider):
+        """Verifies that versions[1] (older) is treated as the base 'Old' in the diff output."""
+        old_payload = '<record><sys_script_include action="INSERT_OR_UPDATE"><script>// old version</script></sys_script_include></record>'
+        new_payload = '<record><sys_script_include action="INSERT_OR_UPDATE"><script>// new version</script></sys_script_include></record>'
+
+        # DESC order: newest first, oldest second
+        respx.get(f"{BASE_URL}/api/now/table/sys_update_version").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "result": [
+                        {
+                            "sys_id": "v2",
+                            "name": "sys_script_include_xyz",
+                            "payload": new_payload,
+                            "sys_recorded_at": "2026-02-21 10:00:00",
+                        },
+                        {
+                            "sys_id": "v1",
+                            "name": "sys_script_include_xyz",
+                            "payload": old_payload,
+                            "sys_recorded_at": "2026-02-20 10:00:00",
+                        },
+                    ]
+                },
+                headers={"X-Total-Count": "2"},
+            )
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["changes_diff_artifact"](table="sys_script_include", sys_id="xyz")
+        result = json.loads(raw)
+
+        assert result["status"] == "success"
+        diff_text = result["data"]["diff"]
+        # The diff should show the old version (versions[1]) as the "from" file
+        assert result["data"]["old_version"] == "2026-02-20 10:00:00"
+        assert result["data"]["new_version"] == "2026-02-21 10:00:00"
+        # The diff should contain the removed old content and added new content
+        assert "// old version" in diff_text
+        assert "// new version" in diff_text
 
 
 class TestChangesLastTouched:

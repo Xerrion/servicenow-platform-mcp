@@ -420,3 +420,100 @@ class TestTableApplyUpdate:
         result = json.loads(raw)
 
         assert result["status"] == "error"
+
+
+# ── Error handling ────────────────────────────────────────────────────────
+
+
+class TestDeveloperErrorHandling:
+    """Tests for partial-failure handling in seed and cleanup operations."""
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_seed_partial_failure(self, settings, auth_provider):
+        """One record succeeds, one fails — response reflects partial success."""
+        respx.post(f"{BASE_URL}/api/now/table/incident").mock(
+            side_effect=[
+                httpx.Response(
+                    201,
+                    json={"result": {"sys_id": "new1", "number": "INC0099001"}},
+                ),
+                httpx.Response(500, json={"error": {"message": "Internal error"}}),
+            ]
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        records_json = json.dumps(
+            [
+                {"short_description": "Good record"},
+                {"short_description": "Bad record"},
+            ]
+        )
+        raw = await tools["dev_seed_test_data"](table="incident", records=records_json, tag="partial-seed")
+        result = json.loads(raw)
+
+        assert result["status"] == "success"
+        assert result["data"]["created_count"] == 1
+        assert result["data"]["failed_count"] == 1
+        assert "new1" in result["data"]["sys_ids"]
+        assert len(result["data"]["sys_ids"]) == 1
+
+        # Verify only the successful record is tracked for cleanup
+        # by attempting a cleanup — the tag should exist with 1 record
+        respx.delete(f"{BASE_URL}/api/now/table/incident/new1").mock(return_value=httpx.Response(204))
+
+        raw = await tools["dev_cleanup"](tag="partial-seed")
+        cleanup_result = json.loads(raw)
+
+        assert cleanup_result["status"] == "success"
+        assert cleanup_result["data"]["deleted_count"] == 1
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_cleanup_partial_failure(self, settings, auth_provider):
+        """One delete succeeds, one fails — tag remains in tracker with failed record."""
+        # Seed two records first
+        respx.post(f"{BASE_URL}/api/now/table/incident").mock(
+            side_effect=[
+                httpx.Response(
+                    201,
+                    json={"result": {"sys_id": "del1", "number": "INC0099010"}},
+                ),
+                httpx.Response(
+                    201,
+                    json={"result": {"sys_id": "del2", "number": "INC0099011"}},
+                ),
+            ]
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        records_json = json.dumps(
+            [
+                {"short_description": "Will delete"},
+                {"short_description": "Will fail delete"},
+            ]
+        )
+        seed_raw = await tools["dev_seed_test_data"](table="incident", records=records_json, tag="partial-cleanup")
+        seed_result = json.loads(seed_raw)
+        assert seed_result["status"] == "success"
+        assert seed_result["data"]["created_count"] == 2
+
+        # Mock deletions: first succeeds, second fails
+        respx.delete(f"{BASE_URL}/api/now/table/incident/del1").mock(return_value=httpx.Response(204))
+        respx.delete(f"{BASE_URL}/api/now/table/incident/del2").mock(return_value=httpx.Response(500))
+
+        raw = await tools["dev_cleanup"](tag="partial-cleanup")
+        result = json.loads(raw)
+
+        assert result["status"] == "success"
+        assert result["data"]["deleted_count"] == 1
+        assert result["data"]["failed_count"] == 1
+
+        # Tag should still exist in tracker with the failed record
+        # Attempting cleanup again should find the tag
+        respx.delete(f"{BASE_URL}/api/now/table/incident/del2").mock(return_value=httpx.Response(204))
+
+        retry_raw = await tools["dev_cleanup"](tag="partial-cleanup")
+        retry_result = json.loads(retry_raw)
+        assert retry_result["status"] == "success"
+        assert retry_result["data"]["deleted_count"] == 1

@@ -124,6 +124,25 @@ class TestDebugTrace:
         assert result["status"] == "success"
         assert result["data"]["timeline"] == []
 
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_filters_by_minutes(self, settings, auth_provider):
+        """Queries include gs.minutesAgoStart time filter."""
+        respx.get(f"{BASE_URL}/api/now/table/sys_audit").mock(
+            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        )
+        respx.get(f"{BASE_URL}/api/now/table/syslog").mock(
+            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        )
+        respx.get(f"{BASE_URL}/api/now/table/sys_journal_field").mock(
+            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["debug_trace"](record_sys_id="inc001", table="incident", minutes=30)
+        result = json.loads(raw)
+        assert result["status"] == "success"
+
 
 class TestDebugFlowExecution:
     """Tests for the debug_flow_execution tool."""
@@ -349,6 +368,19 @@ class TestDebugIntegrationHealth:
         assert result["status"] == "success"
         assert result["data"]["kind"] == "rest_message"
         assert len(result["data"]["errors"]) == 1
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_filters_by_hours(self, settings, auth_provider):
+        """Queries include gs.hoursAgoStart time filter."""
+        respx.get(f"{BASE_URL}/api/now/table/ecc_queue").mock(
+            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["debug_integration_health"](kind="ecc_queue", hours=12)
+        result = json.loads(raw)
+        assert result["status"] == "success"
 
 
 class TestDebugImportsetRun:

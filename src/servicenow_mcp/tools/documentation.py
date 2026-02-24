@@ -12,7 +12,7 @@ from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
 from servicenow_mcp.policy import check_table_access
 from servicenow_mcp.tools.metadata import ARTIFACT_TABLES
-from servicenow_mcp.utils import format_response, generate_correlation_id, validate_identifier
+from servicenow_mcp.utils import ServiceNowQuery, format_response, generate_correlation_id
 
 
 def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthProvider) -> None:
@@ -34,41 +34,45 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             check_table_access(table)
 
             async with ServiceNowClient(settings, auth_provider) as client:
-                # Fetch all four artifact types in parallel
-                br_result, cs_result, uip_result, uia_result = await asyncio.gather(
-                    client.query_records(
-                        "sys_script",
-                        f"collection={table}^active=true",
-                        fields=[
-                            "sys_id",
-                            "name",
-                            "when",
-                            "action_insert",
-                            "action_update",
-                            "action_delete",
-                            "order",
-                            "active",
-                        ],
-                        limit=200,
-                    ),
-                    client.query_records(
-                        "sys_script_client",
-                        f"table={table}^active=true",
-                        fields=["sys_id", "name", "type", "active"],
-                        limit=200,
-                    ),
-                    client.query_records(
-                        "sys_ui_policy",
-                        f"table={table}^active=true",
-                        fields=["sys_id", "short_description", "active"],
-                        limit=200,
-                    ),
-                    client.query_records(
-                        "sys_ui_action",
-                        f"table={table}^active=true",
-                        fields=["sys_id", "name", "action_name", "active"],
-                        limit=200,
-                    ),
+                # Business rules
+                br_result = await client.query_records(
+                    "sys_script",
+                    ServiceNowQuery().equals("collection", table).equals("active", "true").build(),
+                    fields=[
+                        "sys_id",
+                        "name",
+                        "when",
+                        "action_insert",
+                        "action_update",
+                        "action_delete",
+                        "order",
+                        "active",
+                    ],
+                    limit=200,
+                )
+
+                # Client scripts
+                cs_result = await client.query_records(
+                    "sys_script_client",
+                    ServiceNowQuery().equals("table", table).equals("active", "true").build(),
+                    fields=["sys_id", "name", "type", "active"],
+                    limit=200,
+                )
+
+                # UI policies
+                uip_result = await client.query_records(
+                    "sys_ui_policy",
+                    ServiceNowQuery().equals("table", table).equals("active", "true").build(),
+                    fields=["sys_id", "short_description", "active"],
+                    limit=200,
+                )
+
+                # UI actions
+                uia_result = await client.query_records(
+                    "sys_ui_action",
+                    ServiceNowQuery().equals("table", table).equals("active", "true").build(),
+                    fields=["sys_id", "name", "action_name", "active"],
+                    limit=200,
                 )
 
             # Build phase map from business rules

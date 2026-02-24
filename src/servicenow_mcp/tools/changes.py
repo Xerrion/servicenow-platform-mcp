@@ -9,8 +9,7 @@ from mcp.server.fastmcp import FastMCP
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
-from servicenow_mcp.policy import check_table_access, mask_audit_entry, mask_sensitive_fields
-from servicenow_mcp.utils import format_response, generate_correlation_id, sanitize_query_value, validate_identifier
+from servicenow_mcp.utils import ServiceNowQuery, format_response, generate_correlation_id
 
 # Artifact types that are considered risky when modified
 RISKY_TYPES = {
@@ -47,7 +46,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                 # Fetch all members of the update set
                 members_result = await client.query_records(
                     "sys_update_xml",
-                    f"update_set={update_set_id}",
+                    ServiceNowQuery().equals("update_set", update_set_id).build(),
                     fields=[
                         "sys_id",
                         "name",
@@ -142,7 +141,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             async with ServiceNowClient(settings, auth_provider) as client:
                 versions_result = await client.query_records(
                     "sys_update_version",
-                    f"name={update_name}^ORDERBYDESCsys_recorded_at",
+                    ServiceNowQuery().equals("name", update_name).build(),
                     fields=["sys_id", "name", "payload", "sys_recorded_at"],
                     limit=2,
                 )
@@ -221,7 +220,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             async with ServiceNowClient(settings, auth_provider) as client:
                 audit_result = await client.query_records(
                     "sys_audit",
-                    f"tablename={table}^documentkey={sys_id}",
+                    ServiceNowQuery().equals("tablename", table).equals("documentkey", sys_id).build(),
                     fields=[
                         "sys_id",
                         "user",
@@ -294,7 +293,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                 # Fetch members
                 members_result = await client.query_records(
                     "sys_update_xml",
-                    f"update_set={update_set_id}",
+                    ServiceNowQuery().equals("update_set", update_set_id).build(),
                     fields=["sys_id", "type", "action", "target_name"],
                     limit=500,
                 )

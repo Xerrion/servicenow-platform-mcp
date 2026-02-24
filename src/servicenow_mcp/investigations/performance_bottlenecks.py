@@ -4,7 +4,8 @@ from collections import Counter
 from typing import Any
 
 from servicenow_mcp.client import ServiceNowClient
-from servicenow_mcp.policy import mask_sensitive_fields
+from servicenow_mcp.policy import check_table_access, mask_sensitive_fields
+from servicenow_mcp.utils import validate_identifier
 
 HEAVY_AUTOMATION_THRESHOLD = 10
 
@@ -101,6 +102,8 @@ async def explain(client: ServiceNowClient, element_id: str) -> dict[str, Any]:
     """
     if ":" in element_id:
         table, sys_id = element_id.split(":", 1)
+        validate_identifier(table)
+        check_table_access(table)
         record = mask_sensitive_fields(await client.get_record(table, sys_id))
         explanation_parts = [
             f"Record from '{table}': {record.get('name', '')}.",

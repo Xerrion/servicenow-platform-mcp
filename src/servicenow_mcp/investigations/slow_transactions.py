@@ -32,7 +32,10 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
         limit: Maximum findings per table (default 20).
         categories: Optional comma-separated list of categories to filter.
     """
-    hours = params.get("hours", 24)
+    try:
+        hours = max(0, int(params.get("hours", 24)))
+    except (TypeError, ValueError):
+        hours = 24
     limit = params.get("limit", 20)
     categories_filter = params.get("categories")
     allowed_categories: set[str] | None = None

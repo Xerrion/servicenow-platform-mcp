@@ -9,7 +9,7 @@ from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
 from servicenow_mcp.policy import check_table_access, mask_sensitive_fields
-from servicenow_mcp.utils import format_response, generate_correlation_id, validate_identifier
+from servicenow_mcp.utils import format_response, generate_correlation_id, sanitize_query_value, validate_identifier
 
 # Mapping from human-friendly artifact type names to ServiceNow tables
 ARTIFACT_TABLES: dict[str, str] = {
@@ -144,8 +144,6 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         """
         correlation_id = generate_correlation_id()
         try:
-            check_table_access(target)
-
             matches: list[dict[str, Any]] = []
             search_method = "code_search_api"
 
@@ -155,20 +153,26 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                     cs_result = await client.code_search(term=target, limit=limit * len(SCRIPT_TABLES))
                     search_results = cs_result.get("search_results", [])
                     for sr in search_results:
+                        result_table = sr.get("className", "")
+                        try:
+                            check_table_access(result_table)
+                        except Exception:
+                            continue
                         matches.append(
                             {
-                                "table": sr.get("className", ""),
+                                "table": result_table,
                                 "sys_id": sr.get("sys_id", ""),
                                 "name": sr.get("name", ""),
-                                "sys_class_name": sr.get("className", ""),
+                                "sys_class_name": result_table,
                             }
                         )
                 except Exception:
                     # Fallback to per-table scriptCONTAINS search
                     search_method = "table_scan_fallback"
                     for table in SCRIPT_TABLES:
-                        query = f"scriptCONTAINS{target}"
+                        query = f"scriptCONTAINS{sanitize_query_value(target)}"
                         try:
+                            check_table_access(table)
                             result = await client.query_records(
                                 table,
                                 query,

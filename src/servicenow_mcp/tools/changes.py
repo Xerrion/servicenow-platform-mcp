@@ -10,7 +10,7 @@ from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
 from servicenow_mcp.policy import check_table_access, mask_audit_entry, mask_sensitive_fields
-from servicenow_mcp.utils import format_response, generate_correlation_id, validate_identifier
+from servicenow_mcp.utils import format_response, generate_correlation_id, sanitize_query_value, validate_identifier
 
 # Artifact types that are considered risky when modified
 RISKY_TYPES = {
@@ -137,7 +137,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             check_table_access(table)
 
             # Build the update name pattern: {table}_{sys_id}
-            update_name = f"{table}_{sys_id}"
+            update_name = f"{table}_{sanitize_query_value(sys_id)}"
 
             async with ServiceNowClient(settings, auth_provider) as client:
                 versions_result = await client.query_records(

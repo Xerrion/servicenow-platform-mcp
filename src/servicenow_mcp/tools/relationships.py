@@ -10,7 +10,7 @@ from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
 from servicenow_mcp.policy import check_table_access, mask_sensitive_fields
-from servicenow_mcp.utils import format_response, generate_correlation_id, validate_identifier
+from servicenow_mcp.utils import format_response, generate_correlation_id, sanitize_query_value, validate_identifier
 
 
 def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthProvider) -> None:
@@ -47,7 +47,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                             check_table_access(ref_table)
                             ref_records = await client.query_records(
                                 ref_table,
-                                f"{ref_field}={sys_id}",
+                                f"{ref_field}={sanitize_query_value(sys_id)}",
                                 fields=["sys_id", ref_field],
                                 limit=10,
                             )

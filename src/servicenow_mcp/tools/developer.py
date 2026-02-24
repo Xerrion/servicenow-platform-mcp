@@ -189,9 +189,15 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
 
             sys_ids: list[str] = []
             errors: list[str] = []
+            sem = asyncio.Semaphore(10)
             async with ServiceNowClient(settings, auth_provider) as client:
+
+                async def _create_one(record_data: dict[str, Any]) -> dict[str, Any]:
+                    async with sem:
+                        return await client.create_record(table, record_data)
+
                 results = await asyncio.gather(
-                    *(client.create_record(table, record_data) for record_data in record_list),
+                    *(_create_one(record_data) for record_data in record_list),
                     return_exceptions=True,
                 )
                 for result in results:
@@ -250,18 +256,24 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
 
             deleted_count = 0
             failed_records: list[dict[str, str]] = []
+            sem = asyncio.Semaphore(10)
             async with ServiceNowClient(settings, auth_provider) as client:
-                delete_tasks: list[tuple[str, str, Any]] = []
+                delete_meta: list[tuple[str, str]] = []
                 for entry in entries:
                     table = entry["table"]
                     for sys_id in entry["sys_ids"]:
-                        delete_tasks.append((table, sys_id, client.delete_record(table, sys_id)))
+                        delete_meta.append((table, sys_id))
+
+                async def _delete_one(tbl: str, sid: str) -> None:
+                    async with sem:
+                        await client.delete_record(tbl, sid)
+
                 results = await asyncio.gather(
-                    *(task for _, _, task in delete_tasks),
+                    *(_delete_one(tbl, sid) for tbl, sid in delete_meta),
                     return_exceptions=True,
                 )
                 for i, result in enumerate(results):
-                    tbl, sid, _ = delete_tasks[i]
+                    tbl, sid = delete_meta[i]
                     if isinstance(result, BaseException):
                         failed_records.append({"table": tbl, "sys_id": sid, "error": str(result)})
                     else:

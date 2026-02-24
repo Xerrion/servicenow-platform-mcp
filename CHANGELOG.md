@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.4](https://github.com/Xerrion/servicenow-devtools-mcp/compare/v0.2.3...v0.2.4) (2026-02-24)
+
+
+### Bug Fixes
+
+* exhaustive security, correctness, and performance improvements ([#29](https://github.com/Xerrion/servicenow-devtools-mcp/issues/29)) ([154174c](https://github.com/Xerrion/servicenow-devtools-mcp/commit/154174c2f36490b21aa24a32e61138633a70d1f4))
+
 ## [0.2.3](https://github.com/Xerrion/servicenow-devtools-mcp/compare/v0.2.2...v0.2.3) (2026-02-20)
 
 

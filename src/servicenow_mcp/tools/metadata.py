@@ -8,7 +8,8 @@ from mcp.server.fastmcp import FastMCP
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
-from servicenow_mcp.utils import format_response, generate_correlation_id
+from servicenow_mcp.policy import check_table_access, mask_sensitive_fields
+from servicenow_mcp.utils import format_response, generate_correlation_id, sanitize_query_value, validate_identifier
 
 # Mapping from human-friendly artifact type names to ServiceNow tables
 ARTIFACT_TABLES: dict[str, str] = {
@@ -55,6 +56,8 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                 valid_types = ", ".join(sorted(ARTIFACT_TABLES.keys()))
                 raise ValueError(f"Unknown artifact type '{artifact_type}'. Valid types: {valid_types}")
 
+            check_table_access(table)
+
             encoded_query = query if query else ""
 
             async with ServiceNowClient(settings, auth_provider) as client:
@@ -69,7 +72,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                     data={
                         "artifact_type": artifact_type,
                         "table": table,
-                        "artifacts": result["records"],
+                        "artifacts": [mask_sensitive_fields(r) for r in result["records"]],
                         "total": result["count"],
                     },
                     correlation_id=correlation_id,
@@ -105,8 +108,10 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                 valid_types = ", ".join(sorted(ARTIFACT_TABLES.keys()))
                 raise ValueError(f"Unknown artifact type '{artifact_type}'. Valid types: {valid_types}")
 
+            check_table_access(table)
+
             async with ServiceNowClient(settings, auth_provider) as client:
-                record = await client.get_record(table, sys_id)
+                record = mask_sensitive_fields(await client.get_record(table, sys_id))
 
             return json.dumps(
                 format_response(data=record, correlation_id=correlation_id),
@@ -148,20 +153,26 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                     cs_result = await client.code_search(term=target, limit=limit * len(SCRIPT_TABLES))
                     search_results = cs_result.get("search_results", [])
                     for sr in search_results:
+                        result_table = sr.get("className", "")
+                        try:
+                            check_table_access(result_table)
+                        except Exception:
+                            continue
                         matches.append(
                             {
-                                "table": sr.get("className", ""),
+                                "table": result_table,
                                 "sys_id": sr.get("sys_id", ""),
                                 "name": sr.get("name", ""),
-                                "sys_class_name": sr.get("className", ""),
+                                "sys_class_name": result_table,
                             }
                         )
                 except Exception:
                     # Fallback to per-table scriptCONTAINS search
                     search_method = "table_scan_fallback"
                     for table in SCRIPT_TABLES:
-                        query = f"scriptCONTAINS{target}"
+                        query = f"scriptCONTAINS{sanitize_query_value(target)}"
                         try:
+                            check_table_access(table)
                             result = await client.query_records(
                                 table,
                                 query,
@@ -217,6 +228,11 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         """
         correlation_id = generate_correlation_id()
         try:
+            validate_identifier(table)
+            if field:
+                validate_identifier(field)
+            check_table_access(table)
+
             writers: list[dict[str, Any]] = []
 
             async with ServiceNowClient(settings, auth_provider) as client:
@@ -232,7 +248,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                     # If a field is specified, only include BRs that reference it
                     if field and field not in script:
                         continue
-                    writers.append(record)
+                    writers.append(mask_sensitive_fields(record))
 
             return json.dumps(
                 format_response(

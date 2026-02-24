@@ -1,6 +1,9 @@
 """Tests for relationship tools (rel_references_to, rel_references_from)."""
 
+import asyncio
 import json
+from typing import Any
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -196,3 +199,55 @@ class TestRelReferencesFrom:
 
         assert result["status"] == "error"
         assert "denied" in result["error"].lower()
+
+
+class TestRelReferencesToBoundedConcurrency:
+    """Tests that rel_references_to limits concurrency via asyncio.Semaphore."""
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_rel_references_to_bounded_concurrency(self, settings, auth_provider):
+        """Verifies that rel_references_to uses a Semaphore to bound concurrent lookups."""
+        # Mock sys_dictionary to return many reference fields
+        ref_fields = [{"name": f"table_{i}", "element": "ref_field", "column_label": f"Ref {i}"} for i in range(15)]
+        respx.get(f"{BASE_URL}/api/now/table/sys_dictionary").mock(
+            return_value=httpx.Response(
+                200,
+                json={"result": ref_fields},
+                headers={"X-Total-Count": str(len(ref_fields))},
+            )
+        )
+        # Mock each referencing table to return empty results
+        for i in range(15):
+            respx.get(f"{BASE_URL}/api/now/table/table_{i}").mock(
+                return_value=httpx.Response(
+                    200,
+                    json={"result": []},
+                    headers={"X-Total-Count": "0"},
+                )
+            )
+
+        semaphore_instance = None
+
+        class TrackingSemaphore(asyncio.Semaphore):
+            """Semaphore subclass that tracks __aenter__ calls."""
+
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                super().__init__(*args, **kwargs)
+                nonlocal semaphore_instance
+                semaphore_instance = self
+                self.enter_count = 0
+
+            async def __aenter__(self) -> None:
+                self.enter_count += 1
+                await super().__aenter__()
+
+        with patch("servicenow_mcp.tools.relationships.asyncio.Semaphore", TrackingSemaphore):
+            tools = _register_and_get_tools(settings, auth_provider)
+            raw = await tools["rel_references_to"](table="incident", sys_id="abc123")
+            result = json.loads(raw)
+
+        assert result["status"] == "success"
+        # Verify the semaphore was actually created and used
+        assert semaphore_instance is not None
+        assert semaphore_instance.enter_count == 15

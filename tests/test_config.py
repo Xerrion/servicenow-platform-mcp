@@ -58,14 +58,14 @@ class TestSettings:
             Settings(_env_file=None)
 
     def test_default_mcp_tool_package(self):
-        """MCP_TOOL_PACKAGE defaults to 'dev_debug'."""
+        """MCP_TOOL_PACKAGE defaults to 'full'."""
         from servicenow_mcp.config import Settings
 
         env = self._make_env()
         with patch.dict("os.environ", env, clear=True):
             settings = Settings(_env_file=None)
 
-        assert settings.mcp_tool_package == "dev_debug"
+        assert settings.mcp_tool_package == "full"
 
     def test_custom_mcp_tool_package(self):
         """MCP_TOOL_PACKAGE can be overridden."""

@@ -1,7 +1,9 @@
 """Developer action tools for toggling artifacts, managing properties, seeding data, and preview/apply workflows."""
 
+import asyncio
 import json
 import uuid
+from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
@@ -11,7 +13,7 @@ from servicenow_mcp.config import Settings
 from servicenow_mcp.policy import can_write
 from servicenow_mcp.state import PreviewTokenStore, SeededRecordTracker
 from servicenow_mcp.tools.metadata import ARTIFACT_TABLES
-from servicenow_mcp.utils import format_response, generate_correlation_id
+from servicenow_mcp.utils import format_response, generate_correlation_id, validate_identifier
 
 
 def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthProvider) -> None:
@@ -166,6 +168,8 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         """
         correlation_id = generate_correlation_id()
         try:
+            validate_identifier(table)
+
             # Write gate
             if not can_write(table, settings):
                 return json.dumps(
@@ -184,13 +188,27 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             seed_tag = tag if tag else f"seed-{uuid.uuid4().hex[:8]}"
 
             sys_ids: list[str] = []
+            errors: list[str] = []
+            sem = asyncio.Semaphore(10)
             async with ServiceNowClient(settings, auth_provider) as client:
-                for record_data in record_list:
-                    created = await client.create_record(table, record_data)
-                    sys_ids.append(created["sys_id"])
 
-            # Track for cleanup
-            seed_tracker.track(seed_tag, table, sys_ids)
+                async def _create_one(record_data: dict[str, Any]) -> dict[str, Any]:
+                    async with sem:
+                        return await client.create_record(table, record_data)
+
+                results = await asyncio.gather(
+                    *(_create_one(record_data) for record_data in record_list),
+                    return_exceptions=True,
+                )
+                for result in results:
+                    if isinstance(result, BaseException):
+                        errors.append(str(result))
+                    else:
+                        sys_ids.append(result["sys_id"])
+
+            # Track only successful creates for cleanup
+            if sys_ids:
+                seed_tracker.track(seed_tag, table, sys_ids)
 
             return json.dumps(
                 format_response(
@@ -199,6 +217,8 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                         "created_count": len(sys_ids),
                         "sys_ids": sys_ids,
                         "tag": seed_tag,
+                        "failed_count": len(errors),
+                        "errors": errors,
                     },
                     correlation_id=correlation_id,
                 )
@@ -235,21 +255,49 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                 )
 
             deleted_count = 0
+            failed_records: list[dict[str, str]] = []
+            sem = asyncio.Semaphore(10)
             async with ServiceNowClient(settings, auth_provider) as client:
+                delete_meta: list[tuple[str, str]] = []
                 for entry in entries:
                     table = entry["table"]
                     for sys_id in entry["sys_ids"]:
-                        await client.delete_record(table, sys_id)
+                        delete_meta.append((table, sys_id))
+
+                async def _delete_one(tbl: str, sid: str) -> None:
+                    async with sem:
+                        await client.delete_record(tbl, sid)
+
+                results = await asyncio.gather(
+                    *(_delete_one(tbl, sid) for tbl, sid in delete_meta),
+                    return_exceptions=True,
+                )
+                for i, result in enumerate(results):
+                    tbl, sid = delete_meta[i]
+                    if isinstance(result, BaseException):
+                        failed_records.append({"table": tbl, "sys_id": sid, "error": str(result)})
+                    else:
                         deleted_count += 1
 
-            # Remove from tracker
-            seed_tracker.remove(tag)
+            # Only remove the tag if ALL deletions succeeded
+            if not failed_records:
+                seed_tracker.remove(tag)
+            else:
+                # Update tracker to keep only failed records
+                remaining: dict[str, list[str]] = {}
+                for fr in failed_records:
+                    remaining.setdefault(fr["table"], []).append(fr["sys_id"])
+                seed_tracker.remove(tag)
+                for tbl, sids in remaining.items():
+                    seed_tracker.track(tag, tbl, sids)
 
             return json.dumps(
                 format_response(
                     data={
                         "tag": tag,
                         "deleted_count": deleted_count,
+                        "failed_count": len(failed_records),
+                        "failed_records": failed_records,
                     },
                     correlation_id=correlation_id,
                 )
@@ -275,6 +323,8 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         """
         correlation_id = generate_correlation_id()
         try:
+            validate_identifier(table)
+
             # Write gate
             if not can_write(table, settings):
                 return json.dumps(

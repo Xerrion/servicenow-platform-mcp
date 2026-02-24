@@ -59,7 +59,7 @@ Add to `~/.config/opencode/opencode.json`:
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_USERNAME": "admin",
         "SERVICENOW_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "dev_debug",
+        "MCP_TOOL_PACKAGE": "full",
         "SERVICENOW_ENV": "dev"
       }
     }
@@ -81,7 +81,7 @@ Add to your Claude Desktop config (`claude_desktop_config.json`):
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_USERNAME": "admin",
         "SERVICENOW_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "dev_debug",
+        "MCP_TOOL_PACKAGE": "full",
         "SERVICENOW_ENV": "dev"
       }
     }
@@ -103,7 +103,7 @@ Add to `.vscode/mcp.json` in your workspace:
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_USERNAME": "admin",
         "SERVICENOW_PASSWORD": "your-password",
-        "MCP_TOOL_PACKAGE": "dev_debug",
+        "MCP_TOOL_PACKAGE": "full",
         "SERVICENOW_ENV": "dev"
       }
     }
@@ -147,7 +147,7 @@ uvx servicenow-devtools-mcp
 
 ### Optional Environment Variables
 
-- MCP_TOOL_PACKAGE -- Which tools to load: "dev_debug" (default, all tools), "introspection_only" (read-only), "full" (same as dev_debug), "none"
+- MCP_TOOL_PACKAGE -- Which tools to load: "full" (default, all tools), "introspection_only" (read-only), "none"
 - SERVICENOW_ENV -- Environment label: "dev" (default), "test", "staging", "prod". Write operations are blocked when set to "prod" unless ALLOW_WRITES_IN_PROD is set to true.
 - ALLOW_WRITES_IN_PROD -- Set to "true" to allow write operations even when SERVICENOW_ENV is "prod" (default: false).
 - MAX_ROW_LIMIT -- Max records per query (default: 100)
@@ -163,7 +163,7 @@ uvx servicenow-devtools-mcp
     "SERVICENOW_INSTANCE_URL": "<instance_url>",
     "SERVICENOW_USERNAME": "<username>",
     "SERVICENOW_PASSWORD": "<password>",
-    "MCP_TOOL_PACKAGE": "dev_debug",
+    "MCP_TOOL_PACKAGE": "full",
     "SERVICENOW_ENV": "dev"
   }
 }
@@ -217,7 +217,7 @@ uvx servicenow-devtools-mcp
 | `SERVICENOW_INSTANCE_URL` | Full URL of your ServiceNow instance | -- | Yes |
 | `SERVICENOW_USERNAME` | ServiceNow username (Basic Auth) | -- | Yes |
 | `SERVICENOW_PASSWORD` | ServiceNow password | -- | Yes |
-| `MCP_TOOL_PACKAGE` | Tool package to load | `dev_debug` | No |
+| `MCP_TOOL_PACKAGE` | Tool package to load | `full` | No |
 | `SERVICENOW_ENV` | Environment label (`dev`, `test`, `staging`, `prod`) | `dev` | No |
 | `ALLOW_WRITES_IN_PROD` | Set to `true` to allow writes when `SERVICENOW_ENV=prod` | `false` | No |
 | `MAX_ROW_LIMIT` | Maximum rows returned per query | `100` | No |
@@ -327,8 +327,7 @@ Control which tools are loaded using the `MCP_TOOL_PACKAGE` environment variable
 
 | Package | Tools Loaded | Use Case |
 |---|---|---|
-| `dev_debug` (default) | All 33 tools | Full development and debugging |
-| `full` | All 33 tools | Same as dev_debug |
+| `full` (default) | All 33 tools | Full development and debugging |
 | `introspection_only` | Introspection + Relationships + Metadata (10 tools) | Read-only exploration |
 | `none` | Only `list_tool_packages` | Minimal / testing |
 

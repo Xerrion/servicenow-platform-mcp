@@ -1,6 +1,6 @@
 """Tests for in-memory state management (PreviewTokenStore, SeededRecordTracker)."""
 
-import time
+from unittest.mock import patch
 
 from servicenow_mcp.state import PreviewTokenStore, SeededRecordTracker
 
@@ -32,11 +32,16 @@ class TestPreviewTokenStore:
         assert result is None
 
     def test_get_returns_none_for_expired_token(self):
-        """get() returns None for a token that has expired."""
-        store = PreviewTokenStore(ttl_seconds=0)  # Immediate expiry
-        token = store.create({"table": "incident"})
-        time.sleep(0.01)  # Ensure expiry
-        result = store.get(token)
+        """get() returns None for a token that has expired (mocked clock)."""
+        fake_time = 1000.0
+        with patch("servicenow_mcp.state.time.monotonic", side_effect=lambda: fake_time):
+            store = PreviewTokenStore(ttl_seconds=60)
+            token = store.create({"table": "incident"})
+
+        # Advance time past TTL
+        with patch("servicenow_mcp.state.time.monotonic", return_value=fake_time + 61):
+            result = store.get(token)
+
         assert result is None
 
     def test_consume_returns_payload_and_removes(self):
@@ -53,12 +58,44 @@ class TestPreviewTokenStore:
         assert store.get(token) is None
 
     def test_consume_returns_none_for_expired_token(self):
-        """consume() returns None for an expired token."""
-        store = PreviewTokenStore(ttl_seconds=0)
-        token = store.create({"table": "incident"})
-        time.sleep(0.01)
-        result = store.consume(token)
+        """consume() returns None for an expired token (mocked clock)."""
+        fake_time = 1000.0
+        with patch("servicenow_mcp.state.time.monotonic", side_effect=lambda: fake_time):
+            store = PreviewTokenStore(ttl_seconds=60)
+            token = store.create({"table": "incident"})
+
+        # Advance time past TTL
+        with patch("servicenow_mcp.state.time.monotonic", return_value=fake_time + 61):
+            result = store.consume(token)
+
         assert result is None
+
+    def test_get_returns_payload_before_ttl_expires(self):
+        """get() returns the payload when the TTL has not yet expired (mocked clock)."""
+        fake_time = 1000.0
+        with patch("servicenow_mcp.state.time.monotonic", side_effect=lambda: fake_time):
+            store = PreviewTokenStore(ttl_seconds=60)
+            token = store.create({"table": "incident", "key": "value"})
+
+        # Advance time but stay within TTL
+        with patch("servicenow_mcp.state.time.monotonic", return_value=fake_time + 59):
+            result = store.get(token)
+
+        assert result is not None
+        assert result["table"] == "incident"
+
+    def test_consume_at_exact_boundary(self):
+        """consume() at exact TTL boundary is NOT expired (uses > not >=)."""
+        fake_time = 1000.0
+        with patch("servicenow_mcp.state.time.monotonic", side_effect=lambda: fake_time):
+            store = PreviewTokenStore(ttl_seconds=60)
+            token = store.create({"table": "incident"})
+
+        # Advance time to exactly TTL — _is_expired uses >, so 60 == 60 is NOT expired
+        with patch("servicenow_mcp.state.time.monotonic", return_value=fake_time + 60):
+            result_at_boundary = store.consume(token)
+
+        assert result_at_boundary is not None
 
 
 class TestSeededRecordTracker:

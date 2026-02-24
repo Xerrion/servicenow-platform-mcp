@@ -4,6 +4,10 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from servicenow_mcp.client import ServiceNowClient
+from servicenow_mcp.policy import check_table_access, mask_sensitive_fields
+from servicenow_mcp.utils import validate_identifier
+
+_ALLOWED_TABLES = {"flow_context", "sys_script", "sys_script_include", "sysauto_script"}
 
 
 async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any]:
@@ -34,12 +38,13 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
         limit=limit,
     )
     for rec in flow_result["records"]:
+        masked_rec = mask_sensitive_fields(rec)
         findings.append(
             {
                 "category": "stuck_flow",
-                "element_id": f"flow_context:{rec.get('sys_id', '')}",
-                "name": rec.get("name", ""),
-                "detail": f"Flow stuck in IN_PROGRESS since {rec.get('sys_created_on', '')}",
+                "element_id": f"flow_context:{masked_rec.get('sys_id', '')}",
+                "name": masked_rec.get("name", ""),
+                "detail": f"Flow stuck in IN_PROGRESS since {masked_rec.get('sys_created_on', '')}",
             }
         )
 
@@ -51,12 +56,13 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
         limit=limit,
     )
     for rec in br_result["records"]:
+        masked_rec = mask_sensitive_fields(rec)
         findings.append(
             {
                 "category": "disabled_business_rule",
-                "element_id": f"sys_script:{rec.get('sys_id', '')}",
-                "name": rec.get("name", ""),
-                "detail": f"Disabled BR on table '{rec.get('collection', '')}'",
+                "element_id": f"sys_script:{masked_rec.get('sys_id', '')}",
+                "name": masked_rec.get("name", ""),
+                "detail": f"Disabled BR on table '{masked_rec.get('collection', '')}'",
             }
         )
 
@@ -68,29 +74,31 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
         limit=limit,
     )
     for rec in si_result["records"]:
+        masked_rec = mask_sensitive_fields(rec)
         findings.append(
             {
                 "category": "disabled_script_include",
-                "element_id": f"sys_script_include:{rec.get('sys_id', '')}",
-                "name": rec.get("name", ""),
-                "detail": f"Disabled script include '{rec.get('api_name', '')}'",
+                "element_id": f"sys_script_include:{masked_rec.get('sys_id', '')}",
+                "name": masked_rec.get("name", ""),
+                "detail": f"Disabled script include '{masked_rec.get('api_name', '')}'",
             }
         )
 
-    # 4. Stale scheduled jobs (not updated in > stale_days)
+    # 4. Stale scheduled jobs (not run in > stale_days)
     sj_result = await client.query_records(
         "sysauto_script",
-        f"sys_updated_on<{cutoff_str}",
-        fields=["sys_id", "name", "run_type", "sys_updated_on"],
+        f"last_run<{cutoff_str}",
+        fields=["sys_id", "name", "run_type", "last_run"],
         limit=limit,
     )
     for rec in sj_result["records"]:
+        masked_rec = mask_sensitive_fields(rec)
         findings.append(
             {
                 "category": "stale_scheduled_job",
-                "element_id": f"sysauto_script:{rec.get('sys_id', '')}",
-                "name": rec.get("name", ""),
-                "detail": f"Scheduled job not updated since {rec.get('sys_updated_on', '')}",
+                "element_id": f"sysauto_script:{masked_rec.get('sys_id', '')}",
+                "name": masked_rec.get("name", ""),
+                "detail": f"Scheduled job last run {masked_rec.get('last_run', 'never')}",
             }
         )
 
@@ -108,7 +116,14 @@ async def explain(client: ServiceNowClient, element_id: str) -> dict[str, Any]:
     element_id format: "table:sys_id" (e.g. "flow_context:fc001").
     """
     table, sys_id = element_id.split(":", 1)
-    record = await client.get_record(table, sys_id)
+    if table not in _ALLOWED_TABLES:
+        return {
+            "element": element_id,
+            "error": f"Table '{table}' is not in the allowed tables for this investigation",
+        }
+    validate_identifier(sys_id)
+    check_table_access(table)
+    record = mask_sensitive_fields(await client.get_record(table, sys_id))
 
     explanation_parts = [f"Record from '{table}' with sys_id '{sys_id}'."]
 
@@ -129,8 +144,9 @@ async def explain(client: ServiceNowClient, element_id: str) -> dict[str, Any]:
             f"Script include '{record.get('name', '')}' is disabled. Check if any other scripts reference it."
         )
     elif table == "sysauto_script":
+        last_run = record.get("last_run", "never")
         explanation_parts.append(
-            f"Scheduled job '{record.get('name', '')}' has not been updated recently. Verify it is still needed."
+            f"Scheduled job '{record.get('name', '')}' last run was {last_run}. Verify it is still needed."
         )
 
     return {

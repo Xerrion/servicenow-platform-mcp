@@ -4,6 +4,8 @@ from collections import defaultdict
 from typing import Any
 
 from servicenow_mcp.client import ServiceNowClient
+from servicenow_mcp.policy import check_table_access, mask_sensitive_fields
+from servicenow_mcp.utils import validate_identifier
 
 
 async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any]:
@@ -24,28 +26,33 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
             "findings": [],
         }
 
-    # Query all ACLs that start with the table name
+    check_table_access(table)
+
+    # Query ACLs for the table name and field-level ACLs
     acl_result = await client.query_records(
         "sys_security_acl",
-        f"nameSTARTSWITH{table}",
+        f"name={table}^ORnameSTARTSWITH{table}.",
         fields=["sys_id", "name", "operation", "condition", "script", "active"],
         limit=500,
     )
-    acls = acl_result["records"]
+    acls = [mask_sensitive_fields(a) for a in acl_result["records"]]
 
-    # Group by name to find duplicates
+    # Group by (name, operation) to find true duplicates
     groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for acl in acls:
-        groups[acl.get("name", "")].append(acl)
+        key = f"{acl.get('name', '')}|{acl.get('operation', '')}"
+        groups[key].append(acl)
 
-    # Find conflicts: groups with 2+ ACLs sharing the same name
+    # Find conflicts: groups with 2+ ACLs sharing the same name and operation
     findings: list[dict[str, Any]] = []
-    for name, group in groups.items():
+    for key, group in groups.items():
         if len(group) >= 2:
+            name, operation = key.split("|", 1)
             findings.append(
                 {
                     "category": "acl_conflict",
                     "name": name,
+                    "operation": operation,
                     "count": len(group),
                     "acls": [
                         {
@@ -56,7 +63,7 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
                         }
                         for a in group
                     ],
-                    "detail": f"ACL '{name}' has {len(group)} overlapping rules with different conditions",
+                    "detail": f"ACL '{name}' (operation: {operation}) has {len(group)} overlapping rules with different conditions",
                 }
             )
 
@@ -74,7 +81,9 @@ async def explain(client: ServiceNowClient, element_id: str) -> dict[str, Any]:
 
     element_id is an ACL sys_id.
     """
-    record = await client.get_record("sys_security_acl", element_id)
+    validate_identifier(element_id)
+    check_table_access("sys_security_acl")
+    record = mask_sensitive_fields(await client.get_record("sys_security_acl", element_id))
 
     explanation_parts = [
         f"ACL '{record.get('name', '')}' controls {record.get('operation', '')} access.",

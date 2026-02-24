@@ -1,8 +1,11 @@
 """Investigation: find slow transactions via ServiceNow performance pattern tables."""
 
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from servicenow_mcp.client import ServiceNowClient
+from servicenow_mcp.policy import check_table_access, mask_sensitive_fields
+from servicenow_mcp.utils import validate_identifier
 
 # ServiceNow performance pattern tables and their finding categories
 PERFORMANCE_TABLES = [
@@ -14,6 +17,8 @@ PERFORMANCE_TABLES = [
     ("sys_interaction_pattern", "slow_interaction"),
     ("syslog_cancellation", "cancelled_transaction"),
 ]
+
+_ALLOWED_TABLES = {t[0] for t in PERFORMANCE_TABLES}
 
 
 async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any]:
@@ -27,11 +32,18 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
         limit: Maximum findings per table (default 20).
         categories: Optional comma-separated list of categories to filter.
     """
+    try:
+        hours = max(0, int(params.get("hours", 24)))
+    except (TypeError, ValueError):
+        hours = 24
     limit = params.get("limit", 20)
     categories_filter = params.get("categories")
     allowed_categories: set[str] | None = None
     if categories_filter:
         allowed_categories = {c.strip() for c in categories_filter.split(",")}
+
+    cutoff = datetime.now(tz=UTC) - timedelta(hours=hours)
+    cutoff_str = cutoff.strftime("%Y-%m-%d %H:%M:%S")
 
     findings: list[dict[str, Any]] = []
 
@@ -39,8 +51,11 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
         if allowed_categories and category not in allowed_categories:
             continue
 
-        # Pattern tables use window queries; syslog_cancellation uses simple query
-        query = "" if table_name == "syslog_cancellation" else "window_endISEMPTY^window_startISEMPTY"
+        # Pattern tables use window queries; syslog_cancellation uses time-bounded query
+        if table_name == "syslog_cancellation":
+            query = f"sys_created_on>={cutoff_str}"
+        else:
+            query = "window_endISEMPTY^window_startISEMPTY"
 
         try:
             result = await client.query_records(
@@ -49,15 +64,16 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
                 limit=limit,
             )
             for rec in result["records"]:
+                masked_rec = mask_sensitive_fields(rec)
                 findings.append(
                     {
                         "category": category,
                         "table": table_name,
-                        "element_id": f"{table_name}:{rec.get('sys_id', '')}",
-                        "name": rec.get("name", rec.get("sys_id", "")),
-                        "count": rec.get("count", ""),
+                        "element_id": f"{table_name}:{masked_rec.get('sys_id', '')}",
+                        "name": masked_rec.get("name", masked_rec.get("sys_id", "")),
+                        "count": masked_rec.get("count", ""),
                         "detail": f"Performance pattern from {table_name}",
-                        "sys_created_on": rec.get("sys_created_on", ""),
+                        "sys_created_on": masked_rec.get("sys_created_on", ""),
                     }
                 )
         except Exception:
@@ -68,7 +84,7 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
         "investigation": "slow_transactions",
         "finding_count": len(findings),
         "findings": findings,
-        "params": {"limit": limit, "categories": categories_filter},
+        "params": {"hours": hours, "limit": limit, "categories": categories_filter},
         "tables_queried": [t[0] for t in PERFORMANCE_TABLES],
     }
 
@@ -79,7 +95,14 @@ async def explain(client: ServiceNowClient, element_id: str) -> dict[str, Any]:
     element_id format: "table:sys_id".
     """
     table, sys_id = element_id.split(":", 1)
-    record = await client.get_record(table, sys_id)
+    if table not in _ALLOWED_TABLES:
+        return {
+            "element": element_id,
+            "error": f"Table '{table}' is not in the allowed tables for this investigation",
+        }
+    validate_identifier(sys_id)
+    check_table_access(table)
+    record = mask_sensitive_fields(await client.get_record(table, sys_id))
 
     explanation_parts = [
         f"Performance pattern from '{table}'.",

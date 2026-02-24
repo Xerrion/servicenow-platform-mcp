@@ -22,6 +22,7 @@ _TOOL_GROUP_MODULES: dict[str, str] = {
     "developer": "servicenow_mcp.tools.developer",
     "investigations": "servicenow_mcp.tools.investigations",
     "documentation": "servicenow_mcp.tools.documentation",
+    "utility": "servicenow_mcp.tools.utility",
 }
 
 

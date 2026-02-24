@@ -7,6 +7,7 @@ PACKAGE_REGISTRY: dict[str, list[str]] = {
         "introspection",
         "relationships",
         "metadata",
+        "utility",
     ],
     "full": [
         "introspection",
@@ -17,6 +18,7 @@ PACKAGE_REGISTRY: dict[str, list[str]] = {
         "developer",
         "investigations",
         "documentation",
+        "utility",
     ],
     "none": [],
 }

@@ -846,6 +846,32 @@ class TestExplainPerformanceBottlenecks:
         assert result["data"]["record"]["sys_id"] == "sj001"
 
     @pytest.mark.asyncio
+    async def test_explain_invalid_table_identifier(self, settings, auth_provider):
+        """explain() with an invalid table name in element_id returns an error."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["investigate_explain"](
+            investigation="performance_bottlenecks",
+            element_id="../evil_table:sj001",
+        )
+        result = json.loads(raw)
+
+        assert result["status"] == "error"
+        assert "Invalid identifier" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_explain_denied_table(self, settings, auth_provider):
+        """explain() with a denied table name in element_id returns an error."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["investigate_explain"](
+            investigation="performance_bottlenecks",
+            element_id="sys_user_token:sj001",
+        )
+        result = json.loads(raw)
+
+        assert result["status"] == "error"
+        assert "denied" in result["error"].lower()
+
+    @pytest.mark.asyncio
     @respx.mock
     async def test_explain_heavy_automation_table(self, settings, auth_provider):
         """explain() with a plain table name returns aggregate context."""

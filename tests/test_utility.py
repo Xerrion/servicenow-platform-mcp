@@ -240,3 +240,24 @@ class TestBuildQuery:
         assert result["status"] == "success"
         # The ^ in the value should be escaped to ^^
         assert result["data"]["query"] == "name=foo^^bar"
+
+    def test_hours_ago_missing_value_returns_error(self, settings, auth_provider):
+        """Time operator without value key returns error (line 96)."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = tools["build_query"](
+            conditions='[{"operator": "hours_ago", "field": "sys_created_on"}]',
+        )
+        result = json.loads(raw)
+        assert result["status"] == "error"
+        assert "requires an integer 'value'" in result["error"]
+
+    def test_unexpected_exception_returns_error(self, settings, auth_provider):
+        """Unexpected exception in ServiceNowQuery triggers generic handler (lines 155-156)."""
+        from unittest.mock import patch
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        with patch("servicenow_mcp.tools.utility.ServiceNowQuery", side_effect=RuntimeError("boom")):
+            raw = tools["build_query"](conditions='[{"operator": "equals", "field": "active", "value": "true"}]')
+        result = json.loads(raw)
+        assert result["status"] == "error"
+        assert "boom" in result["error"]

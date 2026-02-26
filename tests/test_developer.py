@@ -733,3 +733,103 @@ class TestSensitiveFieldMasking:
         assert result["data"]["new_value"] == "***MASKED***"
         # Name should still be visible
         assert result["data"]["name"] == "my.api_key_token"
+
+
+# ── Coverage: generic exception handlers ──────────────────────────────────
+
+
+class TestDevToggleGenericException:
+    """Tests for dev_toggle generic exception handler (lines 82-83)."""
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_unexpected_exception(self, settings, auth_provider):
+        """dev_toggle returns error envelope when an unexpected exception occurs."""
+        from unittest.mock import AsyncMock, patch
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        with patch(
+            "servicenow_mcp.tools.developer.ServiceNowClient.__aenter__",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("connection failed"),
+        ):
+            raw = await tools["dev_toggle"](artifact_type="business_rule", sys_id="br001", active=False)
+        result = json.loads(raw)
+        assert result["status"] == "error"
+        assert "connection failed" in result["error"]
+
+
+class TestDevSetPropertyGenericException:
+    """Tests for dev_set_property generic exception handler (lines 154-155)."""
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_unexpected_exception(self, settings, auth_provider):
+        """dev_set_property returns error envelope when an unexpected exception occurs."""
+        from unittest.mock import AsyncMock, patch
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        with patch(
+            "servicenow_mcp.tools.developer.ServiceNowClient.__aenter__",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("network failure"),
+        ):
+            raw = await tools["dev_set_property"](name="glide.ui.session_timeout", value="60")
+        result = json.loads(raw)
+        assert result["status"] == "error"
+        assert "network failure" in result["error"]
+
+
+class TestDevCleanupGenericException:
+    """Tests for dev_cleanup generic exception handler (lines 322-323)."""
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_unexpected_exception(self, settings, auth_provider):
+        """dev_cleanup returns error envelope when an unexpected exception occurs."""
+        from unittest.mock import patch
+
+        tools = _register_and_get_tools(settings, auth_provider)
+
+        # Patch SeededRecordTracker.get to raise an unexpected exception
+        with patch(
+            "servicenow_mcp.state.SeededRecordTracker.get",
+            side_effect=RuntimeError("tracker exploded"),
+        ):
+            raw = await tools["dev_cleanup"](tag="test-tag")
+
+        result = json.loads(raw)
+        assert result["status"] == "error"
+        assert "tracker exploded" in result["error"]
+
+
+class TestTablePreviewUpdateSensitiveField:
+    """Tests for table_preview_update with sensitive field (line 368)."""
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_sensitive_field_masked_in_diff(self, settings, auth_provider):
+        """Diff masks both old and new values for sensitive fields like 'password'."""
+        respx.get(f"{BASE_URL}/api/now/table/sys_user/u001").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "result": {
+                        "sys_id": "u001",
+                        "user_name": "admin",
+                        "password": "old_secret",
+                    }
+                },
+            )
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        changes_json = json.dumps({"password": "new_secret"})
+        raw = await tools["table_preview_update"](table="sys_user", sys_id="u001", changes=changes_json)
+        result = json.loads(raw)
+
+        assert result["status"] == "success"
+        diff = result["data"]["diff"]
+        assert "password" in diff
+        assert diff["password"]["old"] == "***MASKED***"
+        assert diff["password"]["new"] == "***MASKED***"

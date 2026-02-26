@@ -1462,3 +1462,447 @@ class TestPerformanceBottlenecksElseBranch:
 
         assert result["status"] == "error"
         assert "denied" in result["error"].lower()
+
+
+# ── Direct module tests for coverage gaps ─────────────────────────────────
+
+
+class TestPerformanceBottlenecksCoverage:
+    """Tests for performance_bottlenecks coverage gaps: invalid params and non-empty loop bodies."""
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_invalid_params_and_nonempty_records(self, settings, auth_provider):
+        """Invalid limit/hours fall back to defaults; non-empty sysauto_script and flow_context records hit loop bodies."""
+        from servicenow_mcp.auth import BasicAuthProvider
+        from servicenow_mcp.client import ServiceNowClient
+        from servicenow_mcp.investigations import performance_bottlenecks
+
+        # Active BRs — empty (no heavy automation findings)
+        respx.get(f"{BASE_URL}/api/now/table/sys_script").mock(
+            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        )
+        # Scheduled jobs — non-empty (hits lines 78-79)
+        respx.get(f"{BASE_URL}/api/now/table/sysauto_script").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "result": [
+                        {
+                            "sys_id": "abc",
+                            "name": "test_job",
+                            "run_type": "daily",
+                            "run_dayofweek": "1",
+                            "sys_updated_on": "2026-02-20 10:00:00",
+                        }
+                    ]
+                },
+                headers={"X-Total-Count": "1"},
+            )
+        )
+        # Flow contexts — non-empty (hits lines 100-101)
+        respx.get(f"{BASE_URL}/api/now/table/flow_context").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "result": [
+                        {
+                            "sys_id": "flow1",
+                            "name": "Running Flow",
+                            "state": "IN_PROGRESS",
+                            "sys_created_on": "2026-02-20 08:00:00",
+                        }
+                    ]
+                },
+                headers={"X-Total-Count": "1"},
+            )
+        )
+
+        auth = BasicAuthProvider(settings)
+        async with ServiceNowClient(settings, auth) as client:
+            result = await performance_bottlenecks.run(
+                client,
+                {"limit": "not_a_number", "hours": "bad", "table": "incident"},
+            )
+
+        # Invalid limit falls back to 20 (lines 27-28)
+        assert result["params"]["limit"] == 20
+        # Invalid hours falls back to 24 (lines 34-35)
+        assert result["params"]["hours"] == 24
+        # Should have findings from both sysauto_script and flow_context loops
+        categories = [f["category"] for f in result["findings"]]
+        assert "frequent_job" in categories
+        assert "long_running_flow" in categories
+
+
+class TestStaleAutomationsCoverage:
+    """Tests for stale_automations coverage gaps: invalid params and non-empty loop bodies."""
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_invalid_params_and_nonempty_records(self, settings, auth_provider):
+        """Invalid stale_days/limit fall back to defaults; non-empty records hit loop bodies."""
+        from servicenow_mcp.auth import BasicAuthProvider
+        from servicenow_mcp.client import ServiceNowClient
+        from servicenow_mcp.investigations import stale_automations
+
+        # Stuck flows — empty
+        respx.get(f"{BASE_URL}/api/now/table/flow_context").mock(
+            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        )
+        # Disabled BRs — non-empty (hits lines 64-65)
+        respx.get(f"{BASE_URL}/api/now/table/sys_script").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "result": [
+                        {
+                            "sys_id": "br001",
+                            "name": "Disabled BR",
+                            "collection": "incident",
+                            "sys_updated_on": "2026-01-01 00:00:00",
+                        }
+                    ]
+                },
+                headers={"X-Total-Count": "1"},
+            )
+        )
+        # Disabled script includes — non-empty (hits lines 83-84)
+        respx.get(f"{BASE_URL}/api/now/table/sys_script_include").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "result": [
+                        {
+                            "sys_id": "si001",
+                            "name": "OldHelper",
+                            "api_name": "global.OldHelper",
+                            "sys_updated_on": "2026-01-01 00:00:00",
+                        }
+                    ]
+                },
+                headers={"X-Total-Count": "1"},
+            )
+        )
+        # Stale scheduled jobs — non-empty (hits lines 102-103)
+        respx.get(f"{BASE_URL}/api/now/table/sysauto_script").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "result": [
+                        {
+                            "sys_id": "sj001",
+                            "name": "Stale Job",
+                            "run_type": "daily",
+                            "last_run": "2025-01-01 00:00:00",
+                        }
+                    ]
+                },
+                headers={"X-Total-Count": "1"},
+            )
+        )
+
+        auth = BasicAuthProvider(settings)
+        async with ServiceNowClient(settings, auth) as client:
+            result = await stale_automations.run(
+                client,
+                {"stale_days": "bad", "limit": "bad", "table": "incident"},
+            )
+
+        # Invalid stale_days falls back to 30 (lines 27-28)
+        assert result["params"]["stale_days"] == 30
+        # Invalid limit falls back to 20 (lines 31-32)
+        assert result["params"]["limit"] == 20
+        # Non-empty loop bodies produce findings
+        categories = [f["category"] for f in result["findings"]]
+        assert "disabled_business_rule" in categories
+        assert "disabled_script_include" in categories
+        assert "stale_scheduled_job" in categories
+
+
+class TestErrorAnalysisCoverage:
+    """Tests for error_analysis coverage gaps: invalid params and source filter."""
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_invalid_hours_and_limit(self, settings, auth_provider):
+        """Invalid hours/limit fall back to defaults."""
+        from servicenow_mcp.auth import BasicAuthProvider
+        from servicenow_mcp.client import ServiceNowClient
+        from servicenow_mcp.investigations import error_analysis
+
+        respx.get(f"{BASE_URL}/api/now/table/syslog").mock(
+            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        )
+
+        auth = BasicAuthProvider(settings)
+        async with ServiceNowClient(settings, auth) as client:
+            result = await error_analysis.run(client, {"hours": "bad", "limit": "bad"})
+
+        # Invalid hours falls back to 24 (lines 24-25)
+        assert result["params"]["hours"] == 24
+        # Invalid limit falls back to 100 (lines 29-30)
+        assert result["params"]["limit"] == 100
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_source_filter(self, settings, auth_provider):
+        """Source filter triggers the .like() branch (line 36)."""
+        from servicenow_mcp.auth import BasicAuthProvider
+        from servicenow_mcp.client import ServiceNowClient
+        from servicenow_mcp.investigations import error_analysis
+
+        respx.get(f"{BASE_URL}/api/now/table/syslog").mock(
+            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        )
+
+        auth = BasicAuthProvider(settings)
+        async with ServiceNowClient(settings, auth) as client:
+            result = await error_analysis.run(client, {"source": "my_source"})
+
+        assert result["params"]["source"] == "my_source"
+        assert result["investigation"] == "error_analysis"
+
+
+class TestDeprecatedApisCoverage:
+    """Tests for deprecated_apis coverage gaps: invalid limit and code_search exception."""
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_invalid_limit(self, settings, auth_provider):
+        """Invalid limit falls back to default 20."""
+        from servicenow_mcp.auth import BasicAuthProvider
+        from servicenow_mcp.client import ServiceNowClient
+        from servicenow_mcp.investigations import deprecated_apis
+
+        respx.get(f"{BASE_URL}/api/sn_codesearch/code_search/search").mock(
+            return_value=httpx.Response(200, json={"result": {"search_results": []}})
+        )
+
+        auth = BasicAuthProvider(settings)
+        async with ServiceNowClient(settings, auth) as client:
+            result = await deprecated_apis.run(client, {"limit": "bad"})
+
+        # Invalid limit falls back to 20 (lines 38-39)
+        assert result["params"]["limit"] == 20
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_code_search_exception_skips_pattern(self, settings, auth_provider):
+        """When code_search raises for one pattern, it's skipped (lines 56-58)."""
+        from servicenow_mcp.auth import BasicAuthProvider
+        from servicenow_mcp.client import ServiceNowClient
+        from servicenow_mcp.investigations import deprecated_apis
+
+        call_count = 0
+
+        def side_effect(request: httpx.Request) -> httpx.Response:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                # First pattern raises an error
+                return httpx.Response(500, json={"error": {"message": "Server Error"}})
+            return httpx.Response(200, json={"result": {"search_results": []}})
+
+        respx.get(f"{BASE_URL}/api/sn_codesearch/code_search/search").mock(side_effect=side_effect)
+
+        auth = BasicAuthProvider(settings)
+        async with ServiceNowClient(settings, auth) as client:
+            result = await deprecated_apis.run(client, {})
+
+        # Should complete without error, skipping the failed pattern
+        assert result["investigation"] == "deprecated_apis"
+        assert "patterns_searched" in result
+
+
+class TestSlowTransactionsCoverage:
+    """Tests for slow_transactions coverage gaps."""
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_invalid_hours_and_limit(self, settings, auth_provider):
+        """Invalid hours/limit fall back to defaults (lines 36-37, 40-41)."""
+        from servicenow_mcp.auth import BasicAuthProvider
+        from servicenow_mcp.client import ServiceNowClient
+        from servicenow_mcp.investigations import slow_transactions
+
+        for table in [
+            "sys_query_pattern",
+            "sys_transaction_pattern",
+            "sys_script_pattern",
+            "sys_mutex_pattern",
+            "sysevent_pattern",
+            "sys_interaction_pattern",
+            "syslog_cancellation",
+        ]:
+            respx.get(f"{BASE_URL}/api/now/table/{table}").mock(
+                return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+            )
+
+        auth = BasicAuthProvider(settings)
+        async with ServiceNowClient(settings, auth) as client:
+            result = await slow_transactions.run(client, {"hours": "bad", "limit": "bad"})
+
+        assert result["params"]["hours"] == 24
+        assert result["params"]["limit"] == 20
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_categories_filter(self, settings, auth_provider):
+        """Category filter skips non-matching tables (lines 45, 51)."""
+        from servicenow_mcp.auth import BasicAuthProvider
+        from servicenow_mcp.client import ServiceNowClient
+        from servicenow_mcp.investigations import slow_transactions
+
+        # Only mock the table that matches the category filter
+        respx.get(f"{BASE_URL}/api/now/table/sys_query_pattern").mock(
+            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        )
+
+        auth = BasicAuthProvider(settings)
+        async with ServiceNowClient(settings, auth) as client:
+            result = await slow_transactions.run(client, {"categories": "slow_query"})
+
+        assert result["params"]["categories"] == "slow_query"
+        # Only one table should have been queried (the rest skipped)
+        assert result["investigation"] == "slow_transactions"
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_query_records_exception_skips_table(self, settings, auth_provider):
+        """When query_records raises for a table, it's skipped (lines 84-86)."""
+        from servicenow_mcp.auth import BasicAuthProvider
+        from servicenow_mcp.client import ServiceNowClient
+        from servicenow_mcp.investigations import slow_transactions
+
+        # First table errors, rest succeed with empty
+        respx.get(f"{BASE_URL}/api/now/table/sys_query_pattern").mock(
+            return_value=httpx.Response(500, json={"error": {"message": "Server Error"}})
+        )
+        for table in [
+            "sys_transaction_pattern",
+            "sys_script_pattern",
+            "sys_mutex_pattern",
+            "sysevent_pattern",
+            "sys_interaction_pattern",
+            "syslog_cancellation",
+        ]:
+            respx.get(f"{BASE_URL}/api/now/table/{table}").mock(
+                return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+            )
+
+        auth = BasicAuthProvider(settings)
+        async with ServiceNowClient(settings, auth) as client:
+            result = await slow_transactions.run(client, {})
+
+        # Should complete without error despite one table failing
+        assert result["investigation"] == "slow_transactions"
+
+
+class TestTableHealthCoverage:
+    """Tests for table_health coverage gaps."""
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_missing_table_param(self, settings, auth_provider):
+        """Missing table param returns error (line 23)."""
+        from servicenow_mcp.auth import BasicAuthProvider
+        from servicenow_mcp.client import ServiceNowClient
+        from servicenow_mcp.investigations import table_health
+
+        auth = BasicAuthProvider(settings)
+        async with ServiceNowClient(settings, auth) as client:
+            result = await table_health.run(client, {})
+
+        assert result["error"] == "Missing required parameter: table"
+        assert result["finding_count"] == 0
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_invalid_hours_param(self, settings, auth_provider):
+        """Invalid hours falls back to 24 (lines 38-39)."""
+        from servicenow_mcp.auth import BasicAuthProvider
+        from servicenow_mcp.client import ServiceNowClient
+        from servicenow_mcp.investigations import table_health
+
+        # Aggregate count
+        respx.get(f"{BASE_URL}/api/now/stats/incident").mock(
+            return_value=httpx.Response(200, json={"result": {"stats": {"count": "10"}}})
+        )
+        for tbl in ["sys_script", "sys_script_client", "sys_security_acl", "sys_ui_policy", "syslog"]:
+            respx.get(f"{BASE_URL}/api/now/table/{tbl}").mock(
+                return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+            )
+
+        auth = BasicAuthProvider(settings)
+        async with ServiceNowClient(settings, auth) as client:
+            result = await table_health.run(client, {"table": "incident", "hours": "bad"})
+
+        assert result["hours"] == 24
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_health_indicators_thresholds(self, settings, auth_provider):
+        """Triggers all health indicator thresholds (lines 101, 103, 105)."""
+        from servicenow_mcp.auth import BasicAuthProvider
+        from servicenow_mcp.client import ServiceNowClient
+        from servicenow_mcp.investigations import table_health
+
+        # Aggregate count
+        respx.get(f"{BASE_URL}/api/now/stats/incident").mock(
+            return_value=httpx.Response(200, json={"result": {"stats": {"count": "500"}}})
+        )
+        # >10 business rules (hits line 101)
+        respx.get(f"{BASE_URL}/api/now/table/sys_script").mock(
+            return_value=httpx.Response(
+                200,
+                json={"result": [{"sys_id": f"br{i}", "name": f"BR {i}", "when": "before"} for i in range(12)]},
+                headers={"X-Total-Count": "12"},
+            )
+        )
+        # Client scripts — empty
+        respx.get(f"{BASE_URL}/api/now/table/sys_script_client").mock(
+            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        )
+        # >20 ACLs (hits line 103)
+        respx.get(f"{BASE_URL}/api/now/table/sys_security_acl").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "result": [{"sys_id": f"acl{i}", "name": "incident.*.read", "operation": "read"} for i in range(22)]
+                },
+                headers={"X-Total-Count": "22"},
+            )
+        )
+        # UI policies — empty
+        respx.get(f"{BASE_URL}/api/now/table/sys_ui_policy").mock(
+            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        )
+        # >=1 syslog error (hits line 105)
+        respx.get(f"{BASE_URL}/api/now/table/syslog").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "result": [
+                        {
+                            "sys_id": "log1",
+                            "message": "Error",
+                            "source": "incident",
+                            "sys_created_on": "2026-02-20 10:00:00",
+                        }
+                    ]
+                },
+                headers={"X-Total-Count": "1"},
+            )
+        )
+
+        auth = BasicAuthProvider(settings)
+        async with ServiceNowClient(settings, auth) as client:
+            result = await table_health.run(client, {"table": "incident"})
+
+        # All three thresholds should be triggered
+        assert len(result["health_indicators"]) == 3
+        indicators_text = " ".join(result["health_indicators"])
+        assert "business rule" in indicators_text.lower()
+        assert "acl" in indicators_text.lower()
+        assert "errors" in indicators_text.lower()

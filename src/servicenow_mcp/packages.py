@@ -31,9 +31,9 @@ def get_package(name: str) -> list[str]:
     """
     if name not in PACKAGE_REGISTRY:
         raise ValueError(f"Unknown tool package '{name}'. Available packages: {', '.join(PACKAGE_REGISTRY.keys())}")
-    return PACKAGE_REGISTRY[name]
+    return list(PACKAGE_REGISTRY[name])
 
 
 def list_packages() -> dict[str, list[str]]:
     """Return all registered packages and their tool groups."""
-    return dict(PACKAGE_REGISTRY)
+    return {k: list(v) for k, v in PACKAGE_REGISTRY.items()}

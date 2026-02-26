@@ -30,12 +30,18 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
     validate_identifier(table)
     check_table_access(table)
 
-    hours = params.get("hours")
+    raw_hours = params.get("hours")
+    hours: int | None = None
+    if raw_hours is not None:
+        try:
+            hours = int(raw_hours)
+        except (TypeError, ValueError):
+            hours = 24
 
     # Build time-filtered query fragments for each query
     br_q = ServiceNowQuery().equals("collection", table).equals("active", "true")
     cs_q = ServiceNowQuery().equals("table", table).equals("active", "true")
-    acl_q = ServiceNowQuery().raw(f"name={table}^ORnameSTARTSWITH{table}.")
+    acl_q = ServiceNowQuery().equals("name", table).or_starts_with("name", f"{table}.")
     uip_q = ServiceNowQuery().equals("table", table).equals("active", "true")
     syslog_q = ServiceNowQuery().equals("level", "0").like("source", table)
 

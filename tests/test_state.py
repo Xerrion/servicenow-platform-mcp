@@ -2,6 +2,8 @@
 
 from unittest.mock import patch
 
+import pytest
+
 from servicenow_mcp.state import PreviewTokenStore, SeededRecordTracker
 
 
@@ -96,6 +98,49 @@ class TestPreviewTokenStore:
             result_at_boundary = store.consume(token)
 
         assert result_at_boundary is not None
+
+    def test_store_max_size(self):
+        """create() raises RuntimeError when max_size is reached and no entries are expired."""
+        store = PreviewTokenStore(ttl_seconds=300, max_size=3)
+        store.create({"table": "incident"})
+        store.create({"table": "problem"})
+        store.create({"table": "change_request"})
+
+        with pytest.raises(RuntimeError, match="store is full"):
+            store.create({"table": "kb_knowledge"})
+
+    def test_sweep_expired_on_create(self):
+        """create() sweeps expired entries first, allowing new tokens when space is freed."""
+        fake_time = 1000.0
+        with patch("servicenow_mcp.state.time.monotonic", return_value=fake_time):
+            store = PreviewTokenStore(ttl_seconds=60, max_size=2)
+            store.create({"table": "incident"})
+            store.create({"table": "problem"})
+
+        # Advance time past TTL — expired entries should be swept on next create()
+        with patch("servicenow_mcp.state.time.monotonic", return_value=fake_time + 61):
+            token = store.create({"table": "change_request"})
+            result = store.get(token)
+
+        assert result is not None
+        assert result["table"] == "change_request"
+
+    def test_sweep_expired_frees_space(self):
+        """_sweep_expired() removes expired entries, reducing store size."""
+        fake_time = 1000.0
+        with patch("servicenow_mcp.state.time.monotonic", return_value=fake_time):
+            store = PreviewTokenStore(ttl_seconds=60, max_size=10)
+            store.create({"table": "incident"})
+            store.create({"table": "problem"})
+            store.create({"table": "change_request"})
+
+        assert len(store._store) == 3
+
+        # Advance time past TTL and sweep
+        with patch("servicenow_mcp.state.time.monotonic", return_value=fake_time + 61):
+            store._sweep_expired()
+
+        assert len(store._store) == 0
 
 
 class TestSeededRecordTracker:

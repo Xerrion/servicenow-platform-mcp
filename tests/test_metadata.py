@@ -145,6 +145,33 @@ class TestMetaListArtifacts:
         assert "correlation_id" in result
         assert len(result["correlation_id"]) > 0
 
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_meta_list_artifacts_limit_capped(self, settings, auth_provider):
+        """Limit exceeding max_row_limit is capped via enforce_query_safety."""
+        route = respx.get(f"{BASE_URL}/api/now/table/sys_script").mock(
+            return_value=httpx.Response(
+                200,
+                json={"result": []},
+                headers={"X-Total-Count": "0"},
+            )
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        # Pass limit=9999, which should be capped to settings.max_row_limit (default 100)
+        raw = await tools["meta_list_artifacts"](artifact_type="business_rule", limit=9999)
+        result = json.loads(raw)
+
+        assert result["status"] == "success"
+        # Verify the request used the capped limit, not the original 9999
+        request = route.calls[0].request
+        url_str = str(request.url)
+        from urllib.parse import parse_qs, urlparse
+
+        parsed = urlparse(url_str)
+        qs = parse_qs(parsed.query)
+        assert qs["sysparm_limit"] == [str(settings.max_row_limit)]
+
 
 class TestMetaGetArtifact:
     """Tests for the meta_get_artifact tool."""
@@ -290,6 +317,43 @@ class TestMetaFindReferences:
 
         assert result["status"] == "success"
         assert result["data"]["matches"] == []
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_meta_find_references_limit_capped(self, settings, auth_provider):
+        """Limit exceeding max_row_limit is capped in fallback per-table queries."""
+        # Code Search API fails → triggers fallback
+        respx.get(f"{BASE_URL}/api/sn_codesearch/code_search/search").mock(
+            return_value=httpx.Response(404, json={"error": {"message": "Not found"}})
+        )
+
+        routes: dict[str, respx.Route] = {}
+        for table in SCRIPT_TABLES:
+            routes[table] = respx.get(f"{BASE_URL}/api/now/table/{table}").mock(
+                return_value=httpx.Response(
+                    200,
+                    json={"result": []},
+                    headers={"X-Total-Count": "0"},
+                )
+            )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        # Pass limit=9999, which should be capped to settings.max_row_limit (default 100)
+        raw = await tools["meta_find_references"](target="SomeTarget", limit=9999)
+        result = json.loads(raw)
+
+        assert result["status"] == "success"
+        assert result["data"]["search_method"] == "table_scan_fallback"
+
+        # Verify every fallback table query used the capped limit
+        from urllib.parse import parse_qs, urlparse
+
+        for table, route in routes.items():
+            assert route.called, f"Expected query to {table}"
+            request = route.calls[0].request
+            parsed = urlparse(str(request.url))
+            qs = parse_qs(parsed.query)
+            assert qs["sysparm_limit"] == [str(settings.max_row_limit)], f"Table '{table}' should have capped limit"
 
 
 class TestMetaWhatWrites:

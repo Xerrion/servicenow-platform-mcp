@@ -1,12 +1,11 @@
 """Investigation: analyze and cluster syslog errors."""
 
 from collections import defaultdict
-from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.policy import check_table_access, mask_sensitive_fields
-from servicenow_mcp.utils import ServiceNowQuery, sanitize_query_value
+from servicenow_mcp.utils import ServiceNowQuery, sanitize_query_value, validate_identifier
 
 
 async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any]:
@@ -25,7 +24,12 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
     except (TypeError, ValueError):
         hours = 24
     source_filter = params.get("source")
-    limit = params.get("limit", 100)
+    try:
+        limit = int(params.get("limit", 100))
+    except (TypeError, ValueError):
+        limit = 100
+
+    check_table_access("syslog")
 
     q = ServiceNowQuery().equals("level", "0").hours_ago("sys_created_on", hours)
     if source_filter:
@@ -75,7 +79,11 @@ async def explain(client: ServiceNowClient, element_id: str) -> dict[str, Any]:
 
     element_id format: "syslog:sys_id".
     """
+    if ":" not in element_id:
+        return {"error": f"Invalid element_id format: expected 'table:sys_id', got '{element_id}'"}
     table, sys_id = element_id.split(":", 1)
+    validate_identifier(table)
+    validate_identifier(sys_id)
     if table != "syslog":
         return {
             "element": element_id,

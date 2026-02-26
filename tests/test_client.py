@@ -881,3 +881,178 @@ class TestServiceNowClientEncodedQueryTranslator:
         url = str(route.calls[0].request.url)
         assert "table" in url
         assert "query" in url
+
+
+class TestClientNotInitialized:
+    """Test that calling methods without async with context raises RuntimeError."""
+
+    @pytest.mark.asyncio
+    async def test_get_record_without_context_manager(self, settings, auth_provider):
+        """get_record raises RuntimeError when client is not initialized."""
+        from servicenow_mcp.client import ServiceNowClient
+
+        client = ServiceNowClient(settings, auth_provider)
+        with pytest.raises(RuntimeError, match="Client not initialized"):
+            await client.get_record("incident", "abc123")
+
+    @pytest.mark.asyncio
+    async def test_query_records_without_context_manager(self, settings, auth_provider):
+        """query_records raises RuntimeError when client is not initialized."""
+        from servicenow_mcp.client import ServiceNowClient
+
+        client = ServiceNowClient(settings, auth_provider)
+        with pytest.raises(RuntimeError, match="Client not initialized"):
+            await client.query_records("incident", "active=true")
+
+
+class TestMissingResultKey:
+    """Test that missing 'result' key in API response raises ServerError."""
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_get_record_missing_result_key(self, settings, auth_provider):
+        """ServerError raised when API response lacks 'result' key."""
+        from servicenow_mcp.client import ServiceNowClient
+        from servicenow_mcp.errors import ServerError
+
+        respx.get(f"{BASE_URL}/api/now/table/incident/abc123").mock(
+            return_value=httpx.Response(
+                200,
+                json={"error": "something went wrong"},
+            )
+        )
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            with pytest.raises(ServerError, match="missing 'result' key"):
+                await client.get_record("incident", "abc123")
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_query_records_missing_result_key(self, settings, auth_provider):
+        """ServerError raised when query response lacks 'result' key."""
+        from servicenow_mcp.client import ServiceNowClient
+        from servicenow_mcp.errors import ServerError
+
+        respx.get(f"{BASE_URL}/api/now/table/incident").mock(
+            return_value=httpx.Response(
+                200,
+                json={"data": []},
+                headers={"X-Total-Count": "0"},
+            )
+        )
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            with pytest.raises(ServerError, match="missing 'result' key"):
+                await client.query_records("incident", "active=true")
+
+
+class TestInvalidTotalCount:
+    """Test that invalid X-Total-Count header defaults to 0."""
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_query_records_invalid_total_count(self, settings, auth_provider):
+        """Non-numeric X-Total-Count defaults to 0."""
+        from servicenow_mcp.client import ServiceNowClient
+
+        respx.get(f"{BASE_URL}/api/now/table/incident").mock(
+            return_value=httpx.Response(
+                200,
+                json={"result": [{"sys_id": "1"}]},
+                headers={"X-Total-Count": "invalid"},
+            )
+        )
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            result = await client.query_records("incident", "active=true")
+
+        assert result["count"] == 0
+        assert len(result["records"]) == 1
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_cmdb_query_invalid_total_count(self, settings, auth_provider):
+        """Non-numeric X-Total-Count in CMDB query defaults to 0."""
+        from servicenow_mcp.client import ServiceNowClient
+
+        respx.get(f"{BASE_URL}/api/now/cmdb/instance/cmdb_ci_linux_server").mock(
+            return_value=httpx.Response(
+                200,
+                json={"result": [{"sys_id": "ci1"}]},
+                headers={"X-Total-Count": "not_a_number"},
+            )
+        )
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            result = await client.cmdb_query("cmdb_ci_linux_server")
+
+        assert result["count"] == 0
+        assert len(result["records"]) == 1
+
+
+class TestUrlBuilderValidation:
+    """Test that URL builder methods validate identifiers."""
+
+    def test_table_url_rejects_invalid_name(self, settings, auth_provider):
+        """_table_url raises ValueError for invalid table name."""
+        from servicenow_mcp.client import ServiceNowClient
+
+        client = ServiceNowClient(settings, auth_provider)
+        with pytest.raises(ValueError, match="Invalid identifier"):
+            client._table_url("INVALID-TABLE!")
+
+    def test_stats_url_rejects_invalid_name(self, settings, auth_provider):
+        """_stats_url raises ValueError for invalid table name."""
+        from servicenow_mcp.client import ServiceNowClient
+
+        client = ServiceNowClient(settings, auth_provider)
+        with pytest.raises(ValueError, match="Invalid identifier"):
+            client._stats_url("bad/table")
+
+    def test_import_set_url_rejects_invalid_name(self, settings, auth_provider):
+        """_import_set_url raises ValueError for invalid staging table name."""
+        from servicenow_mcp.client import ServiceNowClient
+
+        client = ServiceNowClient(settings, auth_provider)
+        with pytest.raises(ValueError, match="Invalid identifier"):
+            client._import_set_url("../etc/passwd", "abc123")
+
+    def test_cmdb_instance_url_rejects_invalid_name(self, settings, auth_provider):
+        """_cmdb_instance_url raises ValueError for invalid class name."""
+        from servicenow_mcp.client import ServiceNowClient
+
+        client = ServiceNowClient(settings, auth_provider)
+        with pytest.raises(ValueError, match="Invalid identifier"):
+            client._cmdb_instance_url("INVALID-CLASS!")
+
+    def test_cmdb_meta_url_rejects_invalid_name(self, settings, auth_provider):
+        """_cmdb_meta_url raises ValueError for invalid class name."""
+        from servicenow_mcp.client import ServiceNowClient
+
+        client = ServiceNowClient(settings, auth_provider)
+        with pytest.raises(ValueError, match="Invalid identifier"):
+            client._cmdb_meta_url("bad class")
+
+    def test_table_description_url_rejects_invalid_name(self, settings, auth_provider):
+        """_table_description_url raises ValueError for invalid table name."""
+        from servicenow_mcp.client import ServiceNowClient
+
+        client = ServiceNowClient(settings, auth_provider)
+        with pytest.raises(ValueError, match="Invalid identifier"):
+            client._table_description_url("bad-table")
+
+    def test_field_descriptions_url_rejects_invalid_name(self, settings, auth_provider):
+        """_field_descriptions_url raises ValueError for invalid table name."""
+        from servicenow_mcp.client import ServiceNowClient
+
+        client = ServiceNowClient(settings, auth_provider)
+        with pytest.raises(ValueError, match="Invalid identifier"):
+            client._field_descriptions_url("bad.table")
+
+    def test_table_url_accepts_valid_name(self, settings, auth_provider):
+        """_table_url accepts valid snake_case table names."""
+        from servicenow_mcp.client import ServiceNowClient
+
+        client = ServiceNowClient(settings, auth_provider)
+        url = client._table_url("incident")
+        assert "incident" in url

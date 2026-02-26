@@ -1,9 +1,12 @@
 """Configuration settings for the ServiceNow MCP server."""
 
-from pydantic import field_validator
+from functools import cached_property
+
+from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings
 
 _DEFAULT_LARGE_TABLES = "syslog,sys_audit,sys_log_transaction,sys_email_log"
+_VALID_PACKAGES = frozenset({"full", "introspection_only", "none"})
 
 
 class Settings(BaseSettings):
@@ -11,7 +14,7 @@ class Settings(BaseSettings):
 
     servicenow_instance_url: str
     servicenow_username: str
-    servicenow_password: str
+    servicenow_password: SecretStr
     mcp_tool_package: str = "full"
     servicenow_env: str = "dev"
     max_row_limit: int = 100
@@ -27,13 +30,33 @@ class Settings(BaseSettings):
     @field_validator("servicenow_instance_url")
     @classmethod
     def strip_trailing_slash(cls, v: str) -> str:
+        """Strip trailing slash and validate HTTPS scheme."""
+        if not v.startswith("https://"):
+            raise ValueError("servicenow_instance_url must start with https://")
         return v.rstrip("/")
 
-    @property
-    def large_table_names(self) -> list[str]:
-        """Parse comma-separated large table names into a list."""
-        return [t.strip() for t in self.large_table_names_csv.split(",") if t.strip()]
+    @field_validator("max_row_limit")
+    @classmethod
+    def validate_max_row_limit(cls, v: int) -> int:
+        """Ensure max_row_limit is between 1 and 10000."""
+        if v < 1 or v > 10000:
+            raise ValueError("max_row_limit must be between 1 and 10000")
+        return v
+
+    @field_validator("mcp_tool_package")
+    @classmethod
+    def validate_mcp_tool_package(cls, v: str) -> str:
+        """Validate mcp_tool_package against known packages."""
+        if v not in _VALID_PACKAGES:
+            raise ValueError(f"mcp_tool_package must be one of {sorted(_VALID_PACKAGES)}, got {v!r}")
+        return v
+
+    @cached_property
+    def large_table_names(self) -> frozenset[str]:
+        """Parse comma-separated large table names into a frozenset."""
+        return frozenset(t.strip() for t in self.large_table_names_csv.split(",") if t.strip())
 
     @property
     def is_production(self) -> bool:
-        return self.servicenow_env == "prod"
+        """Return True if the environment is production."""
+        return self.servicenow_env.lower() in {"prod", "production"}

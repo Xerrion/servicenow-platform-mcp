@@ -13,7 +13,7 @@ class BasicAuthProvider:
 
     async def get_headers(self) -> dict[str, str]:
         """Return HTTP headers with Basic auth credentials."""
-        credentials = f"{self._settings.servicenow_username}:{self._settings.servicenow_password}"
+        credentials = f"{self._settings.servicenow_username}:{self._settings.servicenow_password.get_secret_value()}"
         encoded = base64.b64encode(credentials.encode("utf-8")).decode("ascii")
         return {
             "Authorization": f"Basic {encoded}",

@@ -1,5 +1,7 @@
 """Tests for policy engine."""
 
+import logging
+
 import pytest
 
 from servicenow_mcp.errors import PolicyError, QuerySafetyError
@@ -35,6 +37,20 @@ class TestDenyList:
 
         result = check_table_access("sys_script_include")
         assert result is None
+
+    def test_denied_table_case_insensitive(self):
+        """Denied table check is case-insensitive."""
+        from servicenow_mcp.policy import check_table_access
+
+        with pytest.raises(PolicyError, match="denied"):
+            check_table_access("SYS_USER_HAS_PASSWORD")
+
+    def test_denied_table_mixed_case(self):
+        """Denied table check handles mixed case."""
+        from servicenow_mcp.policy import check_table_access
+
+        with pytest.raises(PolicyError, match="denied"):
+            check_table_access("Oauth_Credential")
 
 
 class TestSensitiveFieldMasking:
@@ -223,6 +239,51 @@ class TestQuerySafety:
         result = enforce_query_safety("incident", "active=true", limit=50, settings=settings)
         assert result["limit"] == 50
 
+    def test_date_filter_bypass_substring_in_value(self, settings):
+        """Date field appearing only as a value (not a filter field) should not pass."""
+        from servicenow_mcp.policy import enforce_query_safety
+
+        with pytest.raises(QuerySafetyError, match="date"):
+            enforce_query_safety("syslog", "description=sys_created_on", limit=50, settings=settings)
+
+    def test_date_filter_with_operator_passes(self, settings):
+        """Date field with a comparison operator passes the check."""
+        from servicenow_mcp.policy import enforce_query_safety
+
+        result = enforce_query_safety(
+            "syslog",
+            "sys_created_on>=2024-01-01",
+            limit=50,
+            settings=settings,
+        )
+        assert result["limit"] == 50
+
+    def test_date_filter_with_gs_function_passes(self, settings):
+        """Date field with gs.*Ago function passes the check."""
+        from servicenow_mcp.policy import enforce_query_safety
+
+        result = enforce_query_safety(
+            "syslog",
+            "sys_created_on>=javascript:gs.hoursAgoStart(24)",
+            limit=50,
+            settings=settings,
+        )
+        assert result["limit"] == 50
+
+    def test_limit_zero_floored_to_one(self, settings):
+        """Limit of 0 is floored to 1."""
+        from servicenow_mcp.policy import enforce_query_safety
+
+        result = enforce_query_safety("incident", "active=true", limit=0, settings=settings)
+        assert result["limit"] == 1
+
+    def test_limit_negative_floored_to_one(self, settings):
+        """Negative limit is floored to 1."""
+        from servicenow_mcp.policy import enforce_query_safety
+
+        result = enforce_query_safety("incident", "active=true", limit=-5, settings=settings)
+        assert result["limit"] == 1
+
 
 class TestWriteGating:
     """Test write operation gating."""
@@ -250,3 +311,27 @@ class TestWriteGating:
         from servicenow_mcp.policy import can_write
 
         assert can_write("sys_user_has_password", settings) is False
+
+    def test_write_to_denied_table_case_insensitive(self, settings):
+        """Write deny-list check is case-insensitive."""
+        from servicenow_mcp.policy import can_write
+
+        assert can_write("SYS_USER_HAS_PASSWORD", settings) is False
+
+    def test_write_blocked_denied_table_logs_warning(self, settings, caplog):
+        """Write blocked by deny list logs a warning."""
+        from servicenow_mcp.policy import can_write
+
+        with caplog.at_level(logging.WARNING, logger="servicenow_mcp.policy"):
+            can_write("sys_user_has_password", settings)
+
+        assert any("deny list" in record.message for record in caplog.records)
+
+    def test_write_blocked_in_prod_logs_warning(self, prod_settings, caplog):
+        """Write blocked in production logs a warning."""
+        from servicenow_mcp.policy import can_write
+
+        with caplog.at_level(logging.WARNING, logger="servicenow_mcp.policy"):
+            can_write("incident", prod_settings)
+
+        assert any("production environment" in record.message for record in caplog.records)

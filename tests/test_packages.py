@@ -89,3 +89,21 @@ class TestPackageRegistry:
         from servicenow_mcp.packages import PACKAGE_REGISTRY
 
         assert "dev_debug" not in PACKAGE_REGISTRY
+
+    def test_get_package_returns_copy(self):
+        """get_package returns a copy — mutating it does not affect the registry."""
+        from servicenow_mcp.packages import get_package
+
+        groups = get_package("full")
+        groups.append("should_not_persist")
+        fresh = get_package("full")
+        assert "should_not_persist" not in fresh
+
+    def test_list_packages_returns_copies(self):
+        """list_packages returns deep copies of value lists."""
+        from servicenow_mcp.packages import list_packages
+
+        packages = list_packages()
+        packages["full"].append("should_not_persist")
+        fresh = list_packages()
+        assert "should_not_persist" not in fresh["full"]

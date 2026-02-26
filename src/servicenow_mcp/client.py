@@ -14,6 +14,7 @@ from servicenow_mcp.errors import (
     ServerError,
     ServiceNowMCPError,
 )
+from servicenow_mcp.utils import validate_identifier
 
 
 class ServiceNowClient:
@@ -33,8 +34,22 @@ class ServiceNowClient:
             await self._http_client.aclose()
             self._http_client = None
 
+    def _ensure_client(self) -> httpx.AsyncClient:
+        """Return the HTTP client, raising RuntimeError if not initialized."""
+        if self._http_client is None:
+            raise RuntimeError("Client not initialized. Use 'async with ServiceNowClient(...)' as context manager.")
+        return self._http_client
+
+    def _extract_result(self, data: dict[str, Any]) -> Any:
+        """Extract 'result' from API response data, raising ServerError if missing."""
+        try:
+            return data["result"]
+        except KeyError:
+            raise ServerError("Unexpected API response format: missing 'result' key") from None
+
     def _table_url(self, table: str, sys_id: str | None = None) -> str:
         """Build the REST API URL for a table resource."""
+        validate_identifier(table)
         base = f"{self._settings.servicenow_instance_url}/api/now/table/{table}"
         if sys_id:
             base = f"{base}/{sys_id}"
@@ -42,6 +57,7 @@ class ServiceNowClient:
 
     def _stats_url(self, table: str) -> str:
         """Build the stats/aggregate API URL."""
+        validate_identifier(table)
         return f"{self._settings.servicenow_instance_url}/api/now/stats/{table}"
 
     async def _headers(self) -> dict[str, str]:
@@ -63,7 +79,7 @@ class ServiceNowClient:
             raise NotFoundError(msg)
         if response.status_code >= 500:
             msg = self._extract_error_message(response, "ServiceNow server error")
-            raise ServerError(msg)
+            raise ServerError(msg, status_code=response.status_code)
         if response.status_code >= 400:
             msg = self._extract_error_message(response, "Request failed")
             raise ServiceNowMCPError(msg, status_code=response.status_code)
@@ -87,20 +103,20 @@ class ServiceNowClient:
         display_values: bool = False,
     ) -> dict[str, Any]:
         """Fetch a single record by sys_id."""
-        assert self._http_client is not None
+        http = self._ensure_client()
         params: dict[str, str] = {}
         if fields:
             params["sysparm_fields"] = ",".join(fields)
         if display_values:
             params["sysparm_display_value"] = "true"
 
-        response = await self._http_client.get(
+        response = await http.get(
             self._table_url(table, sys_id),
             headers=await self._headers(),
             params=params,
         )
         self._raise_for_status(response)
-        return response.json()["result"]
+        return self._extract_result(response.json())
 
     async def query_records(
         self,
@@ -112,7 +128,7 @@ class ServiceNowClient:
         order_by: str | None = None,
     ) -> dict[str, Any]:
         """Query records with encoded query string."""
-        assert self._http_client is not None
+        http = self._ensure_client()
         params: dict[str, str] = {
             "sysparm_query": query,
             "sysparm_limit": str(limit),
@@ -123,32 +139,35 @@ class ServiceNowClient:
         if order_by:
             params["sysparm_orderby"] = order_by
 
-        response = await self._http_client.get(
+        response = await http.get(
             self._table_url(table),
             headers=await self._headers(),
             params=params,
         )
         self._raise_for_status(response)
 
-        total_count = int(response.headers.get("X-Total-Count", "0"))
-        records = response.json()["result"]
+        try:
+            total_count = int(response.headers.get("X-Total-Count", "0"))
+        except (ValueError, TypeError):
+            total_count = 0
+        records = self._extract_result(response.json())
         return {"records": records, "count": total_count}
 
     async def get_metadata(self, table: str) -> list[dict[str, Any]]:
         """Fetch dictionary metadata for a table from sys_dictionary."""
-        assert self._http_client is not None
+        http = self._ensure_client()
         params = {
             "sysparm_query": f"name={table}",
             "sysparm_limit": "500",
         }
 
-        response = await self._http_client.get(
+        response = await http.get(
             self._table_url("sys_dictionary"),
             headers=await self._headers(),
             params=params,
         )
         self._raise_for_status(response)
-        return response.json()["result"]
+        return self._extract_result(response.json())
 
     async def aggregate(
         self,
@@ -168,7 +187,7 @@ class ServiceNowClient:
         Supports field-specific statistical operations. For example,
         avg_fields=["priority"] sets sysparm_avg_fields=priority.
         """
-        assert self._http_client is not None
+        http = self._ensure_client()
         params: dict[str, str] = {
             "sysparm_query": query,
             "sysparm_count": "true",
@@ -190,40 +209,40 @@ class ServiceNowClient:
         if display_value:
             params["sysparm_display_value"] = "true"
 
-        response = await self._http_client.get(
+        response = await http.get(
             self._stats_url(table),
             headers=await self._headers(),
             params=params,
         )
         self._raise_for_status(response)
-        return response.json()["result"]
+        return self._extract_result(response.json())
 
     async def create_record(self, table: str, data: dict[str, Any]) -> dict[str, Any]:
         """Create a new record via POST."""
-        assert self._http_client is not None
-        response = await self._http_client.post(
+        http = self._ensure_client()
+        response = await http.post(
             self._table_url(table),
             headers=await self._headers(),
             json=data,
         )
         self._raise_for_status(response)
-        return response.json()["result"]
+        return self._extract_result(response.json())
 
     async def update_record(self, table: str, sys_id: str, data: dict[str, Any]) -> dict[str, Any]:
         """Update an existing record via PATCH."""
-        assert self._http_client is not None
-        response = await self._http_client.patch(
+        http = self._ensure_client()
+        response = await http.patch(
             self._table_url(table, sys_id),
             headers=await self._headers(),
             json=data,
         )
         self._raise_for_status(response)
-        return response.json()["result"]
+        return self._extract_result(response.json())
 
     async def delete_record(self, table: str, sys_id: str) -> bool:
         """Delete a record via DELETE."""
-        assert self._http_client is not None
-        response = await self._http_client.delete(
+        http = self._ensure_client()
+        response = await http.delete(
             self._table_url(table, sys_id),
             headers=await self._headers(),
         )
@@ -242,23 +261,24 @@ class ServiceNowClient:
         fields: list[str] | None = None,
     ) -> dict[str, Any]:
         """Fetch an email record by ID."""
-        assert self._http_client is not None
+        http = self._ensure_client()
         params: dict[str, str] = {}
         if fields:
             params["sysparm_fields"] = ",".join(fields)
 
-        response = await self._http_client.get(
+        response = await http.get(
             self._email_url(email_id),
             headers=await self._headers(),
             params=params,
         )
         self._raise_for_status(response)
-        return response.json()["result"]
+        return self._extract_result(response.json())
 
     # ── Import Set API ─────────────────────────────────────────────────
 
     def _import_set_url(self, staging_table: str, sys_id: str) -> str:
         """Build the Import Set API URL."""
+        validate_identifier(staging_table)
         return f"{self._settings.servicenow_instance_url}/api/now/import/{staging_table}/{sys_id}"
 
     async def get_import_set_record(
@@ -267,13 +287,13 @@ class ServiceNowClient:
         sys_id: str,
     ) -> dict[str, Any]:
         """Retrieve an import set record from a staging table."""
-        assert self._http_client is not None
-        response = await self._http_client.get(
+        http = self._ensure_client()
+        response = await http.get(
             self._import_set_url(staging_table, sys_id),
             headers=await self._headers(),
         )
         self._raise_for_status(response)
-        return response.json()["result"]
+        return self._extract_result(response.json())
 
     # ── Reporting APIs ─────────────────────────────────────────────────
 
@@ -283,10 +303,12 @@ class ServiceNowClient:
 
     def _table_description_url(self, table: str) -> str:
         """Build the Reporting Table Description API URL."""
+        validate_identifier(table)
         return f"{self._settings.servicenow_instance_url}/api/now/reporting_table_description/{table}"
 
     def _field_descriptions_url(self, table: str) -> str:
         """Build the Reporting Field Description API URL."""
+        validate_identifier(table)
         return f"{self._settings.servicenow_instance_url}/api/now/reporting_table_description/field_description/{table}"
 
     async def list_reports(
@@ -298,7 +320,7 @@ class ServiceNowClient:
         per_page: int | None = None,
     ) -> list[dict[str, Any]]:
         """Retrieve a list of reports."""
-        assert self._http_client is not None
+        http = self._ensure_client()
         params: dict[str, str] = {}
         if search:
             params["sysparm_contains"] = search
@@ -311,33 +333,33 @@ class ServiceNowClient:
         if per_page is not None:
             params["sysparm_per_page"] = str(per_page)
 
-        response = await self._http_client.get(
+        response = await http.get(
             self._reporting_url(),
             headers=await self._headers(),
             params=params,
         )
         self._raise_for_status(response)
-        return response.json()["result"]
+        return self._extract_result(response.json())
 
     async def get_table_description(self, table: str) -> dict[str, Any]:
         """Get a table's description from the Reporting Table Description API."""
-        assert self._http_client is not None
-        response = await self._http_client.get(
+        http = self._ensure_client()
+        response = await http.get(
             self._table_description_url(table),
             headers=await self._headers(),
         )
         self._raise_for_status(response)
-        return response.json()["result"]
+        return self._extract_result(response.json())
 
     async def get_field_descriptions(self, table: str) -> list[dict[str, Any]]:
         """Get field descriptions for a table."""
-        assert self._http_client is not None
-        response = await self._http_client.get(
+        http = self._ensure_client()
+        response = await http.get(
             self._field_descriptions_url(table),
             headers=await self._headers(),
         )
         self._raise_for_status(response)
-        return response.json()["result"]
+        return self._extract_result(response.json())
 
     # ── Code Search API ────────────────────────────────────────────────
 
@@ -357,7 +379,7 @@ class ServiceNowClient:
         limit: int | None = None,
     ) -> dict[str, Any]:
         """Search code across ServiceNow script tables."""
-        assert self._http_client is not None
+        http = self._ensure_client()
         params: dict[str, str] = {"term": term}
         if table:
             params["table"] = table
@@ -366,36 +388,37 @@ class ServiceNowClient:
         if limit is not None:
             params["limit"] = str(limit)
 
-        response = await self._http_client.get(
+        response = await http.get(
             self._code_search_url(),
             headers=await self._headers(),
             params=params,
         )
         self._raise_for_status(response)
-        return response.json()["result"]
+        return self._extract_result(response.json())
 
     async def code_search_tables(
         self,
         search_group: str | None = None,
     ) -> dict[str, Any]:
         """Get the list of tables that would be searched for a given search group."""
-        assert self._http_client is not None
+        http = self._ensure_client()
         params: dict[str, str] = {}
         if search_group:
             params["search_group"] = search_group
 
-        response = await self._http_client.get(
+        response = await http.get(
             self._code_search_tables_url(),
             headers=await self._headers(),
             params=params,
         )
         self._raise_for_status(response)
-        return response.json()["result"]
+        return self._extract_result(response.json())
 
     # ── CMDB APIs ──────────────────────────────────────────────────────
 
     def _cmdb_instance_url(self, class_name: str, sys_id: str | None = None) -> str:
         """Build the CMDB Instance API URL."""
+        validate_identifier(class_name)
         base = f"{self._settings.servicenow_instance_url}/api/now/cmdb/instance/{class_name}"
         if sys_id:
             base = f"{base}/{sys_id}"
@@ -403,6 +426,7 @@ class ServiceNowClient:
 
     def _cmdb_meta_url(self, class_name: str) -> str:
         """Build the CMDB Meta API URL."""
+        validate_identifier(class_name)
         return f"{self._settings.servicenow_instance_url}/api/now/cmdb/meta/{class_name}"
 
     async def cmdb_query(
@@ -413,7 +437,7 @@ class ServiceNowClient:
         offset: int = 0,
     ) -> dict[str, Any]:
         """Query CMDB instances for a given class."""
-        assert self._http_client is not None
+        http = self._ensure_client()
         params: dict[str, str] = {
             "sysparm_limit": str(limit),
             "sysparm_offset": str(offset),
@@ -421,15 +445,18 @@ class ServiceNowClient:
         if query:
             params["sysparm_query"] = query
 
-        response = await self._http_client.get(
+        response = await http.get(
             self._cmdb_instance_url(class_name),
             headers=await self._headers(),
             params=params,
         )
         self._raise_for_status(response)
 
-        total_count = int(response.headers.get("X-Total-Count", "0"))
-        records = response.json()["result"]
+        try:
+            total_count = int(response.headers.get("X-Total-Count", "0"))
+        except (ValueError, TypeError):
+            total_count = 0
+        records = self._extract_result(response.json())
         return {"records": records, "count": total_count}
 
     async def cmdb_get_instance(
@@ -438,23 +465,23 @@ class ServiceNowClient:
         sys_id: str,
     ) -> dict[str, Any]:
         """Get a specific CMDB CI with its relationships."""
-        assert self._http_client is not None
-        response = await self._http_client.get(
+        http = self._ensure_client()
+        response = await http.get(
             self._cmdb_instance_url(class_name, sys_id),
             headers=await self._headers(),
         )
         self._raise_for_status(response)
-        return response.json()["result"]
+        return self._extract_result(response.json())
 
     async def cmdb_get_meta(self, class_name: str) -> dict[str, Any]:
         """Get metadata for a CMDB class."""
-        assert self._http_client is not None
-        response = await self._http_client.get(
+        http = self._ensure_client()
+        response = await http.get(
             self._cmdb_meta_url(class_name),
             headers=await self._headers(),
         )
         self._raise_for_status(response)
-        return response.json()["result"]
+        return self._extract_result(response.json())
 
     # ── Encoded Query Translator ───────────────────────────────────────
 
@@ -468,16 +495,16 @@ class ServiceNowClient:
         query: str,
     ) -> dict[str, Any]:
         """Translate an encoded query to a human-readable display name."""
-        assert self._http_client is not None
+        http = self._ensure_client()
         params: dict[str, str] = {
             "table": table,
             "query": query,
         }
 
-        response = await self._http_client.get(
+        response = await http.get(
             self._encoded_query_url(),
             headers=await self._headers(),
             params=params,
         )
         self._raise_for_status(response)
-        return response.json()["result"]
+        return self._extract_result(response.json())

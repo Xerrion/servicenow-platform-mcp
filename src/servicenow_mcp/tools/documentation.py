@@ -10,7 +10,7 @@ from mcp.server.fastmcp import FastMCP
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
-from servicenow_mcp.policy import check_table_access
+from servicenow_mcp.policy import check_table_access, mask_sensitive_fields
 from servicenow_mcp.tools.metadata import ARTIFACT_TABLES
 from servicenow_mcp.utils import ServiceNowQuery, format_response, generate_correlation_id, validate_identifier
 
@@ -188,7 +188,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             check_table_access(table)
 
             async with ServiceNowClient(settings, auth_provider) as client:
-                record = await client.get_record(table, sys_id)
+                record = mask_sensitive_fields(await client.get_record(table, sys_id))
 
                 # Parse script for GlideRecord('table_name') references
                 script = record.get("script", "")

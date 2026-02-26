@@ -22,8 +22,14 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
         stale_days: Number of days to consider stale (default 30).
         limit: Maximum findings per category (default 20).
     """
-    stale_days = params.get("stale_days", 30)
-    limit = params.get("limit", 20)
+    try:
+        stale_days = int(params.get("stale_days", 30))
+    except (TypeError, ValueError):
+        stale_days = 30
+    try:
+        limit = int(params.get("limit", 20))
+    except (TypeError, ValueError):
+        limit = 20
 
     findings: list[dict[str, Any]] = []
 
@@ -116,6 +122,8 @@ async def explain(client: ServiceNowClient, element_id: str) -> dict[str, Any]:
 
     element_id format: "table:sys_id" (e.g. "flow_context:fc001").
     """
+    if ":" not in element_id:
+        return {"error": f"Invalid element_id format: expected 'table:sys_id', got '{element_id}'"}
     table, sys_id = element_id.split(":", 1)
     if table not in _ALLOWED_TABLES:
         return {

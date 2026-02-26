@@ -148,7 +148,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             async with ServiceNowClient(settings, auth_provider) as client:
                 versions_result = await client.query_records(
                     "sys_update_version",
-                    f"name={update_name}^ORDERBYDESCsys_recorded_at",
+                    ServiceNowQuery().equals("name", update_name).order_by("sys_recorded_at", descending=True).build(),
                     fields=["sys_id", "name", "payload", "sys_recorded_at"],
                     limit=2,
                 )

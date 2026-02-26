@@ -280,6 +280,52 @@ class TestChangesDiffArtifact:
         assert "// old version" in diff_text
         assert "// new version" in diff_text
 
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_diff_artifact_uses_builder_order_by(self, settings, auth_provider):
+        """Verifies the query uses ServiceNowQuery builder with inline ORDERBYDESC."""
+        route = respx.get(f"{BASE_URL}/api/now/table/sys_update_version").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "result": [
+                        {
+                            "sys_id": "v2",
+                            "name": "sys_script_include_abc",
+                            "payload": "<new/>",
+                            "sys_recorded_at": "2026-02-21 10:00:00",
+                        },
+                        {
+                            "sys_id": "v1",
+                            "name": "sys_script_include_abc",
+                            "payload": "<old/>",
+                            "sys_recorded_at": "2026-02-20 10:00:00",
+                        },
+                    ]
+                },
+                headers={"X-Total-Count": "2"},
+            )
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["changes_diff_artifact"](table="sys_script_include", sys_id="abc")
+        result = json.loads(raw)
+
+        assert result["status"] == "success"
+
+        # Verify the query uses the builder-generated format with equals() + order_by()
+        request = route.calls[0].request
+        url_str = str(request.url)
+
+        # Builder produces: name=sys_script_include_abc^ORDERBYDESCsys_recorded_at
+        assert "name%3Dsys_script_include_abc" in url_str or "name=sys_script_include_abc" in url_str
+        assert "ORDERBYDESCsys_recorded_at" in url_str
+
+        # Verify that order_by is NOT sent as a separate sysparm_orderby parameter
+        parsed = urlparse(url_str)
+        qs = parse_qs(parsed.query)
+        assert "sysparm_orderby" not in qs
+
 
 class TestChangesLastTouched:
     """Tests for the changes_last_touched tool."""

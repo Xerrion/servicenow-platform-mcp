@@ -33,7 +33,10 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
     Params:
         limit: Maximum findings per pattern (default 20).
     """
-    limit = params.get("limit", 20)
+    try:
+        limit = int(params.get("limit", 20))
+    except (TypeError, ValueError):
+        limit = 20
     findings: list[dict[str, Any]] = []
 
     for pattern in DEPRECATED_PATTERNS:
@@ -68,6 +71,8 @@ async def explain(client: ServiceNowClient, element_id: str) -> dict[str, Any]:
 
     element_id format: "table:sys_id".
     """
+    if ":" not in element_id:
+        return {"error": f"Invalid element_id format: expected 'table:sys_id', got '{element_id}'"}
     table, sys_id = element_id.split(":", 1)
     validate_identifier(table)
     if table not in _ALLOWED_TABLES:

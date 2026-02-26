@@ -323,7 +323,7 @@ class TestTableHealth:
         # ACLs — query now includes exact name match OR field-level prefix
         respx.get(
             f"{BASE_URL}/api/now/table/sys_security_acl",
-            params__contains={"sysparm_query": "name=incident^ORnameSTARTSWITHincident."},
+            params__contains={"sysparm_query": "name=incident^^ORnameSTARTSWITHincident."},
         ).mock(
             return_value=httpx.Response(
                 200,
@@ -406,7 +406,7 @@ class TestAclConflicts:
         """Detects two ACLs with the same name but different conditions."""
         respx.get(
             f"{BASE_URL}/api/now/table/sys_security_acl",
-            params__contains={"sysparm_query": "name=incident^ORnameSTARTSWITHincident."},
+            params__contains={"sysparm_query": "name=incident^^ORnameSTARTSWITHincident."},
         ).mock(
             return_value=httpx.Response(
                 200,
@@ -447,7 +447,7 @@ class TestAclConflicts:
         """Unique ACL names produce no conflicts."""
         respx.get(
             f"{BASE_URL}/api/now/table/sys_security_acl",
-            params__contains={"sysparm_query": "name=incident^ORnameSTARTSWITHincident."},
+            params__contains={"sysparm_query": "name=incident^^ORnameSTARTSWITHincident."},
         ).mock(
             return_value=httpx.Response(
                 200,
@@ -1213,3 +1213,696 @@ class TestExplainSecurityRestrictions:
 
         assert result["status"] == "error"
         assert "Invalid identifier" in result["error"]
+
+
+# ── WP5: element_id split guard tests ────────────────────────────────────
+
+
+class TestExplainElementIdSplitGuard:
+    """Tests that explain() returns an error dict for element_ids with no colon."""
+
+    @pytest.mark.asyncio
+    async def test_deprecated_apis_no_colon(self, settings, auth_provider):
+        """deprecated_apis explain() returns error for element_id without colon."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["investigate_explain"](
+            investigation="deprecated_apis",
+            element_id="invalid_no_colon",
+        )
+        result = json.loads(raw)
+
+        assert result["status"] == "success"
+        assert "error" in result["data"]
+        assert "expected 'table:sys_id'" in result["data"]["error"]
+
+    @pytest.mark.asyncio
+    async def test_error_analysis_no_colon(self, settings, auth_provider):
+        """error_analysis explain() returns error for element_id without colon."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["investigate_explain"](
+            investigation="error_analysis",
+            element_id="invalid_no_colon",
+        )
+        result = json.loads(raw)
+
+        assert result["status"] == "success"
+        assert "error" in result["data"]
+        assert "expected 'table:sys_id'" in result["data"]["error"]
+
+    @pytest.mark.asyncio
+    async def test_slow_transactions_no_colon(self, settings, auth_provider):
+        """slow_transactions explain() returns error for element_id without colon."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["investigate_explain"](
+            investigation="slow_transactions",
+            element_id="invalid_no_colon",
+        )
+        result = json.loads(raw)
+
+        assert result["status"] == "success"
+        assert "error" in result["data"]
+        assert "expected 'table:sys_id'" in result["data"]["error"]
+
+    @pytest.mark.asyncio
+    async def test_stale_automations_no_colon(self, settings, auth_provider):
+        """stale_automations explain() returns error for element_id without colon."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["investigate_explain"](
+            investigation="stale_automations",
+            element_id="invalid_no_colon",
+        )
+        result = json.loads(raw)
+
+        assert result["status"] == "success"
+        assert "error" in result["data"]
+        assert "expected 'table:sys_id'" in result["data"]["error"]
+
+
+# ── WP5: Type coercion tests ─────────────────────────────────────────────
+
+
+class TestTypeCoercion:
+    """Tests that numeric params passed as strings are properly coerced."""
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_slow_transactions_string_limit(self, settings, auth_provider):
+        """slow_transactions run() accepts limit as a string."""
+        for table in [
+            "sys_query_pattern",
+            "sys_transaction_pattern",
+            "sys_script_pattern",
+            "sys_mutex_pattern",
+            "sysevent_pattern",
+            "sys_interaction_pattern",
+            "syslog_cancellation",
+        ]:
+            respx.get(f"{BASE_URL}/api/now/table/{table}").mock(
+                return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+            )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["investigate_run"](
+            investigation="slow_transactions",
+            params='{"limit": "50"}',
+        )
+        result = json.loads(raw)
+        assert result["status"] == "success"
+        assert result["data"]["params"]["limit"] == 50
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_stale_automations_string_stale_days(self, settings, auth_provider):
+        """stale_automations run() accepts stale_days as a string."""
+        for table in ["flow_context", "sys_script", "sys_script_include", "sysauto_script"]:
+            respx.get(f"{BASE_URL}/api/now/table/{table}").mock(
+                return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+            )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["investigate_run"](
+            investigation="stale_automations",
+            params='{"stale_days": "30", "limit": "10"}',
+        )
+        result = json.loads(raw)
+        assert result["status"] == "success"
+        assert result["data"]["params"]["stale_days"] == 30
+        assert result["data"]["params"]["limit"] == 10
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_performance_bottlenecks_string_hours_and_limit(self, settings, auth_provider):
+        """performance_bottlenecks run() accepts hours and limit as strings."""
+        respx.get(f"{BASE_URL}/api/now/table/sys_script").mock(
+            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        )
+        respx.get(f"{BASE_URL}/api/now/table/sysauto_script").mock(
+            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        )
+        respx.get(f"{BASE_URL}/api/now/table/flow_context").mock(
+            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["investigate_run"](
+            investigation="performance_bottlenecks",
+            params='{"hours": "12", "limit": "5"}',
+        )
+        result = json.loads(raw)
+        assert result["status"] == "success"
+        assert result["data"]["params"]["hours"] == 12
+        assert result["data"]["params"]["limit"] == 5
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_table_health_string_hours(self, settings, auth_provider):
+        """table_health run() accepts hours as a string."""
+        respx.get(f"{BASE_URL}/api/now/stats/incident").mock(
+            return_value=httpx.Response(200, json={"result": {"stats": {"count": "100"}}})
+        )
+        for table in ["sys_script", "sys_script_client", "sys_security_acl", "sys_ui_policy", "syslog"]:
+            respx.get(f"{BASE_URL}/api/now/table/{table}").mock(
+                return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+            )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["investigate_run"](
+            investigation="table_health",
+            params='{"table": "incident", "hours": "48"}',
+        )
+        result = json.loads(raw)
+        assert result["status"] == "success"
+        assert result["data"]["hours"] == 48
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_deprecated_apis_string_limit(self, settings, auth_provider):
+        """deprecated_apis run() accepts limit as a string."""
+        respx.get(f"{BASE_URL}/api/sn_codesearch/code_search/search").mock(
+            return_value=httpx.Response(200, json={"result": {"search_results": []}})
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["investigate_run"](
+            investigation="deprecated_apis",
+            params='{"limit": "50"}',
+        )
+        result = json.loads(raw)
+        assert result["status"] == "success"
+        assert result["data"]["params"]["limit"] == 50
+
+
+# ── WP5: check_table_access test for error_analysis ──────────────────────
+
+
+class TestErrorAnalysisCheckTableAccess:
+    """Tests that error_analysis run() calls check_table_access."""
+
+    @pytest.mark.asyncio
+    async def test_check_table_access_propagates_through_dispatcher(self, settings, auth_provider):
+        """error_analysis run() propagates PolicyError through the dispatcher."""
+        from unittest.mock import patch
+
+        from servicenow_mcp.errors import PolicyError
+
+        tools = _register_and_get_tools(settings, auth_provider)
+
+        with patch(
+            "servicenow_mcp.investigations.error_analysis.check_table_access",
+            side_effect=PolicyError("Access to table 'syslog' is denied by policy"),
+        ):
+            raw = await tools["investigate_run"](investigation="error_analysis")
+            result = json.loads(raw)
+
+        assert result["status"] == "error"
+        assert "denied" in result["error"].lower()
+
+
+# ── WP5: validate_identifier + check_table_access for perf bottlenecks ───
+
+
+class TestPerformanceBottlenecksElseBranch:
+    """Tests for performance_bottlenecks explain() else-branch (table name only)."""
+
+    @pytest.mark.asyncio
+    async def test_explain_invalid_table_chars(self, settings, auth_provider):
+        """explain() with invalid chars in table name raises ValueError."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["investigate_explain"](
+            investigation="performance_bottlenecks",
+            element_id="INVALID_TABLE",
+        )
+        result = json.loads(raw)
+
+        assert result["status"] == "error"
+        assert "Invalid identifier" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_explain_special_chars_table(self, settings, auth_provider):
+        """explain() with special chars in table name (no colon) raises ValueError."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["investigate_explain"](
+            investigation="performance_bottlenecks",
+            element_id="my-table!",
+        )
+        result = json.loads(raw)
+
+        assert result["status"] == "error"
+        assert "Invalid identifier" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_explain_denied_table_else_branch(self, settings, auth_provider):
+        """explain() with a denied table name in the else-branch returns error."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["investigate_explain"](
+            investigation="performance_bottlenecks",
+            element_id="sys_user_token",
+        )
+        result = json.loads(raw)
+
+        assert result["status"] == "error"
+        assert "denied" in result["error"].lower()
+
+
+# ── Direct module tests for coverage gaps ─────────────────────────────────
+
+
+class TestPerformanceBottlenecksCoverage:
+    """Tests for performance_bottlenecks coverage gaps: invalid params and non-empty loop bodies."""
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_invalid_params_and_nonempty_records(self, settings, auth_provider):
+        """Invalid limit/hours fall back to defaults; non-empty sysauto_script and flow_context records hit loop bodies."""
+        from servicenow_mcp.auth import BasicAuthProvider
+        from servicenow_mcp.client import ServiceNowClient
+        from servicenow_mcp.investigations import performance_bottlenecks
+
+        # Active BRs — empty (no heavy automation findings)
+        respx.get(f"{BASE_URL}/api/now/table/sys_script").mock(
+            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        )
+        # Scheduled jobs — non-empty (hits lines 78-79)
+        respx.get(f"{BASE_URL}/api/now/table/sysauto_script").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "result": [
+                        {
+                            "sys_id": "abc",
+                            "name": "test_job",
+                            "run_type": "daily",
+                            "run_dayofweek": "1",
+                            "sys_updated_on": "2026-02-20 10:00:00",
+                        }
+                    ]
+                },
+                headers={"X-Total-Count": "1"},
+            )
+        )
+        # Flow contexts — non-empty (hits lines 100-101)
+        respx.get(f"{BASE_URL}/api/now/table/flow_context").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "result": [
+                        {
+                            "sys_id": "flow1",
+                            "name": "Running Flow",
+                            "state": "IN_PROGRESS",
+                            "sys_created_on": "2026-02-20 08:00:00",
+                        }
+                    ]
+                },
+                headers={"X-Total-Count": "1"},
+            )
+        )
+
+        auth = BasicAuthProvider(settings)
+        async with ServiceNowClient(settings, auth) as client:
+            result = await performance_bottlenecks.run(
+                client,
+                {"limit": "not_a_number", "hours": "bad", "table": "incident"},
+            )
+
+        # Invalid limit falls back to 20 (lines 27-28)
+        assert result["params"]["limit"] == 20
+        # Invalid hours falls back to 24 (lines 34-35)
+        assert result["params"]["hours"] == 24
+        # Should have findings from both sysauto_script and flow_context loops
+        categories = [f["category"] for f in result["findings"]]
+        assert "frequent_job" in categories
+        assert "long_running_flow" in categories
+
+
+class TestStaleAutomationsCoverage:
+    """Tests for stale_automations coverage gaps: invalid params and non-empty loop bodies."""
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_invalid_params_and_nonempty_records(self, settings, auth_provider):
+        """Invalid stale_days/limit fall back to defaults; non-empty records hit loop bodies."""
+        from servicenow_mcp.auth import BasicAuthProvider
+        from servicenow_mcp.client import ServiceNowClient
+        from servicenow_mcp.investigations import stale_automations
+
+        # Stuck flows — empty
+        respx.get(f"{BASE_URL}/api/now/table/flow_context").mock(
+            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        )
+        # Disabled BRs — non-empty (hits lines 64-65)
+        respx.get(f"{BASE_URL}/api/now/table/sys_script").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "result": [
+                        {
+                            "sys_id": "br001",
+                            "name": "Disabled BR",
+                            "collection": "incident",
+                            "sys_updated_on": "2026-01-01 00:00:00",
+                        }
+                    ]
+                },
+                headers={"X-Total-Count": "1"},
+            )
+        )
+        # Disabled script includes — non-empty (hits lines 83-84)
+        respx.get(f"{BASE_URL}/api/now/table/sys_script_include").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "result": [
+                        {
+                            "sys_id": "si001",
+                            "name": "OldHelper",
+                            "api_name": "global.OldHelper",
+                            "sys_updated_on": "2026-01-01 00:00:00",
+                        }
+                    ]
+                },
+                headers={"X-Total-Count": "1"},
+            )
+        )
+        # Stale scheduled jobs — non-empty (hits lines 102-103)
+        respx.get(f"{BASE_URL}/api/now/table/sysauto_script").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "result": [
+                        {
+                            "sys_id": "sj001",
+                            "name": "Stale Job",
+                            "run_type": "daily",
+                            "last_run": "2025-01-01 00:00:00",
+                        }
+                    ]
+                },
+                headers={"X-Total-Count": "1"},
+            )
+        )
+
+        auth = BasicAuthProvider(settings)
+        async with ServiceNowClient(settings, auth) as client:
+            result = await stale_automations.run(
+                client,
+                {"stale_days": "bad", "limit": "bad", "table": "incident"},
+            )
+
+        # Invalid stale_days falls back to 30 (lines 27-28)
+        assert result["params"]["stale_days"] == 30
+        # Invalid limit falls back to 20 (lines 31-32)
+        assert result["params"]["limit"] == 20
+        # Non-empty loop bodies produce findings
+        categories = [f["category"] for f in result["findings"]]
+        assert "disabled_business_rule" in categories
+        assert "disabled_script_include" in categories
+        assert "stale_scheduled_job" in categories
+
+
+class TestErrorAnalysisCoverage:
+    """Tests for error_analysis coverage gaps: invalid params and source filter."""
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_invalid_hours_and_limit(self, settings, auth_provider):
+        """Invalid hours/limit fall back to defaults."""
+        from servicenow_mcp.auth import BasicAuthProvider
+        from servicenow_mcp.client import ServiceNowClient
+        from servicenow_mcp.investigations import error_analysis
+
+        respx.get(f"{BASE_URL}/api/now/table/syslog").mock(
+            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        )
+
+        auth = BasicAuthProvider(settings)
+        async with ServiceNowClient(settings, auth) as client:
+            result = await error_analysis.run(client, {"hours": "bad", "limit": "bad"})
+
+        # Invalid hours falls back to 24 (lines 24-25)
+        assert result["params"]["hours"] == 24
+        # Invalid limit falls back to 100 (lines 29-30)
+        assert result["params"]["limit"] == 100
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_source_filter(self, settings, auth_provider):
+        """Source filter triggers the .like() branch (line 36)."""
+        from servicenow_mcp.auth import BasicAuthProvider
+        from servicenow_mcp.client import ServiceNowClient
+        from servicenow_mcp.investigations import error_analysis
+
+        respx.get(f"{BASE_URL}/api/now/table/syslog").mock(
+            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        )
+
+        auth = BasicAuthProvider(settings)
+        async with ServiceNowClient(settings, auth) as client:
+            result = await error_analysis.run(client, {"source": "my_source"})
+
+        assert result["params"]["source"] == "my_source"
+        assert result["investigation"] == "error_analysis"
+
+
+class TestDeprecatedApisCoverage:
+    """Tests for deprecated_apis coverage gaps: invalid limit and code_search exception."""
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_invalid_limit(self, settings, auth_provider):
+        """Invalid limit falls back to default 20."""
+        from servicenow_mcp.auth import BasicAuthProvider
+        from servicenow_mcp.client import ServiceNowClient
+        from servicenow_mcp.investigations import deprecated_apis
+
+        respx.get(f"{BASE_URL}/api/sn_codesearch/code_search/search").mock(
+            return_value=httpx.Response(200, json={"result": {"search_results": []}})
+        )
+
+        auth = BasicAuthProvider(settings)
+        async with ServiceNowClient(settings, auth) as client:
+            result = await deprecated_apis.run(client, {"limit": "bad"})
+
+        # Invalid limit falls back to 20 (lines 38-39)
+        assert result["params"]["limit"] == 20
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_code_search_exception_skips_pattern(self, settings, auth_provider):
+        """When code_search raises for one pattern, it's skipped (lines 56-58)."""
+        from servicenow_mcp.auth import BasicAuthProvider
+        from servicenow_mcp.client import ServiceNowClient
+        from servicenow_mcp.investigations import deprecated_apis
+
+        call_count = 0
+
+        def side_effect(request: httpx.Request) -> httpx.Response:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                # First pattern raises an error
+                return httpx.Response(500, json={"error": {"message": "Server Error"}})
+            return httpx.Response(200, json={"result": {"search_results": []}})
+
+        respx.get(f"{BASE_URL}/api/sn_codesearch/code_search/search").mock(side_effect=side_effect)
+
+        auth = BasicAuthProvider(settings)
+        async with ServiceNowClient(settings, auth) as client:
+            result = await deprecated_apis.run(client, {})
+
+        # Should complete without error, skipping the failed pattern
+        assert result["investigation"] == "deprecated_apis"
+        assert "patterns_searched" in result
+
+
+class TestSlowTransactionsCoverage:
+    """Tests for slow_transactions coverage gaps."""
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_invalid_hours_and_limit(self, settings, auth_provider):
+        """Invalid hours/limit fall back to defaults (lines 36-37, 40-41)."""
+        from servicenow_mcp.auth import BasicAuthProvider
+        from servicenow_mcp.client import ServiceNowClient
+        from servicenow_mcp.investigations import slow_transactions
+
+        for table in [
+            "sys_query_pattern",
+            "sys_transaction_pattern",
+            "sys_script_pattern",
+            "sys_mutex_pattern",
+            "sysevent_pattern",
+            "sys_interaction_pattern",
+            "syslog_cancellation",
+        ]:
+            respx.get(f"{BASE_URL}/api/now/table/{table}").mock(
+                return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+            )
+
+        auth = BasicAuthProvider(settings)
+        async with ServiceNowClient(settings, auth) as client:
+            result = await slow_transactions.run(client, {"hours": "bad", "limit": "bad"})
+
+        assert result["params"]["hours"] == 24
+        assert result["params"]["limit"] == 20
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_categories_filter(self, settings, auth_provider):
+        """Category filter skips non-matching tables (lines 45, 51)."""
+        from servicenow_mcp.auth import BasicAuthProvider
+        from servicenow_mcp.client import ServiceNowClient
+        from servicenow_mcp.investigations import slow_transactions
+
+        # Only mock the table that matches the category filter
+        respx.get(f"{BASE_URL}/api/now/table/sys_query_pattern").mock(
+            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        )
+
+        auth = BasicAuthProvider(settings)
+        async with ServiceNowClient(settings, auth) as client:
+            result = await slow_transactions.run(client, {"categories": "slow_query"})
+
+        assert result["params"]["categories"] == "slow_query"
+        # Only one table should have been queried (the rest skipped)
+        assert result["investigation"] == "slow_transactions"
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_query_records_exception_skips_table(self, settings, auth_provider):
+        """When query_records raises for a table, it's skipped (lines 84-86)."""
+        from servicenow_mcp.auth import BasicAuthProvider
+        from servicenow_mcp.client import ServiceNowClient
+        from servicenow_mcp.investigations import slow_transactions
+
+        # First table errors, rest succeed with empty
+        respx.get(f"{BASE_URL}/api/now/table/sys_query_pattern").mock(
+            return_value=httpx.Response(500, json={"error": {"message": "Server Error"}})
+        )
+        for table in [
+            "sys_transaction_pattern",
+            "sys_script_pattern",
+            "sys_mutex_pattern",
+            "sysevent_pattern",
+            "sys_interaction_pattern",
+            "syslog_cancellation",
+        ]:
+            respx.get(f"{BASE_URL}/api/now/table/{table}").mock(
+                return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+            )
+
+        auth = BasicAuthProvider(settings)
+        async with ServiceNowClient(settings, auth) as client:
+            result = await slow_transactions.run(client, {})
+
+        # Should complete without error despite one table failing
+        assert result["investigation"] == "slow_transactions"
+
+
+class TestTableHealthCoverage:
+    """Tests for table_health coverage gaps."""
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_missing_table_param(self, settings, auth_provider):
+        """Missing table param returns error (line 23)."""
+        from servicenow_mcp.auth import BasicAuthProvider
+        from servicenow_mcp.client import ServiceNowClient
+        from servicenow_mcp.investigations import table_health
+
+        auth = BasicAuthProvider(settings)
+        async with ServiceNowClient(settings, auth) as client:
+            result = await table_health.run(client, {})
+
+        assert result["error"] == "Missing required parameter: table"
+        assert result["finding_count"] == 0
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_invalid_hours_param(self, settings, auth_provider):
+        """Invalid hours falls back to 24 (lines 38-39)."""
+        from servicenow_mcp.auth import BasicAuthProvider
+        from servicenow_mcp.client import ServiceNowClient
+        from servicenow_mcp.investigations import table_health
+
+        # Aggregate count
+        respx.get(f"{BASE_URL}/api/now/stats/incident").mock(
+            return_value=httpx.Response(200, json={"result": {"stats": {"count": "10"}}})
+        )
+        for tbl in ["sys_script", "sys_script_client", "sys_security_acl", "sys_ui_policy", "syslog"]:
+            respx.get(f"{BASE_URL}/api/now/table/{tbl}").mock(
+                return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+            )
+
+        auth = BasicAuthProvider(settings)
+        async with ServiceNowClient(settings, auth) as client:
+            result = await table_health.run(client, {"table": "incident", "hours": "bad"})
+
+        assert result["hours"] == 24
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_health_indicators_thresholds(self, settings, auth_provider):
+        """Triggers all health indicator thresholds (lines 101, 103, 105)."""
+        from servicenow_mcp.auth import BasicAuthProvider
+        from servicenow_mcp.client import ServiceNowClient
+        from servicenow_mcp.investigations import table_health
+
+        # Aggregate count
+        respx.get(f"{BASE_URL}/api/now/stats/incident").mock(
+            return_value=httpx.Response(200, json={"result": {"stats": {"count": "500"}}})
+        )
+        # >10 business rules (hits line 101)
+        respx.get(f"{BASE_URL}/api/now/table/sys_script").mock(
+            return_value=httpx.Response(
+                200,
+                json={"result": [{"sys_id": f"br{i}", "name": f"BR {i}", "when": "before"} for i in range(12)]},
+                headers={"X-Total-Count": "12"},
+            )
+        )
+        # Client scripts — empty
+        respx.get(f"{BASE_URL}/api/now/table/sys_script_client").mock(
+            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        )
+        # >20 ACLs (hits line 103)
+        respx.get(f"{BASE_URL}/api/now/table/sys_security_acl").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "result": [{"sys_id": f"acl{i}", "name": "incident.*.read", "operation": "read"} for i in range(22)]
+                },
+                headers={"X-Total-Count": "22"},
+            )
+        )
+        # UI policies — empty
+        respx.get(f"{BASE_URL}/api/now/table/sys_ui_policy").mock(
+            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        )
+        # >=1 syslog error (hits line 105)
+        respx.get(f"{BASE_URL}/api/now/table/syslog").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "result": [
+                        {
+                            "sys_id": "log1",
+                            "message": "Error",
+                            "source": "incident",
+                            "sys_created_on": "2026-02-20 10:00:00",
+                        }
+                    ]
+                },
+                headers={"X-Total-Count": "1"},
+            )
+        )
+
+        auth = BasicAuthProvider(settings)
+        async with ServiceNowClient(settings, auth) as client:
+            result = await table_health.run(client, {"table": "incident"})
+
+        # All three thresholds should be triggered
+        assert len(result["health_indicators"]) == 3
+        indicators_text = " ".join(result["health_indicators"])
+        assert "business rule" in indicators_text.lower()
+        assert "acl" in indicators_text.lower()
+        assert "errors" in indicators_text.lower()

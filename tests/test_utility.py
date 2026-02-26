@@ -131,3 +131,133 @@ class TestBuildQuery:
         result = json.loads(raw)
         assert result["status"] == "success"
         assert result["data"]["query"] == "nameSTARTSWITHincident"
+
+    def test_or_equals_operator(self, settings, auth_provider):
+        """Test or_equals OR condition."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        conditions = json.dumps(
+            [
+                {"operator": "equals", "field": "state", "value": "1"},
+                {"operator": "or_equals", "field": "state", "value": "2"},
+            ]
+        )
+        raw = tools["build_query"](conditions=conditions)
+        result = json.loads(raw)
+        assert result["status"] == "success"
+        assert result["data"]["query"] == "state=1^^ORstate=2"
+
+    def test_or_starts_with_operator(self, settings, auth_provider):
+        """Test or_starts_with OR condition."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        conditions = json.dumps(
+            [
+                {"operator": "starts_with", "field": "name", "value": "INC"},
+                {"operator": "or_starts_with", "field": "name", "value": "REQ"},
+            ]
+        )
+        raw = tools["build_query"](conditions=conditions)
+        result = json.loads(raw)
+        assert result["status"] == "success"
+        assert result["data"]["query"] == "nameSTARTSWITHINC^^ORnameSTARTSWITHREQ"
+
+    def test_in_list_operator(self, settings, auth_provider):
+        """Test in_list operator with a list of values."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        conditions = json.dumps(
+            [
+                {"operator": "in_list", "field": "state", "value": ["1", "2", "3"]},
+            ]
+        )
+        raw = tools["build_query"](conditions=conditions)
+        result = json.loads(raw)
+        assert result["status"] == "success"
+        assert result["data"]["query"] == "stateIN1,2,3"
+
+    def test_not_in_list_operator(self, settings, auth_provider):
+        """Test not_in_list operator with a list of values."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        conditions = json.dumps(
+            [
+                {"operator": "not_in_list", "field": "priority", "value": ["4", "5"]},
+            ]
+        )
+        raw = tools["build_query"](conditions=conditions)
+        result = json.loads(raw)
+        assert result["status"] == "success"
+        assert result["data"]["query"] == "priorityNOT IN4,5"
+
+    def test_in_list_requires_list_value(self, settings, auth_provider):
+        """in_list with a non-list value returns an error."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        conditions = json.dumps(
+            [
+                {"operator": "in_list", "field": "state", "value": "1"},
+            ]
+        )
+        raw = tools["build_query"](conditions=conditions)
+        result = json.loads(raw)
+        assert result["status"] == "error"
+        assert "list of strings" in result["error"]
+
+    def test_order_by_ascending(self, settings, auth_provider):
+        """Test order_by operator (ascending by default)."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        conditions = json.dumps(
+            [
+                {"operator": "equals", "field": "active", "value": "true"},
+                {"operator": "order_by", "field": "sys_created_on"},
+            ]
+        )
+        raw = tools["build_query"](conditions=conditions)
+        result = json.loads(raw)
+        assert result["status"] == "success"
+        assert result["data"]["query"] == "active=true^ORDERBYsys_created_on"
+
+    def test_order_by_descending(self, settings, auth_provider):
+        """Test order_by operator with descending=true."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        conditions = json.dumps(
+            [
+                {"operator": "equals", "field": "active", "value": "true"},
+                {"operator": "order_by", "field": "sys_created_on", "descending": True},
+            ]
+        )
+        raw = tools["build_query"](conditions=conditions)
+        result = json.loads(raw)
+        assert result["status"] == "success"
+        assert result["data"]["query"] == "active=true^ORDERBYDESCsys_created_on"
+
+    def test_value_injection_prevented(self, settings, auth_provider):
+        """Value containing ^ is escaped by the builder, preventing injection."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        conditions = json.dumps(
+            [
+                {"operator": "equals", "field": "name", "value": "foo^bar"},
+            ]
+        )
+        raw = tools["build_query"](conditions=conditions)
+        result = json.loads(raw)
+        assert result["status"] == "success"
+        # The ^ in the value should be escaped to ^^
+        assert result["data"]["query"] == "name=foo^^bar"
+
+    def test_hours_ago_missing_value_returns_error(self, settings, auth_provider):
+        """Time operator without value key returns error (line 96)."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = tools["build_query"](
+            conditions='[{"operator": "hours_ago", "field": "sys_created_on"}]',
+        )
+        result = json.loads(raw)
+        assert result["status"] == "error"
+        assert "requires an integer 'value'" in result["error"]
+
+    def test_unexpected_exception_returns_error(self, settings, auth_provider):
+        """Unexpected exception in ServiceNowQuery triggers generic handler (lines 155-156)."""
+        from unittest.mock import patch
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        with patch("servicenow_mcp.tools.utility.ServiceNowQuery", side_effect=RuntimeError("boom")):
+            raw = tools["build_query"](conditions='[{"operator": "equals", "field": "active", "value": "true"}]')
+        result = json.loads(raw)
+        assert result["status"] == "error"
+        assert "boom" in result["error"]

@@ -1,6 +1,5 @@
 """Investigation: find slow transactions via ServiceNow performance pattern tables."""
 
-from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from servicenow_mcp.client import ServiceNowClient
@@ -36,14 +35,14 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
         hours = max(0, int(params.get("hours", 24)))
     except (TypeError, ValueError):
         hours = 24
-    limit = params.get("limit", 20)
+    try:
+        limit = int(params.get("limit", 20))
+    except (TypeError, ValueError):
+        limit = 20
     categories_filter = params.get("categories")
     allowed_categories: set[str] | None = None
     if categories_filter:
         allowed_categories = {c.strip() for c in categories_filter.split(",")}
-
-    cutoff = datetime.now(tz=UTC) - timedelta(hours=hours)
-    cutoff_str = cutoff.strftime("%Y-%m-%d %H:%M:%S")
 
     findings: list[dict[str, Any]] = []
 
@@ -100,6 +99,8 @@ async def explain(client: ServiceNowClient, element_id: str) -> dict[str, Any]:
 
     element_id format: "table:sys_id".
     """
+    if ":" not in element_id:
+        return {"error": f"Invalid element_id format: expected 'table:sys_id', got '{element_id}'"}
     table, sys_id = element_id.split(":", 1)
     if table not in _ALLOWED_TABLES:
         return {

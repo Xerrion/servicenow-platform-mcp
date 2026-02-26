@@ -22,8 +22,17 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
         hours: Optional lookback period in hours (default None, queries all).
         limit: Maximum findings per category (default 20).
     """
-    limit = params.get("limit", 20)
-    hours = params.get("hours")
+    try:
+        limit = int(params.get("limit", 20))
+    except (TypeError, ValueError):
+        limit = 20
+    raw_hours = params.get("hours")
+    hours: int | None = None
+    if raw_hours is not None:
+        try:
+            hours = int(raw_hours)
+        except (TypeError, ValueError):
+            hours = 24
     findings: list[dict[str, Any]] = []
 
     # 1. Active BRs grouped by collection (table)
@@ -128,6 +137,8 @@ async def explain(client: ServiceNowClient, element_id: str) -> dict[str, Any]:
         }
     else:
         # element_id is a table name (heavy_automation category)
+        validate_identifier(element_id)
+        check_table_access(element_id)
         stats_result = await client.aggregate(element_id, query="")
         record_count = int(stats_result.get("stats", {}).get("count", 0))
 

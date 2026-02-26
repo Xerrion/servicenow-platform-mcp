@@ -34,7 +34,7 @@ _SENSITIVE_PATTERNS: list[re.Pattern[str]] = [
 MASK_VALUE = "***MASKED***"
 
 # Date field patterns used to detect date-bounded filters
-_DATE_FIELD_PATTERNS = [
+_DATE_FIELD_PATTERNS: list[str] = [
     "sys_created_on",
     "sys_updated_on",
     "opened_at",
@@ -42,13 +42,20 @@ _DATE_FIELD_PATTERNS = [
     "sys_recorded_at",
 ]
 
+# Regex to match: a date field name following a condition separator, with a comparison operator
+_DATE_CONSTRAINT_RE: re.Pattern[str] = re.compile(
+    r"(?:^|\^(?:OR)?)"  # start of string or ^ or ^OR separator
+    r"(" + "|".join(re.escape(f) for f in _DATE_FIELD_PATTERNS) + r")"  # date field name
+    r"(>=?|<=?|BETWEEN|javascript:gs\.\w+Ago)",  # comparison operator
+)
+
 
 def check_table_access(table: str) -> None:
     """Raise PolicyError if the table is on the deny list.
 
     Returns None if access is allowed.
     """
-    if table in DENIED_TABLES:
+    if table.lower() in DENIED_TABLES:
         raise PolicyError(f"Access to table '{table}' is denied by policy")
 
 
@@ -90,8 +97,12 @@ def mask_audit_entry(entry: dict[str, Any]) -> dict[str, Any]:
 
 
 def _has_date_filter(query: str) -> bool:
-    """Check if the query contains a date-bounded filter."""
-    return any(field in query for field in _DATE_FIELD_PATTERNS)
+    """Check if the query contains a structural date-bounded filter.
+
+    Verifies that a recognized date field appears with a comparison operator
+    (>, >=, <, <=, BETWEEN, or gs.*Ago functions), not merely as a substring.
+    """
+    return bool(_DATE_CONSTRAINT_RE.search(query))
 
 
 def enforce_query_safety(
@@ -109,6 +120,9 @@ def enforce_query_safety(
 
     # Cap limit at max_row_limit
     effective_limit = settings.max_row_limit if limit is None or limit > settings.max_row_limit else limit
+
+    # Floor limit at 1 to prevent zero or negative values
+    effective_limit = max(1, effective_limit)
 
     # Large tables require date-bounded filters
     if table in settings.large_table_names and not _has_date_filter(query):
@@ -128,8 +142,13 @@ def can_write(
 ) -> bool:
     """Check if write operations are allowed for the given table and environment."""
     # Always block writes to denied tables
-    if table in DENIED_TABLES:
+    if table.lower() in DENIED_TABLES:
+        logger.warning("Write blocked: table '%s' is on deny list", table)
         return False
 
     # In production, require explicit override
-    return not (settings.is_production and not override)
+    if settings.is_production and not override:
+        logger.warning("Write blocked: table '%s' in production environment '%s'", table, settings.servicenow_env)
+        return False
+
+    return True

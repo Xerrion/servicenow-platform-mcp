@@ -30,29 +30,22 @@ class NotFoundError(ServiceNowMCPError):
         super().__init__(message, status_code=404)
 
 
-class QuerySafetyError(ServiceNowMCPError):
-    """Query violates safety policies."""
+class ServerError(ServiceNowMCPError):
+    """ServiceNow server error (HTTP 5xx)."""
 
-    def __init__(self, message: str = "Query safety violation") -> None:
-        super().__init__(message)
-
-
-class WriteGatingError(ServiceNowMCPError):
-    """Write operation blocked by policy."""
-
-    def __init__(self, message: str = "Write operation not allowed") -> None:
-        super().__init__(message)
+    def __init__(self, message: str = "Internal server error", status_code: int = 500) -> None:
+        super().__init__(message, status_code=status_code)
 
 
 class PolicyError(ServiceNowMCPError):
     """Access denied by policy (deny list, masking, etc.)."""
 
-    def __init__(self, message: str = "Access denied by policy") -> None:
-        super().__init__(message)
+    def __init__(self, message: str = "Policy violation", status_code: int = 403) -> None:
+        super().__init__(message, status_code=status_code)
 
 
-class ServerError(ServiceNowMCPError):
-    """ServiceNow server error (HTTP 5xx)."""
+class QuerySafetyError(PolicyError):
+    """Query violates safety policies."""
 
-    def __init__(self, message: str = "ServiceNow server error") -> None:
-        super().__init__(message, status_code=500)
+    def __init__(self, message: str = "Query safety violation") -> None:
+        super().__init__(message, status_code=403)

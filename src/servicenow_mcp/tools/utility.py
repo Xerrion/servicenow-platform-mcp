@@ -26,6 +26,8 @@ _BINARY_OPERATORS = {
     "starts_with",
     "like",
 }
+_OR_BINARY_OPERATORS = {"or_equals", "or_starts_with"}
+_LIST_OPERATORS = {"in_list", "not_in_list"}
 
 
 def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthProvider) -> None:
@@ -39,10 +41,13 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
           - operator: equals, not_equals, greater_than, greater_or_equal,
                       less_than, less_or_equal, contains, starts_with, like,
                       is_empty, is_not_empty, hours_ago, minutes_ago,
-                      days_ago, older_than_days
+                      days_ago, older_than_days, or_equals, or_starts_with,
+                      in_list, not_in_list, order_by
           - field: The field name (e.g. "sys_created_on", "active")
           - value: The comparison value (string for most operators, integer for
-                   time operators). Not required for is_empty / is_not_empty.
+                   time operators, list of strings for in_list/not_in_list).
+                   Not required for is_empty / is_not_empty.
+          - descending: (optional, for order_by only) boolean, default false.
 
         Args:
             conditions: JSON array of condition objects.
@@ -97,7 +102,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                             )
                         )
                     getattr(query, operator)(field, int(value))
-                elif operator in _BINARY_OPERATORS:
+                elif operator in _BINARY_OPERATORS or operator in _OR_BINARY_OPERATORS:
                     if value is None:
                         return json.dumps(
                             format_response(
@@ -108,8 +113,29 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                             )
                         )
                     getattr(query, operator)(field, str(value))
+                elif operator in _LIST_OPERATORS:
+                    if value is None or not isinstance(value, list):
+                        return json.dumps(
+                            format_response(
+                                data=None,
+                                correlation_id=correlation_id,
+                                status="error",
+                                error=f"Operator '{operator}' requires a 'value' that is a list of strings.",
+                            )
+                        )
+                    getattr(query, operator)(field, [str(v) for v in value])
+                elif operator == "order_by":
+                    descending = bool(condition.get("descending", False))
+                    query.order_by(field, descending=descending)
                 else:
-                    valid = sorted(_UNARY_OPERATORS | _TIME_OPERATORS | _BINARY_OPERATORS)
+                    valid = sorted(
+                        _UNARY_OPERATORS
+                        | _TIME_OPERATORS
+                        | _BINARY_OPERATORS
+                        | _OR_BINARY_OPERATORS
+                        | _LIST_OPERATORS
+                        | {"order_by"}
+                    )
                     return json.dumps(
                         format_response(
                             data=None,

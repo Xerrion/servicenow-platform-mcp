@@ -1,9 +1,11 @@
 """Investigation: comprehensive health report for a single table."""
 
+import asyncio
 from typing import Any
 
 from servicenow_mcp.client import ServiceNowClient
-from servicenow_mcp.utils import ServiceNowQuery
+from servicenow_mcp.policy import check_table_access, mask_sensitive_fields
+from servicenow_mcp.utils import ServiceNowQuery, validate_identifier
 
 
 async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any]:
@@ -25,72 +27,67 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
             "findings": [],
         }
 
+    validate_identifier(table)
+    check_table_access(table)
+
     hours = params.get("hours")
 
-    # 1. Record count via aggregate
-    stats_result = await client.aggregate(table, query="")
-    record_count = int(stats_result.get("stats", {}).get("count", 0))
-
-    # 2. Business rules on this table
+    # Build time-filtered query fragments for each query
     br_q = ServiceNowQuery().equals("collection", table).equals("active", "true")
+    cs_q = ServiceNowQuery().equals("table", table).equals("active", "true")
+    acl_q = ServiceNowQuery().raw(f"name={table}^ORnameSTARTSWITH{table}.")
+    uip_q = ServiceNowQuery().equals("table", table).equals("active", "true")
+    syslog_q = ServiceNowQuery().equals("level", "0").like("source", table)
+
     if hours is not None:
         br_q.hours_ago("sys_updated_on", hours)
-    br_result = await client.query_records(
-        "sys_script",
-        br_q.build(),
-        fields=["sys_id", "name", "when"],
-        limit=200,
-    )
-    br_records = br_result["records"]
-
-    # 3. Client scripts on this table
-    cs_q = ServiceNowQuery().equals("table", table).equals("active", "true")
-    if hours is not None:
         cs_q.hours_ago("sys_updated_on", hours)
-    cs_result = await client.query_records(
-        "sys_script_client",
-        cs_q.build(),
-        fields=["sys_id", "name", "type"],
-        limit=200,
-    )
-    cs_records = cs_result["records"]
-
-    # 4. ACLs for this table
-    acl_q = ServiceNowQuery().starts_with("name", table)
-    if hours is not None:
         acl_q.hours_ago("sys_updated_on", hours)
-    acl_result = await client.query_records(
-        "sys_security_acl",
-        acl_q.build(),
-        fields=["sys_id", "name", "operation"],
-        limit=200,
-    )
-    acl_records = acl_result["records"]
-
-    # 5. UI policies on this table
-    uip_q = ServiceNowQuery().equals("table", table).equals("active", "true")
-    if hours is not None:
         uip_q.hours_ago("sys_updated_on", hours)
-    uip_result = await client.query_records(
-        "sys_ui_policy",
-        uip_q.build(),
-        fields=["sys_id", "short_description"],
-        limit=200,
-    )
-    uip_records = uip_result["records"]
-
-    # 6. Recent syslog errors mentioning this table
-    syslog_q = ServiceNowQuery().equals("level", "0").like("source", table)
-    if hours is not None:
         syslog_q.hours_ago("sys_created_on", hours)
-    syslog_result = await client.query_records(
-        "syslog",
-        syslog_q.build(),
-        fields=["sys_id", "message", "source", "sys_created_on"],
-        limit=20,
-        order_by="sys_created_on",
+
+    # Run all 6 health check queries in parallel
+    stats_result, br_result, cs_result, acl_result, uip_result, syslog_result = await asyncio.gather(
+        client.aggregate(table, query=""),
+        client.query_records(
+            "sys_script",
+            br_q.build(),
+            fields=["sys_id", "name", "when"],
+            limit=200,
+        ),
+        client.query_records(
+            "sys_script_client",
+            cs_q.build(),
+            fields=["sys_id", "name", "type"],
+            limit=200,
+        ),
+        client.query_records(
+            "sys_security_acl",
+            acl_q.build(),
+            fields=["sys_id", "name", "operation"],
+            limit=200,
+        ),
+        client.query_records(
+            "sys_ui_policy",
+            uip_q.build(),
+            fields=["sys_id", "short_description"],
+            limit=200,
+        ),
+        client.query_records(
+            "syslog",
+            syslog_q.build(),
+            fields=["sys_id", "message", "source", "sys_created_on"],
+            limit=20,
+            order_by="sys_created_on",
+        ),
     )
-    recent_errors = syslog_result["records"]
+
+    record_count = int(stats_result.get("stats", {}).get("count", 0))
+    br_records = [mask_sensitive_fields(r) for r in br_result["records"]]
+    cs_records = [mask_sensitive_fields(r) for r in cs_result["records"]]
+    acl_records = [mask_sensitive_fields(r) for r in acl_result["records"]]
+    uip_records = [mask_sensitive_fields(r) for r in uip_result["records"]]
+    recent_errors = [mask_sensitive_fields(r) for r in syslog_result["records"]]
 
     # Build health indicators
     health_indicators: list[str] = []
@@ -134,6 +131,7 @@ async def explain(client: ServiceNowClient, element_id: str) -> dict[str, Any]:
     element_id is the table name itself.
     """
     # Re-run a lighter query to get basic table info
+    validate_identifier(element_id)
     stats_result = await client.aggregate(element_id, query="")
     record_count = int(stats_result.get("stats", {}).get("count", 0))
 

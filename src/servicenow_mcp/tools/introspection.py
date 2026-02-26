@@ -12,7 +12,7 @@ from servicenow_mcp.policy import (
     enforce_query_safety,
     mask_sensitive_fields,
 )
-from servicenow_mcp.utils import format_response, generate_correlation_id
+from servicenow_mcp.utils import format_response, generate_correlation_id, validate_identifier
 
 
 def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthProvider) -> None:
@@ -27,6 +27,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         """
         correlation_id = generate_correlation_id()
         try:
+            validate_identifier(table)
             check_table_access(table)
             async with ServiceNowClient(settings, auth_provider) as client:
                 metadata = await client.get_metadata(table)
@@ -77,6 +78,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         """
         correlation_id = generate_correlation_id()
         try:
+            validate_identifier(table)
             check_table_access(table)
             field_list = [f.strip() for f in fields.split(",") if f.strip()] if fields else None
             async with ServiceNowClient(settings, auth_provider) as client:
@@ -119,6 +121,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         correlation_id = generate_correlation_id()
         warnings: list[str] = []
         try:
+            validate_identifier(table)
             check_table_access(table)
             safety = enforce_query_safety(table, query, limit, settings)
             effective_limit = safety["limit"]
@@ -191,7 +194,9 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         """
         correlation_id = generate_correlation_id()
         try:
+            validate_identifier(table)
             check_table_access(table)
+            enforce_query_safety(table, query, None, settings)
             group = group_by if group_by else None
 
             def _split(s: str) -> list[str] | None:

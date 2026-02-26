@@ -4,7 +4,8 @@ from collections import defaultdict
 from typing import Any
 
 from servicenow_mcp.client import ServiceNowClient
-from servicenow_mcp.utils import ServiceNowQuery
+from servicenow_mcp.policy import check_table_access, mask_sensitive_fields
+from servicenow_mcp.utils import ServiceNowQuery, sanitize_query_value
 
 
 async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any]:
@@ -18,13 +19,16 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
         source: Optional source filter.
         limit: Maximum log entries to fetch (default 100).
     """
-    hours = params.get("hours", 24)
+    try:
+        hours = max(0, int(params.get("hours", 24)))
+    except (TypeError, ValueError):
+        hours = 24
     source_filter = params.get("source")
     limit = params.get("limit", 100)
 
     q = ServiceNowQuery().equals("level", "0").hours_ago("sys_created_on", hours)
     if source_filter:
-        q.like("source", source_filter)
+        q.like("source", sanitize_query_value(source_filter))
 
     syslog_result = await client.query_records(
         "syslog",
@@ -33,7 +37,7 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
         limit=limit,
         order_by="sys_created_on",
     )
-    logs = syslog_result["records"]
+    logs = [mask_sensitive_fields(r) for r in syslog_result["records"]]
 
     # Cluster by source
     clusters: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -72,7 +76,13 @@ async def explain(client: ServiceNowClient, element_id: str) -> dict[str, Any]:
     element_id format: "syslog:sys_id".
     """
     table, sys_id = element_id.split(":", 1)
-    record = await client.get_record(table, sys_id)
+    if table != "syslog":
+        return {
+            "element": element_id,
+            "error": f"Table '{table}' is not allowed for this investigation; expected 'syslog'",
+        }
+    check_table_access("syslog")
+    record = mask_sensitive_fields(await client.get_record(table, sys_id))
 
     source = record.get("source", "")
     explanation_parts = [

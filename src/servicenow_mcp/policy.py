@@ -66,6 +66,29 @@ def mask_sensitive_fields(record: dict[str, Any]) -> dict[str, Any]:
     return masked
 
 
+def mask_audit_entry(entry: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of an audit-style entry with values masked when the field name is sensitive.
+
+    In sys_audit rows the actual field name is stored in a metadata key
+    (``fieldname`` or ``field``) while the data lives in ``oldvalue``/``newvalue``
+    (or ``old_value``/``new_value``).  Standard ``mask_sensitive_fields`` would
+    not catch these because the *dict keys* are generic.  This helper inspects
+    the field-name value and, if it matches a sensitive pattern, masks the
+    corresponding value keys.
+    """
+    masked = dict(entry)
+
+    # Determine the field name from whichever key is present
+    field_name = masked.get("fieldname") or masked.get("field") or ""
+
+    if _is_sensitive_field(field_name):
+        for key in ("oldvalue", "newvalue", "old_value", "new_value"):
+            if key in masked:
+                masked[key] = MASK_VALUE
+
+    return masked
+
+
 def _has_date_filter(query: str) -> bool:
     """Check if the query contains a date-bounded filter."""
     return any(field in query for field in _DATE_FIELD_PATTERNS)

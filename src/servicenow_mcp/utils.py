@@ -1,8 +1,31 @@
 """Utility functions for correlation IDs, response formatting and query building."""
 
+import re
 import uuid
 from typing import Any
 
+_IDENTIFIER_RE = re.compile(r"^[a-z0-9_]+$")
+
+
+def validate_identifier(name: str) -> None:
+    """Raise ValueError if *name* is not a valid ServiceNow identifier.
+
+    ServiceNow table and field names consist only of lowercase
+    alphanumerics and underscores (``[a-z0-9_]+``).
+    """
+    if not _IDENTIFIER_RE.match(name):
+        raise ValueError(
+            f"Invalid identifier: {name!r}. Only lowercase alphanumeric characters and underscores are allowed."
+        )
+
+
+def sanitize_query_value(value: str) -> str:
+    """Escape special encoded-query delimiters in a user-supplied value.
+
+    ServiceNow uses ``^`` as the condition separator in encoded queries.
+    A literal caret inside a *value* is represented as ``^^``.
+    """
+    return value.replace("^", "^^")
 
 def generate_correlation_id() -> str:
     """Generate a unique correlation ID for request tracing."""

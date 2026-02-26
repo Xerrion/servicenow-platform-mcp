@@ -6,11 +6,11 @@ import pytest
 class TestPackageRegistry:
     """Test package registry and loading."""
 
-    def test_registry_contains_dev_debug(self):
-        """dev_debug package is defined in the registry."""
+    def test_registry_contains_full(self):
+        """full package is defined in the registry."""
         from servicenow_mcp.packages import PACKAGE_REGISTRY
 
-        assert "dev_debug" in PACKAGE_REGISTRY
+        assert "full" in PACKAGE_REGISTRY
 
     def test_registry_contains_none(self):
         """'none' package is defined in the registry."""
@@ -24,29 +24,23 @@ class TestPackageRegistry:
 
         assert "introspection_only" in PACKAGE_REGISTRY
 
-    def test_registry_contains_full(self):
-        """full package is defined."""
+    def test_full_includes_introspection(self):
+        """full package includes introspection tools."""
         from servicenow_mcp.packages import PACKAGE_REGISTRY
 
-        assert "full" in PACKAGE_REGISTRY
+        assert "introspection" in PACKAGE_REGISTRY["full"]
 
-    def test_dev_debug_includes_introspection(self):
-        """dev_debug package includes introspection tools."""
+    def test_full_includes_metadata(self):
+        """full package includes metadata tools."""
         from servicenow_mcp.packages import PACKAGE_REGISTRY
 
-        assert "introspection" in PACKAGE_REGISTRY["dev_debug"]
+        assert "metadata" in PACKAGE_REGISTRY["full"]
 
-    def test_dev_debug_includes_metadata(self):
-        """dev_debug package includes metadata tools."""
+    def test_full_includes_relationships(self):
+        """full package includes relationship tools."""
         from servicenow_mcp.packages import PACKAGE_REGISTRY
 
-        assert "metadata" in PACKAGE_REGISTRY["dev_debug"]
-
-    def test_dev_debug_includes_relationships(self):
-        """dev_debug package includes relationship tools."""
-        from servicenow_mcp.packages import PACKAGE_REGISTRY
-
-        assert "relationships" in PACKAGE_REGISTRY["dev_debug"]
+        assert "relationships" in PACKAGE_REGISTRY["full"]
 
     def test_none_package_is_empty(self):
         """'none' package has no tool groups."""
@@ -58,7 +52,7 @@ class TestPackageRegistry:
         """get_package returns tool groups for a valid package."""
         from servicenow_mcp.packages import get_package
 
-        groups = get_package("dev_debug")
+        groups = get_package("full")
         assert isinstance(groups, list)
         assert len(groups) > 0
 
@@ -68,18 +62,6 @@ class TestPackageRegistry:
 
         with pytest.raises(ValueError, match="Unknown"):
             get_package("nonexistent_package")
-
-    def test_dev_debug_includes_changes(self):
-        """dev_debug package includes change intelligence tools."""
-        from servicenow_mcp.packages import PACKAGE_REGISTRY
-
-        assert "changes" in PACKAGE_REGISTRY["dev_debug"]
-
-    def test_dev_debug_includes_debug(self):
-        """dev_debug package includes debug/trace tools."""
-        from servicenow_mcp.packages import PACKAGE_REGISTRY
-
-        assert "debug" in PACKAGE_REGISTRY["dev_debug"]
 
     def test_full_includes_changes(self):
         """full package includes change intelligence tools."""
@@ -98,7 +80,12 @@ class TestPackageRegistry:
         from servicenow_mcp.packages import list_packages
 
         packages = list_packages()
-        assert "dev_debug" in packages
         assert "none" in packages
         assert "full" in packages
         assert "introspection_only" in packages
+
+    def test_dev_debug_not_in_registry(self):
+        """dev_debug package has been removed from the registry."""
+        from servicenow_mcp.packages import PACKAGE_REGISTRY
+
+        assert "dev_debug" not in PACKAGE_REGISTRY

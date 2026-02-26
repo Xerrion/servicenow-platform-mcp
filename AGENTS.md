@@ -106,7 +106,7 @@
 - **Response format**: All tools return `json.dumps(format_response(...))` with a `correlation_id` via `utils.format_response()`.
 - **Policy layer**: Call `check_table_access(table)` before table access; `enforce_query_safety()` for queries; `mask_sensitive_fields()` on returned records; `can_write()` before mutations.
 - **Investigation modules**: `investigations/*.py` export `async def run(client, params) -> dict` and `async def explain(client, element_id) -> dict`; registered in `INVESTIGATION_REGISTRY`.
-- **Tool packages**: Bundled in `packages.py:PACKAGE_REGISTRY` — `dev_debug`, `introspection_only`, `full`, `none`.
+- **Tool packages**: Bundled in `packages.py:PACKAGE_REGISTRY` — `full` (default), `introspection_only`, `none`.
 - **State management**: `PreviewTokenStore` for preview/apply workflows (UUID tokens with TTL); `SeededRecordTracker` for test data cleanup by tag.
 - **Config**: `Settings(BaseSettings)` loads from env vars — `servicenow_instance_url`, `servicenow_username`, `servicenow_password`, `mcp_tool_package`, `servicenow_env`, `max_row_limit`.
 

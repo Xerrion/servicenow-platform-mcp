@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     servicenow_instance_url: str
     servicenow_username: str
     servicenow_password: str
-    mcp_tool_package: str = "dev_debug"
+    mcp_tool_package: str = "full"
     servicenow_env: str = "dev"
     max_row_limit: int = 100
     large_table_names_csv: str = _DEFAULT_LARGE_TABLES

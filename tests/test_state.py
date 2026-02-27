@@ -1,10 +1,10 @@
-"""Tests for in-memory state management (PreviewTokenStore, SeededRecordTracker)."""
+"""Tests for in-memory state management (PreviewTokenStore)."""
 
 from unittest.mock import patch
 
 import pytest
 
-from servicenow_mcp.state import PreviewTokenStore, SeededRecordTracker
+from servicenow_mcp.state import PreviewTokenStore
 
 
 class TestPreviewTokenStore:
@@ -141,38 +141,3 @@ class TestPreviewTokenStore:
             store._sweep_expired()
 
         assert len(store._store) == 0
-
-
-class TestSeededRecordTracker:
-    """Tests for SeededRecordTracker."""
-
-    def test_track_and_get(self):
-        """track() stores records, get() retrieves them."""
-        tracker = SeededRecordTracker()
-        tracker.track("tag1", "incident", ["sys1", "sys2"])
-        result = tracker.get("tag1")
-        assert result is not None
-        assert len(result) == 1
-        assert result[0]["table"] == "incident"
-        assert result[0]["sys_ids"] == ["sys1", "sys2"]
-
-    def test_track_multiple_tables(self):
-        """track() accumulates records across multiple tables for the same tag."""
-        tracker = SeededRecordTracker()
-        tracker.track("tag1", "incident", ["sys1"])
-        tracker.track("tag1", "problem", ["sys2", "sys3"])
-        result = tracker.get("tag1")
-        assert result is not None
-        assert len(result) == 2
-
-    def test_get_unknown_tag_returns_none(self):
-        """get() returns None for a tag that was never tracked."""
-        tracker = SeededRecordTracker()
-        assert tracker.get("unknown") is None
-
-    def test_remove(self):
-        """remove() deletes all tracked records for a tag."""
-        tracker = SeededRecordTracker()
-        tracker.track("tag1", "incident", ["sys1"])
-        tracker.remove("tag1")
-        assert tracker.get("tag1") is None

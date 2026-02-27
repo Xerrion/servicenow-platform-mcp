@@ -152,3 +152,19 @@ def can_write(
         return False
 
     return True
+
+
+def write_blocked_reason(table: str, settings: Settings) -> str | None:
+    """Pre-flight local policy check for write operations.
+
+    Checks local policy only (denied tables, production env).
+    ServiceNow-side ACL denials will surface as ForbiddenError
+    from the HTTP layer and should be handled by callers.
+
+    Returns a reason string if writes are blocked, or None if allowed.
+    """
+    if table.lower() in DENIED_TABLES:
+        return f"Write operations are blocked for table '{table}' (restricted table)"
+    if settings.is_production:
+        return "Write operations are blocked in production environments"
+    return None

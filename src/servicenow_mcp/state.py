@@ -1,9 +1,4 @@
-"""In-memory state management for stateful MCP tool workflows.
-
-Provides:
-- PreviewTokenStore: token-based preview/apply workflow with TTL
-- SeededRecordTracker: tracks records created by dev_seed_test_data for cleanup
-"""
+"""In-memory state store for preview tokens."""
 
 import time
 import uuid
@@ -68,31 +63,3 @@ class PreviewTokenStore:
             return None
         del self._store[token]
         return entry["payload"]
-
-
-class SeededRecordTracker:
-    """Tracks records created by dev_seed_test_data for cleanup.
-
-    Records are grouped by a seed tag (string). Each tag maps to a list
-    of {table, sys_ids} entries, allowing cleanup across multiple tables.
-    """
-
-    def __init__(self) -> None:
-        self._store: dict[str, list[dict[str, Any]]] = {}
-
-    def track(self, tag: str, table: str, sys_ids: list[str]) -> None:
-        """Record that sys_ids were created in table under the given tag."""
-        if tag not in self._store:
-            self._store[tag] = []
-        self._store[tag].append({"table": table, "sys_ids": sys_ids})
-
-    def get(self, tag: str) -> list[dict[str, Any]] | None:
-        """Return all tracked records for a tag, or None if unknown."""
-        entries = self._store.get(tag)
-        if entries is None:
-            return None
-        return list(entries)
-
-    def remove(self, tag: str) -> None:
-        """Remove all tracked records for a tag."""
-        self._store.pop(tag, None)

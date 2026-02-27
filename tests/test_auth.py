@@ -19,7 +19,7 @@ class TestBasicAuthProvider:
         }
         env.update(overrides)
         with patch.dict("os.environ", env, clear=True):
-            return Settings()
+            return Settings(_env_file=None)
 
     @pytest.mark.asyncio
     async def test_get_headers_returns_authorization(self):
@@ -95,7 +95,7 @@ class TestCreateAuth:
             "SERVICENOW_PASSWORD": "s3cret",
         }
         with patch.dict("os.environ", env, clear=True):
-            return Settings()
+            return Settings(_env_file=None)
 
     def test_create_auth_returns_basic_provider(self):
         """create_auth returns a BasicAuthProvider."""

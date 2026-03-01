@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/Xerrion/servicenow-devtools-mcp/compare/v0.3.0...v0.4.0) (2026-03-01)
+
+
+### Features
+
+* record CRUD tools, shared safe_tool_call, mandatory field validation ([#39](https://github.com/Xerrion/servicenow-devtools-mcp/issues/39)) ([2e2cd61](https://github.com/Xerrion/servicenow-devtools-mcp/commit/2e2cd6128a89b55755dfa4342af09a57cb109fcf))
+
 ## [0.3.0](https://github.com/Xerrion/servicenow-devtools-mcp/compare/v0.2.4...v0.3.0) (2026-02-27)
 
 

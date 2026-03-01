@@ -1,6 +1,6 @@
 [project]
 name = "servicenow-devtools-mcp"
-version = "0.3.0"
+version = "0.4.0"
 description = "A developer & debug-focused MCP server for ServiceNow — 32 tools for platform introspection, change intelligence, debugging, investigations, and documentation generation."
 readme = "README.md"
 license = "MIT"

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/Xerrion/servicenow-devtools-mcp/compare/v0.4.0...v0.4.1) (2026-03-02)
+
+
+### Bug Fixes
+
+* pass display_values through to query_records and table_query tool ([#41](https://github.com/Xerrion/servicenow-devtools-mcp/issues/41)) ([08427fb](https://github.com/Xerrion/servicenow-devtools-mcp/commit/08427fb773a755afbe50d4dc561d69442d6c9f21))
+
 ## [0.4.0](https://github.com/Xerrion/servicenow-devtools-mcp/compare/v0.3.0...v0.4.0) (2026-03-01)
 
 

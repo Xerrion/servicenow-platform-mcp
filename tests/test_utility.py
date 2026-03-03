@@ -106,7 +106,7 @@ class TestBuildQuery:
         raw = tools["build_query"](conditions='[{"operator": "equals", "value": "true"}]')
         result = toon_decode(raw)
         assert result["status"] == "error"
-        assert "requires 'operator' and 'field'" in result["error"]
+        assert "requires a 'field'" in result["error"]
 
     def test_missing_value_for_binary_operator_returns_error(self, settings, auth_provider):
         """Binary operators require a value."""
@@ -308,3 +308,226 @@ class TestBuildQuery:
         payload = query_store.get(token)
         assert payload is not None
         assert payload["query"] == "active=true"
+
+    # -- New operator tests (Phase 9) ------------------------------------------
+
+    def test_ends_with(self, settings, auth_provider):
+        """Test ends_with string operator."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = tools["build_query"](conditions='[{"operator": "ends_with", "field": "email", "value": "@example.com"}]')
+        result = toon_decode(raw)
+        assert result["status"] == "success"
+        assert result["data"]["query"] == "emailENDSWITH@example.com"
+
+    def test_not_like(self, settings, auth_provider):
+        """Test not_like string operator."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = tools["build_query"](conditions='[{"operator": "not_like", "field": "name", "value": "test"}]')
+        result = toon_decode(raw)
+        assert result["status"] == "success"
+        assert result["data"]["query"] == "nameNOT LIKEtest"
+
+    def test_anything(self, settings, auth_provider):
+        """Test anything unary operator."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = tools["build_query"](conditions='[{"operator": "anything", "field": "state"}]')
+        result = toon_decode(raw)
+        assert result["status"] == "success"
+        assert result["data"]["query"] == "stateANYTHING"
+
+    def test_empty_string(self, settings, auth_provider):
+        """Test empty_string unary operator."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = tools["build_query"](conditions='[{"operator": "empty_string", "field": "description"}]')
+        result = toon_decode(raw)
+        assert result["status"] == "success"
+        assert result["data"]["query"] == "descriptionEMPTYSTRING"
+
+    def test_val_changes(self, settings, auth_provider):
+        """Test val_changes unary operator."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = tools["build_query"](conditions='[{"operator": "val_changes", "field": "state"}]')
+        result = toon_decode(raw)
+        assert result["status"] == "success"
+        assert result["data"]["query"] == "stateVALCHANGES"
+
+    def test_gt_field(self, settings, auth_provider):
+        """Test gt_field comparison operator."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = tools["build_query"](
+            conditions='[{"operator": "gt_field", "field": "sys_updated_on", "other_field": "sys_created_on"}]'
+        )
+        result = toon_decode(raw)
+        assert result["status"] == "success"
+        assert result["data"]["query"] == "sys_updated_onGT_FIELDsys_created_on"
+
+    def test_same_as(self, settings, auth_provider):
+        """Test same_as field comparison operator."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = tools["build_query"](
+            conditions='[{"operator": "same_as", "field": "assigned_to", "other_field": "opened_by"}]'
+        )
+        result = toon_decode(raw)
+        assert result["status"] == "success"
+        assert result["data"]["query"] == "assigned_toSAMEASopened_by"
+
+    def test_field_operator_with_value_fallback(self, settings, auth_provider):
+        """Field operators should accept 'value' as fallback for 'other_field'."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = tools["build_query"](conditions='[{"operator": "lt_field", "field": "priority", "value": "impact"}]')
+        result = toon_decode(raw)
+        assert result["status"] == "success"
+        assert result["data"]["query"] == "priorityLT_FIELDimpact"
+
+    def test_field_operator_missing_other_field(self, settings, auth_provider):
+        """Field operators without other_field or value return error."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = tools["build_query"](conditions='[{"operator": "gt_field", "field": "priority"}]')
+        result = toon_decode(raw)
+        assert result["status"] == "error"
+
+    def test_between(self, settings, auth_provider):
+        """Test between range operator."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = tools["build_query"](
+            conditions='[{"operator": "between", "field": "sys_created_on", "start": "2026-01-01", "end": "2026-12-31"}]'
+        )
+        result = toon_decode(raw)
+        assert result["status"] == "success"
+        assert result["data"]["query"] == "sys_created_onBETWEEN2026-01-01@2026-12-31"
+
+    def test_between_missing_end(self, settings, auth_provider):
+        """between without end value returns error."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = tools["build_query"](
+            conditions='[{"operator": "between", "field": "sys_created_on", "start": "2026-01-01"}]'
+        )
+        result = toon_decode(raw)
+        assert result["status"] == "error"
+
+    def test_datepart(self, settings, auth_provider):
+        """Test datepart operator."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = tools["build_query"](
+            conditions='[{"operator": "datepart", "field": "sys_created_on", "part": "dayofweek", "dp_operator": "=", "dp_value": "1"}]'
+        )
+        result = toon_decode(raw)
+        assert result["status"] == "success"
+        assert result["data"]["query"] == "sys_created_onDATEPARTdayofweek@=@1"
+
+    def test_datepart_missing_part(self, settings, auth_provider):
+        """datepart without required params returns error."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = tools["build_query"](conditions='[{"operator": "datepart", "field": "sys_created_on"}]')
+        result = toon_decode(raw)
+        assert result["status"] == "error"
+
+    def test_on(self, settings, auth_provider):
+        """Test on date operator."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = tools["build_query"](conditions='[{"operator": "on", "field": "sys_created_on", "value": "2026-01-15"}]')
+        result = toon_decode(raw)
+        assert result["status"] == "success"
+        assert result["data"]["query"] == "sys_created_onON2026-01-15"
+
+    def test_relative_gt(self, settings, auth_provider):
+        """Test relative_gt date operator."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = tools["build_query"](
+            conditions='[{"operator": "relative_gt", "field": "sys_created_on", "value": "@year@ago@1"}]'
+        )
+        result = toon_decode(raw)
+        assert result["status"] == "success"
+        assert result["data"]["query"] == "sys_created_onRELATIVEGT@year@ago@1"
+
+    def test_more_than(self, settings, auth_provider):
+        """Test more_than date operator."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = tools["build_query"](
+            conditions='[{"operator": "more_than", "field": "sys_updated_on", "value": "@hour@ago@3"}]'
+        )
+        result = toon_decode(raw)
+        assert result["status"] == "success"
+        assert result["data"]["query"] == "sys_updated_onMORETHAN@hour@ago@3"
+
+    def test_changes_from(self, settings, auth_provider):
+        """Test changes_from change detection operator."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = tools["build_query"](conditions='[{"operator": "changes_from", "field": "priority", "value": "3"}]')
+        result = toon_decode(raw)
+        assert result["status"] == "success"
+        assert result["data"]["query"] == "priorityCHANGESFROM3"
+
+    def test_changes_to(self, settings, auth_provider):
+        """Test changes_to change detection operator."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = tools["build_query"](conditions='[{"operator": "changes_to", "field": "state", "value": "6"}]')
+        result = toon_decode(raw)
+        assert result["status"] == "success"
+        assert result["data"]["query"] == "stateCHANGESTO6"
+
+    def test_dynamic(self, settings, auth_provider):
+        """Test dynamic reference operator."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = tools["build_query"](
+            conditions='[{"operator": "dynamic", "field": "cmdb_ci", "value": "javascript:getCIFilter()"}]'
+        )
+        result = toon_decode(raw)
+        assert result["status"] == "success"
+        assert result["data"]["query"] == "cmdb_ciDYNAMICjavascript:getCIFilter()"
+
+    def test_in_hierarchy(self, settings, auth_provider):
+        """Test in_hierarchy reference operator."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = tools["build_query"](conditions='[{"operator": "in_hierarchy", "field": "cmdb_ci", "value": "abc123"}]')
+        result = toon_decode(raw)
+        assert result["status"] == "success"
+        assert result["data"]["query"] == "cmdb_ciIN_HIERARCHYabc123"
+
+    def test_new_query(self, settings, auth_provider):
+        """Test new_query inserts NQ separator between groups."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        conditions = json.dumps(
+            [
+                {"operator": "equals", "field": "active", "value": "true"},
+                {"operator": "new_query", "field": ""},
+                {"operator": "equals", "field": "priority", "value": "1"},
+            ]
+        )
+        raw = tools["build_query"](conditions=conditions)
+        result = toon_decode(raw)
+        assert result["status"] == "success"
+        assert "NQ" in result["data"]["query"]
+
+    def test_rl_query(self, settings, auth_provider):
+        """Test rl_query related list operator."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        conditions = json.dumps(
+            [
+                {
+                    "operator": "rl_query",
+                    "field": "state",
+                    "related_table": "task.incident",
+                    "related_field": "state",
+                    "rl_operator": "=",
+                    "value": "2",
+                },
+            ]
+        )
+        raw = tools["build_query"](conditions=conditions)
+        result = toon_decode(raw)
+        assert result["status"] == "success"
+        assert "RLQUERY" in result["data"]["query"]
+        assert "ENDRLQUERY" in result["data"]["query"]
+
+    def test_rl_query_missing_related_table(self, settings, auth_provider):
+        """rl_query without related_table returns error."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        conditions = json.dumps(
+            [
+                {"operator": "rl_query", "field": "state", "rl_operator": "=", "value": "2"},
+            ]
+        )
+        raw = tools["build_query"](conditions=conditions)
+        result = toon_decode(raw)
+        assert result["status"] == "error"

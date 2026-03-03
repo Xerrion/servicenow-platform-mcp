@@ -1,0 +1,48 @@
+TASK: Refactor config.py to derive _VALID_PACKAGES from PACKAGE_REGISTRY
+
+CHANGES MADE:
+=============
+
+1. File: src/servicenow_mcp/config.py
+
+   REMOVED (line 9):
+   - _VALID_PACKAGES = frozenset({"full", "introspection_only", "none"})
+
+   ADDED (line 8):
+   - from servicenow_mcp.packages import PACKAGE_REGISTRY
+
+   UPDATED (lines 46-52):
+   - Changed validator to check: if v not in PACKAGE_REGISTRY:
+   - Changed error message to: sorted(PACKAGE_REGISTRY.keys()) instead of sorted(_VALID_PACKAGES)
+
+VERIFICATION RESULTS:
+====================
+
+✓ Type checking: No mypy diagnostics
+✓ All 22 tests in test_config.py pass
+✓ Test coverage: config.py has 100% coverage
+✓ Validator properly uses PACKAGE_REGISTRY for validation
+✓ Existing packages ("full", "introspection_only", "none") still validate correctly
+✓ Error message format maintained exactly
+
+BENEFITS:
+=========
+
+1. Eliminates duplication - single source of truth (PACKAGE_REGISTRY)
+2. Self-consistent system - adding new key to PACKAGE_REGISTRY automatically makes it valid
+3. Reduced maintenance burden - no need to update two locations
+4. Maintains backward compatibility - exact same validation behavior
+
+QA VERIFICATION:
+================
+
+✓ Scenario 1: Existing packages accept without modification
+  - "full" ✓
+  - "introspection_only" ✓  
+  - "none" ✓
+
+✓ Scenario 2: Invalid package still rejected
+  - Error message preserved: "mcp_tool_package must be one of ['full', 'introspection_only', 'none'], got 'invalid'"
+
+✓ Scenario 3: PACKAGE_REGISTRY expansion ready
+  - New keys added to PACKAGE_REGISTRY will automatically become valid without config.py changes

@@ -1,9 +1,10 @@
 {
-  "active_plan": "/Users/lasn/Projects/servicenow-devtools-mcp/.sisyphus/plans/atf-tools.md",
-  "started_at": "2026-03-03T12:21:23.769Z",
+  "active_plan": "/Users/lasn/Projects/servicenow-devtools-mcp/.sisyphus/plans/domain-packages.md",
+  "started_at": "2026-03-03T15:02:00.000Z",
   "session_ids": [
-    "ses_34cd088ffffeHiPGHgskQpWPb0",
     "ses_34c5b8be8ffebpDThTpqJBiNSr"
   ],
-  "plan_name": "atf-tools"
+  "plan_name": "domain-packages",
+  "previous_plan": "atf-tools",
+  "previous_plan_completed_at": "2026-03-03T15:01:42Z"
 }

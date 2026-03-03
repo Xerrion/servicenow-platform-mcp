@@ -5,8 +5,9 @@ from functools import cached_property
 from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings
 
+from servicenow_mcp.packages import PACKAGE_REGISTRY
+
 _DEFAULT_LARGE_TABLES = "syslog,sys_audit,sys_log_transaction,sys_email_log"
-_VALID_PACKAGES = frozenset({"full", "introspection_only", "none"})
 
 
 class Settings(BaseSettings):
@@ -47,8 +48,8 @@ class Settings(BaseSettings):
     @classmethod
     def validate_mcp_tool_package(cls, v: str) -> str:
         """Validate mcp_tool_package against known packages."""
-        if v not in _VALID_PACKAGES:
-            raise ValueError(f"mcp_tool_package must be one of {sorted(_VALID_PACKAGES)}, got {v!r}")
+        if v not in PACKAGE_REGISTRY:
+            raise ValueError(f"mcp_tool_package must be one of {sorted(PACKAGE_REGISTRY.keys())}, got {v!r}")
         return v
 
     @cached_property

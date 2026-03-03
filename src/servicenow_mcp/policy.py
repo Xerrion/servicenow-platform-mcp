@@ -1,5 +1,6 @@
 """Policy engine for query safety, deny lists, field masking and write gating."""
 
+import json
 import logging
 import re
 from typing import Any
@@ -136,6 +137,36 @@ def enforce_query_safety(
         )
 
     return {"limit": effective_limit}
+
+
+def write_gate(table: str, settings: Settings, correlation_id: str) -> str | None:
+    """Check write access and return a JSON error envelope if blocked, or None if allowed.
+
+    This helper is used by tool functions to gate write operations early.
+    If writes are blocked, returns a formatted JSON error response. Otherwise returns None.
+
+    Args:
+        table: The table name being accessed.
+        settings: The application settings (used to check production environment).
+        correlation_id: The correlation ID for the operation.
+
+    Returns:
+        A JSON error envelope if writes are blocked, or None if allowed.
+    """
+    # Import here to avoid circular dependency (format_response imports from policy)
+    from servicenow_mcp.utils import format_response
+
+    reason = write_blocked_reason(table, settings)
+    if reason:
+        return json.dumps(
+            format_response(
+                data=None,
+                correlation_id=correlation_id,
+                status="error",
+                error=reason,
+            )
+        )
+    return None
 
 
 def can_write(

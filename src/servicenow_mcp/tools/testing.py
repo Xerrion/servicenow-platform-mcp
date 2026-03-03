@@ -25,21 +25,6 @@ ATF_POLL_INTERVAL = 5
 ATF_MAX_POLL_DURATION = 300
 
 
-def _write_gate(table: str, settings: Settings, correlation_id: str) -> str | None:
-    """Check write access and return a JSON error envelope if blocked, or None if allowed."""
-    reason = write_blocked_reason(table, settings)
-    if reason:
-        return json.dumps(
-            format_response(
-                data=None,
-                correlation_id=correlation_id,
-                status="error",
-                error=reason,
-            )
-        )
-    return None
-
-
 def _atf_execution_gate(settings: Settings, correlation_id: str) -> str | None:
     """Gate ATF execution tools - running tests creates result records."""
     reason = write_blocked_reason("sys_atf_test_result", settings)

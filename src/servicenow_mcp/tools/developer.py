@@ -14,27 +14,12 @@ from servicenow_mcp.policy import (
     check_table_access,
     is_sensitive_field,
     mask_sensitive_fields,
-    write_blocked_reason,
+    write_gate,
 )
 from servicenow_mcp.state import PreviewTokenStore
 from servicenow_mcp.utils import format_response, generate_correlation_id, safe_tool_call, validate_identifier
 
 logger = logging.getLogger(__name__)
-
-
-def _write_gate(table: str, settings: Settings, correlation_id: str) -> str | None:
-    """Check write access and return a JSON error envelope if blocked, or None if allowed."""
-    reason = write_blocked_reason(table, settings)
-    if reason:
-        return json.dumps(
-            format_response(
-                data=None,
-                correlation_id=correlation_id,
-                status="error",
-                error=reason,
-            )
-        )
-    return None
 
 
 def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthProvider) -> None:
@@ -78,7 +63,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             validate_identifier(table)
             check_table_access(table)
 
-            blocked = _write_gate(table, settings, correlation_id)
+            blocked = write_gate(table, settings, correlation_id)
             if blocked:
                 return blocked
 
@@ -124,7 +109,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             validate_identifier(table)
             check_table_access(table)
 
-            blocked = _write_gate(table, settings, correlation_id)
+            blocked = write_gate(table, settings, correlation_id)
             if blocked:
                 return blocked
 
@@ -181,7 +166,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             validate_identifier(sys_id)
             check_table_access(table)
 
-            blocked = _write_gate(table, settings, correlation_id)
+            blocked = write_gate(table, settings, correlation_id)
             if blocked:
                 return blocked
 
@@ -219,7 +204,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             validate_identifier(sys_id)
             check_table_access(table)
 
-            blocked = _write_gate(table, settings, correlation_id)
+            blocked = write_gate(table, settings, correlation_id)
             if blocked:
                 return blocked
 
@@ -276,7 +261,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             validate_identifier(sys_id)
             check_table_access(table)
 
-            blocked = _write_gate(table, settings, correlation_id)
+            blocked = write_gate(table, settings, correlation_id)
             if blocked:
                 return blocked
 
@@ -311,7 +296,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             validate_identifier(sys_id)
             check_table_access(table)
 
-            blocked = _write_gate(table, settings, correlation_id)
+            blocked = write_gate(table, settings, correlation_id)
             if blocked:
                 return blocked
 
@@ -369,7 +354,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
 
             # Defense in depth - re-check access and write gate
             check_table_access(table)
-            blocked = _write_gate(table, settings, correlation_id)
+            blocked = write_gate(table, settings, correlation_id)
             if blocked:
                 return blocked
 

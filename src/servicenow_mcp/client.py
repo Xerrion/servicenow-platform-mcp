@@ -512,3 +512,100 @@ class ServiceNowClient:
         )
         self._raise_for_status(response)
         return self._extract_result(response.json())
+
+    # ── ATF Cloud Runner API ───────────────────────────────────────────
+
+    def _atf_cloud_runner_url(self, endpoint: str) -> str:
+        """Build the ATF Cloud Runner API URL."""
+        return f"{self._settings.servicenow_instance_url}/api/now/sn_atf_tg/{endpoint}"
+
+    async def atf_run(self, test_or_suite_id: str, is_suite: bool = False) -> dict[str, Any]:
+        """Run an ATF test or suite via Cloud Runner.
+
+        Args:
+            test_or_suite_id: The sys_id of the test or suite to run.
+            is_suite: If True, treat test_or_suite_id as a suite ID; otherwise as a test ID.
+
+        Returns:
+            Response dict with at minimum a "snboqId" for tracking the execution.
+        """
+        http = self._ensure_client()
+        data = {"suiteId" if is_suite else "testId": test_or_suite_id}
+
+        try:
+            response = await http.post(
+                self._atf_cloud_runner_url("test_runner"),
+                headers=await self._headers(),
+                json=data,
+            )
+            self._raise_for_status(response)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                raise NotFoundError("ATF Cloud Runner plugin (sn_atf_tg) may not be installed") from None
+            raise
+
+        response_data = response.json()
+        try:
+            return self._extract_result(response_data)
+        except KeyError:
+            return response_data
+
+    async def atf_progress(self, snboq_id: str) -> dict[str, Any]:
+        """Get progress of an ATF Cloud Runner execution.
+
+        Args:
+            snboq_id: The execution ID returned by atf_run().
+
+        Returns:
+            Progress dict with fields like "progress" and "state".
+        """
+        http = self._ensure_client()
+        params: dict[str, str] = {"snboqId": snboq_id}
+
+        try:
+            response = await http.get(
+                self._atf_cloud_runner_url("test_runner_progress"),
+                headers=await self._headers(),
+                params=params,
+            )
+            self._raise_for_status(response)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                raise NotFoundError("ATF Cloud Runner plugin (sn_atf_tg) may not be installed") from None
+            raise
+
+        response_data = response.json()
+        try:
+            return self._extract_result(response_data)
+        except KeyError:
+            return response_data
+
+    async def atf_cancel(self, snboq_id: str) -> dict[str, Any]:
+        """Cancel an ATF Cloud Runner execution.
+
+        Args:
+            snboq_id: The execution ID returned by atf_run().
+
+        Returns:
+            Result dict confirming cancellation.
+        """
+        http = self._ensure_client()
+        data = {"snboqId": snboq_id}
+
+        try:
+            response = await http.post(
+                self._atf_cloud_runner_url("cancel_test_runner"),
+                headers=await self._headers(),
+                json=data,
+            )
+            self._raise_for_status(response)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                raise NotFoundError("ATF Cloud Runner plugin (sn_atf_tg) may not be installed") from None
+            raise
+
+        response_data = response.json()
+        try:
+            return self._extract_result(response_data)
+        except KeyError:
+            return response_data

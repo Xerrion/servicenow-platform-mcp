@@ -10,6 +10,17 @@ from servicenow_mcp.config import Settings
 from servicenow_mcp.policy import check_table_access, mask_sensitive_fields, write_gate
 from servicenow_mcp.utils import ServiceNowQuery, format_response, safe_tool_call
 
+CHANGE_STATE_MAP: dict[str, str] = {
+    "new": "-5",
+    "assess": "-4",
+    "authorize": "-3",
+    "scheduled": "-2",
+    "implement": "-1",
+    "review": "0",
+    "closed": "3",
+    "canceled": "4",
+}
+
 
 def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthProvider) -> None:
     """Register Change Management domain tools.
@@ -45,19 +56,8 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             check_table_access("change_request")
 
             q = ServiceNowQuery()
-            if state:
-                state_map = {
-                    "new": "-5",
-                    "assess": "-4",
-                    "authorize": "-3",
-                    "scheduled": "-2",
-                    "implement": "-1",
-                    "review": "0",
-                    "closed": "3",
-                    "canceled": "4",
-                }
-                if state.lower() in state_map:
-                    q = q.equals("state", state_map[state.lower()])
+            if state and state.lower() in CHANGE_STATE_MAP:
+                q = q.equals("state", CHANGE_STATE_MAP[state.lower()])
             if type:
                 q = q.equals("type", type)
             if risk:
@@ -255,19 +255,8 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                     changes["risk"] = risk
                 if assignment_group:
                     changes["assignment_group"] = assignment_group
-                if state:
-                    state_map = {
-                        "new": "-5",
-                        "assess": "-4",
-                        "authorize": "-3",
-                        "scheduled": "-2",
-                        "implement": "-1",
-                        "review": "0",
-                        "closed": "3",
-                        "canceled": "4",
-                    }
-                    if state.lower() in state_map:
-                        changes["state"] = state_map[state.lower()]
+                if state and state.lower() in CHANGE_STATE_MAP:
+                    changes["state"] = CHANGE_STATE_MAP[state.lower()]
 
                 if not changes:
                     return format_response(

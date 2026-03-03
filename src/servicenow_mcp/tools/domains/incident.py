@@ -10,6 +10,15 @@ from servicenow_mcp.config import Settings
 from servicenow_mcp.policy import check_table_access, mask_sensitive_fields, write_gate
 from servicenow_mcp.utils import ServiceNowQuery, format_response, safe_tool_call
 
+INCIDENT_STATE_MAP: dict[str, str] = {
+    "open": "1",
+    "in_progress": "2",
+    "on_hold": "3",
+    "resolved": "6",
+    "closed": "7",
+    "canceled": "8",
+}
+
 
 def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthProvider) -> None:
     """Register Incident Management domain tools.
@@ -45,17 +54,8 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             check_table_access("incident")
 
             q = ServiceNowQuery()
-            if state and state != "all":
-                state_map = {
-                    "open": "1",
-                    "in_progress": "2",
-                    "on_hold": "3",
-                    "resolved": "6",
-                    "closed": "7",
-                    "canceled": "8",
-                }
-                if state.lower() in state_map:
-                    q = q.equals("state", state_map[state.lower()])
+            if state and state != "all" and state.lower() in INCIDENT_STATE_MAP:
+                q = q.equals("state", INCIDENT_STATE_MAP[state.lower()])
             if priority:
                 q = q.equals("priority", priority)
             if assigned_to:
@@ -276,17 +276,8 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                     changes["impact"] = str(impact)
                 if priority > 0:
                     changes["priority"] = str(priority)
-                if state:
-                    state_map = {
-                        "open": "1",
-                        "in_progress": "2",
-                        "on_hold": "3",
-                        "resolved": "6",
-                        "closed": "7",
-                        "canceled": "8",
-                    }
-                    if state.lower() in state_map:
-                        changes["state"] = state_map[state.lower()]
+                if state and state.lower() in INCIDENT_STATE_MAP:
+                    changes["state"] = INCIDENT_STATE_MAP[state.lower()]
                 if description:
                     changes["description"] = description
                 if assignment_group:

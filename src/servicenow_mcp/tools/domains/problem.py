@@ -10,6 +10,16 @@ from servicenow_mcp.config import Settings
 from servicenow_mcp.policy import check_table_access, mask_sensitive_fields, write_gate
 from servicenow_mcp.utils import ServiceNowQuery, format_response, safe_tool_call
 
+PROBLEM_STATE_MAP: dict[str, str] = {
+    "new": "1",
+    "in_progress": "2",
+    "known_error": "3",
+    "root_cause_analysis": "4",
+    "fix_in_progress": "5",
+    "resolved": "6",
+    "closed": "7",
+}
+
 
 def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthProvider) -> None:
     """Register Problem Management domain tools.
@@ -45,24 +55,14 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             check_table_access("problem")
 
             q = ServiceNowQuery()
-            if state and state != "all":
-                state_map = {
-                    "new": "1",
-                    "in_progress": "2",
-                    "known_error": "3",
-                    "root_cause_analysis": "4",
-                    "fix_in_progress": "5",
-                    "resolved": "6",
-                    "closed": "7",
-                }
-                if state.lower() in state_map:
-                    q.equals("state", state_map[state.lower()])
+            if state and state != "all" and state.lower() in PROBLEM_STATE_MAP:
+                q = q.equals("state", PROBLEM_STATE_MAP[state.lower()])
             if priority:
-                q.equals("priority", priority)
+                q = q.equals("priority", priority)
             if assigned_to:
-                q.equals("assigned_to", assigned_to)
+                q = q.equals("assigned_to", assigned_to)
             if assignment_group:
-                q.equals("assignment_group", assignment_group)
+                q = q.equals("assignment_group", assignment_group)
             query = q.build()
             field_list = [f.strip() for f in fields.split(",") if f.strip()] if fields else None
 
@@ -272,18 +272,8 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                     changes["impact"] = str(impact)
                 if priority > 0:
                     changes["priority"] = str(priority)
-                if state:
-                    state_map = {
-                        "new": "1",
-                        "in_progress": "2",
-                        "known_error": "3",
-                        "root_cause_analysis": "4",
-                        "fix_in_progress": "5",
-                        "resolved": "6",
-                        "closed": "7",
-                    }
-                    if state.lower() in state_map:
-                        changes["state"] = state_map[state.lower()]
+                if state and state.lower() in PROBLEM_STATE_MAP:
+                    changes["state"] = PROBLEM_STATE_MAP[state.lower()]
                 if description:
                     changes["description"] = description
                 if assigned_to:

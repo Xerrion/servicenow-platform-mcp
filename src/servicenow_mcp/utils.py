@@ -576,6 +576,31 @@ class ServiceNowQuery:
         self._parts.append("NQ")
         return self
 
+    # -- Related list query ------------------------------------------------------
+
+    def rl_query(self, related_table: str, related_field: str, operator: str, value: str) -> "ServiceNowQuery":
+        """Add a related list query (``^RLQUERY...^ENDRLQUERY``).
+
+        Filters records based on conditions on a related table.
+        For example, find incidents that have a task with state=2:
+
+            ``^RLQUERYtask.incident,state,=,2^ENDRLQUERY``
+
+        Args:
+            related_table: Dot-walk path from the related table to this table
+                           (e.g. ``"task.incident"``).
+            related_field: Field on the related table to filter on.
+            operator: The comparison operator (e.g. ``"="``, ``"!="``, ``"LIKE"``).
+            value: The comparison value.
+        """
+        related_table = sanitize_query_value(related_table)
+        validate_identifier(related_field)
+        operator = sanitize_query_value(operator)
+        value = sanitize_query_value(value)
+        self._parts.append(f"RLQUERY{related_table},{related_field},{operator},{value}")
+        self._parts.append("ENDRLQUERY")
+        return self
+
     # -- OR conditions ---------------------------------------------------------
 
     def or_condition(self, field: str, operator: str, value: str) -> "ServiceNowQuery":

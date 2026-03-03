@@ -450,6 +450,36 @@ class TestServiceNowQueryTimeRanges:
             ServiceNowQuery().older_than_days("BAD!", 1)
 
 
+class TestServiceNowQueryRelatedListQuery:
+    """Test related list query (RLQUERY) operator."""
+
+    def test_rl_query_basic(self) -> None:
+        result = ServiceNowQuery().rl_query("task.incident", "state", "=", "2").build()
+        assert result == "RLQUERY" + "task.incident,state,=,2^ENDRLQUERY"
+
+    def test_rl_query_with_other_conditions(self) -> None:
+        result = (
+            ServiceNowQuery()
+            .equals("active", "true")
+            .rl_query("task.incident", "state", "=", "2")
+            .equals("priority", "1")
+            .build()
+        )
+        assert result == "active=true^RLQUERYtask.incident,state,=,2^ENDRLQUERY^priority=1"
+
+    def test_rl_query_like_operator(self) -> None:
+        result = ServiceNowQuery().rl_query("task.incident", "short_description", "LIKE", "error").build()
+        assert result == "RLQUERYtask.incident,short_description,LIKE,error^ENDRLQUERY"
+
+    def test_rl_query_validates_related_field(self) -> None:
+        with pytest.raises(ValueError, match="Invalid identifier"):
+            ServiceNowQuery().rl_query("task.incident", "bad field!", "=", "2")
+
+    def test_rl_query_sanitizes_value(self) -> None:
+        result = ServiceNowQuery().rl_query("task.incident", "state", "=", "a^b").build()
+        assert result == "RLQUERYtask.incident,state,=,a^^b^ENDRLQUERY"
+
+
 class TestServiceNowQueryOrConditions:
     """Test OR condition methods."""
 

@@ -1,11 +1,12 @@
 """Tests for utility functions."""
 
 import uuid
+
 import pytest
 from toon_format import decode as toon_decode
 
 from servicenow_mcp.errors import ForbiddenError
-from servicenow_mcp.utils import safe_tool_call
+from servicenow_mcp.utils import ServiceNowQuery, safe_tool_call
 
 
 class TestCorrelationId:
@@ -195,6 +196,44 @@ class TestServiceNowQuery:
 
         q = ServiceNowQuery().equals("active", "true").equals("state", "1")
         assert str(q) == q.build()
+
+
+class TestServiceNowQueryEqualsIf:
+    """Test equals_if conditional filter."""
+
+    def test_equals_if_true_condition(self) -> None:
+        result = ServiceNowQuery().equals_if("state", "1", True).build()
+        assert result == "state=1"
+
+    def test_equals_if_false_condition(self) -> None:
+        result = ServiceNowQuery().equals_if("state", "1", False).build()
+        assert result == ""
+
+    def test_equals_if_truthy_string(self) -> None:
+        result = ServiceNowQuery().equals_if("priority", "2", bool("high")).build()
+        assert result == "priority=2"
+
+    def test_equals_if_falsy_empty_string(self) -> None:
+        result = ServiceNowQuery().equals_if("priority", "2", bool("")).build()
+        assert result == ""
+
+    def test_equals_if_chained(self) -> None:
+        result = (
+            ServiceNowQuery()
+            .equals_if("state", "1", True)
+            .equals_if("priority", "2", False)
+            .equals_if("assigned_to", "user123", True)
+            .build()
+        )
+        assert result == "state=1^assigned_to=user123"
+
+    def test_equals_if_all_false(self) -> None:
+        result = ServiceNowQuery().equals_if("state", "1", False).equals_if("priority", "2", False).build()
+        assert result == ""
+
+    def test_equals_if_validates_field(self) -> None:
+        with pytest.raises(ValueError, match="Invalid identifier"):
+            ServiceNowQuery().equals_if("bad field!", "1", True)
 
 
 class TestServiceNowQueryValidation:

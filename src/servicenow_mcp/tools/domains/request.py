@@ -43,12 +43,9 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             check_table_access("sc_request")
 
             q = ServiceNowQuery()
-            if state:
-                q = q.equals("state", state)
-            if requested_for:
-                q = q.equals("requested_for", requested_for)
-            if assignment_group:
-                q = q.equals("assignment_group", assignment_group)
+            q = q.equals_if("state", state, bool(state))
+            q = q.equals_if("requested_for", requested_for, bool(requested_for))
+            q = q.equals_if("assignment_group", assignment_group, bool(assignment_group))
             query = q.build()
             field_list = [f.strip() for f in fields.split(",") if f.strip()] if fields else None
 

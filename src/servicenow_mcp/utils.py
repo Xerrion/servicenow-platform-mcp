@@ -117,6 +117,21 @@ class ServiceNowQuery:
         self._parts.append(f"{field}={value}")
         return self
 
+    def equals_if(self, field: str, value: str, condition: bool) -> "ServiceNowQuery":
+        """Conditionally add an equals filter.
+
+        Appends ``field=value`` only when *condition* is truthy,
+        allowing fluent one-liner filters without external ``if`` guards.
+
+        Args:
+            field: The field name.
+            value: The comparison value.
+            condition: When truthy the filter is added; otherwise this is a no-op.
+        """
+        if condition:
+            return self.equals(field, value)
+        return self
+
     def not_equals(self, field: str, value: str) -> "ServiceNowQuery":
         """Add ``field!=value`` condition."""
         validate_identifier(field)

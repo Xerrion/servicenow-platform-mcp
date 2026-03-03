@@ -56,12 +56,9 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             q = ServiceNowQuery()
             if state and state != "all" and state.lower() in INCIDENT_STATE_MAP:
                 q = q.equals("state", INCIDENT_STATE_MAP[state.lower()])
-            if priority:
-                q = q.equals("priority", priority)
-            if assigned_to:
-                q = q.equals("assigned_to", assigned_to)
-            if assignment_group:
-                q = q.equals("assignment_group", assignment_group)
+            q = q.equals_if("priority", priority, bool(priority))
+            q = q.equals_if("assigned_to", assigned_to, bool(assigned_to))
+            q = q.equals_if("assignment_group", assignment_group, bool(assignment_group))
 
             query = q.build()
             field_list = [f.strip() for f in fields.split(",") if f.strip()] if fields else None

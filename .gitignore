@@ -36,6 +36,9 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
+# Sisyphus
+.sisyphus/
+
 # uv
 uv.lock
 

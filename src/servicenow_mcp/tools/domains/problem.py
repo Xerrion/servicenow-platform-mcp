@@ -11,16 +11,6 @@ from servicenow_mcp.config import Settings
 from servicenow_mcp.policy import check_table_access, mask_sensitive_fields, write_gate
 from servicenow_mcp.utils import ServiceNowQuery, format_response, safe_tool_call
 
-PROBLEM_STATE_MAP: dict[str, str] = {
-    "new": "1",
-    "in_progress": "2",
-    "known_error": "3",
-    "root_cause_analysis": "4",
-    "fix_in_progress": "5",
-    "resolved": "6",
-    "closed": "7",
-}
-
 
 def register_tools(
     mcp: FastMCP,
@@ -62,8 +52,9 @@ def register_tools(
             check_table_access("problem")
 
             q = ServiceNowQuery()
-            if state and state != "all" and state.lower() in PROBLEM_STATE_MAP:
-                q = q.equals("state", PROBLEM_STATE_MAP[state.lower()])
+            if state and state != "all":
+                resolved = await choices.resolve("problem", "state", state.lower()) if choices else state
+                q = q.equals_if("state", resolved, True)
             q = q.equals_if("priority", priority, bool(priority))
             q = q.equals_if("assigned_to", assigned_to, bool(assigned_to))
             q = q.equals_if("assignment_group", assignment_group, bool(assignment_group))
@@ -276,8 +267,8 @@ def register_tools(
                     changes["impact"] = str(impact)
                 if priority > 0:
                     changes["priority"] = str(priority)
-                if state and state.lower() in PROBLEM_STATE_MAP:
-                    changes["state"] = PROBLEM_STATE_MAP[state.lower()]
+                if state:
+                    changes["state"] = await choices.resolve("problem", "state", state.lower()) if choices else state
                 if description:
                     changes["description"] = description
                 if assigned_to:

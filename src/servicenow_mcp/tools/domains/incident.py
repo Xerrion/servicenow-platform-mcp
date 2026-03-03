@@ -11,15 +11,6 @@ from servicenow_mcp.config import Settings
 from servicenow_mcp.policy import check_table_access, mask_sensitive_fields, write_gate
 from servicenow_mcp.utils import ServiceNowQuery, format_response, safe_tool_call
 
-INCIDENT_STATE_MAP: dict[str, str] = {
-    "open": "1",
-    "in_progress": "2",
-    "on_hold": "3",
-    "resolved": "6",
-    "closed": "7",
-    "canceled": "8",
-}
-
 
 def register_tools(
     mcp: FastMCP,
@@ -61,8 +52,9 @@ def register_tools(
             check_table_access("incident")
 
             q = ServiceNowQuery()
-            if state and state != "all" and state.lower() in INCIDENT_STATE_MAP:
-                q = q.equals("state", INCIDENT_STATE_MAP[state.lower()])
+            if state and state != "all":
+                resolved = await choices.resolve("incident", "state", state.lower()) if choices else state
+                q = q.equals_if("state", resolved, True)
             q = q.equals_if("priority", priority, bool(priority))
             q = q.equals_if("assigned_to", assigned_to, bool(assigned_to))
             q = q.equals_if("assignment_group", assignment_group, bool(assignment_group))
@@ -280,8 +272,8 @@ def register_tools(
                     changes["impact"] = str(impact)
                 if priority > 0:
                     changes["priority"] = str(priority)
-                if state and state.lower() in INCIDENT_STATE_MAP:
-                    changes["state"] = INCIDENT_STATE_MAP[state.lower()]
+                if state:
+                    changes["state"] = await choices.resolve("incident", "state", state.lower()) if choices else state
                 if description:
                     changes["description"] = description
                 if assignment_group:
@@ -369,8 +361,9 @@ def register_tools(
 
                 sys_id = result["records"][0]["sys_id"]
 
+                resolved_state = await choices.resolve("incident", "state", "resolved") if choices else "6"
                 changes = {
-                    "state": "6",
+                    "state": resolved_state,
                     "close_code": close_code,
                     "close_notes": close_notes,
                 }

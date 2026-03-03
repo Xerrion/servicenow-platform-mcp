@@ -12,15 +12,6 @@ from servicenow_mcp.config import Settings
 from servicenow_mcp.policy import check_table_access, mask_sensitive_fields
 from servicenow_mcp.utils import ServiceNowQuery, format_response, safe_tool_call
 
-CMDB_STATUS_MAP: dict[str, str] = {
-    "operational": "1",
-    "non_operational": "2",
-    "repair_in_progress": "3",
-    "dr_standby": "4",
-    "ready": "5",
-    "retired": "6",
-}
-
 
 def register_tools(
     mcp: FastMCP,
@@ -59,7 +50,11 @@ def register_tools(
 
             q = ServiceNowQuery()
             if operational_status:
-                status_value = CMDB_STATUS_MAP.get(operational_status.lower(), operational_status)
+                status_value = (
+                    await choices.resolve("cmdb_ci", "operational_status", operational_status.lower())
+                    if choices
+                    else operational_status
+                )
                 q = q.equals("operational_status", status_value)
             query = q.build()
             field_list = [f.strip() for f in fields.split(",") if f.strip()] if fields else None

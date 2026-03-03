@@ -50,7 +50,9 @@ def register_tools(
             check_table_access("sc_request")
 
             q = ServiceNowQuery()
-            q = q.equals_if("state", state, bool(state))
+            if state:
+                resolved = await choices.resolve("sc_request", "state", state.lower()) if choices else state
+                q = q.equals_if("state", resolved, True)
             q = q.equals_if("requested_for", requested_for, bool(requested_for))
             q = q.equals_if("assignment_group", assignment_group, bool(assignment_group))
             query = q.build()
@@ -238,7 +240,9 @@ def register_tools(
 
                 changes = {}
                 if state:
-                    changes["state"] = state
+                    changes["state"] = (
+                        await choices.resolve("sc_req_item", "state", state.lower()) if choices else state
+                    )
                 if assignment_group:
                     changes["assignment_group"] = assignment_group
                 if assigned_to:

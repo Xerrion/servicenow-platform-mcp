@@ -51,6 +51,11 @@ _ALLOWED_OPERATORS: frozenset[str] = frozenset(
         "RELATIVELT",
         "MORETHAN",
         "DATEPART",
+        "DYNAMIC",
+        "IN_HIERARCHY",
+        "VALCHANGES",
+        "CHANGESFROM",
+        "CHANGESTO",
     }
 )
 
@@ -489,6 +494,86 @@ class ServiceNowQuery:
         validate_identifier(field)
         validate_identifier(other_field)
         self._parts.append(f"{field}NSAMEAS{other_field}")
+        return self
+
+    # -- Reference / hierarchy ---------------------------------------------------
+
+    def dynamic(self, field: str, value: str) -> "ServiceNowQuery":
+        """Add ``fieldDYNAMICvalue`` condition (dynamic reference qualifier).
+
+        Args:
+            field: A reference field name.
+            value: The dynamic qualifier value (e.g. a reference qualifier script name).
+        """
+        validate_identifier(field)
+        value = sanitize_query_value(value)
+        self._parts.append(f"{field}DYNAMIC{value}")
+        return self
+
+    def in_hierarchy(self, field: str, value: str) -> "ServiceNowQuery":
+        """Add ``fieldIN_HIERARCHYvalue`` condition.
+
+        Matches records where *field* references a CI within the given hierarchy.
+
+        Args:
+            field: A reference field name pointing to a CMDB CI.
+            value: The sys_id of the parent CI in the hierarchy.
+        """
+        validate_identifier(field)
+        value = sanitize_query_value(value)
+        self._parts.append(f"{field}IN_HIERARCHY{value}")
+        return self
+
+    # -- Change detection --------------------------------------------------------
+
+    def val_changes(self, field: str) -> "ServiceNowQuery":
+        """Add ``fieldVALCHANGES`` condition (field value changed).
+
+        Used primarily in notification/business rule conditions to detect
+        when a field's value has changed.
+        """
+        validate_identifier(field)
+        self._parts.append(f"{field}VALCHANGES")
+        return self
+
+    def changes_from(self, field: str, value: str) -> "ServiceNowQuery":
+        """Add ``fieldCHANGESFROMvalue`` condition.
+
+        Matches when *field* changes from a specific value.
+
+        Args:
+            field: The field name.
+            value: The previous value to match against.
+        """
+        validate_identifier(field)
+        value = sanitize_query_value(value)
+        self._parts.append(f"{field}CHANGESFROM{value}")
+        return self
+
+    def changes_to(self, field: str, value: str) -> "ServiceNowQuery":
+        """Add ``fieldCHANGESTOvalue`` condition.
+
+        Matches when *field* changes to a specific value.
+
+        Args:
+            field: The field name.
+            value: The new value to match against.
+        """
+        validate_identifier(field)
+        value = sanitize_query_value(value)
+        self._parts.append(f"{field}CHANGESTO{value}")
+        return self
+
+    # -- Logical -----------------------------------------------------------------
+
+    def new_query(self) -> "ServiceNowQuery":
+        """Append ``^NQ`` to start a new OR-filter group.
+
+        ServiceNow's ``^NQ`` operator acts as a top-level OR between
+        independent filter groups, unlike ``^OR`` which operates within
+        a single filter group.
+        """
+        self._parts.append("NQ")
         return self
 
     # -- OR conditions ---------------------------------------------------------

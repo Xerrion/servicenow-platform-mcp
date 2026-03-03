@@ -717,6 +717,93 @@ class TestServiceNowQueryFieldComparison:
         assert result == "priorityGT_FIELDimpact^ORprioritySAMEASurgency"
 
 
+class TestServiceNowQueryReferenceOperators:
+    """Test reference and hierarchy operators."""
+
+    def test_dynamic(self) -> None:
+        result = ServiceNowQuery().dynamic("cmdb_ci", "javascript:getCIFilter()").build()
+        assert result == "cmdb_ciDYNAMICjavascript:getCIFilter()"
+
+    def test_in_hierarchy(self) -> None:
+        result = ServiceNowQuery().in_hierarchy("cmdb_ci", "abc123def456").build()
+        assert result == "cmdb_ciIN_HIERARCHYabc123def456"
+
+    def test_dynamic_validates_field(self) -> None:
+        with pytest.raises(ValueError, match="Invalid identifier"):
+            ServiceNowQuery().dynamic("bad field!", "value")
+
+    def test_in_hierarchy_validates_field(self) -> None:
+        with pytest.raises(ValueError, match="Invalid identifier"):
+            ServiceNowQuery().in_hierarchy("bad field!", "value")
+
+    def test_dynamic_sanitizes(self) -> None:
+        result = ServiceNowQuery().dynamic("field", "a^b").build()
+        assert result == "fieldDYNAMICa^^b"
+
+    def test_or_dynamic(self) -> None:
+        result = ServiceNowQuery().dynamic("cmdb_ci", "filter1").or_condition("cmdb_ci", "DYNAMIC", "filter2").build()
+        assert result == "cmdb_ciDYNAMICfilter1^ORcmdb_ciDYNAMICfilter2"
+
+
+class TestServiceNowQueryChangeDetection:
+    """Test change detection and NQ operators."""
+
+    def test_val_changes(self) -> None:
+        result = ServiceNowQuery().val_changes("state").build()
+        assert result == "stateVALCHANGES"
+
+    def test_changes_from(self) -> None:
+        result = ServiceNowQuery().changes_from("priority", "3").build()
+        assert result == "priorityCHANGESFROM3"
+
+    def test_changes_to(self) -> None:
+        result = ServiceNowQuery().changes_to("state", "6").build()
+        assert result == "stateCHANGESTO6"
+
+    def test_val_changes_validates_field(self) -> None:
+        with pytest.raises(ValueError, match="Invalid identifier"):
+            ServiceNowQuery().val_changes("bad field!")
+
+    def test_changes_from_validates_field(self) -> None:
+        with pytest.raises(ValueError, match="Invalid identifier"):
+            ServiceNowQuery().changes_from("bad field!", "3")
+
+    def test_changes_to_validates_field(self) -> None:
+        with pytest.raises(ValueError, match="Invalid identifier"):
+            ServiceNowQuery().changes_to("bad field!", "6")
+
+    def test_changes_from_sanitizes(self) -> None:
+        result = ServiceNowQuery().changes_from("state", "a^b").build()
+        assert result == "stateCHANGESFROMa^^b"
+
+    def test_new_query(self) -> None:
+        result = (
+            ServiceNowQuery()
+            .equals("active", "true")
+            .equals("priority", "1")
+            .new_query()
+            .equals("active", "true")
+            .equals("priority", "2")
+            .build()
+        )
+        assert result == "active=true^priority=1^NQ^active=true^priority=2"
+
+    def test_new_query_empty(self) -> None:
+        """NQ at the start produces just NQ."""
+        result = ServiceNowQuery().new_query().equals("state", "1").build()
+        assert result == "NQ^state=1"
+
+    def test_chaining_change_detection(self) -> None:
+        result = (
+            ServiceNowQuery().val_changes("state").changes_from("priority", "3").changes_to("priority", "1").build()
+        )
+        assert result == "stateVALCHANGES^priorityCHANGESFROM3^priorityCHANGESTO1"
+
+    def test_or_val_changes(self) -> None:
+        result = ServiceNowQuery().val_changes("state").or_condition("priority", "VALCHANGES", "").build()
+        assert result == "stateVALCHANGES^ORpriorityVALCHANGES"
+
+
 class TestServiceNowQueryDateTimeOperators:
     """Test extended date/time operators."""
 

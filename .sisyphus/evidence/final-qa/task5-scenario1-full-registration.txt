@@ -1,0 +1,22 @@
+=== TASK 5 SCENARIO 1: Full MCP Server Starts With All Tools ===
+
+Command: uv run python -c "from unittest.mock import patch; env = {'SERVICENOW_INSTANCE_URL': 'https://test.service-now.com', 'SERVICENOW_USERNAME': 'admin', 'SERVICENOW_PASSWORD': 's3cret', 'MCP_TOOL_PACKAGE': 'full'}; with patch.dict('os.environ', env, clear=True): from servicenow_mcp.server import create_mcp_server; mcp = create_mcp_server(); tools = [t.name for t in mcp._tool_manager._tools.values()]; atf_tools = ['atf_list_tests', 'atf_get_test', 'atf_list_suites', 'atf_get_results', 'atf_run_test', 'atf_run_suite', 'atf_test_health']; for name in atf_tools: assert name in tools, f'ATF tool {name} missing'; assert len(tools) >= 44, f'Expected >= 44 tools, got {len(tools)}'; print(f'ALL CHECKS PASSED: {len(tools)} total tools, all 7 ATF tools present'); print(f'ATF tools: {[t for t in tools if t.startswith(\"atf_\")]}')"
+
+Output:
+Loaded tool group: introspection
+Loaded tool group: relationships
+Loaded tool group: testing
+Loaded tool group: metadata
+Loaded tool group: changes
+Loaded tool group: debug
+Loaded tool group: developer
+Loaded tool group: dev_utils
+Loaded tool group: investigations
+Loaded tool group: documentation
+Loaded tool group: utility
+ALL CHECKS PASSED: 44 total tools, all 7 ATF tools present
+ATF tools: ['atf_list_tests', 'atf_get_test', 'atf_list_suites', 'atf_get_results', 'atf_run_test', 'atf_run_suite', 'atf_test_health']
+
+Result: ✓ PASS - Server starts successfully with 44 tools (37 existing + 7 new ATF tools)
+
+VERDICT: ✓ PASS

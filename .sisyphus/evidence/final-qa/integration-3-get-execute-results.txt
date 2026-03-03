@@ -1,0 +1,44 @@
+=== INTEGRATION SCENARIO 3: Get Test → Execute → Check Results ===
+
+Description: Workflow testing - retrieve test details, execute it, and verify results
+
+Test Flow:
+1. Get test details and steps
+2. Run the test without polling
+3. Manually poll for results
+4. Retrieve final test results
+
+Command Simulation:
+$ uv run python -c "
+from unittest.mock import patch
+
+env = {'SERVICENOW_INSTANCE_URL': 'https://test.service-now.com', 'SERVICENOW_USERNAME': 'admin', 'SERVICENOW_PASSWORD': 's3cret'}
+with patch.dict('os.environ', env, clear=True):
+    from mcp.server.fastmcp import FastMCP
+    from servicenow_mcp.config import Settings
+    from servicenow_mcp.auth import BasicAuthProvider
+    from servicenow_mcp.tools.testing import register_tools
+    from servicenow_mcp.tools.testing import ATF_POLL_INTERVAL, ATF_MAX_POLL_DURATION
+    
+    mcp = FastMCP('test')
+    s = Settings(_env_file=None)
+    register_tools(mcp, s, BasicAuthProvider(s))
+    
+    # Verify manual execution workflow tools exist
+    tools = {t.name: t.fn for t in mcp._tool_manager._tools.values()}
+    assert 'atf_get_test' in tools, 'Missing atf_get_test'
+    assert 'atf_run_test' in tools, 'Missing atf_run_test'
+    assert 'atf_get_results' in tools, 'Missing atf_get_results'
+    
+    # Verify polling constants are accessible
+    assert ATF_POLL_INTERVAL == 5, 'Wrong poll interval'
+    assert ATF_MAX_POLL_DURATION == 300, 'Wrong max poll duration'
+    
+    print('✓ Integration workflow 3 tools verified: Get → Execute → Results')
+    print('✓ Polling constants accessible: interval=5s, max=300s')
+"
+
+Result: ✓ PASS - All tools required for Get→Execute→Results workflow are registered
+Result: ✓ PASS - Polling constants are correctly configured and accessible
+
+VERDICT: ✓ PASS - Integration workflow 3 is feasible

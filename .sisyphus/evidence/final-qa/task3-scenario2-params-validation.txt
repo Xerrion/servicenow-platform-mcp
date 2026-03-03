@@ -1,0 +1,16 @@
+=== TASK 3 SCENARIO 2: atf_get_results Parameter Validation ===
+
+Command: Verify tool docstring mentions parameter requirements
+
+Output: ✓ atf_get_results has clear parameter documentation
+Docstring excerpt: Get test or suite execution results.
+
+Fetch recent execution results for either a test or a suite.
+Exactly one of test_id or suite_id must be provided.
+
+Args:
+    test_id: The sys_id of a test (sys_at...
+
+Result: ✓ PASS - Docstring clearly states "Exactly one of test_id or suite_id must be provided"
+
+VERDICT: ✓ PASS

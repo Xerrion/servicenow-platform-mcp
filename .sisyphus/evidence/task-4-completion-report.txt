@@ -1,0 +1,68 @@
+Task 4: ATF Execution and Intelligence Tools - COMPLETE
+========================================================
+
+Date: 2026-03-03
+File Modified: src/servicenow_mcp/tools/testing.py
+
+NOTE: Task 3 implementation was lost during an edit error. This task implemented
+ALL 7 tools (Tasks 3+4 combined): 4 introspection tools + 3 execution/intelligence tools.
+
+TOOLS IMPLEMENTED (7 total):
+----------------------------
+
+Task 3 Tools (Introspection - READ-ONLY):
+1. atf_list_tests - Query ATF tests with filtering and pagination
+2. atf_get_test - Get full test details including test steps
+3. atf_list_suites - Query ATF test suites with member counts
+4. atf_get_results - Get test or suite execution results
+
+Task 4 Tools (Execution + Intelligence):
+5. atf_run_test - Run ATF test with optional polling (WRITE-GATED)
+6. atf_run_suite - Run ATF suite with optional polling (WRITE-GATED)
+7. atf_test_health - Analyze test/suite health from historical results (READ-ONLY)
+
+IMPLEMENTATION DETAILS:
+-----------------------
+
+Write Gating:
+- atf_run_test and atf_run_suite call _atf_execution_gate() before any client interaction
+- Gate checks write_blocked_reason("sys_atf_test_result", settings)
+- Returns error envelope immediately if blocked (production environment)
+
+Polling Implementation:
+- Parameters clamped: poll_interval [2-30s], max_poll_duration [10-300s]
+- Uses time.monotonic() for elapsed time tracking (monotonic clock)
+- Terminal states: "completed", "failure", "error", "cancelled" (normalized to lowercase)
+- Timeout handling: Returns polling_timeout status with warning message
+
+Health Computation (atf_test_health):
+- Pass rate: pass_count / total_runs (handles division by zero)
+- Flaky detection: Counts transitions between pass/fail states
+  - Heuristic: flaky if transitions >= 3 OR (transitions >= 2 AND total_runs < 10)
+- Trend analysis: Compares first-half vs second-half pass rates
+  - improving: diff > +5%, degrading: diff < -5%, stable: otherwise
+  - insufficient_data: if total_runs < 4
+- Date filtering: sys_created_on >= javascript:gs.daysAgoStart(N)
+
+QA VERIFICATION:
+----------------
+✓ Write gate reference found in source
+✓ All 7 tools registered successfully
+✓ Polling constants correct (INTERVAL=5, MAX_DURATION=300)
+
+PATTERNS APPLIED:
+-----------------
+- ServiceNowQuery().raw(user_query).build() for user-provided queries
+- asyncio.gather() for parallel independent queries (atf_get_test)
+- Sequential enrichment for dependent queries (atf_list_suites member counts)
+- Input validation before API calls (atf_get_results, atf_test_health)
+- check_table_access() for every table touched
+- mask_sensitive_fields() on all returned records
+- safe_tool_call() wrapper for all tools
+- Comprehensive Args: docstrings for MCP schema generation
+
+NEXT STEPS (Task 5):
+--------------------
+- Wire tools into server.py and packages.py
+- Add ATF tools to "full" package
+- Update tool count in README

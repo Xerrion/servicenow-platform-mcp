@@ -1,0 +1,27 @@
+## Task 7: Write Gate Tests Evidence
+
+### Test Execution
+
+Command: uv run pytest tests/test_testing.py::TestAtfRunTest::test_run_test_write_gate_blocks tests/test_testing.py::TestAtfRunSuite::test_run_suite_write_gate_blocks -v
+
+### Results
+
+PASSED tests/test_testing.py::TestAtfRunTest::test_run_test_write_gate_blocks
+PASSED tests/test_testing.py::TestAtfRunSuite::test_run_suite_write_gate_blocks
+
+Both write gate tests verify that execution tools (atf_run_test and atf_run_suite) are blocked when SERVICENOW_ENV=prod.
+
+### Write Gate Implementation
+
+File: src/servicenow_mcp/tools/testing.py
+- Line 43-54: _atf_execution_gate() helper
+- Line 322-324: atf_run_test write gate check
+- Line 420-422: atf_run_suite write gate check
+
+### Test Implementation
+
+File: tests/test_testing.py
+- Line 473-494: test_run_test_write_gate_blocks (uses prod_settings fixture)
+- Line 570-589: test_run_suite_write_gate_blocks (uses prod_settings fixture)
+
+Both tests verify that when SERVICENOW_ENV=prod, the tools return error envelopes with status="error" and the write gate blocked message.

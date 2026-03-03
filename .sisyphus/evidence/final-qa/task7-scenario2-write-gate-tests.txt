@@ -1,0 +1,22 @@
+=== TASK 7 SCENARIO 2: Write Gate Tests Work Correctly ===
+
+Command: uv run pytest tests/test_testing.py -v -k "write_gate_blocks" --tb=short
+
+Output:
+============================= test session starts ==============================
+platform darwin -- Python 3.13.3, pytest-9.0.2, pluggy-1.6.0 -- /Users/lasn/Projects/servicenow-devtools-mcp/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/lasn/Projects/servicenow-devtools-mcp
+configfile: pyproject.toml
+plugins: anyio-4.12.1, respx-0.22.0, asyncio-1.3.0, cov-7.0.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 28 items / 26 deselected / 2 selected
+
+tests/test_testing.py::TestAtfRunTest::test_run_test_write_gate_blocks PASSED [ 50%]
+tests/test_testing.py::TestAtfRunSuite::test_run_suite_write_gate_blocks PASSED [100%]
+
+======================= 2 passed, 26 deselected in 0.48s =======================
+
+Result: ✓ PASS - Both write gate tests (run_test and run_suite) correctly block in prod environment
+
+VERDICT: ✓ PASS

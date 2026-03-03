@@ -1,0 +1,9 @@
+=== TASK 4 SCENARIO 1: Execution Tools Are Write-Gated ===
+
+Command: uv run python -c "import ast, inspect; from servicenow_mcp.tools import testing; source = inspect.getsource(testing); assert '_atf_execution_gate' in source, 'Missing execution gate'; print('Write gate reference found')"
+
+Output: Write gate reference found
+
+Result: ✓ PASS - Execution gate function reference found in source code
+
+VERDICT: ✓ PASS

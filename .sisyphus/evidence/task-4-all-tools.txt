@@ -1,0 +1,1 @@
+✓ All 7 tools registered: ['atf_list_tests', 'atf_get_test', 'atf_list_suites', 'atf_get_results', 'atf_run_test', 'atf_run_suite', 'atf_test_health']

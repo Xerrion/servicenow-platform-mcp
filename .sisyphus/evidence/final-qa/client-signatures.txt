@@ -1,0 +1,3 @@
+atf_run: (self, test_or_suite_id: str, is_suite: bool = False) -> dict[str, typing.Any]
+atf_progress: (self, snboq_id: str) -> dict[str, typing.Any]
+atf_cancel: (self, snboq_id: str) -> dict[str, typing.Any]

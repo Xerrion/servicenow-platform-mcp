@@ -1,0 +1,9 @@
+=== TASK 4 SCENARIO 2: All 7 Tools Registered ===
+
+Command: uv run python -c "from unittest.mock import patch; env = {...}; with patch.dict('os.environ', env, clear=True): from mcp.server.fastmcp import FastMCP; from servicenow_mcp.config import Settings; from servicenow_mcp.auth import BasicAuthProvider; from servicenow_mcp.tools.testing import register_tools; mcp = FastMCP('test'); s = Settings(_env_file=None); register_tools(mcp, s, BasicAuthProvider(s)); tools = [t.name for t in mcp._tool_manager._tools.values()]; expected = ['atf_list_tests', 'atf_get_test', 'atf_list_suites', 'atf_get_results', 'atf_run_test', 'atf_run_suite', 'atf_test_health']; for name in expected: assert name in tools, f'{name} not found'; print(f'All 7 tools registered: {tools}')"
+
+Output: All 7 tools registered: ['atf_list_tests', 'atf_get_test', 'atf_list_suites', 'atf_get_results', 'atf_run_test', 'atf_run_suite', 'atf_test_health']
+
+Result: ✓ PASS - All 7 expected ATF tools found
+
+VERDICT: ✓ PASS

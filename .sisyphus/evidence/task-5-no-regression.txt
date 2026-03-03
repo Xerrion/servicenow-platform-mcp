@@ -1,0 +1,14 @@
+Loaded tool group: introspection
+Loaded tool group: relationships
+Loaded tool group: testing
+Loaded tool group: metadata
+Loaded tool group: changes
+Loaded tool group: debug
+Loaded tool group: developer
+Loaded tool group: dev_utils
+Loaded tool group: investigations
+Loaded tool group: documentation
+Loaded tool group: utility
+✓ Total: 44 tools
+✓ All existing tools present
+✓ No regression detected

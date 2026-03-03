@@ -1,0 +1,122 @@
+TASK 1 COMPLETION REPORT
+========================
+Date: 2025-03-03
+Task: Add ATF Cloud Runner REST API client methods to client.py
+
+DELIVERABLES CHECKLIST
+======================
+[✓] File Modified: src/servicenow_mcp/client.py (611 lines, +97 lines)
+[✓] Method 1: _atf_cloud_runner_url(endpoint: str) -> str
+    - Returns: f"{instance_url}/api/now/sn_atf_tg/{endpoint}"
+    - Private method for URL building
+[✓] Method 2: atf_run(test_or_suite_id: str, is_suite: bool = False) -> dict
+    - POST to /test_runner
+    - Body: {"testId": id} or {"suiteId": id}
+    - Handles 404 with NotFoundError (plugin message)
+    - Defensive result extraction (KeyError fallback)
+[✓] Method 3: atf_progress(snboq_id: str) -> dict
+    - GET to /test_runner_progress?snboqId={id}
+    - Handles 404 with NotFoundError (plugin message)
+    - Defensive result extraction (KeyError fallback)
+[✓] Method 4: atf_cancel(snboq_id: str) -> dict
+    - POST to /cancel_test_runner
+    - Body: {"snboqId": id}
+    - Handles 404 with NotFoundError (plugin message)
+    - Defensive result extraction (KeyError fallback)
+
+VERIFICATION RESULTS
+====================
+Type Checking: PASS
+  - mypy src/servicenow_mcp/client.py: 0 errors
+  - All methods have full type hints
+  - Return types explicit (dict[str, Any])
+  - Modern union syntax (no Optional)
+
+Unit Tests: PASS
+  - 56 existing tests in test_client.py: ALL PASS
+  - No regressions detected
+  - Test execution time: 0.59s
+
+Method Signatures: VERIFIED
+  - atf_run: (self, test_or_suite_id: str, is_suite: bool = False) -> dict[str, Any]
+  - atf_progress: (self, snboq_id: str) -> dict[str, Any]
+  - atf_cancel: (self, snboq_id: str) -> dict[str, Any]
+  - _atf_cloud_runner_url: (self, endpoint: str) -> str
+
+Implementation Pattern: VERIFIED
+  - Uses self._ensure_client() to guard against uninitialized state
+  - Uses await self._headers() for auth headers with correlation ID
+  - Uses self._raise_for_status(response) for error mapping
+  - Catches httpx.HTTPStatusError for 404 handling
+  - Defensive result extraction with KeyError fallback
+  - All methods are async (coroutine functions)
+
+QA SCENARIOS EXECUTED
+=====================
+Scenario 1: Client methods exist and have correct signatures
+  - Evidence: .sisyphus/evidence/task-1-client-signatures.txt
+  - Status: PASS
+  - Details:
+    ✓ atf_run: (self, test_or_suite_id: str, is_suite: bool = False) -> dict[str, typing.Any]
+    ✓ atf_progress: (self, snboq_id: str) -> dict[str, typing.Any]
+    ✓ atf_cancel: (self, snboq_id: str) -> dict[str, typing.Any]
+    ✓ _atf_cloud_runner_url: (self, endpoint: str) -> str
+
+Scenario 2: Type checking passes
+  - Evidence: .sisyphus/evidence/task-1-mypy-client.txt
+  - Status: PASS
+  - Details: mypy completed with 0 errors (empty output)
+
+REQUIREMENTS COMPLIANCE
+=======================
+✓ URL builder pattern matches _code_search_url() exactly
+✓ GET request pattern matches code_search() exactly
+✓ POST request pattern matches create_record() exactly
+✓ Defensive extraction with try/except KeyError fallback
+✓ 404 handling with NotFoundError and plugin message
+✓ All methods follow exact async pattern from codebase
+✓ Full type hints (enforced by mypy strict mode)
+✓ Call self._raise_for_status(response) before extraction
+✓ No polling logic added to client (belongs in tool layer)
+✓ No existing methods modified
+✓ No table API methods added (tables use existing query_records/get_record)
+
+ERROR HANDLING VERIFICATION
+===========================
+✓ httpx.HTTPStatusError caught specifically for ATF methods
+✓ 404 raises NotFoundError with context: "ATF Cloud Runner plugin (sn_atf_tg) may not be installed"
+✓ Other HTTP errors re-raised to _raise_for_status()
+✓ KeyError handling in response extraction: try _extract_result() first, fallback to raw data
+✓ All exceptions mapped through custom exception hierarchy
+
+IMPORTS VERIFICATION
+====================
+✓ NotFoundError: Already imported from servicenow_mcp.errors
+✓ httpx: Already imported for HTTPStatusError handling
+✓ No new dependencies required
+✓ Import order: stdlib -> third-party -> local (correct)
+
+CODE STYLE VERIFICATION
+=======================
+✓ Line length: All lines <= 120 characters (ruff formatted)
+✓ Quotes: Double quotes throughout
+✓ Naming: snake_case for methods/params, PascalCase for class names
+✓ Docstrings: Present for all public methods with Args/Returns
+✓ Trailing newlines: File ends with newline
+✓ Trailing commas: Multi-line constructs have trailing commas
+✓ Formatting: ruff compliant (no lint errors)
+
+INTEGRATION CHECK
+=================
+✓ File integration: No breaking changes
+✓ Existing test suite: 56/56 tests passing
+✓ No circular imports introduced
+✓ No modification to __init__.py required (methods auto-discovered)
+✓ No modification to type stubs needed
+
+TASK STATUS: COMPLETE
+=====================
+All deliverables completed.
+All QA scenarios passed.
+All verification checks successful.
+Ready for next task in Wave 1.

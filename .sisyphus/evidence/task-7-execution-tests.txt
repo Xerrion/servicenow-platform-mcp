@@ -1,0 +1,65 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.13.3, pytest-9.0.2, pluggy-1.6.0 -- /Users/lasn/Projects/servicenow-devtools-mcp/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/lasn/Projects/servicenow-devtools-mcp
+configfile: pyproject.toml
+plugins: anyio-4.12.1, respx-0.22.0, asyncio-1.3.0, cov-7.0.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 28 items / 12 deselected / 16 selected
+
+tests/test_testing.py::TestAtfRunTest::test_run_test_success_with_poll PASSED [  6%]
+tests/test_testing.py::TestAtfRunTest::test_run_test_no_poll PASSED      [ 12%]
+tests/test_testing.py::TestAtfRunTest::test_run_test_write_gate_blocks PASSED [ 18%]
+tests/test_testing.py::TestAtfRunTest::test_run_test_timeout PASSED      [ 25%]
+tests/test_testing.py::TestAtfRunTest::test_run_test_failed_execution PASSED [ 31%]
+tests/test_testing.py::TestAtfRunSuite::test_run_suite_success_with_poll PASSED [ 37%]
+tests/test_testing.py::TestAtfRunSuite::test_run_suite_no_poll PASSED    [ 43%]
+tests/test_testing.py::TestAtfRunSuite::test_run_suite_write_gate_blocks PASSED [ 50%]
+tests/test_testing.py::TestAtfRunSuite::test_run_suite_cancelled PASSED  [ 56%]
+tests/test_testing.py::TestAtfTestHealth::test_health_all_passing PASSED [ 62%]
+tests/test_testing.py::TestAtfTestHealth::test_health_flaky_detection PASSED [ 68%]
+tests/test_testing.py::TestAtfTestHealth::test_health_trending_downward PASSED [ 75%]
+tests/test_testing.py::TestAtfTestHealth::test_health_no_results PASSED  [ 81%]
+tests/test_testing.py::TestAtfTestHealth::test_health_missing_both_ids PASSED [ 87%]
+tests/test_testing.py::TestAtfTestHealth::test_health_both_ids_provided PASSED [ 93%]
+tests/test_testing.py::TestAtfTestHealth::test_health_for_suite PASSED   [100%]
+
+================================ tests coverage ================================
+_______________ coverage: platform darwin, python 3.13.3-final-0 _______________
+
+Name                                                           Stmts   Miss  Cover   Missing
+--------------------------------------------------------------------------------------------
+src/servicenow_mcp/__init__.py                                     0      0   100%
+src/servicenow_mcp/auth.py                                        11      1    91%   27
+src/servicenow_mcp/client.py                                     300    195    35%   41, 48-49, 56, 61-62, 73-74, 76-77, 79-80, 82-83, 85-86, 91-97, 107-120, 142, 144, 155-156, 162-174, 194-222, 226-233, 237-244, 248-254, 260, 268-279, 285-286, 294-300, 306, 310-311, 315-316, 327-346, 350-356, 360-366, 372, 376, 386-401, 408-419, 425-429, 433-434, 444-464, 472-478, 482-488, 494, 502-514, 542-545, 550-551, 572-575, 580-581, 592-611
+src/servicenow_mcp/config.py                                      38      4    89%   35, 43, 51, 57
+src/servicenow_mcp/errors.py                                      22      8    64%   8-9, 16, 23, 30, 37, 44, 51
+src/servicenow_mcp/investigations/__init__.py                      2      2     0%   10-20
+src/servicenow_mcp/investigations/acl_conflicts.py                29     29     0%   3-97
+src/servicenow_mcp/investigations/deprecated_apis.py              33     33     0%   3-93
+src/servicenow_mcp/investigations/error_analysis.py               44     44     0%   3-104
+src/servicenow_mcp/investigations/performance_bottlenecks.py      65     65     0%   3-163
+src/servicenow_mcp/investigations/slow_transactions.py            49     49     0%   3-128
+src/servicenow_mcp/investigations/stale_automations.py            61     61     0%   3-165
+src/servicenow_mcp/investigations/table_health.py                 51     51     0%   3-150
+src/servicenow_mcp/packages.py                                     7      7     0%   5-41
+src/servicenow_mcp/policy.py                                      54     24    56%   62, 75, 89-99, 108, 122-138, 147-153, 166
+src/servicenow_mcp/server.py                                      36     36     0%   3-73
+src/servicenow_mcp/state.py                                       39     39     0%   3-65
+src/servicenow_mcp/tools/__init__.py                               0      0   100%
+src/servicenow_mcp/tools/changes.py                              114    114     0%   3-349
+src/servicenow_mcp/tools/debug.py                                117    117     0%   3-519
+src/servicenow_mcp/tools/dev_utils.py                             50     50     0%   3-159
+src/servicenow_mcp/tools/developer.py                            156    156     0%   3-441
+src/servicenow_mcp/tools/documentation.py                        162    162     0%   3-505
+src/servicenow_mcp/tools/introspection.py                         67     67     0%   3-205
+src/servicenow_mcp/tools/investigations.py                        44     44     0%   3-101
+src/servicenow_mcp/tools/metadata.py                              89     89     0%   3-255
+src/servicenow_mcp/tools/relationships.py                         95     95     0%   3-214
+src/servicenow_mcp/tools/testing.py                              200     68    66%   30-40, 74-106, 118-152, 167-204, 222-300, 334, 435, 483-485, 618, 624
+src/servicenow_mcp/tools/utility.py                               53     53     0%   3-156
+src/servicenow_mcp/utils.py                                      159     96    40%   44, 55, 80, 95-104, 117-120, 124-127, 131-134, 138-141, 145-148, 152-155, 161-164, 168-171, 175-178, 184-186, 190-192, 203-208, 217-222, 231-236, 245-250, 261-264, 273-276, 288-293, 302, 311, 351, 365-375
+--------------------------------------------------------------------------------------------
+TOTAL                                                           2147   1759    18%
+Coverage XML written to file coverage.xml
+====================== 16 passed, 12 deselected in 10.86s ======================

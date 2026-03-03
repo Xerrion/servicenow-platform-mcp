@@ -1,0 +1,20 @@
+=== EDGE CASE: Missing Required Parameters ===
+
+Case: Tools called without required mutually exclusive parameters
+
+Tests executed:
+1. test_get_results_missing_both_ids - atf_get_results with neither test_id nor suite_id
+2. test_health_missing_both_ids - atf_test_health with neither test_id nor suite_id
+3. test_health_both_ids_provided - atf_test_health with BOTH test_id and suite_id
+
+Result: ALL PASSED
+
+Verified behavior:
+- Tools validate mutually exclusive parameters
+- Return status="error" with clear message
+- Error message explains "exactly one" parameter required
+- For both provided: mentions "not both"
+- No API call made when validation fails
+- Fail fast with clear guidance
+
+Edge Case Status: ✓ PASS

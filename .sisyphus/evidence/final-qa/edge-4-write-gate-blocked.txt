@@ -1,0 +1,18 @@
+=== EDGE CASE: Write Gate Blocked (Production) ===
+
+Case: Execution tools called in production environment
+
+Tests executed:
+1. test_run_test_write_gate_blocks - atf_run_test blocked in prod
+2. test_run_suite_write_gate_blocks - atf_run_suite blocked in prod
+
+Result: ALL PASSED
+
+Verified behavior:
+- Both execution tools check write gate BEFORE API call
+- Return status="error" with clear message about production blocking
+- Message contains "production" or "blocked" keyword
+- No API call made when blocked (safe in production)
+- Read-only tools NOT affected by write gate
+
+Edge Case Status: ✓ PASS

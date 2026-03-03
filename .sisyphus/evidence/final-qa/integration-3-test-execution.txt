@@ -1,0 +1,18 @@
+=== INTEGRATION TEST: Test Execution with Polling ===
+
+Workflow: atf_run_test (poll) → atf_get_results
+
+Description: Execute single test with polling until completion, then retrieve detailed results
+
+Commands executed:
+1. uv run pytest tests/test_testing.py::TestAtfRunTest::test_run_test_success_with_poll -v --tb=short --no-cov
+2. uv run pytest tests/test_testing.py::TestAtfGetResults::test_get_results_for_test -v --tb=short --no-cov
+
+Result: ALL PASSED
+
+Integration verified:
+- atf_run_test triggers execution and polls until terminal state
+- Returns execution_id (snboq_id) and final status
+- atf_get_results can query results by test_id
+
+Workflow Status: ✓ PASS

@@ -1,0 +1,3 @@
+All checks passed!
+1 file already formatted
+Exit code: 0

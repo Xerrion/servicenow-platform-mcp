@@ -1,0 +1,18 @@
+=== EDGE CASE: Polling Timeout ===
+
+Case: Test execution exceeds max_poll_duration without reaching terminal state
+
+Tests executed:
+1. test_run_test_timeout - atf_run_test polls for 10s max, execution never completes
+
+Result: PASSED
+
+Verified behavior:
+- Polling respects max_poll_duration parameter (10s in test)
+- Returns status="success" (execution started successfully)
+- data.status="polling_timeout" indicates timeout occurred
+- Includes last_known_state and execution_id for manual checking
+- Includes warning message about timeout
+- Does NOT block indefinitely
+
+Edge Case Status: ✓ PASS

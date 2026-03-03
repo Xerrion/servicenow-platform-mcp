@@ -1,0 +1,5 @@
+✓ atf_get_results parameter validation passed
+  Parameters: ['test_id', 'suite_id', 'limit']
+  test_id default: ''
+  suite_id default: ''
+  Docstring mentions mutual exclusivity: Yes

@@ -1,0 +1,2 @@
+✓ All 4 introspection tools registered successfully
+  Registered tools: ['atf_list_tests', 'atf_get_test', 'atf_list_suites', 'atf_get_results']

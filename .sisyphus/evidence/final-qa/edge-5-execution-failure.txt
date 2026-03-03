@@ -1,0 +1,18 @@
+=== EDGE CASE: Execution Failure and Cancellation ===
+
+Case: Test execution completes with failure or cancelled state
+
+Tests executed:
+1. test_run_test_failed_execution - execution completes with state="Failure"
+2. test_run_suite_cancelled - execution cancelled with state="Cancelled"
+
+Result: ALL PASSED
+
+Verified behavior:
+- Polling detects terminal failure states (Failure, Cancelled)
+- Returns status="success" (polling completed successfully)
+- data.status reflects terminal state ("failure", "cancelled")
+- Includes execution_id for further investigation
+- Does not treat execution failure as tool error
+
+Edge Case Status: ✓ PASS

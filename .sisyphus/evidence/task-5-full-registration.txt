@@ -1,0 +1,15 @@
+Loaded tool group: introspection
+Loaded tool group: relationships
+Loaded tool group: testing
+Loaded tool group: metadata
+Loaded tool group: changes
+Loaded tool group: debug
+Loaded tool group: developer
+Loaded tool group: dev_utils
+Loaded tool group: investigations
+Loaded tool group: documentation
+Loaded tool group: utility
+✓ ALL CHECKS PASSED
+✓ Total tools: 44
+✓ All 7 ATF tools present
+✓ Tools: atf_get_results, atf_get_test, atf_list_suites, atf_list_tests, atf_run_suite, atf_run_test, atf_test_health, build_query, changes_diff_artifact, changes_last_touched, changes_release_notes, changes_updateset_inspect, debug_email_trace, debug_field_mutation_story, debug_flow_execution, debug_importset_run, debug_integration_health, debug_trace, dev_set_property, dev_toggle, docs_artifact_summary, docs_logic_map, docs_review_notes, docs_test_scenarios, investigate_explain, investigate_run, list_tool_packages, meta_find_references, meta_get_artifact, meta_list_artifacts, meta_what_writes, record_apply, record_create, record_delete, record_preview_create, record_preview_delete, record_preview_update, record_update, rel_references_from, rel_references_to, table_aggregate, table_describe, table_get, table_query

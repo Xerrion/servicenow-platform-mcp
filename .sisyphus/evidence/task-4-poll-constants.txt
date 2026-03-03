@@ -1,0 +1,1 @@
+✓ Polling constants correct: INTERVAL=5s, MAX_DURATION=300s

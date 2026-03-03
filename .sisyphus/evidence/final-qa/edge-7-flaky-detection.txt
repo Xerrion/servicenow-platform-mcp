@@ -1,0 +1,19 @@
+=== EDGE CASE: Flaky Test Detection ===
+
+Case: Test shows alternating pass/fail pattern (flaky behavior)
+
+Tests executed:
+1. test_health_flaky_detection - 10 results with alternating success/failure
+2. test_health_trending_downward - Recent failures after earlier passes
+
+Result: ALL PASSED
+
+Verified behavior:
+- Flaky detection algorithm counts state transitions
+- Alternating pattern detected with flaky=true
+- Transition count included in response
+- Trending analysis distinguishes consistent vs intermittent failures
+- test_health_trending_downward returns recent_trend="degrading"
+- Pass rate calculated correctly (0.5 for alternating, 0.5 for 4-pass/4-fail)
+
+Edge Case Status: ✓ PASS

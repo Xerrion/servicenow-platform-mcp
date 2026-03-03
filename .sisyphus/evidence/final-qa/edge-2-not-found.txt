@@ -1,0 +1,16 @@
+=== EDGE CASE: Record Not Found (404) ===
+
+Case: Invalid sys_id provided to tool
+
+Tests executed:
+1. test_get_test_not_found - atf_get_test with invalid test_id returns error envelope
+
+Result: PASSED
+
+Verified behavior:
+- Returns status="error" (NOT raised exception to MCP)
+- Error envelope structure maintained
+- 404 from API properly caught and converted to error response
+- Does not crash or expose stack trace to MCP client
+
+Edge Case Status: ✓ PASS

@@ -1,0 +1,21 @@
+=== TASK 5 SCENARIO 2: Existing Tools Still Register Correctly ===
+
+Command: uv run python -c "from unittest.mock import patch; env = {'SERVICENOW_INSTANCE_URL': 'https://test.service-now.com', 'SERVICENOW_USERNAME': 'admin', 'SERVICENOW_PASSWORD': 's3cret', 'MCP_TOOL_PACKAGE': 'full'}; with patch.dict('os.environ', env, clear=True): from servicenow_mcp.server import create_mcp_server; mcp = create_mcp_server(); tools = [t.name for t in mcp._tool_manager._tools.values()]; assert 'table_query' in tools, 'table_query missing'; assert 'debug_trace' in tools, 'debug_trace missing'; assert 'meta_list_artifacts' in tools, 'meta_list_artifacts missing'; print(f'Total: {len(tools)} tools, all existing tools present')"
+
+Output:
+Loaded tool group: introspection
+Loaded tool group: relationships
+Loaded tool group: testing
+Loaded tool group: metadata
+Loaded tool group: changes
+Loaded tool group: debug
+Loaded tool group: developer
+Loaded tool group: dev_utils
+Loaded tool group: investigations
+Loaded tool group: documentation
+Loaded tool group: utility
+Total: 44 tools, all existing tools present
+
+Result: ✓ PASS - All sample existing tools (table_query, debug_trace, meta_list_artifacts) still present
+
+VERDICT: ✓ PASS - No regression in existing tool registration

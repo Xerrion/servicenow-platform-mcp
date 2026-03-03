@@ -1,0 +1,18 @@
+=== TASK 1 SCENARIO 1: Client Method Signatures ===
+
+Test: atf_run method
+Command: uv run python -c "from servicenow_mcp.client import ServiceNowClient; import inspect; sig = inspect.signature(ServiceNowClient.atf_run); print(sig); assert 'test_or_suite_id' in sig.parameters; assert 'is_suite' in sig.parameters"
+Output: (self, test_or_suite_id: str, is_suite: bool = False) -> dict[str, typing.Any]
+Result: ✓ PASS - Method exists with correct parameters
+
+Test: atf_progress method
+Command: uv run python -c "from servicenow_mcp.client import ServiceNowClient; import inspect; sig = inspect.signature(ServiceNowClient.atf_progress); print(sig); assert 'snboq_id' in sig.parameters"
+Output: (self, snboq_id: str) -> dict[str, typing.Any]
+Result: ✓ PASS - Method exists with correct parameter
+
+Test: atf_cancel method
+Command: uv run python -c "from servicenow_mcp.client import ServiceNowClient; import inspect; sig = inspect.signature(ServiceNowClient.atf_cancel); print(sig); assert 'snboq_id' in sig.parameters"
+Output: (self, snboq_id: str) -> dict[str, typing.Any]
+Result: ✓ PASS - Method exists with correct parameter
+
+VERDICT: ✓ ALL TESTS PASSED

@@ -1,0 +1,9 @@
+=== TASK 4 SCENARIO 3: Polling Constants Have Correct Defaults ===
+
+Command: uv run python -c "from servicenow_mcp.tools.testing import ATF_POLL_INTERVAL, ATF_MAX_POLL_DURATION; assert ATF_POLL_INTERVAL == 5; assert ATF_MAX_POLL_DURATION == 300; print('OK')"
+
+Output: OK
+
+Result: ✓ PASS - Constants have expected values (ATF_POLL_INTERVAL=5, ATF_MAX_POLL_DURATION=300)
+
+VERDICT: ✓ PASS

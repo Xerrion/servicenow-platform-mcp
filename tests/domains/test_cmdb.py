@@ -14,8 +14,13 @@ def _register_and_get_tools(settings: Settings, auth_provider: BasicAuthProvider
     """Helper to register tools and return tool callables."""
     from mcp.server.fastmcp import FastMCP
 
+    from servicenow_mcp.choices import ChoiceRegistry
+
     mcp = FastMCP("test")
-    cmdb.register_tools(mcp, settings, auth_provider)
+    choices = ChoiceRegistry(settings, auth_provider)
+    choices._fetched = True
+    choices._cache = {k: dict(v) for k, v in ChoiceRegistry._DEFAULTS.items()}
+    cmdb.register_tools(mcp, settings, auth_provider, choices=choices)
     return {t.name: t.fn for t in mcp._tool_manager._tools.values()}
 
 

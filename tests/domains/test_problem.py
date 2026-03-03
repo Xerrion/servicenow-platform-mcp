@@ -9,7 +9,6 @@ from toon_format import decode as toon_decode
 
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.config import Settings
-from servicenow_mcp.tools.domains.problem import PROBLEM_STATE_MAP
 
 BASE_URL = "https://test.service-now.com"
 
@@ -18,10 +17,14 @@ def _register_and_get_tools(settings: Settings, auth_provider: BasicAuthProvider
     """Helper to register problem tools and extract callables."""
     from mcp.server.fastmcp import FastMCP
 
+    from servicenow_mcp.choices import ChoiceRegistry
     from servicenow_mcp.tools.domains.problem import register_tools
 
     mcp = FastMCP("test")
-    register_tools(mcp, settings, auth_provider)
+    choices = ChoiceRegistry(settings, auth_provider)
+    choices._fetched = True
+    choices._cache = {k: dict(v) for k, v in ChoiceRegistry._DEFAULTS.items()}
+    register_tools(mcp, settings, auth_provider, choices=choices)
     return {t.name: t.fn for t in mcp._tool_manager._tools.values()}
 
 
@@ -62,8 +65,7 @@ class TestProblemList:
         await tools["problem_list"](state="new")
 
         request = respx.calls.last.request
-        # "new" maps to "1" via PROBLEM_STATE_MAP
-        assert PROBLEM_STATE_MAP["new"] == "1"
+        # "new" maps to "1" via ChoiceRegistry defaults
         assert "state%3D1" in str(request.url)
 
     @pytest.mark.asyncio
@@ -442,7 +444,7 @@ class TestProblemUpdate:
         data = toon_decode(result)
 
         assert data["status"] == "success"
-        assert PROBLEM_STATE_MAP["known_error"] == "3"
+        # "known_error" maps to "3" via ChoiceRegistry defaults
         assert data["data"]["state"] == "3"
 
     @pytest.mark.asyncio

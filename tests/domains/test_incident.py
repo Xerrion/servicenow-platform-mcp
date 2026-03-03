@@ -17,10 +17,14 @@ def _register_and_get_tools(settings: Settings, auth_provider: BasicAuthProvider
     """Helper to register incident tools and extract callables."""
     from mcp.server.fastmcp import FastMCP
 
+    from servicenow_mcp.choices import ChoiceRegistry
     from servicenow_mcp.tools.domains.incident import register_tools
 
     mcp = FastMCP("test")
-    register_tools(mcp, settings, auth_provider)
+    choices = ChoiceRegistry(settings, auth_provider)
+    choices._fetched = True
+    choices._cache = {k: dict(v) for k, v in ChoiceRegistry._DEFAULTS.items()}
+    register_tools(mcp, settings, auth_provider, choices=choices)
     return {t.name: t.fn for t in mcp._tool_manager._tools.values()}
 
 

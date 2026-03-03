@@ -717,6 +717,82 @@ class TestServiceNowQueryFieldComparison:
         assert result == "priorityGT_FIELDimpact^ORprioritySAMEASurgency"
 
 
+class TestServiceNowQueryDateTimeOperators:
+    """Test extended date/time operators."""
+
+    def test_on(self) -> None:
+        result = ServiceNowQuery().on("sys_created_on", "2026-01-15").build()
+        assert result == "sys_created_onON2026-01-15"
+
+    def test_not_on(self) -> None:
+        result = ServiceNowQuery().not_on("sys_created_on", "2026-01-15").build()
+        assert result == "sys_created_onNOTON2026-01-15"
+
+    def test_relative_gt(self) -> None:
+        result = ServiceNowQuery().relative_gt("sys_created_on", "@year@ago@1").build()
+        assert result == "sys_created_onRELATIVEGT@year@ago@1"
+
+    def test_relative_lt(self) -> None:
+        result = ServiceNowQuery().relative_lt("sys_created_on", "@month@ago@6").build()
+        assert result == "sys_created_onRELATIVELT@month@ago@6"
+
+    def test_more_than(self) -> None:
+        result = ServiceNowQuery().more_than("sys_updated_on", "@hour@ago@3").build()
+        assert result == "sys_updated_onMORETHAN@hour@ago@3"
+
+    def test_datepart(self) -> None:
+        result = ServiceNowQuery().datepart("sys_created_on", "dayofweek", "=", "1").build()
+        assert result == "sys_created_onDATEPARTdayofweek@=@1"
+
+    def test_datepart_month(self) -> None:
+        result = ServiceNowQuery().datepart("sys_created_on", "month", ">", "6").build()
+        assert result == "sys_created_onDATEPARTmonth@>@6"
+
+    def test_on_validates_field(self) -> None:
+        with pytest.raises(ValueError, match="Invalid identifier"):
+            ServiceNowQuery().on("bad field!", "2026-01-01")
+
+    def test_not_on_validates_field(self) -> None:
+        with pytest.raises(ValueError, match="Invalid identifier"):
+            ServiceNowQuery().not_on("bad field!", "2026-01-01")
+
+    def test_relative_gt_validates_field(self) -> None:
+        with pytest.raises(ValueError, match="Invalid identifier"):
+            ServiceNowQuery().relative_gt("bad field!", "@year@ago@1")
+
+    def test_more_than_validates_field(self) -> None:
+        with pytest.raises(ValueError, match="Invalid identifier"):
+            ServiceNowQuery().more_than("bad field!", "@hour@ago@3")
+
+    def test_datepart_validates_field(self) -> None:
+        with pytest.raises(ValueError, match="Invalid identifier"):
+            ServiceNowQuery().datepart("bad field!", "dayofweek", "=", "1")
+
+    def test_on_sanitizes(self) -> None:
+        result = ServiceNowQuery().on("field", "a^b").build()
+        assert result == "fieldONa^^b"
+
+    def test_chaining_date_operators(self) -> None:
+        result = (
+            ServiceNowQuery()
+            .on("sys_created_on", "2026-01-15")
+            .not_on("sys_updated_on", "2026-01-16")
+            .relative_gt("closed_at", "@year@ago@1")
+            .build()
+        )
+        assert result == "sys_created_onON2026-01-15^sys_updated_onNOTON2026-01-16^closed_atRELATIVEGT@year@ago@1"
+
+    def test_or_on(self) -> None:
+        """Verify ON operator works in or_condition."""
+        result = (
+            ServiceNowQuery()
+            .on("sys_created_on", "2026-01-15")
+            .or_condition("sys_created_on", "ON", "2026-01-16")
+            .build()
+        )
+        assert result == "sys_created_onON2026-01-15^ORsys_created_onON2026-01-16"
+
+
 class TestSafeToolCall:
     """Tests for the safe_tool_call error-handling wrapper."""
 

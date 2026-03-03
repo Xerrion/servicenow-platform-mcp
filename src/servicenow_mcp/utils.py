@@ -45,6 +45,12 @@ _ALLOWED_OPERATORS: frozenset[str] = frozenset(
         "LT_OR_EQUALS_FIELD",
         "SAMEAS",
         "NSAMEAS",
+        "ON",
+        "NOTON",
+        "RELATIVEGT",
+        "RELATIVELT",
+        "MORETHAN",
+        "DATEPART",
     }
 )
 
@@ -324,6 +330,95 @@ class ServiceNowQuery:
         if not (1 <= days <= 3650):
             raise ValueError(f"days must be between 1 and 3650, got {days}")
         self._parts.append(f"{field}<=javascript:gs.daysAgoEnd({days})")
+        return self
+
+    # --- Date/time operators ---
+
+    def on(self, field: str, date_value: str) -> "ServiceNowQuery":
+        """Add ``fieldONdate_value`` condition (exact date match).
+
+        Args:
+            field: A date/datetime field name.
+            date_value: Date string (e.g. ``"2026-01-15"``).
+        """
+        validate_identifier(field)
+        date_value = sanitize_query_value(date_value)
+        self._parts.append(f"{field}ON{date_value}")
+        return self
+
+    def not_on(self, field: str, date_value: str) -> "ServiceNowQuery":
+        """Add ``fieldNOTONdate_value`` condition (not on a specific date).
+
+        Args:
+            field: A date/datetime field name.
+            date_value: Date string (e.g. ``"2026-01-15"``).
+        """
+        validate_identifier(field)
+        date_value = sanitize_query_value(date_value)
+        self._parts.append(f"{field}NOTON{date_value}")
+        return self
+
+    def relative_gt(self, field: str, value: str) -> "ServiceNowQuery":
+        """Add ``fieldRELATIVEGTvalue`` condition.
+
+        Matches records where *field* is greater than a relative date.
+        Value uses ServiceNow relative date syntax (e.g. ``"@year@ago@1"``).
+
+        Args:
+            field: A date/datetime field name.
+            value: Relative date expression.
+        """
+        validate_identifier(field)
+        value = sanitize_query_value(value)
+        self._parts.append(f"{field}RELATIVEGT{value}")
+        return self
+
+    def relative_lt(self, field: str, value: str) -> "ServiceNowQuery":
+        """Add ``fieldRELATIVELTvalue`` condition.
+
+        Matches records where *field* is less than a relative date.
+        Value uses ServiceNow relative date syntax (e.g. ``"@year@ago@1"``).
+
+        Args:
+            field: A date/datetime field name.
+            value: Relative date expression.
+        """
+        validate_identifier(field)
+        value = sanitize_query_value(value)
+        self._parts.append(f"{field}RELATIVELT{value}")
+        return self
+
+    def more_than(self, field: str, value: str) -> "ServiceNowQuery":
+        """Add ``fieldMORETHANvalue`` condition.
+
+        Used for "more than X ago" date conditions.
+        Value uses ServiceNow syntax (e.g. ``"@hour@ago@3"`` for "more than 3 hours ago").
+
+        Args:
+            field: A date/datetime field name.
+            value: Time specification string.
+        """
+        validate_identifier(field)
+        value = sanitize_query_value(value)
+        self._parts.append(f"{field}MORETHAN{value}")
+        return self
+
+    def datepart(self, field: str, part: str, operator: str, value: str) -> "ServiceNowQuery":
+        """Add a DATEPART condition to query by a component of a date field.
+
+        Generates: ``fieldDATEPARTpart@operator@value``
+
+        Args:
+            field: A date/datetime field name.
+            part: Date part (e.g. ``"dayofweek"``, ``"month"``, ``"year"``, ``"quarter"``).
+            operator: Comparison operator (e.g. ``"="``, ``">"``, ``"<"``).
+            value: The comparison value (e.g. ``"1"`` for Monday).
+        """
+        validate_identifier(field)
+        part = sanitize_query_value(part)
+        operator = sanitize_query_value(operator)
+        value = sanitize_query_value(value)
+        self._parts.append(f"{field}DATEPART{part}@{operator}@{value}")
         return self
 
     # --- IN / NOT IN operators ---

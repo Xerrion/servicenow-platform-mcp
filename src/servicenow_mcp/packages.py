@@ -12,6 +12,12 @@ _TOOL_GROUP_MODULES: dict[str, str] = {
     "investigations": "servicenow_mcp.tools.investigations",
     "documentation": "servicenow_mcp.tools.documentation",
     "utility": "servicenow_mcp.tools.utility",
+    "domain_incident": "servicenow_mcp.tools.domains.incident",
+    "domain_change": "servicenow_mcp.tools.domains.change",
+    "domain_cmdb": "servicenow_mcp.tools.domains.cmdb",
+    "domain_problem": "servicenow_mcp.tools.domains.problem",
+    "domain_request": "servicenow_mcp.tools.domains.request",
+    "domain_knowledge": "servicenow_mcp.tools.domains.knowledge",
 }
 
 # Registry mapping package names to lists of tool group names.

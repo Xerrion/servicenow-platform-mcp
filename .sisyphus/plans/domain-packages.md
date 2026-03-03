@@ -554,7 +554,7 @@ Max Concurrent: 5 (Wave 3)
   - Files: `src/servicenow_mcp/packages.py`, `src/servicenow_mcp/config.py`, `tests/test_config.py`, `tests/test_packages.py`
   - Pre-commit: `uv run pytest tests/test_config.py tests/test_packages.py -v`
 
-- [ ] 5. Domain Package Scaffolding
+- [x] 5. Domain Package Scaffolding
 
   **What to do**:
   - Create `src/servicenow_mcp/tools/domains/__init__.py` with module docstring

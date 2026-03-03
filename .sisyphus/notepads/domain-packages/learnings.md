@@ -157,3 +157,64 @@ MCP_TOOL_PACKAGE="introspection,invalid_group"     # ERROR: unknown group
 
 ### Next Steps (Tasks 5+)
 This foundation enables domain-specific tool packages to reference individual groups rather than predefined presets. Example: `"incident,change,debug"` loads only incident + change domain tools + debug utilities.
+
+## [2026-03-03T17:30:00Z] Task 5: Domain Scaffolding
+
+### Scaffolding Pattern Established
+
+**Structure Created:**
+1. `src/servicenow_mcp/tools/domains/` package with:
+   - `__init__.py` (module docstring describing ITIL domain organization)
+   - 6 empty stub modules (incident, change, cmdb, problem, request, knowledge)
+
+2. Each stub module pattern:
+   ```python
+   from mcp.server.fastmcp import FastMCP  # Note: NOT mcp.FastMCP
+   from servicenow_mcp.auth import BasicAuthProvider
+   from servicenow_mcp.config import Settings
+   
+   def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+       pass  # Implementation in Tasks 6-11
+   ```
+
+3. Test infrastructure:
+   - `tests/domains/conftest.py` - Shared settings/auth_provider fixtures
+   - `tests/domains/test_imports.py` - Verification that all 6 modules import + registry entries exist
+
+### Key Findings
+
+**Import Path Gotcha**: 
+- FastMCP lives at `mcp.server.fastmcp.FastMCP`, not `mcp.FastMCP`
+- Auth type is `BasicAuthProvider`, not `AuthProvider` (which doesn't exist)
+- These must match project patterns established in existing tool modules
+
+**Registry Integration:**
+- 6 new entries added to `_TOOL_GROUP_MODULES` in `packages.py` (lines 15-20)
+- All use "domain_" prefix for clear ITIL domain identification
+- Example: `"domain_incident": "servicenow_mcp.tools.domains.incident"`
+- This enables comma-separated selection: `"domain_incident,debug,utility"`
+
+**Test Coverage:**
+- Import verification: Ensures all 6 modules can be loaded without errors
+- Registry verification: Ensures all 6 entries exist in _TOOL_GROUP_MODULES with correct paths
+- Both tests pass; full suite: 534 tests pass, no regressions
+
+### Verification Results
+- ✅ All imports OK
+- ✅ All registered in _TOOL_GROUP_MODULES
+- ✅ Ruff lint: clean
+- ✅ MyPy: no errors
+- ✅ Domain tests: 2 passed
+- ✅ Full test suite: 534 passed, 18 deselected
+
+### Ready for Task 6
+
+Domain scaffolding is complete. Next task (Incident reference implementation) can:
+1. Add tools to `incident.register_tools()`
+2. Pattern follow: Utility.py as reference for tool registration
+3. Use `write_gate()` from policy.py for write operations
+4. Test pattern: Use fixtures from `tests/domains/conftest.py`
+
+### Notes for Tasks 7-11
+
+Each domain module follows the same stub pattern created here. No additional scaffolding needed.

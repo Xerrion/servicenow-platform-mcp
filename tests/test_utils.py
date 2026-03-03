@@ -576,6 +576,92 @@ class TestServiceNowQueryInList:
         assert result == "stateIN"
 
 
+class TestServiceNowQueryStringOperators:
+    """Test extended string operators."""
+
+    def test_ends_with(self) -> None:
+        result = ServiceNowQuery().ends_with("email", "@example.com").build()
+        assert result == "emailENDSWITH@example.com"
+
+    def test_not_like(self) -> None:
+        result = ServiceNowQuery().not_like("short_description", "test").build()
+        assert result == "short_descriptionNOT LIKEtest"
+
+    def test_does_not_contain_alias(self) -> None:
+        result = ServiceNowQuery().does_not_contain("short_description", "test").build()
+        assert result == "short_descriptionNOT LIKEtest"
+
+    def test_between_dates(self) -> None:
+        result = ServiceNowQuery().between("sys_created_on", "2026-01-01", "2026-12-31").build()
+        assert result == "sys_created_onBETWEEN2026-01-01@2026-12-31"
+
+    def test_between_numbers(self) -> None:
+        result = ServiceNowQuery().between("priority", "1", "3").build()
+        assert result == "priorityBETWEEN1@3"
+
+    def test_anything(self) -> None:
+        result = ServiceNowQuery().anything("state").build()
+        assert result == "stateANYTHING"
+
+    def test_empty_string(self) -> None:
+        result = ServiceNowQuery().empty_string("description").build()
+        assert result == "descriptionEMPTYSTRING"
+
+    def test_ends_with_sanitizes_caret(self) -> None:
+        result = ServiceNowQuery().ends_with("name", "a^b").build()
+        assert result == "nameENDSWITHa^^b"
+
+    def test_not_like_sanitizes_caret(self) -> None:
+        result = ServiceNowQuery().not_like("name", "a^b").build()
+        assert result == "nameNOT LIKEa^^b"
+
+    def test_between_sanitizes_carets(self) -> None:
+        result = ServiceNowQuery().between("field", "a^b", "c^d").build()
+        assert result == "fieldBETWEENa^^b@c^^d"
+
+    def test_ends_with_validates_field(self) -> None:
+        with pytest.raises(ValueError, match="Invalid identifier"):
+            ServiceNowQuery().ends_with("bad field!", "val")
+
+    def test_not_like_validates_field(self) -> None:
+        with pytest.raises(ValueError, match="Invalid identifier"):
+            ServiceNowQuery().not_like("bad field!", "val")
+
+    def test_between_validates_field(self) -> None:
+        with pytest.raises(ValueError, match="Invalid identifier"):
+            ServiceNowQuery().between("bad field!", "a", "b")
+
+    def test_anything_validates_field(self) -> None:
+        with pytest.raises(ValueError, match="Invalid identifier"):
+            ServiceNowQuery().anything("bad field!")
+
+    def test_empty_string_validates_field(self) -> None:
+        with pytest.raises(ValueError, match="Invalid identifier"):
+            ServiceNowQuery().empty_string("bad field!")
+
+    def test_or_ends_with(self) -> None:
+        """Verify new ENDSWITH operator works in or_condition."""
+        result = ServiceNowQuery().starts_with("email", "admin").or_condition("email", "ENDSWITH", "@corp.com").build()
+        assert result == "emailSTARTSWITHadmin^ORemailENDSWITH@corp.com"
+
+    def test_or_not_like(self) -> None:
+        """Verify NOT LIKE operator works in or_condition."""
+        result = ServiceNowQuery().contains("name", "dev").or_condition("name", "NOT LIKE", "test").build()
+        assert result == "nameCONTAINSdev^ORnameNOT LIKEtest"
+
+    def test_chaining_with_existing(self) -> None:
+        """Verify new operators chain correctly with existing ones."""
+        result = (
+            ServiceNowQuery()
+            .equals("active", "true")
+            .ends_with("email", "@example.com")
+            .not_like("short_description", "test")
+            .anything("category")
+            .build()
+        )
+        assert result == "active=true^emailENDSWITH@example.com^short_descriptionNOT LIKEtest^categoryANYTHING"
+
+
 class TestSafeToolCall:
     """Tests for the safe_tool_call error-handling wrapper."""
 

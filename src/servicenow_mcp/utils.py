@@ -34,6 +34,11 @@ _ALLOWED_OPERATORS: frozenset[str] = frozenset(
         "ISNOTEMPTY",
         "IN",
         "NOT IN",
+        "ENDSWITH",
+        "NOT LIKE",
+        "BETWEEN",
+        "ANYTHING",
+        "EMPTYSTRING",
     }
 )
 
@@ -188,6 +193,59 @@ class ServiceNowQuery:
         validate_identifier(field)
         value = sanitize_query_value(value)
         self._parts.append(f"{field}LIKE{value}")
+        return self
+
+    def ends_with(self, field: str, value: str) -> "ServiceNowQuery":
+        """Add ``fieldENDSWITHvalue`` condition."""
+        validate_identifier(field)
+        value = sanitize_query_value(value)
+        self._parts.append(f"{field}ENDSWITH{value}")
+        return self
+
+    def not_like(self, field: str, value: str) -> "ServiceNowQuery":
+        """Add ``fieldNOT LIKEvalue`` (does not contain) condition."""
+        validate_identifier(field)
+        value = sanitize_query_value(value)
+        self._parts.append(f"{field}NOT LIKE{value}")
+        return self
+
+    def does_not_contain(self, field: str, value: str) -> "ServiceNowQuery":
+        """Alias for :meth:`not_like` -- ``fieldNOT LIKEvalue``."""
+        return self.not_like(field, value)
+
+    def between(self, field: str, start: str, end: str) -> "ServiceNowQuery":
+        """Add ``fieldBETWEENstart@end`` condition.
+
+        Used for date ranges and numeric ranges in ServiceNow.
+
+        Args:
+            field: The field name.
+            start: Range start value (e.g. ``"2026-01-01"``).
+            end: Range end value (e.g. ``"2026-12-31"``).
+        """
+        validate_identifier(field)
+        start = sanitize_query_value(start)
+        end = sanitize_query_value(end)
+        self._parts.append(f"{field}BETWEEN{start}@{end}")
+        return self
+
+    def anything(self, field: str) -> "ServiceNowQuery":
+        """Add ``fieldANYTHING`` condition (matches any value).
+
+        Primarily used in notification filter conditions.
+        """
+        validate_identifier(field)
+        self._parts.append(f"{field}ANYTHING")
+        return self
+
+    def empty_string(self, field: str) -> "ServiceNowQuery":
+        """Add ``fieldEMPTYSTRING`` condition (matches empty string specifically).
+
+        Unlike :meth:`is_empty` which matches NULL/missing values,
+        this matches fields that contain an empty string ``""``.
+        """
+        validate_identifier(field)
+        self._parts.append(f"{field}EMPTYSTRING")
         return self
 
     # --- Null operators ---

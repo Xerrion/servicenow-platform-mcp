@@ -5,8 +5,6 @@ from functools import cached_property
 from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings
 
-from servicenow_mcp.packages import PACKAGE_REGISTRY
-
 _DEFAULT_LARGE_TABLES = "syslog,sys_audit,sys_log_transaction,sys_email_log"
 
 

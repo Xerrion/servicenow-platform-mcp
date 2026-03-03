@@ -155,3 +155,61 @@ Successfully implemented 5 Knowledge Management domain tools in `src/servicenow_
 6. ✅ Task 11: Knowledge Management (346 lines, 19 tests) **FINAL**
 
 **Total**: 2,106 lines of production code, 107 domain tests, 638 total tests GREEN
+
+## Task 12: Domain-Aware Preset Packages + Integration Tests
+
+**Completed**: Domain package integration and testing infrastructure
+
+**Files Modified**:
+- `src/servicenow_mcp/packages.py` - Added 6 domain-specific packages + updated itil/full presets
+- `tests/test_packages.py` - Added 31 new integration tests (TestDomainPackages + TestToolNameUniqueness)
+
+**Package Registry Updates**:
+1. **6 New Domain Packages**:
+   - `incident_management`: 4 groups (introspection, utility, domain_incident, debug)
+   - `change_management`: 4 groups (introspection, utility, domain_change, changes)
+   - `cmdb`: 4 groups (introspection, relationships, utility, domain_cmdb)
+   - `problem_management`: 4 groups (introspection, utility, domain_problem, debug)
+   - `request_management`: 3 groups (introspection, utility, domain_request)
+   - `knowledge_management`: 3 groups (introspection, utility, domain_knowledge)
+
+2. **Updated Existing Presets**:
+   - `full`: Added ALL 6 domain groups → 17 total groups (11 original + 6 domain)
+   - `itil`: Added 4 domain groups → 11 total groups (7 original + 4 domain: incident, change, problem, request)
+   - `developer`, `readonly`, `analyst`: Unchanged (no domain groups)
+
+**Integration Testing Pattern**:
+- Helper methods to load actual tool names from modules via importlib
+- Uniqueness validation across all 8 package configurations
+- Tests verify: package structure, tool counts, comma syntax, backward compatibility
+
+**Test Results**:
+- **628 total tests passed** (0 failures)
+- **31 new package tests** added (17 domain structure + 8 uniqueness + 6 backward compat)
+- All 8 uniqueness tests PASS (full, itil, 6 domain packages)
+- **88% code coverage** (up from 14% in isolated runs)
+
+**QA Evidence Files Created**:
+1. `task-12-incident-pkg.txt` - Verified incident_management package loads domain_incident
+2. `task-12-full-pkg.txt` - Verified full package has exactly 6 domain groups
+3. `task-12-uniqueness.txt` - All 8 uniqueness tests PASS
+4. `task-12-full-suite.txt` - 628 tests passed in 23.83s
+
+**Quality Checks**:
+- `ruff check .` → CLEAN (5 auto-fixed: unused imports + import sorting)
+- `mypy src/` → CLEAN (no issues in 37 source files)
+
+**Key Discoveries**:
+- Tool uniqueness validation requires reading `TOOL_NAMES` module constant
+- Integration tests use importlib to dynamically load tool groups (matches server pattern)
+- Backward compatibility critical: developer/readonly/analyst packages unchanged
+- Domain groups are additive: existing presets remain stable, new presets leverage domains
+
+**Patterns Established**:
+- Domain packages pair domain-specific tools with minimal generic tools (introspection + utility + specialized)
+- ITIL preset = enterprise focus (incident, change, problem, request domains)
+- Full preset = comprehensive (all 11 generic + all 6 domain groups)
+- Comma syntax supports domain groups: `domain_incident,domain_change,utility`
+
+**Next Steps** (from plan):
+- Wave FINAL: F1-F4 verification tasks (plan compliance, code quality, package loading QA, scope fidelity)

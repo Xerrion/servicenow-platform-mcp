@@ -41,6 +41,12 @@ PACKAGE_REGISTRY: dict[str, list[str]] = {
         "investigations",
         "documentation",
         "utility",
+        "domain_incident",
+        "domain_change",
+        "domain_cmdb",
+        "domain_problem",
+        "domain_request",
+        "domain_knowledge",
     ],
     "none": [],
     "itil": [
@@ -51,6 +57,10 @@ PACKAGE_REGISTRY: dict[str, list[str]] = {
         "debug",
         "documentation",
         "utility",
+        "domain_incident",
+        "domain_change",
+        "domain_problem",
+        "domain_request",
     ],
     "developer": [
         "introspection",
@@ -81,6 +91,40 @@ PACKAGE_REGISTRY: dict[str, list[str]] = {
         "investigations",
         "documentation",
         "utility",
+    ],
+    "incident_management": [
+        "introspection",
+        "utility",
+        "domain_incident",
+        "debug",
+    ],
+    "change_management": [
+        "introspection",
+        "utility",
+        "domain_change",
+        "changes",
+    ],
+    "cmdb": [
+        "introspection",
+        "relationships",
+        "utility",
+        "domain_cmdb",
+    ],
+    "problem_management": [
+        "introspection",
+        "utility",
+        "domain_problem",
+        "debug",
+    ],
+    "request_management": [
+        "introspection",
+        "utility",
+        "domain_request",
+    ],
+    "knowledge_management": [
+        "introspection",
+        "utility",
+        "domain_knowledge",
     ],
 }
 
@@ -118,9 +162,7 @@ def get_package(name: str) -> list[str]:
     for group in groups:
         if group in invalid:
             continue
-        if group in PACKAGE_REGISTRY:
-            invalid.add(group)
-        elif group not in _TOOL_GROUP_MODULES:
+        if group in PACKAGE_REGISTRY or group not in _TOOL_GROUP_MODULES:
             invalid.add(group)
         elif group not in seen:
             seen.add(group)

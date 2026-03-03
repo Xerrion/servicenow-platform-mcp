@@ -1,0 +1,2 @@
+Groups: ['introspection', 'utility', 'domain_incident', 'debug']
+✓ domain_incident is in the group list

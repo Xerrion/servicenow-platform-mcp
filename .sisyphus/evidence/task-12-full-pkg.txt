@@ -1,0 +1,3 @@
+Domain groups: ['domain_incident', 'domain_change', 'domain_cmdb', 'domain_problem', 'domain_request', 'domain_knowledge']
+Count: 6
+✓ Exactly 6 domain groups in full package

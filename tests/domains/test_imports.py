@@ -1,11 +1,10 @@
 """Test that all domain modules can be imported."""
 
-import pytest
 
 
 def test_all_domain_modules_importable() -> None:
     """Verify all 6 domain modules can be imported without error."""
-    from servicenow_mcp.tools.domains import incident, change, cmdb, problem, request, knowledge
+    from servicenow_mcp.tools.domains import change, cmdb, incident, knowledge, problem, request
 
     # Verify each has register_tools function
     assert hasattr(incident, "register_tools")

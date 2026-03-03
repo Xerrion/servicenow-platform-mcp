@@ -12,6 +12,7 @@ PACKAGE_REGISTRY: dict[str, list[str]] = {
     "full": [
         "introspection",
         "relationships",
+        "testing",
         "metadata",
         "changes",
         "debug",

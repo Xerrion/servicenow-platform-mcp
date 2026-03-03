@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 _TOOL_GROUP_MODULES: dict[str, str] = {
     "introspection": "servicenow_mcp.tools.introspection",
     "relationships": "servicenow_mcp.tools.relationships",
+    "testing": "servicenow_mcp.tools.testing",
     "metadata": "servicenow_mcp.tools.metadata",
     "changes": "servicenow_mcp.tools.changes",
     "debug": "servicenow_mcp.tools.debug",

@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.5.0](https://github.com/Xerrion/servicenow-devtools-mcp/compare/v0.4.1...v0.5.0) (2026-03-03)
+
+
+### Features
+
+* add domain-specific tool packages with composable presets ([#45](https://github.com/Xerrion/servicenow-devtools-mcp/issues/45)) ([29ff75e](https://github.com/Xerrion/servicenow-devtools-mcp/commit/29ff75e0d76ea782bdbc95f6c6c79af54387ded4))
+* add ServiceNowQuery builder and wire time-filtering across all modules ([#35](https://github.com/Xerrion/servicenow-devtools-mcp/issues/35)) ([ef9ffe4](https://github.com/Xerrion/servicenow-devtools-mcp/commit/ef9ffe4a955916748ba35101aa38fa50ee7fc08d))
+* **atf:** add ServiceNow ATF testing tool group ([#43](https://github.com/Xerrion/servicenow-devtools-mcp/issues/43)) ([6777254](https://github.com/Xerrion/servicenow-devtools-mcp/commit/67772542a5eece47f04308c1f303f9b83e4a0ed5))
+* Phase 3 — developer actions, investigations, and documentation tools ([5749dd8](https://github.com/Xerrion/servicenow-devtools-mcp/commit/5749dd85740772248afe1a5534e9613af0bc0fca))
+* record CRUD tools, shared safe_tool_call, mandatory field validation ([#39](https://github.com/Xerrion/servicenow-devtools-mcp/issues/39)) ([dd05435](https://github.com/Xerrion/servicenow-devtools-mcp/commit/dd054359117c5c8680fddae1e69d0eae71ed1f1f))
+* ServiceNow MCP server Phase 1+2 complete ([cd67149](https://github.com/Xerrion/servicenow-devtools-mcp/commit/cd6714977083c78701478dde27a0a6b5aa533e6d))
+
+
+### Bug Fixes
+
+* align release-please workflow with manifest config and correct token ([#20](https://github.com/Xerrion/servicenow-devtools-mcp/issues/20)) ([84cf1a9](https://github.com/Xerrion/servicenow-devtools-mcp/commit/84cf1a99b6b52a9f58c3fbe6be849054f5b6bb45))
+* exhaustive security, correctness, and performance improvements ([#29](https://github.com/Xerrion/servicenow-devtools-mcp/issues/29)) ([5fac553](https://github.com/Xerrion/servicenow-devtools-mcp/commit/5fac5537791854de4356f082006d17a8b7d5aab9))
+* migrate release-please to manifest config for semver tags ([#18](https://github.com/Xerrion/servicenow-devtools-mcp/issues/18)) ([cd6b6ed](https://github.com/Xerrion/servicenow-devtools-mcp/commit/cd6b6ed371c095444f037b328c17c8635b09eb48))
+* pass display_values through to query_records and table_query tool ([#41](https://github.com/Xerrion/servicenow-devtools-mcp/issues/41)) ([ade440d](https://github.com/Xerrion/servicenow-devtools-mcp/commit/ade440d817c9f444c93e6f1f9cbaa62b20e5433f))
+* remvoe the workflow_dispatch that came in by mistake ([#23](https://github.com/Xerrion/servicenow-devtools-mcp/issues/23)) ([67f058d](https://github.com/Xerrion/servicenow-devtools-mcp/commit/67f058d65d69377b9c135be205606f71d6d8989e))
+* update publish step to use uv publish command with environment variable ([#25](https://github.com/Xerrion/servicenow-devtools-mcp/issues/25)) ([1fc8b5c](https://github.com/Xerrion/servicenow-devtools-mcp/commit/1fc8b5ceae31189e0ab85b152a6544a2b5440157))
+* use token in command ([#27](https://github.com/Xerrion/servicenow-devtools-mcp/issues/27)) ([07b6efe](https://github.com/Xerrion/servicenow-devtools-mcp/commit/07b6efe5c8caf865ff02c3ccc527e05c2fb7d03c))
+
+
+### Documentation
+
+* add GitHub Copilot custom instructions ([#15](https://github.com/Xerrion/servicenow-devtools-mcp/issues/15)) ([7b18159](https://github.com/Xerrion/servicenow-devtools-mcp/commit/7b181595aebbf41ebe4b4d71a5776d39326ee4e3))
+* update README and add banner SVG for improved presentation ([#16](https://github.com/Xerrion/servicenow-devtools-mcp/issues/16)) ([37b1213](https://github.com/Xerrion/servicenow-devtools-mcp/commit/37b1213a4564dbbff46f5daf9e7254a996d7b560))
+
 ## [0.4.1](https://github.com/Xerrion/servicenow-devtools-mcp/compare/v0.4.0...v0.4.1) (2026-03-02)
 
 

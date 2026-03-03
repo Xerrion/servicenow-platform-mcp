@@ -270,6 +270,69 @@ class TestCmdbRelationships:
 
         assert data["status"] == "success"
 
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_relationships_name_not_found(self, settings: Settings, auth_provider: BasicAuthProvider):
+        """Test that name lookup returning no records produces an error."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        cmdb_relationships = tools["cmdb_relationships"]
+
+        # Name lookup returns empty result
+        respx.get("https://test.service-now.com/api/now/table/cmdb_ci").mock(
+            return_value=Response(
+                200,
+                json={"result": []},
+            )
+        )
+
+        result = await cmdb_relationships(name_or_sys_id="nonexistent-ci", direction="both")
+        data = toon_decode(result)
+
+        assert data["status"] == "error"
+        assert "not found" in data["error"].lower()
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_relationships_child_only(self, settings: Settings, auth_provider: BasicAuthProvider):
+        """Test fetching child relationships only."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        cmdb_relationships = tools["cmdb_relationships"]
+
+        sys_id = "b" * 32
+        respx.get("https://test.service-now.com/api/now/table/cmdb_rel_ci").mock(
+            return_value=Response(
+                200,
+                json={
+                    "result": [
+                        {"sys_id": "rel1", "parent": {"value": sys_id}, "child": {"value": "child1"}},
+                    ]
+                },
+            )
+        )
+
+        result = await cmdb_relationships(name_or_sys_id=sys_id, direction="child")
+        data = toon_decode(result)
+
+        assert data["status"] == "success"
+        assert len(data["data"]) == 1
+        # Verify query used parent.sys_id
+        request = respx.calls.last.request
+        assert f"parent.sys_id%3D{sys_id}" in str(request.url)
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_relationships_invalid_direction(self, settings: Settings, auth_provider: BasicAuthProvider):
+        """Test that an invalid direction produces an error."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        cmdb_relationships = tools["cmdb_relationships"]
+
+        sys_id = "c" * 32
+        result = await cmdb_relationships(name_or_sys_id=sys_id, direction="sideways")
+        data = toon_decode(result)
+
+        assert data["status"] == "error"
+        assert "invalid direction" in data["error"].lower()
+
 
 class TestCmdbClasses:
     """Tests for cmdb_classes tool."""

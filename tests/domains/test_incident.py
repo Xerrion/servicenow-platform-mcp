@@ -183,6 +183,83 @@ class TestIncidentCreate:
         assert data["status"] == "error"
         assert "urgency" in data["error"].lower()
 
+    @pytest.mark.asyncio
+    async def test_create_invalid_impact(self, settings, auth_provider):
+        """Should reject impact outside 1-4 range."""
+        tools = _register_and_get_tools(settings, auth_provider)
+
+        result = await tools["incident_create"](short_description="Test", impact=0)
+        data = toon_decode(result)
+        assert data["status"] == "error"
+        assert "impact" in data["error"].lower()
+
+        result = await tools["incident_create"](short_description="Test", impact=5)
+        data = toon_decode(result)
+        assert data["status"] == "error"
+        assert "impact" in data["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_create_blocked_in_prod(self):
+        """Should block creation in production."""
+        prod_env = {
+            "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
+            "SERVICENOW_USERNAME": "admin",
+            "SERVICENOW_PASSWORD": "password",
+            "MCP_TOOL_PACKAGE": "full",
+            "SERVICENOW_ENV": "prod",
+        }
+        with patch.dict("os.environ", prod_env, clear=True):
+            prod_settings = Settings(_env_file=None)
+            prod_auth = BasicAuthProvider(prod_settings)
+
+            tools = _register_and_get_tools(prod_settings, prod_auth)
+            result = await tools["incident_create"](short_description="Test")
+            data = toon_decode(result)
+
+            assert data["status"] == "error"
+            assert "production" in data["error"].lower()
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_create_with_all_optional_fields(self, settings, auth_provider):
+        """Should include all optional fields in the create payload."""
+        route = respx.post(f"{BASE_URL}/api/now/table/incident").mock(
+            return_value=Response(
+                201,
+                json={
+                    "result": {
+                        "sys_id": "new002",
+                        "number": "INC0010200",
+                        "short_description": "Full incident",
+                    }
+                },
+            )
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        result = await tools["incident_create"](
+            short_description="Full incident",
+            description="Detailed description text",
+            caller_id="caller_sys_id",
+            assignment_group="group_sys_id",
+            assigned_to="user_sys_id",
+            category="software",
+            subcategory="os",
+        )
+        data = toon_decode(result)
+
+        assert data["status"] == "success"
+        # Verify the request body contained all optional fields
+        import json
+
+        request_body = json.loads(route.calls.last.request.content)
+        assert request_body["description"] == "Detailed description text"
+        assert request_body["caller_id"] == "caller_sys_id"
+        assert request_body["assignment_group"] == "group_sys_id"
+        assert request_body["assigned_to"] == "user_sys_id"
+        assert request_body["category"] == "software"
+        assert request_body["subcategory"] == "os"
+
 
 class TestIncidentUpdate:
     """Tests for incident_update tool."""
@@ -254,6 +331,90 @@ class TestIncidentUpdate:
             assert data["status"] == "error"
             assert "production" in data["error"].lower()
 
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_update_not_found(self, settings, auth_provider):
+        """Should handle incident not found during update."""
+        respx.get(f"{BASE_URL}/api/now/table/incident").mock(return_value=Response(200, json={"result": []}))
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        result = await tools["incident_update"](number="INC9999999", short_description="Updated")
+        data = toon_decode(result)
+
+        assert data["status"] == "error"
+        assert "not found" in data["error"].lower()
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_update_no_changes(self, settings, auth_provider):
+        """Should reject update when no fields are provided."""
+        respx.get(f"{BASE_URL}/api/now/table/incident").mock(
+            return_value=Response(
+                200,
+                json={"result": [{"sys_id": "abc123", "number": "INC0010001"}]},
+            )
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        result = await tools["incident_update"](number="INC0010001")
+        data = toon_decode(result)
+
+        assert data["status"] == "error"
+        assert "no fields" in data["error"].lower()
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_update_with_all_optional_fields(self, settings, auth_provider):
+        """Should include all optional fields in the update payload."""
+        respx.get(f"{BASE_URL}/api/now/table/incident").mock(
+            return_value=Response(
+                200,
+                json={"result": [{"sys_id": "abc123", "number": "INC0010001"}]},
+            )
+        )
+        route = respx.patch(f"{BASE_URL}/api/now/table/incident/abc123").mock(
+            return_value=Response(
+                200,
+                json={
+                    "result": {
+                        "sys_id": "abc123",
+                        "number": "INC0010001",
+                        "short_description": "Updated",
+                    }
+                },
+            )
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        result = await tools["incident_update"](
+            number="INC0010001",
+            short_description="Updated",
+            urgency=2,
+            impact=1,
+            priority=1,
+            state="on_hold",
+            description="Detailed update",
+            assignment_group="group_sys_id",
+            assigned_to="user_sys_id",
+            category="hardware",
+            subcategory="monitor",
+        )
+        data = toon_decode(result)
+
+        assert data["status"] == "success"
+        import json
+
+        request_body = json.loads(route.calls.last.request.content)
+        assert request_body["urgency"] == "2"
+        assert request_body["impact"] == "1"
+        assert request_body["priority"] == "1"
+        assert request_body["state"] == "3"  # on_hold maps to 3
+        assert request_body["description"] == "Detailed update"
+        assert request_body["assignment_group"] == "group_sys_id"
+        assert request_body["assigned_to"] == "user_sys_id"
+        assert request_body["category"] == "hardware"
+        assert request_body["subcategory"] == "monitor"
+
 
 class TestIncidentResolve:
     """Tests for incident_resolve tool."""
@@ -321,6 +482,62 @@ class TestIncidentResolve:
 
         assert data["status"] == "error"
         assert "close_notes" in data["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_resolve_blocked_in_prod(self):
+        """Should block resolving in production."""
+        prod_env = {
+            "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
+            "SERVICENOW_USERNAME": "admin",
+            "SERVICENOW_PASSWORD": "password",
+            "MCP_TOOL_PACKAGE": "full",
+            "SERVICENOW_ENV": "prod",
+        }
+        with patch.dict("os.environ", prod_env, clear=True):
+            prod_settings = Settings(_env_file=None)
+            prod_auth = BasicAuthProvider(prod_settings)
+
+            tools = _register_and_get_tools(prod_settings, prod_auth)
+            result = await tools["incident_resolve"](
+                number="INC0010001",
+                close_code="Solved (Permanently)",
+                close_notes="Fixed",
+            )
+            data = toon_decode(result)
+
+            assert data["status"] == "error"
+            assert "production" in data["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_resolve_invalid_number(self, settings, auth_provider):
+        """Should reject non-INC numbers for resolve."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        result = await tools["incident_resolve"](
+            number="CHG0010001",
+            close_code="Solved (Permanently)",
+            close_notes="Fixed",
+        )
+        data = toon_decode(result)
+
+        assert data["status"] == "error"
+        assert "INC" in data["error"]
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_resolve_not_found(self, settings, auth_provider):
+        """Should handle incident not found during resolve."""
+        respx.get(f"{BASE_URL}/api/now/table/incident").mock(return_value=Response(200, json={"result": []}))
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        result = await tools["incident_resolve"](
+            number="INC9999999",
+            close_code="Solved (Permanently)",
+            close_notes="Fixed the issue",
+        )
+        data = toon_decode(result)
+
+        assert data["status"] == "error"
+        assert "not found" in data["error"].lower()
 
 
 class TestIncidentAddComment:
@@ -403,3 +620,56 @@ class TestIncidentAddComment:
 
         assert data["status"] == "error"
         assert "comment" in data["error"].lower() or "work_note" in data["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_add_comment_blocked_in_prod(self):
+        """Should block adding comments in production."""
+        prod_env = {
+            "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
+            "SERVICENOW_USERNAME": "admin",
+            "SERVICENOW_PASSWORD": "password",
+            "MCP_TOOL_PACKAGE": "full",
+            "SERVICENOW_ENV": "prod",
+        }
+        with patch.dict("os.environ", prod_env, clear=True):
+            prod_settings = Settings(_env_file=None)
+            prod_auth = BasicAuthProvider(prod_settings)
+
+            tools = _register_and_get_tools(prod_settings, prod_auth)
+            result = await tools["incident_add_comment"](
+                number="INC0010001",
+                comment="Test comment",
+            )
+            data = toon_decode(result)
+
+            assert data["status"] == "error"
+            assert "production" in data["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_add_comment_invalid_number(self, settings, auth_provider):
+        """Should reject non-INC numbers for add_comment."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        result = await tools["incident_add_comment"](
+            number="CHG0010001",
+            comment="Test",
+        )
+        data = toon_decode(result)
+
+        assert data["status"] == "error"
+        assert "INC" in data["error"]
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_add_comment_not_found(self, settings, auth_provider):
+        """Should handle incident not found when adding comment."""
+        respx.get(f"{BASE_URL}/api/now/table/incident").mock(return_value=Response(200, json={"result": []}))
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        result = await tools["incident_add_comment"](
+            number="INC9999999",
+            comment="Test comment",
+        )
+        data = toon_decode(result)
+
+        assert data["status"] == "error"
+        assert "not found" in data["error"].lower()

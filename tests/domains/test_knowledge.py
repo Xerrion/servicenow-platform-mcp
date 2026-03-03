@@ -195,6 +195,47 @@ class TestKnowledgeCreate:
         assert "text" in data["error"].lower()
 
     @pytest.mark.asyncio
+    @respx.mock
+    async def test_create_with_kb_knowledge_base_and_category(self, settings, auth_provider):
+        """Should include kb_knowledge_base and kb_category in create data when provided."""
+        respx.post(f"{BASE_URL}/api/now/table/kb_knowledge").mock(
+            return_value=Response(
+                201,
+                json={
+                    "result": {
+                        "sys_id": "kb_new",
+                        "number": "KB0010004",
+                        "short_description": "New article",
+                        "text": "Content",
+                        "workflow_state": "draft",
+                        "kb_knowledge_base": "base123",
+                        "kb_category": "cat456",
+                    }
+                },
+            )
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        result = await tools["knowledge_create"](
+            short_description="New article",
+            text="Content",
+            kb_knowledge_base="base123",
+            kb_category="cat456",
+        )
+        data = toon_decode(result)
+
+        assert data["status"] == "success"
+        assert data["data"]["kb_knowledge_base"] == "base123"
+        assert data["data"]["kb_category"] == "cat456"
+
+        # Verify the POST body included both optional fields
+        import json
+
+        request_body = json.loads(respx.calls.last.request.content)
+        assert request_body["kb_knowledge_base"] == "base123"
+        assert request_body["kb_category"] == "cat456"
+
+    @pytest.mark.asyncio
     async def test_create_production_blocked(self):
         """Should block write in production environment."""
         prod_env = {
@@ -305,6 +346,71 @@ class TestKnowledgeUpdate:
         assert data["status"] == "error"
         assert "no fields" in data["error"].lower()
 
+    @pytest.mark.asyncio
+    async def test_update_production_blocked(self):
+        """Should block write in production environment."""
+        prod_env = {
+            "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
+            "SERVICENOW_USERNAME": "admin",
+            "SERVICENOW_PASSWORD": "password",
+            "MCP_TOOL_PACKAGE": "full",
+            "SERVICENOW_ENV": "prod",
+        }
+        with patch.dict("os.environ", prod_env, clear=True):
+            prod_settings = Settings(_env_file=None)
+            prod_auth = BasicAuthProvider(prod_settings)
+
+            tools = _register_and_get_tools(prod_settings, prod_auth)
+            result = await tools["knowledge_update"](number_or_sys_id="KB0010001", short_description="Updated")
+            data = toon_decode(result)
+
+            assert data["status"] == "error"
+            assert "production" in data["error"].lower()
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_update_with_workflow_state_kb_base_and_category(self, settings, auth_provider):
+        """Should include workflow_state, kb_knowledge_base, and kb_category in update."""
+        respx.get(f"{BASE_URL}/api/now/table/kb_knowledge").mock(
+            return_value=Response(200, json={"result": [{"sys_id": "kb123", "number": "KB0010001"}]})
+        )
+        respx.patch(f"{BASE_URL}/api/now/table/kb_knowledge/kb123").mock(
+            return_value=Response(
+                200,
+                json={
+                    "result": {
+                        "sys_id": "kb123",
+                        "number": "KB0010001",
+                        "workflow_state": "published",
+                        "kb_knowledge_base": "base789",
+                        "kb_category": "cat012",
+                    }
+                },
+            )
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        result = await tools["knowledge_update"](
+            number_or_sys_id="KB0010001",
+            workflow_state="published",
+            kb_knowledge_base="base789",
+            kb_category="cat012",
+        )
+        data = toon_decode(result)
+
+        assert data["status"] == "success"
+        assert data["data"]["workflow_state"] == "published"
+        assert data["data"]["kb_knowledge_base"] == "base789"
+        assert data["data"]["kb_category"] == "cat012"
+
+        # Verify the PATCH body included all three optional fields
+        import json
+
+        request_body = json.loads(respx.calls.last.request.content)
+        assert request_body["workflow_state"] == "published"
+        assert request_body["kb_knowledge_base"] == "base789"
+        assert request_body["kb_category"] == "cat012"
+
 
 class TestKnowledgeFeedback:
     """Tests for knowledge_feedback tool."""
@@ -414,3 +520,75 @@ class TestKnowledgeFeedback:
 
         assert data["status"] == "error"
         assert "between 1 and 5" in data["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_feedback_production_blocked(self):
+        """Should block write in production environment."""
+        prod_env = {
+            "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
+            "SERVICENOW_USERNAME": "admin",
+            "SERVICENOW_PASSWORD": "password",
+            "MCP_TOOL_PACKAGE": "full",
+            "SERVICENOW_ENV": "prod",
+        }
+        with patch.dict("os.environ", prod_env, clear=True):
+            prod_settings = Settings(_env_file=None)
+            prod_auth = BasicAuthProvider(prod_settings)
+
+            tools = _register_and_get_tools(prod_settings, prod_auth)
+            result = await tools["knowledge_feedback"](number_or_sys_id="KB0010001", rating=5)
+            data = toon_decode(result)
+
+            assert data["status"] == "error"
+            assert "production" in data["error"].lower()
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_feedback_lookup_by_sys_id(self, settings, auth_provider):
+        """Should fall back to sys_id lookup when number lookup returns nothing."""
+        respx.get(f"{BASE_URL}/api/now/table/kb_knowledge").mock(
+            side_effect=[
+                Response(200, json={"result": []}),  # Query by number fails
+                Response(
+                    200,
+                    json={"result": [{"sys_id": "abc123def456abc123def456abc12345", "number": "KB0010001"}]},
+                ),  # Query by sys_id succeeds
+            ]
+        )
+        respx.post(f"{BASE_URL}/api/now/table/kb_feedback").mock(
+            return_value=Response(
+                201,
+                json={
+                    "result": {
+                        "sys_id": "fb010",
+                        "article": "abc123def456abc123def456abc12345",
+                        "rating": "3",
+                    }
+                },
+            )
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        result = await tools["knowledge_feedback"](number_or_sys_id="abc123def456abc123def456abc12345", rating=3)
+        data = toon_decode(result)
+
+        assert data["status"] == "success"
+        assert data["data"]["article"] == "abc123def456abc123def456abc12345"
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_feedback_article_not_found(self, settings, auth_provider):
+        """Should return error when article not found for feedback."""
+        respx.get(f"{BASE_URL}/api/now/table/kb_knowledge").mock(
+            side_effect=[
+                Response(200, json={"result": []}),  # Query by number fails
+                Response(200, json={"result": []}),  # Query by sys_id also fails
+            ]
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        result = await tools["knowledge_feedback"](number_or_sys_id="abc123def456abc123def456abc12345", rating=4)
+        data = toon_decode(result)
+
+        assert data["status"] == "error"
+        assert "not found" in data["error"].lower()

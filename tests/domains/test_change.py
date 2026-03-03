@@ -156,6 +156,76 @@ class TestChangeCreate:
         assert data["data"]["number"] == "CHG0010123"
 
     @pytest.mark.asyncio
+    @respx.mock
+    async def test_create_with_all_optional_params(self, settings, auth_provider):
+        """Should include all optional fields in the created record."""
+        route = respx.post(f"{BASE_URL}/api/now/table/change_request").mock(
+            return_value=Response(
+                201,
+                json={
+                    "result": {
+                        "sys_id": "new002",
+                        "number": "CHG0010124",
+                        "short_description": "Full change",
+                        "type": "emergency",
+                        "description": "Detailed desc",
+                        "risk": "high",
+                        "assignment_group": "grp001",
+                        "start_date": "2026-04-01 08:00:00",
+                        "end_date": "2026-04-01 12:00:00",
+                    }
+                },
+            )
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        result = await tools["change_create"](
+            short_description="Full change",
+            description="Detailed desc",
+            type="emergency",
+            risk="high",
+            assignment_group="grp001",
+            start_date="2026-04-01 08:00:00",
+            end_date="2026-04-01 12:00:00",
+        )
+        data = toon_decode(result)
+
+        assert data["status"] == "success"
+        assert data["data"]["number"] == "CHG0010124"
+
+        import json
+
+        request_body = json.loads(route.calls.last.request.content)
+        assert request_body["description"] == "Detailed desc"
+        assert request_body["risk"] == "high"
+        assert request_body["assignment_group"] == "grp001"
+        assert request_body["start_date"] == "2026-04-01 08:00:00"
+        assert request_body["end_date"] == "2026-04-01 12:00:00"
+
+    @pytest.mark.asyncio
+    async def test_create_blocked_in_prod(self):
+        """Should block creation in production."""
+        prod_env = {
+            "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
+            "SERVICENOW_USERNAME": "admin",
+            "SERVICENOW_PASSWORD": "password",
+            "MCP_TOOL_PACKAGE": "full",
+            "SERVICENOW_ENV": "prod",
+        }
+        with patch.dict("os.environ", prod_env, clear=True):
+            prod_settings = Settings(_env_file=None)
+            prod_auth = BasicAuthProvider(prod_settings)
+
+            tools = _register_and_get_tools(prod_settings, prod_auth)
+            result = await tools["change_create"](
+                short_description="Test change",
+            )
+            data = toon_decode(result)
+
+            assert data["status"] == "error"
+            assert "production" in data["error"].lower()
+
+    @pytest.mark.asyncio
     async def test_create_missing_short_description(self, settings, auth_provider):
         """Should reject empty short_description."""
         tools = _register_and_get_tools(settings, auth_provider)
@@ -245,6 +315,86 @@ class TestChangeUpdate:
 
             assert data["status"] == "error"
             assert "production" in data["error"].lower()
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_update_not_found(self, settings, auth_provider):
+        """Should handle change request not found during update."""
+        respx.get(f"{BASE_URL}/api/now/table/change_request").mock(return_value=Response(200, json={"result": []}))
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        result = await tools["change_update"](
+            number="CHG9999999",
+            short_description="Updated",
+        )
+        data = toon_decode(result)
+
+        assert data["status"] == "error"
+        assert "not found" in data["error"].lower()
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_update_with_all_optional_params(self, settings, auth_provider):
+        """Should pass all optional fields including state mapping."""
+        respx.get(f"{BASE_URL}/api/now/table/change_request").mock(
+            return_value=Response(
+                200,
+                json={"result": [{"sys_id": "abc123", "number": "CHG0010001"}]},
+            )
+        )
+        route = respx.patch(f"{BASE_URL}/api/now/table/change_request/abc123").mock(
+            return_value=Response(
+                200,
+                json={
+                    "result": {
+                        "sys_id": "abc123",
+                        "number": "CHG0010001",
+                        "short_description": "Updated",
+                    }
+                },
+            )
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        result = await tools["change_update"](
+            number="CHG0010001",
+            short_description="Updated",
+            description="New detailed desc",
+            type="emergency",
+            risk="high",
+            assignment_group="grp001",
+            state="implement",
+        )
+        data = toon_decode(result)
+
+        assert data["status"] == "success"
+
+        import json
+
+        request_body = json.loads(route.calls.last.request.content)
+        assert request_body["description"] == "New detailed desc"
+        assert request_body["type"] == "emergency"
+        assert request_body["risk"] == "high"
+        assert request_body["assignment_group"] == "grp001"
+        assert request_body["state"] == "-1"
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_update_no_changes_provided(self, settings, auth_provider):
+        """Should error when no update fields are provided."""
+        respx.get(f"{BASE_URL}/api/now/table/change_request").mock(
+            return_value=Response(
+                200,
+                json={"result": [{"sys_id": "abc123", "number": "CHG0010001"}]},
+            )
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        result = await tools["change_update"](number="CHG0010001")
+        data = toon_decode(result)
+
+        assert data["status"] == "error"
+        assert "no fields" in data["error"].lower()
 
 
 class TestChangeTasks:
@@ -383,3 +533,56 @@ class TestChangeAddComment:
 
         assert data["status"] == "error"
         assert "comment" in data["error"].lower() or "work_note" in data["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_add_comment_blocked_in_prod(self):
+        """Should block adding comments in production."""
+        prod_env = {
+            "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
+            "SERVICENOW_USERNAME": "admin",
+            "SERVICENOW_PASSWORD": "password",
+            "MCP_TOOL_PACKAGE": "full",
+            "SERVICENOW_ENV": "prod",
+        }
+        with patch.dict("os.environ", prod_env, clear=True):
+            prod_settings = Settings(_env_file=None)
+            prod_auth = BasicAuthProvider(prod_settings)
+
+            tools = _register_and_get_tools(prod_settings, prod_auth)
+            result = await tools["change_add_comment"](
+                number="CHG0010001",
+                comment="Test comment",
+            )
+            data = toon_decode(result)
+
+            assert data["status"] == "error"
+            assert "production" in data["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_add_comment_invalid_prefix(self, settings, auth_provider):
+        """Should reject non-CHG numbers."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        result = await tools["change_add_comment"](
+            number="INC0010001",
+            comment="Test comment",
+        )
+        data = toon_decode(result)
+
+        assert data["status"] == "error"
+        assert "CHG" in data["error"]
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_add_comment_not_found(self, settings, auth_provider):
+        """Should handle change request not found when adding comment."""
+        respx.get(f"{BASE_URL}/api/now/table/change_request").mock(return_value=Response(200, json={"result": []}))
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        result = await tools["change_add_comment"](
+            number="CHG9999999",
+            comment="Test comment",
+        )
+        data = toon_decode(result)
+
+        assert data["status"] == "error"
+        assert "not found" in data["error"].lower()

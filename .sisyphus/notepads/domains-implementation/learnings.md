@@ -85,3 +85,73 @@ Successfully implemented 5 Request Management domain tools in `src/servicenow_mc
 - Only child table (sc_req_item) has write operations
 - Both tables use `check_table_access()` with appropriate table name before API calls
 - No state mapping needed (unlike incident which maps state names to numbers) - states used as-is
+
+## Task 11: Knowledge Management Domain Implementation (FINAL DOMAIN)
+
+**Date:** 2026-03-03
+
+### Implementation Summary
+Successfully implemented 5 Knowledge Management domain tools in `src/servicenow_mcp/tools/domains/knowledge.py` (346 lines):
+- `knowledge_search`: LIKE operator for fuzzy text search in short_description/text fields
+- `knowledge_get`: Dual lookup by KB number OR sys_id (32-char lowercase hex)
+- `knowledge_create`: Create articles with draft default workflow_state
+- `knowledge_update`: Update articles by KB number OR sys_id
+- `knowledge_feedback`: **UNIQUE TOOL** - Submit rating (1-5) OR comment OR both
+
+### Key Patterns - LIKE Queries & Dual Lookup
+1. **LIKE operator**: `short_descriptionLIKE{query}^ORtextLIKE{query}` - fuzzy text search syntax
+2. **Dual lookup pattern**: Try KB number first (`number={number.upper()}`), then fallback to sys_id if 32-char hex
+3. **Sys_id regex**: `r"^[a-z0-9]{32}$"` - matches 32-char lowercase hex (note: lowercase, not `[a-f0-9]` like CMDB)
+4. **Draft default**: `knowledge_create` defaults `workflow_state="draft"` (new articles start as drafts)
+5. **Feedback validation**: `rating: int | None = None` to distinguish "not provided" (None) from "invalid" (0)
+
+### Test Discovery - Parameter Default Sentinel Values
+- **CRITICAL**: Test file had contradictory expectations for `rating=0`
+  - `test_feedback_missing_both`: No params → expects "must provide rating or comment"
+  - `test_feedback_invalid_rating_low`: `rating=0` → expects "between 1 and 5"
+- **Solution**: Changed `rating: int = 0` to `rating: int | None = None` to distinguish:
+  - `rating=None` (not provided) → "must provide" error
+  - `rating=0` (invalid value) → "between 1 and 5" error
+  - This is the ONLY way to distinguish default from explicit 0 in Python
+- **Lesson**: Use `None` as sentinel for optional int parameters when 0 is a valid (or invalid) value
+
+### Testing
+- All 19 tests in `tests/domains/test_knowledge.py` pass (task said 15, actual count is 19)
+- Full suite: **638 passed** (ALL domains complete - incident, problem, change, CMDB, request, knowledge)
+- Ruff + mypy clean
+- **FINAL DOMAIN COMPLETE** - all 6 domain modules implemented!
+
+### Evidence Files Created
+- `.sisyphus/evidence/task-11-knowledge-search.txt` (3 search tests)
+- `.sisyphus/evidence/task-11-full-suite.txt` (19/19 knowledge tests + 638 full regression)
+
+### Technical Details
+- Table name: `kb_knowledge` (not `knowledge`)
+- KB number format: KB0010001 (always uppercase in queries)
+- Workflow states: "published" (search default), "draft" (create default)
+- Feedback fields: `rating` (numeric 1-5), `feedback_comments` (text)
+- LIKE operator appears unencoded in URL query strings (unlike `=` which becomes `%3D`)
+- URL encoding: `workflow_state%3Dpublished`, `short_descriptionLIKEpassword` (no encoding for LIKE)
+
+### Code Style
+- All tools follow incident.py pattern: `safe_tool_call()` + inner `_run()` async function
+- Ternary operators for query building (SIM108 compliance)
+- Docstrings required for MCP schema generation
+- `mask_sensitive_fields(record)` single-arg form on all returned records
+- Write gate on create, update, feedback tools (production blocking)
+
+### Comparison with Other Domains
+- **Incident/Problem/Change**: Single-table, prefix validation, state mapping
+- **CMDB**: Dynamic table access, sys_id regex `[a-f0-9]{32}` (lowercase hex a-f only)
+- **Request**: Dual-table (parent/child), dot-notation relationships
+- **Knowledge**: Dual lookup, LIKE queries, unique feedback tool, sys_id regex `[a-z0-9]{32}` (alphanumeric)
+
+### ALL DOMAIN MODULES COMPLETE (6/6)
+1. ✅ Task 6: Incident Management (480 lines, 19 tests)
+2. ✅ Task 7: Problem Management (394 lines, 18 tests)
+3. ✅ Task 9: Change Management (405 lines, 19 tests)
+4. ✅ Task 8: CMDB (230 lines, 15 tests)
+5. ✅ Task 10: Request Management (251 lines, 17 tests)
+6. ✅ Task 11: Knowledge Management (346 lines, 19 tests) **FINAL**
+
+**Total**: 2,106 lines of production code, 107 domain tests, 638 total tests GREEN

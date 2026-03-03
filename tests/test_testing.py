@@ -8,6 +8,7 @@ import respx
 from toon_format import decode as toon_decode
 
 from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp.state import QueryTokenStore
 
 BASE_URL = "https://test.service-now.com"
 
@@ -19,14 +20,16 @@ def auth_provider(settings):
 
 
 def _register_and_get_tools(settings, auth_provider):
-    """Helper: register testing tools on a fresh MCP server and return tool map."""
+    """Helper: register testing tools on a fresh MCP server and return tool map + query store."""
     from mcp.server.fastmcp import FastMCP
 
     from servicenow_mcp.tools.testing import register_tools
 
     mcp = FastMCP("test")
+    query_store = QueryTokenStore()
+    mcp._sn_query_store = query_store  # type: ignore[attr-defined]
     register_tools(mcp, settings, auth_provider)
-    return {t.name: t.fn for t in mcp._tool_manager._tools.values()}
+    return {t.name: t.fn for t in mcp._tool_manager._tools.values()}, query_store
 
 
 class TestAtfListTests:
@@ -63,7 +66,7 @@ class TestAtfListTests:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_list_tests"]()
         result = toon_decode(raw)
 
@@ -95,8 +98,9 @@ class TestAtfListTests:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["atf_list_tests"](query="active=true")
+        tools, query_store = _register_and_get_tools(settings, auth_provider)
+        token = query_store.create({"query": "active=true"})
+        raw = await tools["atf_list_tests"](query_token=token)
         result = toon_decode(raw)
 
         assert result["status"] == "success"
@@ -116,7 +120,7 @@ class TestAtfListTests:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_list_tests"]()
         result = toon_decode(raw)
 
@@ -172,7 +176,7 @@ class TestAtfGetTest:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_get_test"](test_id="test123")
         result = toon_decode(raw)
 
@@ -192,7 +196,7 @@ class TestAtfGetTest:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_get_test"](test_id="missing")
         result = toon_decode(raw)
 
@@ -247,7 +251,7 @@ class TestAtfGetTest:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_get_test"](test_id="test456")
         result = toon_decode(raw)
 
@@ -291,7 +295,7 @@ class TestAtfListSuites:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_list_suites"]()
         result = toon_decode(raw)
 
@@ -312,7 +316,7 @@ class TestAtfListSuites:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_list_suites"]()
         result = toon_decode(raw)
 
@@ -348,7 +352,7 @@ class TestAtfGetResults:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_get_results"](test_id="test123")
         result = toon_decode(raw)
 
@@ -382,7 +386,7 @@ class TestAtfGetResults:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_get_results"](suite_id="suite456")
         result = toon_decode(raw)
 
@@ -394,7 +398,7 @@ class TestAtfGetResults:
     @pytest.mark.asyncio
     async def test_get_results_missing_both_ids(self, settings, auth_provider):
         """Returns error when neither test_id nor suite_id provided."""
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_get_results"]()
         result = toon_decode(raw)
 
@@ -413,7 +417,7 @@ class TestAtfGetResults:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_get_results"](test_id="test999")
         result = toon_decode(raw)
 
@@ -444,7 +448,7 @@ class TestAtfRunTest:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_run_test"](test_id="test456", poll=True, poll_interval=2, max_poll_duration=10)
         result = toon_decode(raw)
 
@@ -465,7 +469,7 @@ class TestAtfRunTest:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_run_test"](test_id="test999", poll=False)
         result = toon_decode(raw)
 
@@ -484,6 +488,7 @@ class TestAtfRunTest:
 
         prod_auth = BasicAuthProvider(prod_settings)
         mcp = FastMCP("test")
+        mcp._sn_query_store = QueryTokenStore()  # type: ignore[attr-defined]
         register_tools(mcp, prod_settings, prod_auth)
         tools = {t.name: t.fn for t in mcp._tool_manager._tools.values()}
 
@@ -511,7 +516,7 @@ class TestAtfRunTest:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_run_test"](test_id="test_long", poll=True, poll_interval=2, max_poll_duration=10)
         result = toon_decode(raw)
 
@@ -538,7 +543,7 @@ class TestAtfRunTest:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_run_test"](test_id="test_fail", poll=True, poll_interval=2, max_poll_duration=10)
         result = toon_decode(raw)
 
@@ -567,7 +572,7 @@ class TestAtfRunSuite:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_run_suite"](suite_id="suite789", poll=True, poll_interval=2, max_poll_duration=10)
         result = toon_decode(raw)
 
@@ -587,7 +592,7 @@ class TestAtfRunSuite:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_run_suite"](suite_id="suite_fast", poll=False)
         result = toon_decode(raw)
 
@@ -605,6 +610,7 @@ class TestAtfRunSuite:
 
         prod_auth = BasicAuthProvider(prod_settings)
         mcp = FastMCP("test")
+        mcp._sn_query_store = QueryTokenStore()  # type: ignore[attr-defined]
         register_tools(mcp, prod_settings, prod_auth)
         tools = {t.name: t.fn for t in mcp._tool_manager._tools.values()}
 
@@ -631,7 +637,7 @@ class TestAtfRunSuite:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_run_suite"](suite_id="suite_cancel", poll=True, poll_interval=2, max_poll_duration=10)
         result = toon_decode(raw)
 
@@ -660,7 +666,7 @@ class TestAtfTestHealth:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_test_health"](test_id="test_stable", days=30, limit=50)
         result = toon_decode(raw)
 
@@ -692,7 +698,7 @@ class TestAtfTestHealth:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_test_health"](test_id="test_flaky", days=30, limit=50)
         result = toon_decode(raw)
 
@@ -723,7 +729,7 @@ class TestAtfTestHealth:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_test_health"](test_id="test_degrading", days=30, limit=50)
         result = toon_decode(raw)
 
@@ -743,7 +749,7 @@ class TestAtfTestHealth:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_test_health"](test_id="test_no_data", days=30, limit=50)
         result = toon_decode(raw)
 
@@ -756,7 +762,7 @@ class TestAtfTestHealth:
     @pytest.mark.asyncio
     async def test_health_missing_both_ids(self, settings, auth_provider):
         """Call with neither test_id nor suite_id. Assert error."""
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_test_health"]()
         result = toon_decode(raw)
 
@@ -766,7 +772,7 @@ class TestAtfTestHealth:
     @pytest.mark.asyncio
     async def test_health_both_ids_provided(self, settings, auth_provider):
         """Call with both test_id and suite_id. Assert error."""
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_test_health"](test_id="test123", suite_id="suite456")
         result = toon_decode(raw)
 
@@ -794,7 +800,7 @@ class TestAtfTestHealth:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_test_health"](suite_id="suite_healthy", days=30, limit=50)
         result = toon_decode(raw)
 

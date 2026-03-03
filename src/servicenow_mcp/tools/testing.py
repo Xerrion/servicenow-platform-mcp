@@ -10,10 +10,12 @@ from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
 from servicenow_mcp.policy import check_table_access, mask_sensitive_fields, write_blocked_reason
+from servicenow_mcp.state import QueryTokenStore
 from servicenow_mcp.utils import (
     ServiceNowQuery,
     format_response,
     generate_correlation_id,
+    resolve_query_token,
     safe_tool_call,
 )
 
@@ -39,17 +41,20 @@ def _atf_execution_gate(settings: Settings, correlation_id: str) -> str | None:
 
 def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthProvider) -> None:
     """Register ATF (Automated Test Framework) tools on the MCP server."""
+    query_store: QueryTokenStore = mcp._sn_query_store  # type: ignore[attr-defined]
 
     @mcp.tool()
     async def atf_list_tests(
-        query: str = "",
+        query_token: str = "",
         limit: int = 20,
         fields: str = "",
     ) -> str:
         """Query ATF tests with filtering and pagination.
 
         Args:
-            query: ServiceNow encoded query string for filtering.
+            query_token: Token from the build_query tool for filtering.
+                Use build_query to create a query first, then pass the returned query_token here.
+                Leave empty for no filter.
             limit: Maximum records to return (default 20).
             fields: Comma-separated field list (empty for default fields).
         """
@@ -61,7 +66,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             default_fields = "sys_id,name,description,active,sys_updated_on,test_origin"
             field_list = fields if fields else default_fields
 
-            query_str = query
+            query_str = resolve_query_token(query_token, query_store, correlation_id)
 
             async with ServiceNowClient(settings, auth_provider) as client:
                 result = await client.query_records(
@@ -129,7 +134,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
 
     @mcp.tool()
     async def atf_list_suites(
-        query: str = "",
+        query_token: str = "",
         limit: int = 20,
     ) -> str:
         """Query ATF test suites with member counts.
@@ -137,7 +142,9 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         Fetches test suites and enriches each with the count of tests in the suite.
 
         Args:
-            query: ServiceNow encoded query string for filtering.
+            query_token: Token from the build_query tool for filtering.
+                Use build_query to create a query first, then pass the returned query_token here.
+                Leave empty for no filter.
             limit: Maximum records to return (default 20).
         """
         correlation_id = generate_correlation_id()
@@ -145,6 +152,8 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         async def _run() -> str:
             check_table_access("sys_atf_test_suite")
             check_table_access("sys_atf_test_suite_test")
+
+            query = resolve_query_token(query_token, query_store, correlation_id)
 
             async with ServiceNowClient(settings, auth_provider) as client:
                 result = await client.query_records(

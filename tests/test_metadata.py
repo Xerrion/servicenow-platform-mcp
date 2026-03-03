@@ -8,6 +8,7 @@ import respx
 from toon_format import decode as toon_decode
 
 from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp.state import QueryTokenStore
 
 BASE_URL = "https://test.service-now.com"
 
@@ -40,14 +41,16 @@ def auth_provider(settings):
 
 
 def _register_and_get_tools(settings, auth_provider):
-    """Helper: register metadata tools on a fresh MCP server and return tool map."""
+    """Helper: register metadata tools on a fresh MCP server and return tool map + query store."""
     from mcp.server.fastmcp import FastMCP
 
     from servicenow_mcp.tools.metadata import register_tools
 
     mcp = FastMCP("test")
+    query_store = QueryTokenStore()
+    mcp._sn_query_store = query_store  # type: ignore[attr-defined]
     register_tools(mcp, settings, auth_provider)
-    return {t.name: t.fn for t in mcp._tool_manager._tools.values()}
+    return {t.name: t.fn for t in mcp._tool_manager._tools.values()}, query_store
 
 
 class TestMetaListArtifacts:
@@ -80,7 +83,7 @@ class TestMetaListArtifacts:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["meta_list_artifacts"](artifact_type="business_rule")
         result = toon_decode(raw)
 
@@ -110,8 +113,9 @@ class TestMetaListArtifacts:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["meta_list_artifacts"](artifact_type="business_rule", query="collection=incident^active=true")
+        tools, query_store = _register_and_get_tools(settings, auth_provider)
+        token = query_store.create({"query": "collection=incident^active=true"})
+        raw = await tools["meta_list_artifacts"](artifact_type="business_rule", query_token=token)
         result = toon_decode(raw)
 
         assert result["status"] == "success"
@@ -120,7 +124,7 @@ class TestMetaListArtifacts:
     @pytest.mark.asyncio
     async def test_unknown_type_returns_error(self, settings, auth_provider):
         """Unknown artifact type returns an error."""
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["meta_list_artifacts"](artifact_type="nonexistent_type")
         result = toon_decode(raw)
 
@@ -139,7 +143,7 @@ class TestMetaListArtifacts:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["meta_list_artifacts"](artifact_type="business_rule")
         result = toon_decode(raw)
 
@@ -158,7 +162,7 @@ class TestMetaListArtifacts:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         # Pass limit=9999, which should be capped to settings.max_row_limit (default 100)
         raw = await tools["meta_list_artifacts"](artifact_type="business_rule", limit=9999)
         result = toon_decode(raw)
@@ -197,7 +201,7 @@ class TestMetaGetArtifact:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["meta_get_artifact"](artifact_type="business_rule", sys_id="br1")
         result = toon_decode(raw)
 
@@ -213,7 +217,7 @@ class TestMetaGetArtifact:
             return_value=httpx.Response(404, json={"error": {"message": "Not found"}})
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["meta_get_artifact"](artifact_type="business_rule", sys_id="missing")
         result = toon_decode(raw)
 
@@ -246,7 +250,7 @@ class TestMetaFindReferences:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["meta_find_references"](target="GlideRecord")
         result = toon_decode(raw)
 
@@ -290,7 +294,7 @@ class TestMetaFindReferences:
                     )
                 )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["meta_find_references"](target="GlideRecord")
         result = toon_decode(raw)
 
@@ -312,7 +316,7 @@ class TestMetaFindReferences:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["meta_find_references"](target="NonExistentAPI12345")
         result = toon_decode(raw)
 
@@ -338,7 +342,7 @@ class TestMetaFindReferences:
                 )
             )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         # Pass limit=9999, which should be capped to settings.max_row_limit (default 100)
         raw = await tools["meta_find_references"](target="SomeTarget", limit=9999)
         result = toon_decode(raw)
@@ -375,7 +379,7 @@ class TestMetaFindReferences:
                 )
             )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["meta_find_references"](target="foo^bar")
         result = toon_decode(raw)
 
@@ -420,7 +424,7 @@ class TestMetaWhatWrites:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["meta_what_writes"](table="incident")
         result = toon_decode(raw)
 
@@ -461,7 +465,7 @@ class TestMetaWhatWrites:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["meta_what_writes"](table="incident", field="priority")
         result = toon_decode(raw)
 
@@ -483,7 +487,7 @@ class TestMetaWhatWrites:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["meta_what_writes"](table="cmdb_ci")
         result = toon_decode(raw)
 

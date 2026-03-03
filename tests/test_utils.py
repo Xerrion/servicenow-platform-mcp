@@ -1,8 +1,6 @@
 """Tests for utility functions."""
 
 import uuid
-import warnings
-
 import pytest
 from toon_format import decode as toon_decode
 
@@ -83,63 +81,6 @@ class TestFormatResponse:
         resp = toon_decode(raw)
 
         assert "Limit capped at 100" in resp["warnings"]
-
-
-class TestBuildEncodedQuery:
-    """Test encoded query builder."""
-
-    def test_single_condition(self):
-        from servicenow_mcp.utils import build_encoded_query
-
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            query = build_encoded_query({"active": "true"})
-        assert query == "active=true"
-
-    def test_multiple_conditions(self):
-        from servicenow_mcp.utils import build_encoded_query
-
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            query = build_encoded_query({"active": "true", "priority": "1"})
-        assert "active=true" in query
-        assert "priority=1" in query
-        assert "^" in query
-
-    def test_empty_dict(self):
-        from servicenow_mcp.utils import build_encoded_query
-
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            query = build_encoded_query({})
-        assert query == ""
-
-    def test_passthrough_string(self):
-        """If given a string, return it unchanged."""
-        from servicenow_mcp.utils import build_encoded_query
-
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            query = build_encoded_query("active=true^priority=1")
-        assert query == "active=true^priority=1"
-
-    def test_deprecation_warning(self):
-        """Calling build_encoded_query emits a DeprecationWarning."""
-        from servicenow_mcp.utils import build_encoded_query
-
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            build_encoded_query({"active": "true"})
-        assert any(issubclass(x.category, DeprecationWarning) for x in w)
-
-    def test_value_sanitization(self):
-        """Dict values containing ^ are sanitized."""
-        from servicenow_mcp.utils import build_encoded_query
-
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            query = build_encoded_query({"description": "a^b"})
-        assert query == "description=a^^b"
 
 
 class TestServiceNowQuery:

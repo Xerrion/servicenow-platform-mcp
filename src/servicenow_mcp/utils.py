@@ -4,13 +4,15 @@ import json
 import logging
 import re
 import uuid
-import warnings
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from toon_format import encode as toon_encode
 
 from servicenow_mcp.errors import ForbiddenError
+
+if TYPE_CHECKING:
+    from servicenow_mcp.state import QueryTokenStore
 
 logger = logging.getLogger(__name__)
 
@@ -98,27 +100,6 @@ def format_response(
     if warnings is not None:
         response["warnings"] = warnings
     return serialize(response)
-
-
-def build_encoded_query(conditions: dict[str, str] | str) -> str:
-    """Convert a dict of conditions to a ServiceNow encoded query string.
-
-    If a string is passed, it is returned unchanged.
-
-    .. deprecated::
-        Use :class:`ServiceNowQuery` instead.  This helper performs no
-        field-name validation and only basic value sanitization.
-    """
-    warnings.warn(
-        "build_encoded_query() is deprecated — use ServiceNowQuery instead.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    if isinstance(conditions, str):
-        return conditions
-    if not conditions:
-        return ""
-    return "^".join(f"{key}={sanitize_query_value(value)}" for key, value in conditions.items())
 
 
 class ServiceNowQuery:
@@ -366,6 +347,24 @@ class ServiceNowQuery:
     def __str__(self) -> str:
         """Return the built query string."""
         return self.build()
+
+
+def resolve_query_token(query_token: str, query_store: "QueryTokenStore", correlation_id: str) -> str:
+    """Resolve a query token to the encoded query string it represents.
+
+    Args:
+        query_token: The token from build_query, or empty string for no filter.
+        query_store: The shared QueryTokenStore instance.
+        correlation_id: Request correlation ID for error formatting.
+
+    Returns the encoded query string. Raises ValueError if the token is invalid or expired.
+    """
+    if not query_token:
+        return ""
+    payload = query_store.get(query_token)
+    if payload is None:
+        raise ValueError("Invalid or expired query token. Use the build_query tool to create a query first.")
+    return payload["query"]
 
 
 async def safe_tool_call(

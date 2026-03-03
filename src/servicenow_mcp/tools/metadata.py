@@ -8,10 +8,12 @@ from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
 from servicenow_mcp.policy import INTERNAL_QUERY_LIMIT, check_table_access, enforce_query_safety, mask_sensitive_fields
+from servicenow_mcp.state import QueryTokenStore
 from servicenow_mcp.utils import (
     ServiceNowQuery,
     format_response,
     generate_correlation_id,
+    resolve_query_token,
     safe_tool_call,
     validate_identifier,
 )
@@ -40,18 +42,21 @@ SCRIPT_TABLES: list[str] = [
 
 def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthProvider) -> None:
     """Register metadata tools on the MCP server."""
+    query_store: QueryTokenStore = mcp._sn_query_store  # type: ignore[attr-defined]
 
     @mcp.tool()
     async def meta_list_artifacts(
         artifact_type: str,
-        query: str = "",
+        query_token: str = "",
         limit: int = 100,
     ) -> str:
         """List platform artifacts (business rules, script includes, etc.) filtered by type and optional query.
 
         Args:
             artifact_type: The type of artifact to list (business_rule, script_include, ui_policy, ui_action, client_script, scheduled_job, fix_script).
-            query: Optional ServiceNow encoded query string to further filter results.
+            query_token: Token from the build_query tool for additional filtering.
+                Use build_query to create a query first, then pass the returned query_token here.
+                Leave empty for no additional filter.
             limit: Maximum number of artifacts to return.
         """
         correlation_id = generate_correlation_id()
@@ -64,7 +69,8 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
 
             check_table_access(table)
 
-            encoded_query = query if query else ""
+            query = resolve_query_token(query_token, query_store, correlation_id)
+            encoded_query = query
             safety = enforce_query_safety(table, encoded_query, limit, settings)
             effective_limit = safety["limit"]
 

@@ -6,6 +6,7 @@ import pytest
 from toon_format import decode as toon_decode
 
 from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp.state import QueryTokenStore
 
 
 @pytest.fixture
@@ -21,6 +22,8 @@ def _register_and_get_tools(settings, auth_provider):
     from servicenow_mcp.tools.utility import register_tools
 
     mcp = FastMCP("test")
+    query_store = QueryTokenStore()
+    mcp._sn_query_store = query_store  # type: ignore[attr-defined]
     register_tools(mcp, settings, auth_provider)
     return {t.name: t.fn for t in mcp._tool_manager._tools.values()}
 
@@ -35,6 +38,9 @@ class TestBuildQuery:
         result = toon_decode(raw)
         assert result["status"] == "success"
         assert result["data"]["query"] == "active=true"
+        assert "query_token" in result["data"]
+        assert isinstance(result["data"]["query_token"], str)
+        assert len(result["data"]["query_token"]) > 0
 
     def test_with_time_filter(self, settings, auth_provider):
         """Build a query with hours_ago time filter."""
@@ -43,6 +49,9 @@ class TestBuildQuery:
         result = toon_decode(raw)
         assert result["status"] == "success"
         assert result["data"]["query"] == "sys_created_on>=javascript:gs.hoursAgoStart(24)"
+        assert "query_token" in result["data"]
+        assert isinstance(result["data"]["query_token"], str)
+        assert len(result["data"]["query_token"]) > 0
 
     def test_multiple_conditions(self, settings, auth_provider):
         """Build a query with multiple conditions."""
@@ -60,6 +69,9 @@ class TestBuildQuery:
         assert result["data"]["query"] == (
             "active=true^sys_created_on>=javascript:gs.hoursAgoStart(24)^sourceLIKEincident"
         )
+        assert "query_token" in result["data"]
+        assert isinstance(result["data"]["query_token"], str)
+        assert len(result["data"]["query_token"]) > 0
 
     def test_is_empty_no_value_needed(self, settings, auth_provider):
         """Unary operators like is_empty don't need a value."""
@@ -68,6 +80,9 @@ class TestBuildQuery:
         result = toon_decode(raw)
         assert result["status"] == "success"
         assert result["data"]["query"] == "assigned_toISEMPTY"
+        assert "query_token" in result["data"]
+        assert isinstance(result["data"]["query_token"], str)
+        assert len(result["data"]["query_token"]) > 0
 
     def test_invalid_operator_returns_error(self, settings, auth_provider):
         """Unknown operator returns an error response."""
@@ -116,6 +131,7 @@ class TestBuildQuery:
         result = toon_decode(raw)
         assert result["status"] == "success"
         assert result["data"]["query"] == ""
+        assert "query_token" in result["data"]
 
     def test_days_ago_operator(self, settings, auth_provider):
         """Test days_ago time filter."""
@@ -124,6 +140,7 @@ class TestBuildQuery:
         result = toon_decode(raw)
         assert result["status"] == "success"
         assert result["data"]["query"] == "sys_created_on>=javascript:gs.daysAgoStart(30)"
+        assert "query_token" in result["data"]
 
     def test_starts_with_operator(self, settings, auth_provider):
         """Test starts_with string operator."""
@@ -132,6 +149,7 @@ class TestBuildQuery:
         result = toon_decode(raw)
         assert result["status"] == "success"
         assert result["data"]["query"] == "nameSTARTSWITHincident"
+        assert "query_token" in result["data"]
 
     def test_or_equals_operator(self, settings, auth_provider):
         """Test or_equals OR condition."""
@@ -146,6 +164,7 @@ class TestBuildQuery:
         result = toon_decode(raw)
         assert result["status"] == "success"
         assert result["data"]["query"] == "state=1^ORstate=2"
+        assert "query_token" in result["data"]
 
     def test_or_starts_with_operator(self, settings, auth_provider):
         """Test or_starts_with OR condition."""
@@ -160,6 +179,7 @@ class TestBuildQuery:
         result = toon_decode(raw)
         assert result["status"] == "success"
         assert result["data"]["query"] == "nameSTARTSWITHINC^ORnameSTARTSWITHREQ"
+        assert "query_token" in result["data"]
 
     def test_in_list_operator(self, settings, auth_provider):
         """Test in_list operator with a list of values."""
@@ -173,6 +193,7 @@ class TestBuildQuery:
         result = toon_decode(raw)
         assert result["status"] == "success"
         assert result["data"]["query"] == "stateIN1,2,3"
+        assert "query_token" in result["data"]
 
     def test_not_in_list_operator(self, settings, auth_provider):
         """Test not_in_list operator with a list of values."""
@@ -186,6 +207,7 @@ class TestBuildQuery:
         result = toon_decode(raw)
         assert result["status"] == "success"
         assert result["data"]["query"] == "priorityNOT IN4,5"
+        assert "query_token" in result["data"]
 
     def test_in_list_requires_list_value(self, settings, auth_provider):
         """in_list with a non-list value returns an error."""
@@ -213,6 +235,7 @@ class TestBuildQuery:
         result = toon_decode(raw)
         assert result["status"] == "success"
         assert result["data"]["query"] == "active=true^ORDERBYsys_created_on"
+        assert "query_token" in result["data"]
 
     def test_order_by_descending(self, settings, auth_provider):
         """Test order_by operator with descending=true."""
@@ -227,6 +250,7 @@ class TestBuildQuery:
         result = toon_decode(raw)
         assert result["status"] == "success"
         assert result["data"]["query"] == "active=true^ORDERBYDESCsys_created_on"
+        assert "query_token" in result["data"]
 
     def test_value_injection_prevented(self, settings, auth_provider):
         """Value containing ^ is escaped by the builder, preventing injection."""
@@ -241,6 +265,7 @@ class TestBuildQuery:
         assert result["status"] == "success"
         # The ^ in the value should be escaped to ^^
         assert result["data"]["query"] == "name=foo^^bar"
+        assert "query_token" in result["data"]
 
     def test_hours_ago_missing_value_returns_error(self, settings, auth_provider):
         """Time operator without value key returns error (line 96)."""
@@ -262,3 +287,24 @@ class TestBuildQuery:
         result = toon_decode(raw)
         assert result["status"] == "error"
         assert "boom" in result["error"]
+
+    def test_query_token_is_resolvable(self, settings):
+        """build_query returns a token that resolves back to the built query."""
+        from mcp.server.fastmcp import FastMCP
+
+        from servicenow_mcp.tools.utility import register_tools
+
+        query_store = QueryTokenStore()
+        mcp = FastMCP("test")
+        mcp._sn_query_store = query_store  # type: ignore[attr-defined]
+        auth = BasicAuthProvider(settings)
+        register_tools(mcp, settings, auth)
+        tools = {t.name: t.fn for t in mcp._tool_manager._tools.values()}
+
+        raw = tools["build_query"](conditions='[{"operator": "equals", "field": "active", "value": "true"}]')
+        result = toon_decode(raw)
+        token = result["data"]["query_token"]
+
+        payload = query_store.get(token)
+        assert payload is not None
+        assert payload["query"] == "active=true"

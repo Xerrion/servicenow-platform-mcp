@@ -8,6 +8,7 @@ from mcp.server.fastmcp import FastMCP
 
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.config import Settings
+from servicenow_mcp.state import QueryTokenStore
 from servicenow_mcp.utils import ServiceNowQuery, format_response, generate_correlation_id
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,7 @@ _LIST_OPERATORS = {"in_list", "not_in_list"}
 
 def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthProvider) -> None:
     """Register utility tools on the MCP server."""
+    query_store: QueryTokenStore = mcp._sn_query_store  # type: ignore[attr-defined]
 
     @mcp.tool()
     def build_query(conditions: str) -> str:
@@ -59,6 +61,9 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
               {"operator": "like", "field": "source", "value": "incident"}
             ]
             Returns: "active=true^sys_created_on>=javascript:gs.hoursAgoStart(24)^sourceLIKEincident"
+
+        Returns a response containing both the built query string and a query_token.
+        The query_token must be passed to other tools that accept query parameters.
         """
         correlation_id = generate_correlation_id()
         try:
@@ -134,7 +139,8 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                     )
 
             built = query.build()
-            return format_response(data={"query": built}, correlation_id=correlation_id)
+            query_token = query_store.create({"query": built})
+            return format_response(data={"query": built, "query_token": query_token}, correlation_id=correlation_id)
 
         except json.JSONDecodeError as e:
             return format_response(data=None, correlation_id=correlation_id, status="error", error=f"Invalid JSON: {e}")

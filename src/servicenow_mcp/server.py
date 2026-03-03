@@ -8,6 +8,7 @@ from mcp.server.fastmcp import FastMCP
 from servicenow_mcp.auth import create_auth
 from servicenow_mcp.config import Settings
 from servicenow_mcp.packages import _TOOL_GROUP_MODULES, get_package, list_packages
+from servicenow_mcp.state import QueryTokenStore
 from servicenow_mcp.utils import serialize
 
 logger = logging.getLogger(__name__)
@@ -23,6 +24,9 @@ def create_mcp_server() -> FastMCP:
     # Store settings and client factory on the server for tools to access
     mcp._sn_settings = settings  # type: ignore[attr-defined]
     mcp._sn_auth = auth_provider  # type: ignore[attr-defined]
+
+    query_store = QueryTokenStore()
+    mcp._sn_query_store = query_store  # type: ignore[attr-defined]
 
     # Always register the list_tool_packages tool
     @mcp.tool()

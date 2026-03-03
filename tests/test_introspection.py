@@ -7,6 +7,7 @@ from toon_format import decode as toon_decode
 
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.policy import DENIED_TABLES
+from servicenow_mcp.state import QueryTokenStore
 
 BASE_URL = "https://test.service-now.com"
 
@@ -24,8 +25,10 @@ def _register_and_get_tools(settings, auth_provider):
     from servicenow_mcp.tools.introspection import register_tools
 
     mcp = FastMCP("test")
+    query_store = QueryTokenStore()
+    mcp._sn_query_store = query_store  # type: ignore[attr-defined]
     register_tools(mcp, settings, auth_provider)
-    return {t.name: t.fn for t in mcp._tool_manager._tools.values()}
+    return {t.name: t.fn for t in mcp._tool_manager._tools.values()}, query_store
 
 
 class TestTableDescribe:
@@ -63,7 +66,7 @@ class TestTableDescribe:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["table_describe"](table="incident")
         result = toon_decode(raw)
 
@@ -77,7 +80,7 @@ class TestTableDescribe:
     async def test_denied_table_returns_error(self, settings, auth_provider):
         """Blocked tables return an error response (no HTTP call made)."""
         denied = next(iter(DENIED_TABLES))
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["table_describe"](table=denied)
         result = toon_decode(raw)
 
@@ -92,7 +95,7 @@ class TestTableDescribe:
             return_value=httpx.Response(200, json={"result": []})
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["table_describe"](table="incident")
         result = toon_decode(raw)
 
@@ -114,7 +117,7 @@ class TestTableGet:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["table_get"](table="incident", sys_id="abc123")
         result = toon_decode(raw)
 
@@ -140,7 +143,7 @@ class TestTableGet:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["table_get"](table="sys_user", sys_id="user1")
         result = toon_decode(raw)
 
@@ -157,7 +160,7 @@ class TestTableGet:
             return_value=httpx.Response(404, json={"error": {"message": "Not found"}})
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["table_get"](table="incident", sys_id="missing")
         result = toon_decode(raw)
 
@@ -167,7 +170,7 @@ class TestTableGet:
     async def test_denied_table_returns_error(self, settings, auth_provider):
         """Denied table returns error without making HTTP call."""
         denied = next(iter(DENIED_TABLES))
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["table_get"](table=denied, sys_id="abc")
         result = toon_decode(raw)
 
@@ -195,8 +198,9 @@ class TestTableQuery:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["table_query"](table="incident", query="active=true")
+        tools, query_store = _register_and_get_tools(settings, auth_provider)
+        token = query_store.create({"query": "active=true"})
+        raw = await tools["table_query"](table="incident", query_token=token)
         result = toon_decode(raw)
 
         assert result["status"] == "success"
@@ -215,9 +219,10 @@ class TestTableQuery:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, query_store = _register_and_get_tools(settings, auth_provider)
+        token = query_store.create({"query": "active=true"})
         # Default max_row_limit is 100, request 500
-        raw = await tools["table_query"](table="incident", query="active=true", limit=500)
+        raw = await tools["table_query"](table="incident", query_token=token, limit=500)
         result = toon_decode(raw)
 
         assert result["status"] == "success"
@@ -229,8 +234,9 @@ class TestTableQuery:
         """Large tables require a date filter; omitting it returns an error."""
         # Add syslog to large tables for this test
         settings.large_table_names_csv = "syslog,sys_audit"
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["table_query"](table="syslog", query="level=error")
+        tools, query_store = _register_and_get_tools(settings, auth_provider)
+        token = query_store.create({"query": "level=error"})
+        raw = await tools["table_query"](table="syslog", query_token=token)
         result = toon_decode(raw)
 
         assert result["status"] == "error"
@@ -240,8 +246,9 @@ class TestTableQuery:
     async def test_denied_table_returns_error(self, settings, auth_provider):
         """Denied table returns error."""
         denied = next(iter(DENIED_TABLES))
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["table_query"](table=denied, query="active=true")
+        tools, query_store = _register_and_get_tools(settings, auth_provider)
+        token = query_store.create({"query": "active=true"})
+        raw = await tools["table_query"](table=denied, query_token=token)
         result = toon_decode(raw)
 
         assert result["status"] == "error"
@@ -263,8 +270,9 @@ class TestTableQuery:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["table_query"](table="incident", query="active=true", display_values=True)
+        tools, query_store = _register_and_get_tools(settings, auth_provider)
+        token = query_store.create({"query": "active=true"})
+        raw = await tools["table_query"](table="incident", query_token=token, display_values=True)
         result = toon_decode(raw)
 
         assert result["status"] == "success"
@@ -290,8 +298,9 @@ class TestTableAggregate:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["table_aggregate"](table="incident", query="active=true")
+        tools, query_store = _register_and_get_tools(settings, auth_provider)
+        token = query_store.create({"query": "active=true"})
+        raw = await tools["table_aggregate"](table="incident", query_token=token)
         result = toon_decode(raw)
 
         assert result["status"] == "success"
@@ -301,8 +310,9 @@ class TestTableAggregate:
     async def test_denied_table_returns_error(self, settings, auth_provider):
         """Denied table returns error."""
         denied = next(iter(DENIED_TABLES))
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["table_aggregate"](table=denied, query="active=true")
+        tools, query_store = _register_and_get_tools(settings, auth_provider)
+        token = query_store.create({"query": "active=true"})
+        raw = await tools["table_aggregate"](table=denied, query_token=token)
         result = toon_decode(raw)
 
         assert result["status"] == "error"
@@ -327,7 +337,7 @@ class TestErrorPropagation:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["table_get"](table="incident", sys_id="abc123")
         result = toon_decode(raw)
 
@@ -346,7 +356,7 @@ class TestErrorPropagation:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["table_get"](table="incident", sys_id="abc123")
         result = toon_decode(raw)
 
@@ -365,7 +375,7 @@ class TestErrorPropagation:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["table_get"](table="incident", sys_id="missing")
         result = toon_decode(raw)
 
@@ -384,7 +394,7 @@ class TestErrorPropagation:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["table_describe"](table="incident")
         result = toon_decode(raw)
 
@@ -403,8 +413,9 @@ class TestErrorPropagation:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["table_query"](table="incident", query="active=true")
+        tools, query_store = _register_and_get_tools(settings, auth_provider)
+        token = query_store.create({"query": "active=true"})
+        raw = await tools["table_query"](table="incident", query_token=token)
         result = toon_decode(raw)
 
         assert result["status"] == "error"
@@ -422,10 +433,43 @@ class TestErrorPropagation:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["table_aggregate"](table="incident", query="active=true")
+        tools, query_store = _register_and_get_tools(settings, auth_provider)
+        token = query_store.create({"query": "active=true"})
+        raw = await tools["table_aggregate"](table="incident", query_token=token)
         result = toon_decode(raw)
 
         assert result["status"] == "error"
         assert result["error"]  # Error message is non-empty
         assert "correlation_id" in result
+
+
+class TestQueryTokenValidation:
+    """Tests that query token validation works correctly."""
+
+    @pytest.mark.asyncio
+    async def test_invalid_token_returns_error(self, settings, auth_provider):
+        """Passing a non-existent token returns a descriptive error."""
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["table_query"](table="incident", query_token="not-a-real-token")
+        result = toon_decode(raw)
+
+        assert result["status"] == "error"
+        assert "build_query" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_empty_token_queries_without_filter(self, settings, auth_provider):
+        """Empty query_token runs query with no filter."""
+        respx.get(f"{BASE_URL}/api/now/table/incident").mock(
+            return_value=httpx.Response(
+                200,
+                json={"result": [{"sys_id": "1"}]},
+                headers={"X-Total-Count": "1"},
+            )
+        )
+
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["table_query"](table="incident")
+        result = toon_decode(raw)
+
+        assert result["status"] == "success"

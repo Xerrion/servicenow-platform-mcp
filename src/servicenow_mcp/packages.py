@@ -12,6 +12,7 @@ _TOOL_GROUP_MODULES: dict[str, str] = {
     "investigations": "servicenow_mcp.tools.investigations",
     "documentation": "servicenow_mcp.tools.documentation",
     "utility": "servicenow_mcp.tools.utility",
+    "workflow": "servicenow_mcp.tools.workflow",
     "domain_incident": "servicenow_mcp.tools.domains.incident",
     "domain_change": "servicenow_mcp.tools.domains.change",
     "domain_cmdb": "servicenow_mcp.tools.domains.cmdb",
@@ -42,6 +43,7 @@ PACKAGE_REGISTRY: dict[str, list[str]] = {
         "investigations",
         "documentation",
         "utility",
+        "workflow",
         "domain_incident",
         "domain_change",
         "domain_cmdb",
@@ -59,6 +61,7 @@ PACKAGE_REGISTRY: dict[str, list[str]] = {
         "debug",
         "documentation",
         "utility",
+        "workflow",
         "domain_incident",
         "domain_change",
         "domain_problem",
@@ -75,6 +78,7 @@ PACKAGE_REGISTRY: dict[str, list[str]] = {
         "investigations",
         "documentation",
         "utility",
+        "workflow",
     ],
     "readonly": [
         "introspection",
@@ -85,6 +89,7 @@ PACKAGE_REGISTRY: dict[str, list[str]] = {
         "investigations",
         "documentation",
         "utility",
+        "workflow",
     ],
     "analyst": [
         "introspection",
@@ -93,12 +98,14 @@ PACKAGE_REGISTRY: dict[str, list[str]] = {
         "investigations",
         "documentation",
         "utility",
+        "workflow",
     ],
     "incident_management": [
         "introspection",
         "utility",
         "domain_incident",
         "debug",
+        "workflow",
     ],
     "change_management": [
         "introspection",
@@ -117,11 +124,13 @@ PACKAGE_REGISTRY: dict[str, list[str]] = {
         "utility",
         "domain_problem",
         "debug",
+        "workflow",
     ],
     "request_management": [
         "introspection",
         "utility",
         "domain_request",
+        "workflow",
     ],
     "knowledge_management": [
         "introspection",

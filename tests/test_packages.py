@@ -121,13 +121,14 @@ class TestPackageRegistry:
             "debug",
             "documentation",
             "utility",
+            "workflow",
             "domain_incident",
             "domain_change",
             "domain_problem",
             "domain_request",
         ]
         assert groups == expected
-        assert len(groups) == 11
+        assert len(groups) == 12
 
     def test_get_package_developer(self):
         """get_package returns correct groups for developer preset."""
@@ -145,9 +146,10 @@ class TestPackageRegistry:
             "investigations",
             "documentation",
             "utility",
+            "workflow",
         ]
         assert groups == expected
-        assert len(groups) == 10
+        assert len(groups) == 11
 
     def test_get_package_readonly(self):
         """get_package returns correct groups for readonly preset."""
@@ -163,18 +165,27 @@ class TestPackageRegistry:
             "investigations",
             "documentation",
             "utility",
+            "workflow",
         ]
         assert groups == expected
-        assert len(groups) == 8
+        assert len(groups) == 9
 
     def test_get_package_analyst(self):
         """get_package returns correct groups for analyst preset."""
         from servicenow_mcp.packages import get_package
 
         groups = get_package("analyst")
-        expected = ["introspection", "relationships", "metadata", "investigations", "documentation", "utility"]
+        expected = [
+            "introspection",
+            "relationships",
+            "metadata",
+            "investigations",
+            "documentation",
+            "utility",
+            "workflow",
+        ]
         assert groups == expected
-        assert len(groups) == 6
+        assert len(groups) == 7
 
     def test_list_packages_includes_itil(self):
         """list_packages includes itil preset."""
@@ -219,8 +230,9 @@ class TestPackageRegistry:
         assert "investigations" in groups
         assert "documentation" in groups
         assert "utility" in groups
+        assert "workflow" in groups
         assert "testing" not in groups
-        assert len(groups) == 17
+        assert len(groups) == 18
 
 
 class TestCommaSeparatedGroups:
@@ -345,7 +357,8 @@ class TestDomainPackages:
         assert "introspection" in groups
         assert "utility" in groups
         assert "debug" in groups
-        assert len(groups) == 4
+        assert "workflow" in groups
+        assert len(groups) == 5
 
     def test_change_management_package(self):
         """change_management package includes correct groups."""
@@ -378,7 +391,8 @@ class TestDomainPackages:
         assert "introspection" in groups
         assert "utility" in groups
         assert "debug" in groups
-        assert len(groups) == 4
+        assert "workflow" in groups
+        assert len(groups) == 5
 
     def test_request_management_package(self):
         """request_management package includes correct groups."""
@@ -388,7 +402,8 @@ class TestDomainPackages:
         assert "domain_request" in groups
         assert "introspection" in groups
         assert "utility" in groups
-        assert len(groups) == 3
+        assert "workflow" in groups
+        assert len(groups) == 4
 
     def test_knowledge_management_package(self):
         """knowledge_management package includes correct groups."""
@@ -455,43 +470,43 @@ class TestDomainPackages:
         assert groups == ["domain_incident", "domain_change", "utility"]
 
     def test_backward_compatibility_full_package_count(self):
-        """full package has 17 total groups (10 original + 7 domain)."""
+        """full package has 18 total groups (11 original + 7 domain)."""
         from servicenow_mcp.packages import get_package
 
         groups = get_package("full")
-        assert len(groups) == 17
+        assert len(groups) == 18
 
     def test_backward_compatibility_itil_package_count(self):
-        """itil package has 11 total groups (7 original + 4 domain)."""
+        """itil package has 12 total groups (8 original + 4 domain)."""
         from servicenow_mcp.packages import get_package
 
         groups = get_package("itil")
-        assert len(groups) == 11
+        assert len(groups) == 12
 
     def test_developer_package_unchanged(self):
-        """developer package still has 10 groups (no domain groups)."""
+        """developer package still has 11 groups (no domain groups)."""
         from servicenow_mcp.packages import get_package
 
         groups = get_package("developer")
-        assert len(groups) == 10
+        assert len(groups) == 11
         domain_groups = [g for g in groups if g.startswith("domain_")]
         assert len(domain_groups) == 0
 
     def test_readonly_package_unchanged(self):
-        """readonly package still has 8 groups (no domain groups)."""
+        """readonly package still has 9 groups (no domain groups)."""
         from servicenow_mcp.packages import get_package
 
         groups = get_package("readonly")
-        assert len(groups) == 8
+        assert len(groups) == 9
         domain_groups = [g for g in groups if g.startswith("domain_")]
         assert len(domain_groups) == 0
 
     def test_analyst_package_unchanged(self):
-        """analyst package still has 6 groups (no domain groups)."""
+        """analyst package still has 7 groups (no domain groups)."""
         from servicenow_mcp.packages import get_package
 
         groups = get_package("analyst")
-        assert len(groups) == 6
+        assert len(groups) == 7
         domain_groups = [g for g in groups if g.startswith("domain_")]
         assert len(domain_groups) == 0
 

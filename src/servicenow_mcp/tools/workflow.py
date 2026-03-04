@@ -1,6 +1,7 @@
 """Workflow introspection tools for the legacy Workflow Engine."""
 
 import asyncio
+from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
@@ -101,7 +102,10 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         *,
         correlation_id: str,
     ) -> str:
-        """Show the structure of a workflow version: activities and transitions between them.
+        """Show the structure of a workflow version: activities, transitions, and activity variables.
+
+        Each activity includes its configured variable values (script body, conditions, etc.)
+        from sys_variable_value.
 
         Args:
             workflow_version_sys_id: The sys_id of the wf_workflow_version record.
@@ -109,6 +113,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         check_table_access("wf_workflow_version")
         check_table_access("wf_activity")
         check_table_access("wf_transition")
+        check_table_access("sys_variable_value")
 
         activity_query = ServiceNowQuery().equals("workflow_version", workflow_version_sys_id).order_by("x").build()
         transition_query = ServiceNowQuery().equals("from.workflow_version", workflow_version_sys_id).build()
@@ -152,10 +157,42 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                 ),
             )
 
+            # Bulk-fetch variables for all activities (display_values=False to keep raw sys_ids for grouping)
+            activity_records = activity_result["records"]
+            activity_sys_ids = [a["sys_id"] for a in activity_records]
+
+            if activity_sys_ids:
+                vars_query = (
+                    ServiceNowQuery()
+                    .equals("document", "wf_activity")
+                    .in_list("document_key", activity_sys_ids)
+                    .build()
+                )
+                vars_result = await client.query_records(
+                    "sys_variable_value",
+                    vars_query,
+                    fields=["sys_id", "variable", "value", "document_key"],
+                    limit=500,
+                    display_values=False,
+                )
+                vars_by_activity: dict[str, list[dict[str, Any]]] = {}
+                for v in vars_result["records"]:
+                    key = v.get("document_key", "")
+                    vars_by_activity.setdefault(key, []).append(mask_sensitive_fields(v))
+            else:
+                vars_by_activity = {}
+
+        # Attach variables to each activity
+        activities = []
+        for a in activity_records:
+            masked = mask_sensitive_fields(a)
+            masked["variables"] = vars_by_activity.get(a["sys_id"], [])
+            activities.append(masked)
+
         return format_response(
             data={
                 "version": mask_sensitive_fields(version_record),
-                "activities": [mask_sensitive_fields(a) for a in activity_result["records"]],
+                "activities": activities,
                 "transitions": [mask_sensitive_fields(t) for t in transition_result["records"]],
             },
             correlation_id=correlation_id,
@@ -237,34 +274,57 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         *,
         correlation_id: str,
     ) -> str:
-        """Fetch detailed information about a workflow activity and its element definition.
+        """Fetch detailed information about a workflow activity, its element definition, and configured variables.
+
+        Includes activity variable values (script body, conditions, etc.) from sys_variable_value.
 
         Args:
             activity_sys_id: The sys_id of the wf_activity record.
         """
         check_table_access("wf_activity")
         check_table_access("wf_element_definition")
+        check_table_access("sys_variable_value")
+
+        variables_query = (
+            ServiceNowQuery().equals("document", "wf_activity").equals("document_key", activity_sys_id).build()
+        )
 
         async with ServiceNowClient(settings, auth_provider) as client:
-            # Fetch raw activity to extract the activity_definition sys_id
+            # Phase 1: raw activity to extract the activity_definition sys_id
             raw_activity = await client.get_record("wf_activity", activity_sys_id, display_values=False)
             definition_sys_id = raw_activity.get("activity_definition", "")
 
+            # Phase 2: parallel fetch of display activity, definition (if linked), and variables
             if not definition_sys_id:
-                # No definition linked - return the activity with display values only
-                display_activity = await client.get_record("wf_activity", activity_sys_id, display_values=True)
+                display_activity, variables_result = await asyncio.gather(
+                    client.get_record("wf_activity", activity_sys_id, display_values=True),
+                    client.query_records(
+                        "sys_variable_value",
+                        variables_query,
+                        fields=["sys_id", "variable", "value", "document_key"],
+                        limit=50,
+                        display_values=True,
+                    ),
+                )
                 definition_record = None
             else:
-                # Parallel fetch: display-value activity + element definition
-                display_activity, definition_record = await asyncio.gather(
+                display_activity, definition_record, variables_result = await asyncio.gather(
                     client.get_record("wf_activity", activity_sys_id, display_values=True),
                     client.get_record("wf_element_definition", definition_sys_id, display_values=True),
+                    client.query_records(
+                        "sys_variable_value",
+                        variables_query,
+                        fields=["sys_id", "variable", "value", "document_key"],
+                        limit=50,
+                        display_values=True,
+                    ),
                 )
 
         return format_response(
             data={
                 "activity": mask_sensitive_fields(display_activity),
                 "definition": mask_sensitive_fields(definition_record) if definition_record else None,
+                "variables": [mask_sensitive_fields(v) for v in variables_result["records"]],
             },
             correlation_id=correlation_id,
         )

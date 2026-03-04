@@ -295,6 +295,22 @@ class TestWorkflowMap:
                 headers={"X-Total-Count": "1"},
             )
         )
+        respx.get(f"{BASE_URL}/api/now/table/sys_variable_value").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "result": [
+                        {
+                            "sys_id": "sv001",
+                            "variable": "var_def_001",
+                            "value": "some_script_body",
+                            "document_key": "act002",
+                        },
+                    ]
+                },
+                headers={"X-Total-Count": "1"},
+            )
+        )
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["workflow_map"](workflow_version_sys_id="wfv001")
@@ -305,6 +321,10 @@ class TestWorkflowMap:
         assert len(result["data"]["activities"]) == 2
         assert len(result["data"]["transitions"]) == 1
         assert result["data"]["transitions"][0]["from.name"] == "Begin"
+        # act001 has no variables, act002 has one
+        assert result["data"]["activities"][0].get("variables") == []
+        assert len(result["data"]["activities"][1]["variables"]) == 1
+        assert result["data"]["activities"][1]["variables"][0]["value"] == "some_script_body"
 
     @pytest.mark.asyncio
     @respx.mock
@@ -366,6 +386,9 @@ class TestWorkflowMap:
         respx.get(f"{BASE_URL}/api/now/table/wf_transition").mock(
             return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
         )
+        respx.get(f"{BASE_URL}/api/now/table/sys_variable_value").mock(
+            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        )
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["workflow_map"](workflow_version_sys_id="wfv_sort")
@@ -374,6 +397,7 @@ class TestWorkflowMap:
         assert result["status"] == "success"
         names = [a["name"] for a in result["data"]["activities"]]
         assert names == ["First", "Second", "Third"]
+        assert all(a["variables"] == [] for a in result["data"]["activities"])
 
     @pytest.mark.asyncio
     @respx.mock
@@ -394,6 +418,82 @@ class TestWorkflowMap:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_map_groups_variables_by_activity(self, settings, auth_provider):
+        """Variables are grouped correctly per activity in the map."""
+        respx.get(f"{BASE_URL}/api/now/table/wf_workflow_version/wfv_vars").mock(
+            return_value=httpx.Response(
+                200,
+                json={"result": {"sys_id": "wfv_vars", "name": "Vars Test WF"}},
+            )
+        )
+        respx.get(f"{BASE_URL}/api/now/table/wf_activity").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "result": [
+                        {"sys_id": "a1", "name": "Script 1", "x": "10", "y": "50"},
+                        {"sys_id": "a2", "name": "Script 2", "x": "200", "y": "50"},
+                    ]
+                },
+                headers={"X-Total-Count": "2"},
+            )
+        )
+        respx.get(f"{BASE_URL}/api/now/table/wf_transition").mock(
+            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        )
+        respx.get(f"{BASE_URL}/api/now/table/sys_variable_value").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "result": [
+                        {"sys_id": "sv1", "variable": "var1", "value": "script_a1", "document_key": "a1"},
+                        {"sys_id": "sv2", "variable": "var2", "value": "script_a2", "document_key": "a2"},
+                        {"sys_id": "sv3", "variable": "var3", "value": "condition_a1", "document_key": "a1"},
+                    ]
+                },
+                headers={"X-Total-Count": "3"},
+            )
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["workflow_map"](workflow_version_sys_id="wfv_vars")
+        result = toon_decode(raw)
+
+        assert result["status"] == "success"
+        activities = result["data"]["activities"]
+        # a1 should have 2 variables, a2 should have 1
+        a1 = next(a for a in activities if a["sys_id"] == "a1")
+        a2 = next(a for a in activities if a["sys_id"] == "a2")
+        assert len(a1["variables"]) == 2
+        assert len(a2["variables"]) == 1
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_map_empty_activities_skips_variable_fetch(self, settings, auth_provider):
+        """No sys_variable_value call when there are no activities."""
+        respx.get(f"{BASE_URL}/api/now/table/wf_workflow_version/wfv_none").mock(
+            return_value=httpx.Response(
+                200,
+                json={"result": {"sys_id": "wfv_none", "name": "No Activities WF"}},
+            )
+        )
+        respx.get(f"{BASE_URL}/api/now/table/wf_activity").mock(
+            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        )
+        respx.get(f"{BASE_URL}/api/now/table/wf_transition").mock(
+            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        )
+        # Do NOT mock sys_variable_value - if it's called, the test will fail with ConnectionError
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["workflow_map"](workflow_version_sys_id="wfv_none")
+        result = toon_decode(raw)
+
+        assert result["status"] == "success"
+        assert result["data"]["activities"] == []
 
 
 # ---------------------------------------------------------------------------
@@ -717,6 +817,22 @@ class TestWorkflowActivityDetail:
                 },
             )
         )
+        respx.get(f"{BASE_URL}/api/now/table/sys_variable_value").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "result": [
+                        {
+                            "sys_id": "var001",
+                            "variable": "Script",
+                            "value": "current.state = 2;",
+                            "document_key": "act001",
+                        },
+                    ]
+                },
+                headers={"X-Total-Count": "1"},
+            )
+        )
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["workflow_activity_detail"](activity_sys_id="act001")
@@ -726,6 +842,8 @@ class TestWorkflowActivityDetail:
         assert result["data"]["activity"]["sys_id"] == "act001"
         assert result["data"]["definition"]["name"] == "Approval - User"
         assert result["data"]["definition"]["category"] == "Approvals"
+        assert len(result["data"]["variables"]) == 1
+        assert result["data"]["variables"][0]["value"] == "current.state = 2;"
 
     @pytest.mark.asyncio
     @respx.mock
@@ -746,6 +864,9 @@ class TestWorkflowActivityDetail:
                 },
             )
         )
+        respx.get(f"{BASE_URL}/api/now/table/sys_variable_value").mock(
+            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        )
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["workflow_activity_detail"](activity_sys_id="act_nodef")
@@ -754,6 +875,7 @@ class TestWorkflowActivityDetail:
         assert result["status"] == "success"
         assert result["data"]["activity"]["sys_id"] == "act_nodef"
         assert result["data"]["definition"] is None
+        assert result["data"]["variables"] == []
 
     @pytest.mark.asyncio
     @respx.mock
@@ -768,6 +890,69 @@ class TestWorkflowActivityDetail:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_activity_includes_multiple_variables(self, settings, auth_provider):
+        """Returns multiple configured variables for an activity."""
+        respx.get(f"{BASE_URL}/api/now/table/wf_activity/act_vars").mock(
+            side_effect=lambda request: httpx.Response(
+                200,
+                json={
+                    "result": {
+                        "sys_id": "act_vars",
+                        "name": "Run Script",
+                        "activity_definition": "def_script",
+                        "x": "100",
+                        "y": "50",
+                    }
+                },
+            )
+        )
+        respx.get(f"{BASE_URL}/api/now/table/wf_element_definition/def_script").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "result": {
+                        "sys_id": "def_script",
+                        "name": "Run Script",
+                        "category": "Utilities",
+                    }
+                },
+            )
+        )
+        respx.get(f"{BASE_URL}/api/now/table/sys_variable_value").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "result": [
+                        {
+                            "sys_id": "sv1",
+                            "variable": "Script",
+                            "value": "gs.log('hello');",
+                            "document_key": "act_vars",
+                        },
+                        {
+                            "sys_id": "sv2",
+                            "variable": "Condition",
+                            "value": "current.active == true",
+                            "document_key": "act_vars",
+                        },
+                    ]
+                },
+                headers={"X-Total-Count": "2"},
+            )
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["workflow_activity_detail"](activity_sys_id="act_vars")
+        result = toon_decode(raw)
+
+        assert result["status"] == "success"
+        assert len(result["data"]["variables"]) == 2
+        values = [v["value"] for v in result["data"]["variables"]]
+        assert "gs.log('hello');" in values
+        assert "current.active == true" in values
 
 
 # ---------------------------------------------------------------------------

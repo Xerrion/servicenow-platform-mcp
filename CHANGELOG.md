@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.0](https://github.com/Xerrion/servicenow-devtools-mcp/compare/v0.5.0...v0.6.0) (2026-03-04)
+
+
+### Features
+
+* add legacy workflow introspection tools ([#50](https://github.com/Xerrion/servicenow-devtools-mcp/issues/50)) ([f211fef](https://github.com/Xerrion/servicenow-devtools-mcp/commit/f211fef4530556c77f108180357f813ea2df118d))
+* add Service Catalog API domain tools ([#48](https://github.com/Xerrion/servicenow-devtools-mcp/issues/48)) ([9a81b28](https://github.com/Xerrion/servicenow-devtools-mcp/commit/9a81b281614dce00184833515981bac754e96e80))
+
 ## [0.5.0](https://github.com/Xerrion/servicenow-devtools-mcp/compare/v0.4.1...v0.5.0) (2026-03-03)
 
 

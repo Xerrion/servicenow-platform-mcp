@@ -326,7 +326,7 @@ def _extract_gliderecord_tables(script: str) -> list[str]:
     return result
 
 
-_WHILE_BLOCK_RE: re.Pattern[str] = re.compile(r"while\s*\([^)]*(?:\([^)]*\)[^)]*)*\)\s*\{")
+_WHILE_BLOCK_RE: re.Pattern[str] = re.compile(r"\bwhile\s*\(")
 _GR_IN_BLOCK_RE: re.Pattern[str] = re.compile(r"new\s+GlideRecord\s*\(")
 
 _SCENARIO_PATTERNS: list[tuple[re.Pattern[str], dict[str, str]]] = [
@@ -435,6 +435,19 @@ def _generate_test_scenarios(script: str) -> list[dict[str, str]]:
     return scenarios
 
 
+def _find_block_end(script: str, open_brace_idx: int) -> int:
+    """Return the index of the matching closing brace, or end of script."""
+    depth = 0
+    for idx in range(open_brace_idx, len(script)):
+        if script[idx] == "{":
+            depth += 1
+        elif script[idx] == "}":
+            depth -= 1
+            if depth == 0:
+                return idx
+    return len(script) - 1
+
+
 def _scan_for_anti_patterns(script: str) -> list[dict[str, str]]:
     """Scan script for common ServiceNow anti-patterns."""
     findings: list[dict[str, str]] = []
@@ -443,7 +456,16 @@ def _scan_for_anti_patterns(script: str) -> list[dict[str, str]]:
         return findings
 
     # 1. GlideRecord inside a loop (while/for containing new GlideRecord)
-    if any(_GR_IN_BLOCK_RE.search(script, m.end()) for m in _WHILE_BLOCK_RE.finditer(script)):
+    has_gr_in_loop = False
+    for m in _WHILE_BLOCK_RE.finditer(script):
+        open_brace_idx = script.find("{", m.start())
+        if open_brace_idx == -1:
+            continue
+        close_brace_idx = _find_block_end(script, open_brace_idx)
+        if _GR_IN_BLOCK_RE.search(script[open_brace_idx : close_brace_idx + 1]):
+            has_gr_in_loop = True
+            break
+    if has_gr_in_loop:
         findings.append(
             {
                 "category": "gliderecord_in_loop",

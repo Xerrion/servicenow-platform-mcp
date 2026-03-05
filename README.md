@@ -495,7 +495,7 @@ You can also specify a comma-separated list of tool group names to create a cust
 MCP_TOOL_PACKAGE="introspection,debug,domain_incident"
 ```
 
-Available tool groups: `introspection`, `relationships`, `metadata`, `changes`, `debug`, `developer`, `dev_utils`, `investigations`, `documentation`, `utility`, `workflow`, `domain_incident`, `domain_change`, `domain_problem`, `domain_cmdb`, `domain_request`, `domain_knowledge`, `domain_service_catalog`.
+Available tool groups: `introspection`, `relationships`, `metadata`, `changes`, `debug`, `developer`, `dev_utils`, `investigations`, `documentation`, `utility`, `workflow`, `testing`, `domain_incident`, `domain_change`, `domain_problem`, `domain_cmdb`, `domain_request`, `domain_knowledge`, `domain_service_catalog`.
 
 ---
 

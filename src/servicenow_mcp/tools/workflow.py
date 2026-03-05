@@ -44,9 +44,6 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         if table:
             validate_identifier(table)
 
-        # Clamp limit to 1-100
-        safe_limit = max(1, min(limit, 100))
-
         legacy_query = (
             ServiceNowQuery()
             .equals("id", record_sys_id)
@@ -56,8 +53,9 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         )
         flow_query = ServiceNowQuery().equals("source_record", record_sys_id).build()
 
-        enforce_query_safety("wf_context", legacy_query, safe_limit, settings)
-        enforce_query_safety("sys_flow_context", flow_query, safe_limit, settings)
+        legacy_safety = enforce_query_safety("wf_context", legacy_query, limit, settings)
+        flow_safety = enforce_query_safety("sys_flow_context", flow_query, limit, settings)
+        effective_limit = min(legacy_safety["limit"], flow_safety["limit"])
 
         async with ServiceNowClient(settings, auth_provider) as client:
             legacy_result, flow_result = await asyncio.gather(
@@ -76,7 +74,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                         "running_duration",
                         "active",
                     ],
-                    limit=safe_limit,
+                    limit=effective_limit,
                     display_values=True,
                 ),
                 client.query_records(
@@ -92,7 +90,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                         "source_table",
                         "source_record",
                     ],
-                    limit=safe_limit,
+                    limit=effective_limit,
                     display_values=True,
                 ),
             )
@@ -129,8 +127,8 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         activity_query = ServiceNowQuery().equals("workflow_version", workflow_version_sys_id).order_by("x").build()
         transition_query = ServiceNowQuery().equals("from.workflow_version", workflow_version_sys_id).build()
 
-        enforce_query_safety("wf_activity", activity_query, 100, settings)
-        enforce_query_safety("wf_transition", transition_query, 200, settings)
+        act_safety = enforce_query_safety("wf_activity", activity_query, 100, settings)
+        trans_safety = enforce_query_safety("wf_transition", transition_query, 200, settings)
 
         async with ServiceNowClient(settings, auth_provider) as client:
             version_record, activity_result, transition_result = await asyncio.gather(
@@ -152,7 +150,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                         "is_parent",
                         "stage",
                     ],
-                    limit=100,
+                    limit=act_safety["limit"],
                     display_values=True,
                 ),
                 client.query_records(
@@ -166,7 +164,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                         "to.name",
                         "condition",
                     ],
-                    limit=200,
+                    limit=trans_safety["limit"],
                     display_values=True,
                 ),
             )
@@ -182,12 +180,12 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                     .in_list("document_key", activity_sys_ids)
                     .build()
                 )
-                enforce_query_safety("sys_variable_value", vars_query, 500, settings)
+                vars_safety = enforce_query_safety("sys_variable_value", vars_query, 500, settings)
                 vars_result = await client.query_records(
                     "sys_variable_value",
                     vars_query,
                     fields=["sys_id", "variable", "value", "document_key"],
-                    limit=500,
+                    limit=vars_safety["limit"],
                     display_values=False,
                 )
                 vars_by_activity: dict[str, list[dict[str, Any]]] = {}
@@ -233,8 +231,8 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         executing_query = ServiceNowQuery().equals("context", context_sys_id).order_by("started").build()
         history_query = ServiceNowQuery().equals("context", context_sys_id).order_by("started").build()
 
-        enforce_query_safety("wf_executing", executing_query, 50, settings)
-        enforce_query_safety("wf_history", history_query, 50, settings)
+        exec_safety = enforce_query_safety("wf_executing", executing_query, 50, settings)
+        hist_safety = enforce_query_safety("wf_history", history_query, 50, settings)
 
         async with ServiceNowClient(settings, auth_provider) as client:
             context_record, executing_result, history_result = await asyncio.gather(
@@ -254,7 +252,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                         "fault_description",
                         "activity_index",
                     ],
-                    limit=50,
+                    limit=exec_safety["limit"],
                     display_values=True,
                 ),
                 client.query_records(
@@ -272,7 +270,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                         "fault_description",
                         "activity_index",
                     ],
-                    limit=50,
+                    limit=hist_safety["limit"],
                     display_values=True,
                 ),
             )
@@ -308,7 +306,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         variables_query = (
             ServiceNowQuery().equals("document", "wf_activity").equals("document_key", activity_sys_id).build()
         )
-        enforce_query_safety("sys_variable_value", variables_query, 50, settings)
+        vars_safety = enforce_query_safety("sys_variable_value", variables_query, 50, settings)
 
         async with ServiceNowClient(settings, auth_provider) as client:
             # Phase 1: raw activity to extract the activity_definition sys_id
@@ -323,7 +321,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                         "sys_variable_value",
                         variables_query,
                         fields=["sys_id", "variable", "value", "document_key"],
-                        limit=50,
+                        limit=vars_safety["limit"],
                         display_values=True,
                     ),
                 )
@@ -337,7 +335,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                         "sys_variable_value",
                         variables_query,
                         fields=["sys_id", "variable", "value", "document_key"],
-                        limit=50,
+                        limit=vars_safety["limit"],
                         display_values=True,
                     ),
                 )
@@ -370,11 +368,9 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         validate_identifier(table)
         check_table_access("wf_workflow_version")
 
-        # Clamp limit to 1-100
-        safe_limit = max(1, min(limit, 100))
-
         query = ServiceNowQuery().equals("table", table).equals_if("active", "true", active_only).build()
-        enforce_query_safety("wf_workflow_version", query, safe_limit, settings)
+        safety = enforce_query_safety("wf_workflow_version", query, limit, settings)
+        effective_limit = safety["limit"]
 
         async with ServiceNowClient(settings, auth_provider) as client:
             result = await client.query_records(
@@ -391,7 +387,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                     "checked_out_by",
                     "workflow",
                 ],
-                limit=safe_limit,
+                limit=effective_limit,
                 display_values=True,
             )
 

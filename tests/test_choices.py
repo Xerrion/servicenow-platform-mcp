@@ -97,7 +97,12 @@ class TestChoiceRegistryFetch:
                 200,
                 json={
                     "result": [
-                        {"name": "incident", "element": "state", "value": "99", "label": "Open"},
+                        {
+                            "name": "incident",
+                            "element": "state",
+                            "value": "99",
+                            "label": "Open",
+                        },
                     ]
                 },
                 headers={"X-Total-Count": "1"},
@@ -141,7 +146,12 @@ class TestChoiceRegistryFetch:
                 200,
                 json={
                     "result": [
-                        {"name": "incident", "element": "state", "value": "77", "label": "Awaiting Approval"},
+                        {
+                            "name": "incident",
+                            "element": "state",
+                            "value": "77",
+                            "label": "Awaiting Approval",
+                        },
                     ]
                 },
                 headers={"X-Total-Count": "1"},
@@ -188,7 +198,12 @@ class TestChoiceRegistryLabelNormalization:
                 200,
                 json={
                     "result": [
-                        {"name": "incident", "element": "state", "value": "2", "label": "In Progress"},
+                        {
+                            "name": "incident",
+                            "element": "state",
+                            "value": "2",
+                            "label": "In Progress",
+                        },
                     ]
                 },
                 headers={"X-Total-Count": "1"},
@@ -208,7 +223,12 @@ class TestChoiceRegistryLabelNormalization:
                 200,
                 json={
                     "result": [
-                        {"name": "problem", "element": "state", "value": "1", "label": "NEW"},
+                        {
+                            "name": "problem",
+                            "element": "state",
+                            "value": "1",
+                            "label": "NEW",
+                        },
                     ]
                 },
                 headers={"X-Total-Count": "1"},
@@ -228,7 +248,12 @@ class TestChoiceRegistryLabelNormalization:
                 200,
                 json={
                     "result": [
-                        {"name": "problem", "element": "state", "value": "4", "label": "Root Cause Analysis"},
+                        {
+                            "name": "problem",
+                            "element": "state",
+                            "value": "4",
+                            "label": "Root Cause Analysis",
+                        },
                     ]
                 },
                 headers={"X-Total-Count": "1"},

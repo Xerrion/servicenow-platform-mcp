@@ -49,7 +49,13 @@ class TestDomainIncident:
             record = await client.get_record(
                 "incident",
                 incident_sys_id,
-                fields=["sys_id", "number", "short_description", "state", "priority"],
+                fields=[
+                    "sys_id",
+                    "number",
+                    "short_description",
+                    "state",
+                    "priority",
+                ],
             )
         assert record["sys_id"] == incident_sys_id
         assert "number" in record

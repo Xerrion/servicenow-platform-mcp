@@ -182,6 +182,6 @@ class ChoiceRegistry:
                 self._cache[key] = dict(self._DEFAULTS[key])
 
         # Also include any instance-only choices not in defaults
-        for key in grouped:
+        for key, value in grouped.items():
             if key not in self._cache:
-                self._cache[key] = grouped[key]
+                self._cache[key] = value

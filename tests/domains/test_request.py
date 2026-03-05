@@ -40,8 +40,16 @@ class TestRequestList:
                 200,
                 json={
                     "result": [
-                        {"sys_id": "id1", "number": "REQ0010001", "short_description": "Request 1"},
-                        {"sys_id": "id2", "number": "REQ0010002", "short_description": "Request 2"},
+                        {
+                            "sys_id": "id1",
+                            "number": "REQ0010001",
+                            "short_description": "Request 1",
+                        },
+                        {
+                            "sys_id": "id2",
+                            "number": "REQ0010002",
+                            "short_description": "Request 2",
+                        },
                     ]
                 },
             )
@@ -107,7 +115,11 @@ class TestRequestGet:
                 200,
                 json={
                     "result": [
-                        {"sys_id": "abc123", "number": "REQ0010001", "short_description": "Test request"},
+                        {
+                            "sys_id": "abc123",
+                            "number": "REQ0010001",
+                            "short_description": "Test request",
+                        },
                     ]
                 },
             )
@@ -153,7 +165,11 @@ class TestRequestGet:
                 200,
                 json={
                     "result": [
-                        {"sys_id": "abc123", "number": "REQ0010001", "short_description": "Test request"},
+                        {
+                            "sys_id": "abc123",
+                            "number": "REQ0010001",
+                            "short_description": "Test request",
+                        },
                     ]
                 },
             )
@@ -182,8 +198,16 @@ class TestRequestItems:
                 200,
                 json={
                     "result": [
-                        {"sys_id": "item1", "number": "RITM0010001", "short_description": "Item 1"},
-                        {"sys_id": "item2", "number": "RITM0010002", "short_description": "Item 2"},
+                        {
+                            "sys_id": "item1",
+                            "number": "RITM0010001",
+                            "short_description": "Item 1",
+                        },
+                        {
+                            "sys_id": "item2",
+                            "number": "RITM0010002",
+                            "short_description": "Item 2",
+                        },
                     ]
                 },
             )
@@ -236,7 +260,11 @@ class TestRequestItemGet:
                 200,
                 json={
                     "result": [
-                        {"sys_id": "item123", "number": "RITM0010001", "short_description": "Test item"},
+                        {
+                            "sys_id": "item123",
+                            "number": "RITM0010001",
+                            "short_description": "Test item",
+                        },
                     ]
                 },
             )

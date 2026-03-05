@@ -89,7 +89,11 @@ class TestSensitiveFieldMasking:
         """Non-sensitive fields are not modified."""
         from servicenow_mcp.policy import mask_sensitive_fields
 
-        record = {"sys_id": "123", "short_description": "Test", "number": "INC001"}
+        record = {
+            "sys_id": "123",
+            "short_description": "Test",
+            "number": "INC001",
+        }
         masked = mask_sensitive_fields(record)
 
         assert masked == record
@@ -244,7 +248,12 @@ class TestQuerySafety:
         from servicenow_mcp.policy import enforce_query_safety
 
         with pytest.raises(QuerySafetyError, match="date"):
-            enforce_query_safety("syslog", "description=sys_created_on", limit=50, settings=settings)
+            enforce_query_safety(
+                "syslog",
+                "description=sys_created_on",
+                limit=50,
+                settings=settings,
+            )
 
     def test_date_filter_with_operator_passes(self, settings):
         """Date field with a comparison operator passes the check."""

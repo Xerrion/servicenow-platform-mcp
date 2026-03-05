@@ -11,7 +11,12 @@ from servicenow_mcp.investigation_helpers import (
 from servicenow_mcp.policy import check_table_access, mask_sensitive_fields
 from servicenow_mcp.utils import ServiceNowQuery
 
-_ALLOWED_TABLES = {"flow_context", "sys_script", "sys_script_include", "sysauto_script"}
+_ALLOWED_TABLES = {
+    "flow_context",
+    "sys_script",
+    "sys_script_include",
+    "sysauto_script",
+}
 
 
 async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any]:

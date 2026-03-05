@@ -40,8 +40,16 @@ class TestKnowledgeSearch:
                 200,
                 json={
                     "result": [
-                        {"sys_id": "kb1", "number": "KB0010001", "short_description": "How to reset password"},
-                        {"sys_id": "kb2", "number": "KB0010002", "short_description": "Password policy guide"},
+                        {
+                            "sys_id": "kb1",
+                            "number": "KB0010001",
+                            "short_description": "How to reset password",
+                        },
+                        {
+                            "sys_id": "kb2",
+                            "number": "KB0010002",
+                            "short_description": "Password policy guide",
+                        },
                     ]
                 },
             )
@@ -93,7 +101,15 @@ class TestKnowledgeGet:
         respx.get(f"{BASE_URL}/api/now/table/kb_knowledge").mock(
             return_value=Response(
                 200,
-                json={"result": [{"sys_id": "kb123", "number": "KB0010001", "short_description": "Test article"}]},
+                json={
+                    "result": [
+                        {
+                            "sys_id": "kb123",
+                            "number": "KB0010001",
+                            "short_description": "Test article",
+                        }
+                    ]
+                },
             )
         )
 
@@ -115,7 +131,14 @@ class TestKnowledgeGet:
                 Response(200, json={"result": []}),  # First query by number fails
                 Response(
                     200,
-                    json={"result": [{"sys_id": "abc123def456abc123def456abc12345", "number": "KB0010001"}]},
+                    json={
+                        "result": [
+                            {
+                                "sys_id": "abc123def456abc123def456abc12345",
+                                "number": "KB0010001",
+                            }
+                        ]
+                    },
                 ),  # Second query by sys_id succeeds
             ]
         )
@@ -269,12 +292,21 @@ class TestKnowledgeUpdate:
     async def test_update_by_number(self, settings, auth_provider):
         """Should update knowledge article by KB number."""
         respx.get(f"{BASE_URL}/api/now/table/kb_knowledge").mock(
-            return_value=Response(200, json={"result": [{"sys_id": "kb123", "number": "KB0010001"}]})
+            return_value=Response(
+                200,
+                json={"result": [{"sys_id": "kb123", "number": "KB0010001"}]},
+            )
         )
         respx.patch(f"{BASE_URL}/api/now/table/kb_knowledge/kb123").mock(
             return_value=Response(
                 200,
-                json={"result": {"sys_id": "kb123", "number": "KB0010001", "short_description": "Updated title"}},
+                json={
+                    "result": {
+                        "sys_id": "kb123",
+                        "number": "KB0010001",
+                        "short_description": "Updated title",
+                    }
+                },
             )
         )
 
@@ -292,7 +324,17 @@ class TestKnowledgeUpdate:
         respx.get(f"{BASE_URL}/api/now/table/kb_knowledge").mock(
             side_effect=[
                 Response(200, json={"result": []}),  # Query by number fails
-                Response(200, json={"result": [{"sys_id": "abc123def456abc123def456abc12345", "number": "KB0010001"}]}),
+                Response(
+                    200,
+                    json={
+                        "result": [
+                            {
+                                "sys_id": "abc123def456abc123def456abc12345",
+                                "number": "KB0010001",
+                            }
+                        ]
+                    },
+                ),
             ]
         )
         respx.patch(f"{BASE_URL}/api/now/table/kb_knowledge/abc123def456abc123def456abc12345").mock(
@@ -310,7 +352,8 @@ class TestKnowledgeUpdate:
 
         tools = _register_and_get_tools(settings, auth_provider)
         result = await tools["knowledge_update"](
-            number_or_sys_id="abc123def456abc123def456abc12345", text="Updated content"
+            number_or_sys_id="abc123def456abc123def456abc12345",
+            text="Updated content",
         )
         data = toon_decode(result)
 
@@ -340,7 +383,10 @@ class TestKnowledgeUpdate:
     async def test_update_no_changes_provided(self, settings, auth_provider):
         """Should return error when no update fields are provided."""
         respx.get(f"{BASE_URL}/api/now/table/kb_knowledge").mock(
-            return_value=Response(200, json={"result": [{"sys_id": "kb123", "number": "KB0010001"}]})
+            return_value=Response(
+                200,
+                json={"result": [{"sys_id": "kb123", "number": "KB0010001"}]},
+            )
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
@@ -376,7 +422,10 @@ class TestKnowledgeUpdate:
     async def test_update_with_workflow_state_kb_base_and_category(self, settings, auth_provider):
         """Should include workflow_state, kb_knowledge_base, and kb_category in update."""
         respx.get(f"{BASE_URL}/api/now/table/kb_knowledge").mock(
-            return_value=Response(200, json={"result": [{"sys_id": "kb123", "number": "KB0010001"}]})
+            return_value=Response(
+                200,
+                json={"result": [{"sys_id": "kb123", "number": "KB0010001"}]},
+            )
         )
         respx.patch(f"{BASE_URL}/api/now/table/kb_knowledge/kb123").mock(
             return_value=Response(
@@ -424,12 +473,21 @@ class TestKnowledgeFeedback:
     async def test_feedback_with_rating(self, settings, auth_provider):
         """Should submit rating feedback to kb_feedback table."""
         respx.get(f"{BASE_URL}/api/now/table/kb_knowledge").mock(
-            return_value=Response(200, json={"result": [{"sys_id": "kb123", "number": "KB0010001"}]})
+            return_value=Response(
+                200,
+                json={"result": [{"sys_id": "kb123", "number": "KB0010001"}]},
+            )
         )
         respx.post(f"{BASE_URL}/api/now/table/kb_feedback").mock(
             return_value=Response(
                 201,
-                json={"result": {"sys_id": "fb001", "article": "kb123", "rating": "5"}},
+                json={
+                    "result": {
+                        "sys_id": "fb001",
+                        "article": "kb123",
+                        "rating": "5",
+                    }
+                },
             )
         )
 
@@ -446,12 +504,21 @@ class TestKnowledgeFeedback:
     async def test_feedback_with_comment(self, settings, auth_provider):
         """Should submit comment feedback to kb_feedback table."""
         respx.get(f"{BASE_URL}/api/now/table/kb_knowledge").mock(
-            return_value=Response(200, json={"result": [{"sys_id": "kb123", "number": "KB0010001"}]})
+            return_value=Response(
+                200,
+                json={"result": [{"sys_id": "kb123", "number": "KB0010001"}]},
+            )
         )
         respx.post(f"{BASE_URL}/api/now/table/kb_feedback").mock(
             return_value=Response(
                 201,
-                json={"result": {"sys_id": "fb002", "article": "kb123", "comments": "Very helpful"}},
+                json={
+                    "result": {
+                        "sys_id": "fb002",
+                        "article": "kb123",
+                        "comments": "Very helpful",
+                    }
+                },
             )
         )
 
@@ -468,7 +535,10 @@ class TestKnowledgeFeedback:
     async def test_feedback_both_rating_and_comment(self, settings, auth_provider):
         """Should submit both rating and comment to kb_feedback."""
         respx.get(f"{BASE_URL}/api/now/table/kb_knowledge").mock(
-            return_value=Response(200, json={"result": [{"sys_id": "kb123", "number": "KB0010001"}]})
+            return_value=Response(
+                200,
+                json={"result": [{"sys_id": "kb123", "number": "KB0010001"}]},
+            )
         )
         respx.post(f"{BASE_URL}/api/now/table/kb_feedback").mock(
             return_value=Response(
@@ -555,7 +625,14 @@ class TestKnowledgeFeedback:
                 Response(200, json={"result": []}),  # Query by number fails
                 Response(
                     200,
-                    json={"result": [{"sys_id": "abc123def456abc123def456abc12345", "number": "KB0010001"}]},
+                    json={
+                        "result": [
+                            {
+                                "sys_id": "abc123def456abc123def456abc12345",
+                                "number": "KB0010001",
+                            }
+                        ]
+                    },
                 ),  # Query by sys_id succeeds
             ]
         )

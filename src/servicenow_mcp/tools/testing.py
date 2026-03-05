@@ -10,7 +10,11 @@ from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
-from servicenow_mcp.policy import check_table_access, mask_sensitive_fields, write_blocked_reason
+from servicenow_mcp.policy import (
+    check_table_access,
+    mask_sensitive_fields,
+    write_blocked_reason,
+)
 from servicenow_mcp.state import QueryTokenStore
 from servicenow_mcp.utils import (
     ServiceNowQuery,
@@ -63,7 +67,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         check_table_access("sys_atf_test")
 
         default_fields = "sys_id,name,description,active,sys_updated_on,test_origin"
-        field_list = fields if fields else default_fields
+        field_list = fields or default_fields
 
         query_str = resolve_query_token(query_token, query_store, correlation_id)
 
@@ -106,7 +110,13 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                 client.query_records(
                     "sys_atf_step",
                     ServiceNowQuery().equals("test", test_id).build(),
-                    fields=["sys_id", "display_name", "step_config", "order", "inputs"],
+                    fields=[
+                        "sys_id",
+                        "display_name",
+                        "step_config",
+                        "order",
+                        "inputs",
+                    ],
                     limit=1000,
                     order_by="order",
                     display_values=True,
@@ -152,7 +162,13 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             result = await client.query_records(
                 "sys_atf_test_suite",
                 query,
-                fields=["sys_id", "name", "description", "active", "sys_updated_on"],
+                fields=[
+                    "sys_id",
+                    "name",
+                    "description",
+                    "active",
+                    "sys_updated_on",
+                ],
                 limit=limit,
                 order_by="sys_updated_on",
             )

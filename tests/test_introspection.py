@@ -113,7 +113,13 @@ class TestTableGet:
         respx.get(f"{BASE_URL}/api/now/table/incident/abc123").mock(
             return_value=httpx.Response(
                 200,
-                json={"result": {"sys_id": "abc123", "number": "INC0001", "state": "1"}},
+                json={
+                    "result": {
+                        "sys_id": "abc123",
+                        "number": "INC0001",
+                        "state": "1",
+                    }
+                },
             )
         )
 
@@ -263,7 +269,11 @@ class TestTableQuery:
                 200,
                 json={
                     "result": [
-                        {"sys_id": "1", "number": "INC0001", "priority": "1 - Critical"},
+                        {
+                            "sys_id": "1",
+                            "number": "INC0001",
+                            "priority": "1 - Critical",
+                        },
                     ]
                 },
                 headers={"X-Total-Count": "1"},

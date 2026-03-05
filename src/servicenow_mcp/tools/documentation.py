@@ -10,7 +10,11 @@ from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
-from servicenow_mcp.policy import INTERNAL_QUERY_LIMIT, check_table_access, mask_sensitive_fields
+from servicenow_mcp.policy import (
+    INTERNAL_QUERY_LIMIT,
+    check_table_access,
+    mask_sensitive_fields,
+)
 from servicenow_mcp.tools.metadata import ARTIFACT_TABLES
 from servicenow_mcp.utils import (
     ServiceNowQuery,
@@ -38,7 +42,12 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
 
         async with ServiceNowClient(settings, auth_provider) as client:
             # Fetch all four artifact types in parallel
-            br_result, cs_result, uip_result, uia_result = await asyncio.gather(
+            (
+                br_result,
+                cs_result,
+                uip_result,
+                uia_result,
+            ) = await asyncio.gather(
                 client.query_records(
                     "sys_script",
                     ServiceNowQuery().equals("collection", table).equals("active", "true").build(),
@@ -372,14 +381,14 @@ def _generate_test_scenarios(script: str, record: dict[str, Any]) -> list[dict[s
 
     # Detect role checks
     role_matches = re.findall(r"gs\.hasRole\(['\"]([^'\"]+)['\"]\)", script)
-    for role in role_matches:
-        scenarios.append(
-            {
-                "scenario": f"Test with role '{role}'",
-                "description": f"Test behavior when user has and does not have the '{role}' role.",
-                "priority": "medium",
-            }
-        )
+    scenarios.extend(
+        {
+            "scenario": f"Test with role '{role}'",
+            "description": f"Test behavior when user has and does not have the '{role}' role.",
+            "priority": "medium",
+        }
+        for role in role_matches
+    )
 
     # Detect setAbortAction
     if re.search(r"setAbortAction\(true\)", script):

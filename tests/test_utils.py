@@ -98,14 +98,20 @@ class TestSerialize:
 
     def test_serialize_falls_back_to_json_on_toon_failure(self):
         """When toon_encode raises, serialize falls back to json.dumps."""
-        with patch("servicenow_mcp.utils.toon_encode", side_effect=TypeError("unsupported type")):
+        with patch(
+            "servicenow_mcp.utils.toon_encode",
+            side_effect=TypeError("unsupported type"),
+        ):
             result = serialize({"key": "value"})
         parsed = json.loads(result)
         assert parsed["key"] == "value"
 
     def test_serialize_fallback_json_is_indented(self):
         """The JSON fallback uses indent=2."""
-        with patch("servicenow_mcp.utils.toon_encode", side_effect=RuntimeError("boom")):
+        with patch(
+            "servicenow_mcp.utils.toon_encode",
+            side_effect=RuntimeError("boom"),
+        ):
             result = serialize({"a": 1})
         # indent=2 means the output should have newlines and spaces
         assert "\n" in result

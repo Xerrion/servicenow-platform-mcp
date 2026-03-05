@@ -545,7 +545,12 @@ class TestAtfRunTest:
         )
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["atf_run_test"](test_id="test_long", poll=True, poll_interval=2, max_poll_duration=10)
+        raw = await tools["atf_run_test"](
+            test_id="test_long",
+            poll=True,
+            poll_interval=2,
+            max_poll_duration=10,
+        )
         result = toon_decode(raw)
 
         assert result["status"] == "success"
@@ -572,7 +577,12 @@ class TestAtfRunTest:
         )
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["atf_run_test"](test_id="test_fail", poll=True, poll_interval=2, max_poll_duration=10)
+        raw = await tools["atf_run_test"](
+            test_id="test_fail",
+            poll=True,
+            poll_interval=2,
+            max_poll_duration=10,
+        )
         result = toon_decode(raw)
 
         assert result["status"] == "success"
@@ -601,7 +611,12 @@ class TestAtfRunSuite:
         )
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["atf_run_suite"](suite_id="suite789", poll=True, poll_interval=2, max_poll_duration=10)
+        raw = await tools["atf_run_suite"](
+            suite_id="suite789",
+            poll=True,
+            poll_interval=2,
+            max_poll_duration=10,
+        )
         result = toon_decode(raw)
 
         assert result["status"] == "success"
@@ -684,7 +699,12 @@ class TestAtfRunSuite:
         )
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["atf_run_suite"](suite_id="suite_long", poll=True, poll_interval=2, max_poll_duration=10)
+        raw = await tools["atf_run_suite"](
+            suite_id="suite_long",
+            poll=True,
+            poll_interval=2,
+            max_poll_duration=10,
+        )
         result = toon_decode(raw)
 
         assert result["status"] == "success"
@@ -712,7 +732,12 @@ class TestAtfRunSuite:
         )
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["atf_run_suite"](suite_id="suite_cancel", poll=True, poll_interval=2, max_poll_duration=10)
+        raw = await tools["atf_run_suite"](
+            suite_id="suite_cancel",
+            poll=True,
+            poll_interval=2,
+            max_poll_duration=10,
+        )
         result = toon_decode(raw)
 
         assert result["status"] == "success"
@@ -732,7 +757,11 @@ class TestAtfTestHealth:
                 200,
                 json={
                     "result": [
-                        {"sys_id": f"res{i}", "status": "success", "sys_created_on": f"2026-02-{i + 1:02d} 10:00:00"}
+                        {
+                            "sys_id": f"res{i}",
+                            "status": "success",
+                            "sys_created_on": f"2026-02-{i + 1:02d} 10:00:00",
+                        }
                         for i in range(10)
                     ]
                 },
@@ -789,14 +818,46 @@ class TestAtfTestHealth:
                 200,
                 json={
                     "result": [
-                        {"sys_id": "r1", "status": "success", "sys_created_on": "2026-02-01 10:00:00"},
-                        {"sys_id": "r2", "status": "success", "sys_created_on": "2026-02-02 10:00:00"},
-                        {"sys_id": "r3", "status": "success", "sys_created_on": "2026-02-03 10:00:00"},
-                        {"sys_id": "r4", "status": "success", "sys_created_on": "2026-02-04 10:00:00"},
-                        {"sys_id": "r5", "status": "failure", "sys_created_on": "2026-02-05 10:00:00"},
-                        {"sys_id": "r6", "status": "failure", "sys_created_on": "2026-02-06 10:00:00"},
-                        {"sys_id": "r7", "status": "failure", "sys_created_on": "2026-02-07 10:00:00"},
-                        {"sys_id": "r8", "status": "failure", "sys_created_on": "2026-02-08 10:00:00"},
+                        {
+                            "sys_id": "r1",
+                            "status": "success",
+                            "sys_created_on": "2026-02-01 10:00:00",
+                        },
+                        {
+                            "sys_id": "r2",
+                            "status": "success",
+                            "sys_created_on": "2026-02-02 10:00:00",
+                        },
+                        {
+                            "sys_id": "r3",
+                            "status": "success",
+                            "sys_created_on": "2026-02-03 10:00:00",
+                        },
+                        {
+                            "sys_id": "r4",
+                            "status": "success",
+                            "sys_created_on": "2026-02-04 10:00:00",
+                        },
+                        {
+                            "sys_id": "r5",
+                            "status": "failure",
+                            "sys_created_on": "2026-02-05 10:00:00",
+                        },
+                        {
+                            "sys_id": "r6",
+                            "status": "failure",
+                            "sys_created_on": "2026-02-06 10:00:00",
+                        },
+                        {
+                            "sys_id": "r7",
+                            "status": "failure",
+                            "sys_created_on": "2026-02-07 10:00:00",
+                        },
+                        {
+                            "sys_id": "r8",
+                            "status": "failure",
+                            "sys_created_on": "2026-02-08 10:00:00",
+                        },
                     ]
                 },
                 headers={"X-Total-Count": "8"},
@@ -851,7 +912,9 @@ class TestAtfTestHealth:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "exactly one" in result["error"]["message"].lower() and "not both" in result["error"]["message"].lower()
+        error_msg = result["error"]["message"].lower()
+        assert "exactly one" in error_msg
+        assert "not both" in error_msg
 
     @pytest.mark.asyncio
     @respx.mock
@@ -862,14 +925,46 @@ class TestAtfTestHealth:
                 200,
                 json={
                     "result": [
-                        {"sys_id": "r1", "status": "failure", "sys_created_on": "2026-02-01 10:00:00"},
-                        {"sys_id": "r2", "status": "failure", "sys_created_on": "2026-02-02 10:00:00"},
-                        {"sys_id": "r3", "status": "failure", "sys_created_on": "2026-02-03 10:00:00"},
-                        {"sys_id": "r4", "status": "failure", "sys_created_on": "2026-02-04 10:00:00"},
-                        {"sys_id": "r5", "status": "success", "sys_created_on": "2026-02-05 10:00:00"},
-                        {"sys_id": "r6", "status": "success", "sys_created_on": "2026-02-06 10:00:00"},
-                        {"sys_id": "r7", "status": "success", "sys_created_on": "2026-02-07 10:00:00"},
-                        {"sys_id": "r8", "status": "success", "sys_created_on": "2026-02-08 10:00:00"},
+                        {
+                            "sys_id": "r1",
+                            "status": "failure",
+                            "sys_created_on": "2026-02-01 10:00:00",
+                        },
+                        {
+                            "sys_id": "r2",
+                            "status": "failure",
+                            "sys_created_on": "2026-02-02 10:00:00",
+                        },
+                        {
+                            "sys_id": "r3",
+                            "status": "failure",
+                            "sys_created_on": "2026-02-03 10:00:00",
+                        },
+                        {
+                            "sys_id": "r4",
+                            "status": "failure",
+                            "sys_created_on": "2026-02-04 10:00:00",
+                        },
+                        {
+                            "sys_id": "r5",
+                            "status": "success",
+                            "sys_created_on": "2026-02-05 10:00:00",
+                        },
+                        {
+                            "sys_id": "r6",
+                            "status": "success",
+                            "sys_created_on": "2026-02-06 10:00:00",
+                        },
+                        {
+                            "sys_id": "r7",
+                            "status": "success",
+                            "sys_created_on": "2026-02-07 10:00:00",
+                        },
+                        {
+                            "sys_id": "r8",
+                            "status": "success",
+                            "sys_created_on": "2026-02-08 10:00:00",
+                        },
                     ]
                 },
                 headers={"X-Total-Count": "8"},
@@ -893,8 +988,16 @@ class TestAtfTestHealth:
                 200,
                 json={
                     "result": [
-                        {"sys_id": "r1", "status": "success", "sys_created_on": "2026-02-01 10:00:00"},
-                        {"sys_id": "r2", "status": "failure", "sys_created_on": "2026-02-02 10:00:00"},
+                        {
+                            "sys_id": "r1",
+                            "status": "success",
+                            "sys_created_on": "2026-02-01 10:00:00",
+                        },
+                        {
+                            "sys_id": "r2",
+                            "status": "failure",
+                            "sys_created_on": "2026-02-02 10:00:00",
+                        },
                     ]
                 },
                 headers={"X-Total-Count": "2"},

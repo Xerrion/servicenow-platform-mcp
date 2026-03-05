@@ -9,7 +9,12 @@ from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
-from servicenow_mcp.policy import DENIED_TABLES, INTERNAL_QUERY_LIMIT, check_table_access, mask_sensitive_fields
+from servicenow_mcp.policy import (
+    DENIED_TABLES,
+    INTERNAL_QUERY_LIMIT,
+    check_table_access,
+    mask_sensitive_fields,
+)
 from servicenow_mcp.utils import (
     ServiceNowQuery,
     format_response,
@@ -106,7 +111,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                     continue
                 if ref_table.lower() in DENIED_TABLES:
                     continue
-                if ref_table.startswith("var__m_") or ref_table.startswith("sys_variable_value"):
+                if ref_table.startswith(("var__m_", "sys_variable_value")):
                     continue
                 filtered_refs.append((ref_table, ref_field))
 

@@ -37,7 +37,13 @@ class TestDomainProblem:
             record = await client.get_record(
                 "problem",
                 problem_sys_id,
-                fields=["sys_id", "number", "short_description", "state", "priority"],
+                fields=[
+                    "sys_id",
+                    "number",
+                    "short_description",
+                    "state",
+                    "priority",
+                ],
             )
         assert record["sys_id"] == problem_sys_id
 

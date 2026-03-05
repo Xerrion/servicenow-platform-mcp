@@ -377,9 +377,24 @@ class TestWorkflowMap:
                 200,
                 json={
                     "result": [
-                        {"sys_id": "a1", "name": "First", "x": "10", "y": "50"},
-                        {"sys_id": "a2", "name": "Second", "x": "200", "y": "50"},
-                        {"sys_id": "a3", "name": "Third", "x": "400", "y": "50"},
+                        {
+                            "sys_id": "a1",
+                            "name": "First",
+                            "x": "10",
+                            "y": "50",
+                        },
+                        {
+                            "sys_id": "a2",
+                            "name": "Second",
+                            "x": "200",
+                            "y": "50",
+                        },
+                        {
+                            "sys_id": "a3",
+                            "name": "Third",
+                            "x": "400",
+                            "y": "50",
+                        },
                     ]
                 },
                 headers={"X-Total-Count": "3"},
@@ -438,8 +453,18 @@ class TestWorkflowMap:
                 200,
                 json={
                     "result": [
-                        {"sys_id": "a1", "name": "Script 1", "x": "10", "y": "50"},
-                        {"sys_id": "a2", "name": "Script 2", "x": "200", "y": "50"},
+                        {
+                            "sys_id": "a1",
+                            "name": "Script 1",
+                            "x": "10",
+                            "y": "50",
+                        },
+                        {
+                            "sys_id": "a2",
+                            "name": "Script 2",
+                            "x": "200",
+                            "y": "50",
+                        },
                     ]
                 },
                 headers={"X-Total-Count": "2"},
@@ -453,9 +478,24 @@ class TestWorkflowMap:
                 200,
                 json={
                     "result": [
-                        {"sys_id": "sv1", "variable": "var1", "value": "script_a1", "document_key": "a1"},
-                        {"sys_id": "sv2", "variable": "var2", "value": "script_a2", "document_key": "a2"},
-                        {"sys_id": "sv3", "variable": "var3", "value": "condition_a1", "document_key": "a1"},
+                        {
+                            "sys_id": "sv1",
+                            "variable": "var1",
+                            "value": "script_a1",
+                            "document_key": "a1",
+                        },
+                        {
+                            "sys_id": "sv2",
+                            "variable": "var2",
+                            "value": "script_a2",
+                            "document_key": "a2",
+                        },
+                        {
+                            "sys_id": "sv3",
+                            "variable": "var3",
+                            "value": "condition_a1",
+                            "document_key": "a1",
+                        },
                     ]
                 },
                 headers={"X-Total-Count": "3"},
@@ -481,7 +521,12 @@ class TestWorkflowMap:
         respx.get(f"{BASE_URL}/api/now/table/wf_workflow_version/wfv_none").mock(
             return_value=httpx.Response(
                 200,
-                json={"result": {"sys_id": "wfv_none", "name": "No Activities WF"}},
+                json={
+                    "result": {
+                        "sys_id": "wfv_none",
+                        "name": "No Activities WF",
+                    }
+                },
             )
         )
         respx.get(f"{BASE_URL}/api/now/table/wf_activity").mock(

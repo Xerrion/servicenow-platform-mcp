@@ -39,8 +39,16 @@ class TestCmdbList:
                 200,
                 json={
                     "result": [
-                        {"sys_id": "ci1", "name": "server-01", "operational_status": "1"},
-                        {"sys_id": "ci2", "name": "server-02", "operational_status": "1"},
+                        {
+                            "sys_id": "ci1",
+                            "name": "server-01",
+                            "operational_status": "1",
+                        },
+                        {
+                            "sys_id": "ci2",
+                            "name": "server-02",
+                            "operational_status": "1",
+                        },
                     ]
                 },
             )
@@ -65,7 +73,11 @@ class TestCmdbList:
                 200,
                 json={
                     "result": [
-                        {"sys_id": "srv1", "name": "web-server-01", "operational_status": "1"},
+                        {
+                            "sys_id": "srv1",
+                            "name": "web-server-01",
+                            "operational_status": "1",
+                        },
                     ]
                 },
             )
@@ -91,7 +103,11 @@ class TestCmdbList:
                 200,
                 json={
                     "result": [
-                        {"sys_id": "ci1", "name": "server-01", "operational_status": "1"},
+                        {
+                            "sys_id": "ci1",
+                            "name": "server-01",
+                            "operational_status": "1",
+                        },
                     ]
                 },
             )
@@ -121,7 +137,11 @@ class TestCmdbGet:
                 200,
                 json={
                     "result": [
-                        {"sys_id": sys_id, "name": "server-01", "operational_status": "1"},
+                        {
+                            "sys_id": sys_id,
+                            "name": "server-01",
+                            "operational_status": "1",
+                        },
                     ]
                 },
             )
@@ -147,7 +167,11 @@ class TestCmdbGet:
                 200,
                 json={
                     "result": [
-                        {"sys_id": "ci1", "name": "server-01", "operational_status": "1"},
+                        {
+                            "sys_id": "ci1",
+                            "name": "server-01",
+                            "operational_status": "1",
+                        },
                     ]
                 },
             )
@@ -199,8 +223,16 @@ class TestCmdbRelationships:
                 200,
                 json={
                     "result": [
-                        {"sys_id": "rel1", "parent": {"value": "parent1"}, "child": {"value": sys_id}},
-                        {"sys_id": "rel2", "parent": {"value": sys_id}, "child": {"value": "child1"}},
+                        {
+                            "sys_id": "rel1",
+                            "parent": {"value": "parent1"},
+                            "child": {"value": sys_id},
+                        },
+                        {
+                            "sys_id": "rel2",
+                            "parent": {"value": sys_id},
+                            "child": {"value": "child1"},
+                        },
                     ]
                 },
             )
@@ -225,7 +257,11 @@ class TestCmdbRelationships:
                 200,
                 json={
                     "result": [
-                        {"sys_id": "rel1", "parent": {"value": "parent1"}, "child": {"value": sys_id}},
+                        {
+                            "sys_id": "rel1",
+                            "parent": {"value": "parent1"},
+                            "child": {"value": sys_id},
+                        },
                     ]
                 },
             )
@@ -264,7 +300,11 @@ class TestCmdbRelationships:
                 200,
                 json={
                     "result": [
-                        {"sys_id": "rel1", "parent": {"value": "parent1"}, "child": {"value": "resolved_sys_id"}},
+                        {
+                            "sys_id": "rel1",
+                            "parent": {"value": "parent1"},
+                            "child": {"value": "resolved_sys_id"},
+                        },
                     ]
                 },
             )
@@ -309,7 +349,11 @@ class TestCmdbRelationships:
                 200,
                 json={
                     "result": [
-                        {"sys_id": "rel1", "parent": {"value": sys_id}, "child": {"value": "child1"}},
+                        {
+                            "sys_id": "rel1",
+                            "parent": {"value": sys_id},
+                            "child": {"value": "child1"},
+                        },
                     ]
                 },
             )
@@ -354,8 +398,14 @@ class TestCmdbClasses:
                 200,
                 json={
                     "result": [
-                        {"groupby_fields": [{"value": "cmdb_ci_server"}], "stats": {"count": "42"}},
-                        {"groupby_fields": [{"value": "cmdb_ci_network_adapter"}], "stats": {"count": "15"}},
+                        {
+                            "groupby_fields": [{"value": "cmdb_ci_server"}],
+                            "stats": {"count": "42"},
+                        },
+                        {
+                            "groupby_fields": [{"value": "cmdb_ci_network_adapter"}],
+                            "stats": {"count": "15"},
+                        },
                     ]
                 },
             )
@@ -380,7 +430,10 @@ class TestCmdbClasses:
                 200,
                 json={
                     "result": [
-                        {"groupby_fields": [{"value": "cmdb_ci_server"}], "stats": {"count": "42"}},
+                        {
+                            "groupby_fields": [{"value": "cmdb_ci_server"}],
+                            "stats": {"count": "42"},
+                        },
                     ]
                 },
             )
@@ -407,9 +460,18 @@ class TestCmdbHealth:
                 200,
                 json={
                     "result": [
-                        {"groupby_fields": [{"value": "1"}], "stats": {"count": "100"}},
-                        {"groupby_fields": [{"value": "2"}], "stats": {"count": "5"}},
-                        {"groupby_fields": [{"value": "6"}], "stats": {"count": "10"}},
+                        {
+                            "groupby_fields": [{"value": "1"}],
+                            "stats": {"count": "100"},
+                        },
+                        {
+                            "groupby_fields": [{"value": "2"}],
+                            "stats": {"count": "5"},
+                        },
+                        {
+                            "groupby_fields": [{"value": "6"}],
+                            "stats": {"count": "10"},
+                        },
                     ]
                 },
             )
@@ -434,7 +496,10 @@ class TestCmdbHealth:
                 200,
                 json={
                     "result": [
-                        {"groupby_fields": [{"value": "1"}], "stats": {"count": "50"}},
+                        {
+                            "groupby_fields": [{"value": "1"}],
+                            "stats": {"count": "50"},
+                        },
                     ]
                 },
             )

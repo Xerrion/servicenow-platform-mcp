@@ -43,7 +43,10 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         try:
             metadata = await client.get_metadata(table)
         except Exception:
-            logger.warning("Failed to fetch metadata for mandatory field check on table '%s'", table)
+            logger.warning(
+                "Failed to fetch metadata for mandatory field check on table '%s'",
+                table,
+            )
             return []
         mandatory_fields = [
             entry["element"] for entry in metadata if entry.get("mandatory") == "true" and entry.get("element")
@@ -320,7 +323,10 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                 missing = await _check_mandatory_fields(client, payload["table"], payload["data"])
                 if missing:
                     return format_response(
-                        data={"table": payload["table"], "missing_fields": missing},
+                        data={
+                            "table": payload["table"],
+                            "missing_fields": missing,
+                        },
                         correlation_id=correlation_id,
                         status="error",
                         error=f"Missing mandatory fields for table '{payload['table']}': {', '.join(missing)}",
@@ -336,7 +342,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                     correlation_id=correlation_id,
                 )
 
-            elif action == "update":
+            if action == "update":
                 sys_id = payload["sys_id"]
                 result = await client.update_record(table, sys_id, payload["changes"])
                 return format_response(
@@ -349,7 +355,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                     correlation_id=correlation_id,
                 )
 
-            elif action == "delete":
+            if action == "delete":
                 sys_id = payload["sys_id"]
                 await client.delete_record(table, sys_id)
                 return format_response(
@@ -362,10 +368,9 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                     correlation_id=correlation_id,
                 )
 
-            else:
-                return format_response(
-                    data=None,
-                    correlation_id=correlation_id,
-                    status="error",
-                    error=f"Unknown preview action: '{action}'",
-                )
+            return format_response(
+                data=None,
+                correlation_id=correlation_id,
+                status="error",
+                error=f"Unknown preview action: '{action}'",
+            )

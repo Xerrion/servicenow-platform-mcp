@@ -192,7 +192,11 @@ class TestDocsLogicMap:
                 200,
                 json={
                     "result": [
-                        {"sys_id": "uip1", "short_description": "Make field read-only", "active": "true"},
+                        {
+                            "sys_id": "uip1",
+                            "short_description": "Make field read-only",
+                            "active": "true",
+                        },
                     ]
                 },
                 headers={"X-Total-Count": "1"},
@@ -203,7 +207,12 @@ class TestDocsLogicMap:
                 200,
                 json={
                     "result": [
-                        {"sys_id": "uia1", "name": "Close Incident", "action_name": "close", "active": "true"},
+                        {
+                            "sys_id": "uia1",
+                            "name": "Close Incident",
+                            "action_name": "close",
+                            "active": "true",
+                        },
                     ]
                 },
                 headers={"X-Total-Count": "1"},

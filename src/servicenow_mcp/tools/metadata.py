@@ -8,7 +8,12 @@ from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
-from servicenow_mcp.policy import INTERNAL_QUERY_LIMIT, check_table_access, enforce_query_safety, mask_sensitive_fields
+from servicenow_mcp.policy import (
+    INTERNAL_QUERY_LIMIT,
+    check_table_access,
+    enforce_query_safety,
+    mask_sensitive_fields,
+)
 from servicenow_mcp.state import QueryTokenStore
 from servicenow_mcp.utils import (
     ServiceNowQuery,
@@ -169,15 +174,15 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                             fields=["sys_id", "name", "sys_class_name"],
                             limit=effective_limit,
                         )
-                        for record in result["records"]:
-                            matches.append(
-                                {
-                                    "table": table,
-                                    "sys_id": record.get("sys_id", ""),
-                                    "name": record.get("name", ""),
-                                    "sys_class_name": record.get("sys_class_name", table),
-                                }
-                            )
+                        matches.extend(
+                            {
+                                "table": table,
+                                "sys_id": record.get("sys_id", ""),
+                                "name": record.get("name", ""),
+                                "sys_class_name": record.get("sys_class_name", table),
+                            }
+                            for record in result["records"]
+                        )
                     except Exception:
                         # Skip tables that fail (e.g., access issues)
                         continue
@@ -231,7 +236,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         return format_response(
             data={
                 "table": table,
-                "field": field if field else None,
+                "field": field or None,
                 "writers": writers,
                 "total": len(writers),
             },

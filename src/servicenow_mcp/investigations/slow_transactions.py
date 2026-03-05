@@ -88,7 +88,11 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
     return build_investigation_result(
         "slow_transactions",
         findings,
-        params={"hours": hours, "limit": limit, "categories": categories_filter},
+        params={
+            "hours": hours,
+            "limit": limit,
+            "categories": categories_filter,
+        },
         tables_queried=[t[0] for t in PERFORMANCE_TABLES],
     )
 

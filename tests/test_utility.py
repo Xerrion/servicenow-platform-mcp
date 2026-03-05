@@ -59,7 +59,11 @@ class TestBuildQuery:
         conditions = json.dumps(
             [
                 {"operator": "equals", "field": "active", "value": "true"},
-                {"operator": "hours_ago", "field": "sys_created_on", "value": 24},
+                {
+                    "operator": "hours_ago",
+                    "field": "sys_created_on",
+                    "value": 24,
+                },
                 {"operator": "like", "field": "source", "value": "incident"},
             ]
         )
@@ -172,7 +176,11 @@ class TestBuildQuery:
         conditions = json.dumps(
             [
                 {"operator": "starts_with", "field": "name", "value": "INC"},
-                {"operator": "or_starts_with", "field": "name", "value": "REQ"},
+                {
+                    "operator": "or_starts_with",
+                    "field": "name",
+                    "value": "REQ",
+                },
             ]
         )
         raw = tools["build_query"](conditions=conditions)
@@ -186,7 +194,11 @@ class TestBuildQuery:
         tools = _register_and_get_tools(settings, auth_provider)
         conditions = json.dumps(
             [
-                {"operator": "in_list", "field": "state", "value": ["1", "2", "3"]},
+                {
+                    "operator": "in_list",
+                    "field": "state",
+                    "value": ["1", "2", "3"],
+                },
             ]
         )
         raw = tools["build_query"](conditions=conditions)
@@ -200,7 +212,11 @@ class TestBuildQuery:
         tools = _register_and_get_tools(settings, auth_provider)
         conditions = json.dumps(
             [
-                {"operator": "not_in_list", "field": "priority", "value": ["4", "5"]},
+                {
+                    "operator": "not_in_list",
+                    "field": "priority",
+                    "value": ["4", "5"],
+                },
             ]
         )
         raw = tools["build_query"](conditions=conditions)
@@ -243,7 +259,11 @@ class TestBuildQuery:
         conditions = json.dumps(
             [
                 {"operator": "equals", "field": "active", "value": "true"},
-                {"operator": "order_by", "field": "sys_created_on", "descending": True},
+                {
+                    "operator": "order_by",
+                    "field": "sys_created_on",
+                    "descending": True,
+                },
             ]
         )
         raw = tools["build_query"](conditions=conditions)
@@ -282,7 +302,10 @@ class TestBuildQuery:
         from unittest.mock import patch
 
         tools = _register_and_get_tools(settings, auth_provider)
-        with patch("servicenow_mcp.tools.utility.ServiceNowQuery", side_effect=RuntimeError("boom")):
+        with patch(
+            "servicenow_mcp.tools.utility.ServiceNowQuery",
+            side_effect=RuntimeError("boom"),
+        ):
             raw = tools["build_query"](conditions='[{"operator": "equals", "field": "active", "value": "true"}]')
         result = toon_decode(raw)
         assert result["status"] == "error"
@@ -525,7 +548,12 @@ class TestBuildQuery:
         tools = _register_and_get_tools(settings, auth_provider)
         conditions = json.dumps(
             [
-                {"operator": "rl_query", "field": "state", "rl_operator": "=", "value": "2"},
+                {
+                    "operator": "rl_query",
+                    "field": "state",
+                    "rl_operator": "=",
+                    "value": "2",
+                },
             ]
         )
         raw = tools["build_query"](conditions=conditions)

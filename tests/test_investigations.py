@@ -364,7 +364,13 @@ class TestTableHealth:
         respx.get(f"{BASE_URL}/api/now/stats/incident").mock(
             return_value=httpx.Response(200, json={"result": {"stats": {"count": "100"}}})
         )
-        for table in ["sys_script", "sys_script_client", "sys_security_acl", "sys_ui_policy", "syslog"]:
+        for table in [
+            "sys_script",
+            "sys_script_client",
+            "sys_security_acl",
+            "sys_ui_policy",
+            "syslog",
+        ]:
             respx.get(f"{BASE_URL}/api/now/table/{table}").mock(
                 return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
             )
@@ -1048,7 +1054,16 @@ class TestExplainPerformanceBottlenecks:
         respx.get(f"{BASE_URL}/api/now/table/sys_script").mock(
             return_value=httpx.Response(
                 200,
-                json={"result": [{"sys_id": f"br{i}", "name": f"BR {i}", "when": "before"} for i in range(15)]},
+                json={
+                    "result": [
+                        {
+                            "sys_id": f"br{i}",
+                            "name": f"BR {i}",
+                            "when": "before",
+                        }
+                        for i in range(15)
+                    ]
+                },
                 headers={"X-Total-Count": "15"},
             )
         )
@@ -1313,7 +1328,12 @@ class TestTypeCoercion:
     @respx.mock
     async def test_stale_automations_string_stale_days(self, settings, auth_provider):
         """stale_automations run() accepts stale_days as a string."""
-        for table in ["flow_context", "sys_script", "sys_script_include", "sysauto_script"]:
+        for table in [
+            "flow_context",
+            "sys_script",
+            "sys_script_include",
+            "sysauto_script",
+        ]:
             respx.get(f"{BASE_URL}/api/now/table/{table}").mock(
                 return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
             )
@@ -1359,7 +1379,13 @@ class TestTypeCoercion:
         respx.get(f"{BASE_URL}/api/now/stats/incident").mock(
             return_value=httpx.Response(200, json={"result": {"stats": {"count": "100"}}})
         )
-        for table in ["sys_script", "sys_script_client", "sys_security_acl", "sys_ui_policy", "syslog"]:
+        for table in [
+            "sys_script",
+            "sys_script_client",
+            "sys_security_acl",
+            "sys_ui_policy",
+            "syslog",
+        ]:
             respx.get(f"{BASE_URL}/api/now/table/{table}").mock(
                 return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
             )
@@ -1828,7 +1854,13 @@ class TestTableHealthCoverage:
         respx.get(f"{BASE_URL}/api/now/stats/incident").mock(
             return_value=httpx.Response(200, json={"result": {"stats": {"count": "10"}}})
         )
-        for tbl in ["sys_script", "sys_script_client", "sys_security_acl", "sys_ui_policy", "syslog"]:
+        for tbl in [
+            "sys_script",
+            "sys_script_client",
+            "sys_security_acl",
+            "sys_ui_policy",
+            "syslog",
+        ]:
             respx.get(f"{BASE_URL}/api/now/table/{tbl}").mock(
                 return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
             )
@@ -1855,7 +1887,16 @@ class TestTableHealthCoverage:
         respx.get(f"{BASE_URL}/api/now/table/sys_script").mock(
             return_value=httpx.Response(
                 200,
-                json={"result": [{"sys_id": f"br{i}", "name": f"BR {i}", "when": "before"} for i in range(12)]},
+                json={
+                    "result": [
+                        {
+                            "sys_id": f"br{i}",
+                            "name": f"BR {i}",
+                            "when": "before",
+                        }
+                        for i in range(12)
+                    ]
+                },
                 headers={"X-Total-Count": "12"},
             )
         )
@@ -1868,7 +1909,14 @@ class TestTableHealthCoverage:
             return_value=httpx.Response(
                 200,
                 json={
-                    "result": [{"sys_id": f"acl{i}", "name": "incident.*.read", "operation": "read"} for i in range(22)]
+                    "result": [
+                        {
+                            "sys_id": f"acl{i}",
+                            "name": "incident.*.read",
+                            "operation": "read",
+                        }
+                        for i in range(22)
+                    ]
                 },
                 headers={"X-Total-Count": "22"},
             )

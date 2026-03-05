@@ -8,7 +8,11 @@ from mcp.server.fastmcp import FastMCP
 from servicenow_mcp.auth import create_auth
 from servicenow_mcp.choices import ChoiceRegistry
 from servicenow_mcp.config import Settings
-from servicenow_mcp.packages import _TOOL_GROUP_MODULES, get_package, list_packages
+from servicenow_mcp.packages import (
+    _TOOL_GROUP_MODULES,
+    get_package,
+    list_packages,
+)
 from servicenow_mcp.state import QueryTokenStore
 from servicenow_mcp.utils import serialize
 

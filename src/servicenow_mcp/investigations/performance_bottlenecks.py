@@ -4,8 +4,16 @@ from collections import Counter
 from typing import Any
 
 from servicenow_mcp.client import ServiceNowClient
-from servicenow_mcp.investigation_helpers import build_investigation_result, parse_element_id, parse_int_param
-from servicenow_mcp.policy import INTERNAL_QUERY_LIMIT, check_table_access, mask_sensitive_fields
+from servicenow_mcp.investigation_helpers import (
+    build_investigation_result,
+    parse_element_id,
+    parse_int_param,
+)
+from servicenow_mcp.policy import (
+    INTERNAL_QUERY_LIMIT,
+    check_table_access,
+    mask_sensitive_fields,
+)
 from servicenow_mcp.utils import ServiceNowQuery, validate_identifier
 
 HEAVY_AUTOMATION_THRESHOLD = 10
@@ -71,7 +79,13 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
     sj_result = await client.query_records(
         "sysauto_script",
         sj_query.build(),
-        fields=["sys_id", "name", "run_type", "run_dayofweek", "sys_updated_on"],
+        fields=[
+            "sys_id",
+            "name",
+            "run_type",
+            "run_dayofweek",
+            "sys_updated_on",
+        ],
         limit=limit,
     )
     for rec in sj_result["records"]:
@@ -140,35 +154,34 @@ async def explain(client: ServiceNowClient, element_id: str) -> dict[str, Any]:
             "explanation": " ".join(explanation_parts),
             "record": record,
         }
-    else:
-        # element_id is a table name (heavy_automation category)
-        try:
-            validate_identifier(element_id)
-        except ValueError as e:
-            return {"error": str(e)}
+    # element_id is a table name (heavy_automation category)
+    try:
+        validate_identifier(element_id)
+    except ValueError as e:
+        return {"error": str(e)}
 
-        check_table_access(element_id)
-        stats_result = await client.aggregate(element_id, query="")
-        record_count = int(stats_result.get("stats", {}).get("count", 0))
+    check_table_access(element_id)
+    stats_result = await client.aggregate(element_id, query="")
+    record_count = int(stats_result.get("stats", {}).get("count", 0))
 
-        br_query = ServiceNowQuery().equals("collection", element_id).equals("active", "true").build()
-        br_result = await client.query_records(
-            "sys_script",
-            br_query,
-            fields=["sys_id", "name", "when"],
-            limit=INTERNAL_QUERY_LIMIT,
-        )
-        br_count = len(br_result["records"])
+    br_query = ServiceNowQuery().equals("collection", element_id).equals("active", "true").build()
+    br_result = await client.query_records(
+        "sys_script",
+        br_query,
+        fields=["sys_id", "name", "when"],
+        limit=INTERNAL_QUERY_LIMIT,
+    )
+    br_count = len(br_result["records"])
 
-        explanation_parts = [
-            f"Table '{element_id}' has {br_count} active business rules and {record_count} records.",
-            f"Tables with more than {HEAVY_AUTOMATION_THRESHOLD} business rules can cause performance issues.",
-            "Consider consolidating or disabling unnecessary rules.",
-        ]
+    explanation_parts = [
+        f"Table '{element_id}' has {br_count} active business rules and {record_count} records.",
+        f"Tables with more than {HEAVY_AUTOMATION_THRESHOLD} business rules can cause performance issues.",
+        "Consider consolidating or disabling unnecessary rules.",
+    ]
 
-        return {
-            "element": element_id,
-            "explanation": " ".join(explanation_parts),
-            "record_count": record_count,
-            "br_count": br_count,
-        }
+    return {
+        "element": element_id,
+        "explanation": " ".join(explanation_parts),
+        "record_count": record_count,
+        "br_count": br_count,
+    }

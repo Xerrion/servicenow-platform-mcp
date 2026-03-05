@@ -110,7 +110,14 @@ class TestErrorHierarchy:
 
     def test_all_errors_are_exceptions(self) -> None:
         """All error classes are Exception subclasses."""
-        for cls in (AuthError, ForbiddenError, NotFoundError, ServerError, PolicyError, QuerySafetyError):
+        for cls in (
+            AuthError,
+            ForbiddenError,
+            NotFoundError,
+            ServerError,
+            PolicyError,
+            QuerySafetyError,
+        ):
             assert isinstance(cls(), Exception)
 
 

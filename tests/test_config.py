@@ -36,7 +36,10 @@ class TestSettings:
 
         env = self._make_env()
         del env["SERVICENOW_INSTANCE_URL"]
-        with patch.dict("os.environ", env, clear=True), pytest.raises((ValueError, TypeError)):
+        with (
+            patch.dict("os.environ", env, clear=True),
+            pytest.raises((ValueError, TypeError)),
+        ):
             Settings(_env_file=None)
 
     def test_missing_username_raises(self):
@@ -45,7 +48,10 @@ class TestSettings:
 
         env = self._make_env()
         del env["SERVICENOW_USERNAME"]
-        with patch.dict("os.environ", env, clear=True), pytest.raises((ValueError, TypeError)):
+        with (
+            patch.dict("os.environ", env, clear=True),
+            pytest.raises((ValueError, TypeError)),
+        ):
             Settings(_env_file=None)
 
     def test_missing_password_raises(self):
@@ -54,7 +60,10 @@ class TestSettings:
 
         env = self._make_env()
         del env["SERVICENOW_PASSWORD"]
-        with patch.dict("os.environ", env, clear=True), pytest.raises((ValueError, TypeError)):
+        with (
+            patch.dict("os.environ", env, clear=True),
+            pytest.raises((ValueError, TypeError)),
+        ):
             Settings(_env_file=None)
 
     def test_default_mcp_tool_package(self):
@@ -183,7 +192,10 @@ class TestSettings:
         from servicenow_mcp.config import Settings
 
         env = self._make_env(SERVICENOW_INSTANCE_URL="http://test.service-now.com")
-        with patch.dict("os.environ", env, clear=True), pytest.raises(ValueError, match="https://"):
+        with (
+            patch.dict("os.environ", env, clear=True),
+            pytest.raises(ValueError, match="https://"),
+        ):
             Settings(_env_file=None)
 
     def test_max_row_limit_too_low_rejected(self):
@@ -191,7 +203,10 @@ class TestSettings:
         from servicenow_mcp.config import Settings
 
         env = self._make_env(MAX_ROW_LIMIT="0")
-        with patch.dict("os.environ", env, clear=True), pytest.raises(ValueError, match="between 1 and 10000"):
+        with (
+            patch.dict("os.environ", env, clear=True),
+            pytest.raises(ValueError, match="between 1 and 10000"),
+        ):
             Settings(_env_file=None)
 
     def test_max_row_limit_too_high_rejected(self):
@@ -199,7 +214,10 @@ class TestSettings:
         from servicenow_mcp.config import Settings
 
         env = self._make_env(MAX_ROW_LIMIT="99999")
-        with patch.dict("os.environ", env, clear=True), pytest.raises(ValueError, match="between 1 and 10000"):
+        with (
+            patch.dict("os.environ", env, clear=True),
+            pytest.raises(ValueError, match="between 1 and 10000"),
+        ):
             Settings(_env_file=None)
 
     def test_invalid_tool_package_rejected(self):

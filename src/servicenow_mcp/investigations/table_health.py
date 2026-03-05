@@ -5,7 +5,11 @@ from typing import Any
 
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.investigation_helpers import build_investigation_result
-from servicenow_mcp.policy import INTERNAL_QUERY_LIMIT, check_table_access, mask_sensitive_fields
+from servicenow_mcp.policy import (
+    INTERNAL_QUERY_LIMIT,
+    check_table_access,
+    mask_sensitive_fields,
+)
 from servicenow_mcp.utils import ServiceNowQuery, validate_identifier
 
 
@@ -49,7 +53,14 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
         syslog_q.hours_ago("sys_created_on", hours)
 
     # Run all 6 health check queries in parallel
-    stats_result, br_result, cs_result, acl_result, uip_result, syslog_result = await asyncio.gather(
+    (
+        stats_result,
+        br_result,
+        cs_result,
+        acl_result,
+        uip_result,
+        syslog_result,
+    ) = await asyncio.gather(
         client.aggregate(table, query=""),
         client.query_records(
             "sys_script",

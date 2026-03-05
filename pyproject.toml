@@ -67,13 +67,59 @@ dev = [
 [tool.ruff]
 target-version = "py312"
 line-length = 120
+src = ["src", "tests"]
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
-ignore = ["E501"]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "W",    # pycodestyle warnings
+    "I",    # isort
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "SIM",  # flake8-simplify
+    "RUF",  # ruff-specific rules
+    "A",    # flake8-builtins (prevent shadowing builtins)
+    "C4",   # flake8-comprehensions (optimize comprehensions)
+    "T10",  # flake8-debugger (catch leftover debugger statements)
+    "PIE",  # flake8-pie (miscellaneous good catches)
+    "PT",   # flake8-pytest-style (pytest best practices)
+    "RSE",  # flake8-raise (clean exception raising)
+    "TC",   # type-checking imports
+    "PERF", # perflint (performance anti-patterns)
+    "FURB", # refurb (modern Python idioms)
+    "LOG",  # logging best practices
+    "FLY",  # flynt f-string conversion
+    "RET",  # flake8-return
+    "PLC",  # pylint conventions
+    "PLE",  # pylint errors
+    "PLW",  # pylint warnings
+]
+ignore = [
+    "E501",    # line too long (formatter handles wrapping)
+    "RET504",  # unnecessary variable assignment before return (aids readability)
+    "TC001",   # no future annotations; would break runtime type resolution
+    "A005",    # module shadowing standard-library module (false positive for types.py etc.)
+    "PLC0415", # import not at top-level (project uses local imports to break circular deps)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["PT011", "PT012"]
+"src/servicenow_mcp/tools/domains/change.py" = ["A002"]  # MCP tool params shadow builtins (type)
+"src/servicenow_mcp/tools/changes.py" = ["A002"]    # MCP tool params shadow builtins (format)
+
+[tool.ruff.lint.isort]
+known-first-party = ["servicenow_mcp"]
+
+[tool.ruff.lint.flake8-pytest-style]
+fixture-parentheses = false
+mark-parentheses = false
 
 [tool.ruff.format]
 quote-style = "double"
+docstring-code-format = true
+line-ending = "lf"
+indent-style = "space"
 
 [tool.mypy]
 python_version = "3.12"

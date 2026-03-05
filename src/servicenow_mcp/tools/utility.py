@@ -9,12 +9,22 @@ from mcp.server.fastmcp import FastMCP
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.state import QueryTokenStore
-from servicenow_mcp.utils import ServiceNowQuery, format_response, generate_correlation_id
+from servicenow_mcp.utils import (
+    ServiceNowQuery,
+    format_response,
+    generate_correlation_id,
+)
 
 logger = logging.getLogger(__name__)
 
 # Map of operator names to ServiceNowQuery method signatures
-_UNARY_OPERATORS = {"is_empty", "is_not_empty", "anything", "empty_string", "val_changes"}
+_UNARY_OPERATORS = {
+    "is_empty",
+    "is_not_empty",
+    "anything",
+    "empty_string",
+    "val_changes",
+}
 _TIME_OPERATORS = {"hours_ago", "minutes_ago", "days_ago", "older_than_days"}
 _BINARY_OPERATORS = {
     "equals",
@@ -201,7 +211,12 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                             status="error",
                             error="Operator 'rl_query' requires 'related_table', 'related_field' (or 'field'), and 'rl_operator'.",
                         )
-                    query.rl_query(str(related_table), str(related_field), str(rl_operator), str(rl_value))
+                    query.rl_query(
+                        str(related_table),
+                        str(related_field),
+                        str(rl_operator),
+                        str(rl_value),
+                    )
                 elif operator == "order_by":
                     descending = bool(condition.get("descending", False))
                     query.order_by(field, descending=descending)
@@ -213,7 +228,13 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                         | _OR_BINARY_OPERATORS
                         | _LIST_OPERATORS
                         | _FIELD_OPERATORS
-                        | {"order_by", "between", "datepart", "new_query", "rl_query"}
+                        | {
+                            "order_by",
+                            "between",
+                            "datepart",
+                            "new_query",
+                            "rl_query",
+                        }
                     )
                     return format_response(
                         data=None,
@@ -224,9 +245,22 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
 
             built = query.build()
             query_token = query_store.create({"query": built})
-            return format_response(data={"query": built, "query_token": query_token}, correlation_id=correlation_id)
+            return format_response(
+                data={"query": built, "query_token": query_token},
+                correlation_id=correlation_id,
+            )
 
         except json.JSONDecodeError as e:
-            return format_response(data=None, correlation_id=correlation_id, status="error", error=f"Invalid JSON: {e}")
+            return format_response(
+                data=None,
+                correlation_id=correlation_id,
+                status="error",
+                error=f"Invalid JSON: {e}",
+            )
         except Exception as e:
-            return format_response(data=None, correlation_id=correlation_id, status="error", error=str(e))
+            return format_response(
+                data=None,
+                correlation_id=correlation_id,
+                status="error",
+                error=str(e),
+            )

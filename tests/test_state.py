@@ -20,7 +20,11 @@ class TestPreviewTokenStore:
     def test_get_returns_stored_payload(self):
         """get() returns the payload stored for a valid token."""
         store = PreviewTokenStore(ttl_seconds=300)
-        payload = {"table": "incident", "sys_id": "abc", "changes": {"state": "2"}}
+        payload = {
+            "table": "incident",
+            "sys_id": "abc",
+            "changes": {"state": "2"},
+        }
         token = store.create(payload)
         result = store.get(token)
         assert result is not None
@@ -36,7 +40,10 @@ class TestPreviewTokenStore:
     def test_get_returns_none_for_expired_token(self):
         """get() returns None for a token that has expired (mocked clock)."""
         fake_time = 1000.0
-        with patch("servicenow_mcp.state.time.monotonic", side_effect=lambda: fake_time):
+        with patch(
+            "servicenow_mcp.state.time.monotonic",
+            side_effect=lambda: fake_time,
+        ):
             store = PreviewTokenStore(ttl_seconds=60)
             token = store.create({"table": "incident"})
 
@@ -62,7 +69,10 @@ class TestPreviewTokenStore:
     def test_consume_returns_none_for_expired_token(self):
         """consume() returns None for an expired token (mocked clock)."""
         fake_time = 1000.0
-        with patch("servicenow_mcp.state.time.monotonic", side_effect=lambda: fake_time):
+        with patch(
+            "servicenow_mcp.state.time.monotonic",
+            side_effect=lambda: fake_time,
+        ):
             store = PreviewTokenStore(ttl_seconds=60)
             token = store.create({"table": "incident"})
 
@@ -75,7 +85,10 @@ class TestPreviewTokenStore:
     def test_get_returns_payload_before_ttl_expires(self):
         """get() returns the payload when the TTL has not yet expired (mocked clock)."""
         fake_time = 1000.0
-        with patch("servicenow_mcp.state.time.monotonic", side_effect=lambda: fake_time):
+        with patch(
+            "servicenow_mcp.state.time.monotonic",
+            side_effect=lambda: fake_time,
+        ):
             store = PreviewTokenStore(ttl_seconds=60)
             token = store.create({"table": "incident", "key": "value"})
 
@@ -89,7 +102,10 @@ class TestPreviewTokenStore:
     def test_consume_at_exact_boundary(self):
         """consume() at exact TTL boundary is NOT expired (uses > not >=)."""
         fake_time = 1000.0
-        with patch("servicenow_mcp.state.time.monotonic", side_effect=lambda: fake_time):
+        with patch(
+            "servicenow_mcp.state.time.monotonic",
+            side_effect=lambda: fake_time,
+        ):
             store = PreviewTokenStore(ttl_seconds=60)
             token = store.create({"table": "incident"})
 
@@ -171,7 +187,10 @@ class TestQueryTokenStore:
     def test_get_returns_none_for_expired_token(self):
         """get() returns None for a token that has expired (mocked clock)."""
         fake_time = 1000.0
-        with patch("servicenow_mcp.state.time.monotonic", side_effect=lambda: fake_time):
+        with patch(
+            "servicenow_mcp.state.time.monotonic",
+            side_effect=lambda: fake_time,
+        ):
             store = QueryTokenStore(ttl_seconds=60)
             token = store.create({"query": "active=true"})
 
@@ -200,7 +219,10 @@ class TestQueryTokenStore:
     def test_get_returns_payload_before_ttl_expires(self):
         """get() returns the payload when the TTL has not yet expired (mocked clock)."""
         fake_time = 1000.0
-        with patch("servicenow_mcp.state.time.monotonic", side_effect=lambda: fake_time):
+        with patch(
+            "servicenow_mcp.state.time.monotonic",
+            side_effect=lambda: fake_time,
+        ):
             store = QueryTokenStore(ttl_seconds=60)
             token = store.create({"query": "active=true"})
 
@@ -214,7 +236,10 @@ class TestQueryTokenStore:
     def test_get_at_exact_boundary(self):
         """get() at exact TTL boundary is NOT expired (uses > not >=)."""
         fake_time = 1000.0
-        with patch("servicenow_mcp.state.time.monotonic", side_effect=lambda: fake_time):
+        with patch(
+            "servicenow_mcp.state.time.monotonic",
+            side_effect=lambda: fake_time,
+        ):
             store = QueryTokenStore(ttl_seconds=60)
             token = store.create({"query": "active=true"})
 

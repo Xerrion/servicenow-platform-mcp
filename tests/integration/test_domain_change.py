@@ -37,7 +37,13 @@ class TestDomainChange:
             record = await client.get_record(
                 "change_request",
                 change_request_sys_id,
-                fields=["sys_id", "number", "short_description", "state", "type"],
+                fields=[
+                    "sys_id",
+                    "number",
+                    "short_description",
+                    "state",
+                    "type",
+                ],
             )
         assert record["sys_id"] == change_request_sys_id
 

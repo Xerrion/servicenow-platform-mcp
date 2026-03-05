@@ -9,7 +9,12 @@ from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
-from servicenow_mcp.policy import INTERNAL_QUERY_LIMIT, check_table_access, mask_audit_entry, mask_sensitive_fields
+from servicenow_mcp.policy import (
+    INTERNAL_QUERY_LIMIT,
+    check_table_access,
+    mask_audit_entry,
+    mask_sensitive_fields,
+)
 from servicenow_mcp.utils import (
     ServiceNowQuery,
     format_response,
@@ -90,11 +95,12 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             )
 
         # Flag risks
-        risk_flags = []
         member_types = set(groups.keys())
         risky_found = member_types & RISKY_TYPES
-        for risky_type in sorted(risky_found):
-            risk_flags.append(f"Contains {groups[risky_type].__len__()} '{risky_type}' artifact(s) — review carefully")
+        risk_flags = [
+            f"Contains {len(groups[risky_type])} '{risky_type}' artifact(s) - review carefully"
+            for risky_type in sorted(risky_found)
+        ]
 
         return format_response(
             data={
@@ -300,8 +306,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             lines.append("")
             for type_name, items in sorted(groups.items()):
                 lines.append(f"### {type_name} ({len(items)})")
-                for item in items:
-                    lines.append(f"- {item}")
+                lines.extend(f"- {item}" for item in items)
                 lines.append("")
         else:
             lines.append("_No changes in this update set._")

@@ -40,8 +40,16 @@ class TestIncidentList:
                 200,
                 json={
                     "result": [
-                        {"sys_id": "id1", "number": "INC0010001", "short_description": "Test 1"},
-                        {"sys_id": "id2", "number": "INC0010002", "short_description": "Test 2"},
+                        {
+                            "sys_id": "id1",
+                            "number": "INC0010001",
+                            "short_description": "Test 1",
+                        },
+                        {
+                            "sys_id": "id2",
+                            "number": "INC0010002",
+                            "short_description": "Test 2",
+                        },
                     ]
                 },
             )
@@ -92,7 +100,15 @@ class TestIncidentGet:
         respx.get(f"{BASE_URL}/api/now/table/incident").mock(
             return_value=Response(
                 200,
-                json={"result": [{"sys_id": "abc123", "number": "INC0010001", "short_description": "Test incident"}]},
+                json={
+                    "result": [
+                        {
+                            "sys_id": "abc123",
+                            "number": "INC0010001",
+                            "short_description": "Test incident",
+                        }
+                    ]
+                },
             )
         )
 
@@ -275,7 +291,15 @@ class TestIncidentUpdate:
         respx.get(f"{BASE_URL}/api/now/table/incident").mock(
             return_value=Response(
                 200,
-                json={"result": [{"sys_id": "abc123", "number": "INC0010001", "short_description": "Old"}]},
+                json={
+                    "result": [
+                        {
+                            "sys_id": "abc123",
+                            "number": "INC0010001",
+                            "short_description": "Old",
+                        }
+                    ]
+                },
             )
         )
         respx.patch(f"{BASE_URL}/api/now/table/incident/abc123").mock(
@@ -430,7 +454,15 @@ class TestIncidentResolve:
         respx.get(f"{BASE_URL}/api/now/table/incident").mock(
             return_value=Response(
                 200,
-                json={"result": [{"sys_id": "abc123", "number": "INC0010001", "state": "2"}]},
+                json={
+                    "result": [
+                        {
+                            "sys_id": "abc123",
+                            "number": "INC0010001",
+                            "state": "2",
+                        }
+                    ]
+                },
             )
         )
         respx.patch(f"{BASE_URL}/api/now/table/incident/abc123").mock(

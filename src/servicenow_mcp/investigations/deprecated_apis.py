@@ -43,16 +43,16 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
         try:
             result = await client.code_search(term=pattern, limit=limit)
             search_results = result.get("search_results", [])
-            for match in search_results:
-                findings.append(
-                    {
-                        "pattern": pattern,
-                        "element_id": f"{match.get('className', 'unknown')}:{match.get('sys_id', '')}",
-                        "name": match.get("name", ""),
-                        "table": match.get("className", ""),
-                        "detail": f"Uses deprecated pattern '{pattern}'",
-                    }
-                )
+            findings.extend(
+                {
+                    "pattern": pattern,
+                    "element_id": f"{match.get('className', 'unknown')}:{match.get('sys_id', '')}",
+                    "name": match.get("name", ""),
+                    "table": match.get("className", ""),
+                    "detail": f"Uses deprecated pattern '{pattern}'",
+                }
+                for match in search_results
+            )
         except Exception:
             # Code Search API may not be available; skip pattern
             continue

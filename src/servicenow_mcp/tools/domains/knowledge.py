@@ -9,7 +9,11 @@ from servicenow_mcp.choices import ChoiceRegistry
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
-from servicenow_mcp.policy import check_table_access, mask_sensitive_fields, write_gate
+from servicenow_mcp.policy import (
+    check_table_access,
+    mask_sensitive_fields,
+    write_gate,
+)
 from servicenow_mcp.utils import ServiceNowQuery, format_response
 
 

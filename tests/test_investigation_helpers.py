@@ -150,7 +150,11 @@ class TestFetchAndExplain:
         mock_check: AsyncMock,
     ) -> None:
         """Returns dict with element, explanation, and record keys."""
-        test_record = {"sys_id": "fc001", "name": "Test Flow", "state": "IN_PROGRESS"}
+        test_record = {
+            "sys_id": "fc001",
+            "name": "Test Flow",
+            "state": "IN_PROGRESS",
+        }
         mock_mask.return_value = test_record
 
         client = AsyncMock()
@@ -299,7 +303,11 @@ class TestFetchAndExplain:
             client=client,
             element_id="syslog:x",
             allowed_tables=None,
-            build_explanation=lambda t, s, r: ["Part one.", "Part two.", "Part three."],
+            build_explanation=lambda t, s, r: [
+                "Part one.",
+                "Part two.",
+                "Part three.",
+            ],
         )
 
         assert result["explanation"] == "Part one. Part two. Part three."

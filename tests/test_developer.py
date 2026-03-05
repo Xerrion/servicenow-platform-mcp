@@ -737,16 +737,36 @@ METADATA_URL = f"{BASE_URL}/api/now/table/sys_dictionary"
 
 METADATA_WITH_TWO_MANDATORY = {
     "result": [
-        {"element": "short_description", "mandatory": "true", "internal_type": "string"},
-        {"element": "category", "mandatory": "true", "internal_type": "string"},
-        {"element": "description", "mandatory": "false", "internal_type": "string"},
+        {
+            "element": "short_description",
+            "mandatory": "true",
+            "internal_type": "string",
+        },
+        {
+            "element": "category",
+            "mandatory": "true",
+            "internal_type": "string",
+        },
+        {
+            "element": "description",
+            "mandatory": "false",
+            "internal_type": "string",
+        },
     ]
 }
 
 METADATA_NO_MANDATORY = {
     "result": [
-        {"element": "short_description", "mandatory": "false", "internal_type": "string"},
-        {"element": "description", "mandatory": "false", "internal_type": "string"},
+        {
+            "element": "short_description",
+            "mandatory": "false",
+            "internal_type": "string",
+        },
+        {
+            "element": "description",
+            "mandatory": "false",
+            "internal_type": "string",
+        },
     ]
 }
 
@@ -844,7 +864,11 @@ class TestMandatoryFieldValidation:
                 200,
                 json={
                     "result": [
-                        {"element": "short_description", "mandatory": "true", "internal_type": "string"},
+                        {
+                            "element": "short_description",
+                            "mandatory": "true",
+                            "internal_type": "string",
+                        },
                     ]
                 },
             )

@@ -1,0 +1,20 @@
+{
+  "lsp": {
+    "basedpyright": {
+      "binary": {
+        "path": "basedpyright-langserver",
+        "arguments": [
+          "--stdio"
+        ]
+      }
+    },
+    "ruff": {
+      "binary": {
+        "path": "ruff server",
+        "arguments": [
+          "--stdio"
+        ]
+      }
+    }
+  }
+}

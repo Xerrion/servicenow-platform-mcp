@@ -40,8 +40,16 @@ class TestChangeList:
                 200,
                 json={
                     "result": [
-                        {"sys_id": "id1", "number": "CHG0010001", "short_description": "Test change 1"},
-                        {"sys_id": "id2", "number": "CHG0010002", "short_description": "Test change 2"},
+                        {
+                            "sys_id": "id1",
+                            "number": "CHG0010001",
+                            "short_description": "Test change 1",
+                        },
+                        {
+                            "sys_id": "id2",
+                            "number": "CHG0010002",
+                            "short_description": "Test change 2",
+                        },
                     ]
                 },
             )
@@ -92,7 +100,15 @@ class TestChangeGet:
         respx.get(f"{BASE_URL}/api/now/table/change_request").mock(
             return_value=Response(
                 200,
-                json={"result": [{"sys_id": "abc123", "number": "CHG0010001", "short_description": "Test change"}]},
+                json={
+                    "result": [
+                        {
+                            "sys_id": "abc123",
+                            "number": "CHG0010001",
+                            "short_description": "Test change",
+                        }
+                    ]
+                },
             )
         )
 
@@ -260,7 +276,15 @@ class TestChangeUpdate:
         respx.get(f"{BASE_URL}/api/now/table/change_request").mock(
             return_value=Response(
                 200,
-                json={"result": [{"sys_id": "abc123", "number": "CHG0010001", "short_description": "Old"}]},
+                json={
+                    "result": [
+                        {
+                            "sys_id": "abc123",
+                            "number": "CHG0010001",
+                            "short_description": "Old",
+                        }
+                    ]
+                },
             )
         )
         respx.patch(f"{BASE_URL}/api/now/table/change_request/abc123").mock(
@@ -413,8 +437,16 @@ class TestChangeTasks:
                 200,
                 json={
                     "result": [
-                        {"sys_id": "task1", "number": "CTASK0010001", "short_description": "Task 1"},
-                        {"sys_id": "task2", "number": "CTASK0010002", "short_description": "Task 2"},
+                        {
+                            "sys_id": "task1",
+                            "number": "CTASK0010001",
+                            "short_description": "Task 1",
+                        },
+                        {
+                            "sys_id": "task2",
+                            "number": "CTASK0010002",
+                            "short_description": "Task 2",
+                        },
                     ]
                 },
             )

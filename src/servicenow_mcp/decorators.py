@@ -8,7 +8,9 @@ from typing import Any
 from servicenow_mcp.utils import generate_correlation_id, safe_tool_call
 
 
-def tool_handler(fn: Callable[..., Coroutine[Any, Any, str]]) -> Callable[..., Coroutine[Any, Any, str]]:
+def tool_handler(
+    fn: Callable[..., Coroutine[Any, Any, str]],
+) -> Callable[..., Coroutine[Any, Any, str]]:
     """Wrap a tool function with automatic correlation ID and error handling.
 
     The decorated function receives ``correlation_id`` as a keyword argument

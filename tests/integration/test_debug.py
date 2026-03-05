@@ -50,7 +50,13 @@ class TestDebug:
             ecc_result = await client.query_records(
                 "ecc_queue",
                 "state=error",
-                fields=["sys_id", "name", "queue", "error_string", "sys_created_on"],
+                fields=[
+                    "sys_id",
+                    "name",
+                    "queue",
+                    "error_string",
+                    "sys_created_on",
+                ],
                 limit=20,
             )
 

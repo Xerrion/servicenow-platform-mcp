@@ -40,8 +40,16 @@ class TestProblemList:
                 200,
                 json={
                     "result": [
-                        {"sys_id": "id1", "number": "PRB0010001", "short_description": "Test 1"},
-                        {"sys_id": "id2", "number": "PRB0010002", "short_description": "Test 2"},
+                        {
+                            "sys_id": "id1",
+                            "number": "PRB0010001",
+                            "short_description": "Test 1",
+                        },
+                        {
+                            "sys_id": "id2",
+                            "number": "PRB0010002",
+                            "short_description": "Test 2",
+                        },
                     ]
                 },
             )
@@ -128,7 +136,15 @@ class TestProblemGet:
         respx.get(f"{BASE_URL}/api/now/table/problem").mock(
             return_value=Response(
                 200,
-                json={"result": [{"sys_id": "abc123", "number": "PRB0010001", "short_description": "Test problem"}]},
+                json={
+                    "result": [
+                        {
+                            "sys_id": "abc123",
+                            "number": "PRB0010001",
+                            "short_description": "Test problem",
+                        }
+                    ]
+                },
             )
         )
 
@@ -170,7 +186,15 @@ class TestProblemGet:
         respx.get(f"{BASE_URL}/api/now/table/problem").mock(
             return_value=Response(
                 200,
-                json={"result": [{"sys_id": "abc123", "number": "PRB0010001", "short_description": "Test"}]},
+                json={
+                    "result": [
+                        {
+                            "sys_id": "abc123",
+                            "number": "PRB0010001",
+                            "short_description": "Test",
+                        }
+                    ]
+                },
             )
         )
 
@@ -346,7 +370,15 @@ class TestProblemUpdate:
         respx.get(f"{BASE_URL}/api/now/table/problem").mock(
             return_value=Response(
                 200,
-                json={"result": [{"sys_id": "abc123", "number": "PRB0010001", "short_description": "Old"}]},
+                json={
+                    "result": [
+                        {
+                            "sys_id": "abc123",
+                            "number": "PRB0010001",
+                            "short_description": "Old",
+                        }
+                    ]
+                },
             )
         )
         respx.patch(f"{BASE_URL}/api/now/table/problem/abc123").mock(

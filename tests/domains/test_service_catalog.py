@@ -260,7 +260,13 @@ class TestScItemGet:
         respx.get(f"{SC_BASE}/items/item123").mock(
             return_value=Response(
                 200,
-                json={"result": {"sys_id": "item123", "name": "Laptop", "price": "$1200"}},
+                json={
+                    "result": {
+                        "sys_id": "item123",
+                        "name": "Laptop",
+                        "price": "$1200",
+                    }
+                },
             )
         )
 
@@ -288,8 +294,16 @@ class TestScItemVariables:
                 200,
                 json={
                     "result": [
-                        {"name": "urgency", "type": "choice", "mandatory": True},
-                        {"name": "description", "type": "text", "mandatory": False},
+                        {
+                            "name": "urgency",
+                            "type": "choice",
+                            "mandatory": True,
+                        },
+                        {
+                            "name": "description",
+                            "type": "text",
+                            "mandatory": False,
+                        },
                     ]
                 },
             )
@@ -488,7 +502,12 @@ class TestScCartSubmit:
         respx.post(f"{SC_BASE}/cart/submit_order").mock(
             return_value=Response(
                 200,
-                json={"result": {"request_number": "REQ0010001", "request_id": "req123"}},
+                json={
+                    "result": {
+                        "request_number": "REQ0010001",
+                        "request_id": "req123",
+                    }
+                },
             )
         )
 
@@ -535,7 +554,12 @@ class TestScCartCheckout:
         respx.post(f"{SC_BASE}/cart/checkout").mock(
             return_value=Response(
                 200,
-                json={"result": {"request_number": "REQ0010002", "request_id": "req456"}},
+                json={
+                    "result": {
+                        "request_number": "REQ0010002",
+                        "request_id": "req456",
+                    }
+                },
             )
         )
 

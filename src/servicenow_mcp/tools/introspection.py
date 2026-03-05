@@ -48,7 +48,11 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             }
             fields.append(field_info)
         return format_response(
-            data={"table": table, "fields": fields, "field_count": len(fields)},
+            data={
+                "table": table,
+                "fields": fields,
+                "field_count": len(fields),
+            },
             correlation_id=correlation_id,
         )
 
@@ -115,7 +119,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             warnings.append(f"Limit capped at {effective_limit}")
 
         field_list = [f.strip() for f in fields.split(",") if f.strip()] if fields else None
-        order = order_by if order_by else None
+        order = order_by or None
 
         async with ServiceNowClient(settings, auth_provider) as client:
             result = await client.query_records(
@@ -139,7 +143,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                 "limit": effective_limit,
                 "total": result["count"],
             },
-            warnings=warnings if warnings else None,
+            warnings=warnings or None,
         )
 
     @mcp.tool()
@@ -175,7 +179,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         validate_identifier(table)
         check_table_access(table)
         enforce_query_safety(table, query, None, settings)
-        group = group_by if group_by else None
+        group = group_by or None
 
         def _split(s: str) -> list[str] | None:
             parts = [p.strip() for p in s.split(",") if p.strip()]

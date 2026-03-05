@@ -116,12 +116,27 @@ class TestRelReferencesTo:
 
         # Build two pages: first page has exactly page_size entries, second has 2
         page1_fields = [
-            {"name": f"table_p1_{i}", "element": "ref_field", "reference": "sys_user", "column_label": f"Ref {i}"}
+            {
+                "name": f"table_p1_{i}",
+                "element": "ref_field",
+                "reference": "sys_user",
+                "column_label": f"Ref {i}",
+            }
             for i in range(page_size)
         ]
         page2_fields = [
-            {"name": "task", "element": "assigned_to", "reference": "sys_user", "column_label": "Assigned to"},
-            {"name": "task", "element": "opened_by", "reference": "sys_user", "column_label": "Opened by"},
+            {
+                "name": "task",
+                "element": "assigned_to",
+                "reference": "sys_user",
+                "column_label": "Assigned to",
+            },
+            {
+                "name": "task",
+                "element": "opened_by",
+                "reference": "sys_user",
+                "column_label": "Opened by",
+            },
         ]
 
         dict_route = respx.get(f"{BASE_URL}/api/now/table/sys_dictionary")
@@ -185,7 +200,12 @@ class TestRelReferencesTo:
                 json={
                     "result": [
                         # Denied table entry - should be skipped
-                        {"name": denied, "element": "user", "reference": "sys_user", "column_label": "User"},
+                        {
+                            "name": denied,
+                            "element": "user",
+                            "reference": "sys_user",
+                            "column_label": "User",
+                        },
                         # var__m_ internal entry - should be skipped
                         {
                             "name": "var__m_some_table",
@@ -489,7 +509,14 @@ class TestRelReferencesToBoundedConcurrency:
     async def test_rel_references_to_bounded_concurrency(self, settings, auth_provider):
         """Verifies that rel_references_to uses a Semaphore to bound concurrent lookups."""
         # Mock sys_dictionary to return many reference fields
-        ref_fields = [{"name": f"table_{i}", "element": "ref_field", "column_label": f"Ref {i}"} for i in range(15)]
+        ref_fields = [
+            {
+                "name": f"table_{i}",
+                "element": "ref_field",
+                "column_label": f"Ref {i}",
+            }
+            for i in range(15)
+        ]
         respx.get(f"{BASE_URL}/api/now/table/sys_dictionary").mock(
             return_value=httpx.Response(
                 200,
@@ -522,7 +549,10 @@ class TestRelReferencesToBoundedConcurrency:
                 self.enter_count += 1
                 await super().__aenter__()
 
-        with patch("servicenow_mcp.tools.relationships.asyncio.Semaphore", TrackingSemaphore):
+        with patch(
+            "servicenow_mcp.tools.relationships.asyncio.Semaphore",
+            TrackingSemaphore,
+        ):
             tools = _register_and_get_tools(settings, auth_provider)
             raw = await tools["rel_references_to"](table="incident", sys_id="abc123")
             result = toon_decode(raw)

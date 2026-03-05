@@ -17,7 +17,7 @@ from servicenow_mcp.policy import (
 from servicenow_mcp.utils import ServiceNowQuery, format_response
 
 
-_SYS_ID_PATTERN = re.compile(r"^[a-f0-9]{32}$")
+_SYS_ID_PATTERN: re.Pattern[str] = re.compile(r"^[a-f0-9]{32}$")
 
 
 def register_tools(

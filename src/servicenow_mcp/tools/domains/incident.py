@@ -12,6 +12,16 @@ from servicenow_mcp.policy import (
     mask_sensitive_fields,
     write_gate,
 )
+from servicenow_mcp.tools.domains._helpers import (
+    fetch_record_by_number,
+    lookup_record_by_number,
+    parse_field_list,
+    resolve_state,
+    validate_int_range,
+    validate_no_empty_changes,
+    validate_number_prefix,
+    validate_required_string,
+)
 from servicenow_mcp.utils import ServiceNowQuery, format_response
 
 
@@ -56,14 +66,14 @@ def register_tools(
 
         q = ServiceNowQuery()
         if state and state != "all":
-            resolved = await choices.resolve("incident", "state", state.lower()) if choices else state
+            resolved = await resolve_state("incident", state, choices)
             q = q.equals_if("state", resolved, True)
         q = q.equals_if("priority", priority, bool(priority))
         q = q.equals_if("assigned_to", assigned_to, bool(assigned_to))
         q = q.equals_if("assignment_group", assignment_group, bool(assignment_group))
 
         query = q.build()
-        field_list = [f.strip() for f in fields.split(",") if f.strip()] if fields else None
+        field_list = parse_field_list(fields)
 
         async with ServiceNowClient(settings, auth_provider) as client:
             result = await client.query_records(
@@ -86,30 +96,12 @@ def register_tools(
         """
         check_table_access("incident")
 
-        if not number.upper().startswith("INC"):
-            return format_response(
-                data=None,
-                correlation_id=correlation_id,
-                status="error",
-                error=f"Invalid incident number: {number}. Must start with INC prefix.",
-            )
+        err = validate_number_prefix(number, "INC", "incident", correlation_id)
+        if err:
+            return err
 
         async with ServiceNowClient(settings, auth_provider) as client:
-            result = await client.query_records(
-                table="incident",
-                query=ServiceNowQuery().equals("number", number.upper()).build(),
-                display_values=True,
-                limit=1,
-            )
-            if not result["records"]:
-                return format_response(
-                    data=None,
-                    correlation_id=correlation_id,
-                    status="error",
-                    error=f"Incident {number} not found.",
-                )
-            masked = mask_sensitive_fields(result["records"][0])
-            return format_response(data=masked, correlation_id=correlation_id)
+            return await fetch_record_by_number(client, "incident", number, "Incident", correlation_id)
 
     @mcp.tool()
     @tool_handler
@@ -147,29 +139,17 @@ def register_tools(
         if blocked:
             return blocked
 
-        if not short_description or not short_description.strip():
-            return format_response(
-                data=None,
-                correlation_id=correlation_id,
-                status="error",
-                error="short_description is required and cannot be empty.",
-            )
+        err = validate_required_string(short_description, "short_description", correlation_id)
+        if err:
+            return err
 
-        if urgency < 1 or urgency > 4:
-            return format_response(
-                data=None,
-                correlation_id=correlation_id,
-                status="error",
-                error=f"urgency must be between 1 and 4, got {urgency}.",
-            )
+        err = validate_int_range(urgency, "urgency", 1, 4, correlation_id)
+        if err:
+            return err
 
-        if impact < 1 or impact > 4:
-            return format_response(
-                data=None,
-                correlation_id=correlation_id,
-                status="error",
-                error=f"impact must be between 1 and 4, got {impact}.",
-            )
+        err = validate_int_range(impact, "impact", 1, 4, correlation_id)
+        if err:
+            return err
 
         record_data = {
             "short_description": short_description,
@@ -234,29 +214,14 @@ def register_tools(
         if blocked:
             return blocked
 
-        if not number.upper().startswith("INC"):
-            return format_response(
-                data=None,
-                correlation_id=correlation_id,
-                status="error",
-                error=f"Invalid incident number: {number}. Must start with INC prefix.",
-            )
+        err = validate_number_prefix(number, "INC", "incident", correlation_id)
+        if err:
+            return err
 
         async with ServiceNowClient(settings, auth_provider) as client:
-            result = await client.query_records(
-                table="incident",
-                query=ServiceNowQuery().equals("number", number.upper()).build(),
-                limit=1,
-            )
-            if not result["records"]:
-                return format_response(
-                    data=None,
-                    correlation_id=correlation_id,
-                    status="error",
-                    error=f"Incident {number} not found.",
-                )
-
-            sys_id = result["records"][0]["sys_id"]
+            sys_id, err = await lookup_record_by_number(client, "incident", number, "Incident", correlation_id)
+            if err:
+                return err
 
             changes = {}
             if short_description:
@@ -268,7 +233,7 @@ def register_tools(
             if priority > 0:
                 changes["priority"] = str(priority)
             if state:
-                changes["state"] = await choices.resolve("incident", "state", state.lower()) if choices else state
+                changes["state"] = await resolve_state("incident", state, choices)
             if description:
                 changes["description"] = description
             if assignment_group:
@@ -280,13 +245,9 @@ def register_tools(
             if subcategory:
                 changes["subcategory"] = subcategory
 
-            if not changes:
-                return format_response(
-                    data=None,
-                    correlation_id=correlation_id,
-                    status="error",
-                    error="No fields to update provided.",
-                )
+            err = validate_no_empty_changes(changes, correlation_id)
+            if err:
+                return err
 
             updated = await client.update_record("incident", sys_id, changes)
             masked = mask_sensitive_fields(updated)
@@ -314,45 +275,22 @@ def register_tools(
         if blocked:
             return blocked
 
-        if not number.upper().startswith("INC"):
-            return format_response(
-                data=None,
-                correlation_id=correlation_id,
-                status="error",
-                error=f"Invalid incident number: {number}. Must start with INC prefix.",
-            )
+        err = validate_number_prefix(number, "INC", "incident", correlation_id)
+        if err:
+            return err
 
-        if not close_code or not close_code.strip():
-            return format_response(
-                data=None,
-                correlation_id=correlation_id,
-                status="error",
-                error="close_code is required and cannot be empty.",
-            )
+        err = validate_required_string(close_code, "close_code", correlation_id)
+        if err:
+            return err
 
-        if not close_notes or not close_notes.strip():
-            return format_response(
-                data=None,
-                correlation_id=correlation_id,
-                status="error",
-                error="close_notes is required and cannot be empty.",
-            )
+        err = validate_required_string(close_notes, "close_notes", correlation_id)
+        if err:
+            return err
 
         async with ServiceNowClient(settings, auth_provider) as client:
-            result = await client.query_records(
-                table="incident",
-                query=ServiceNowQuery().equals("number", number.upper()).build(),
-                limit=1,
-            )
-            if not result["records"]:
-                return format_response(
-                    data=None,
-                    correlation_id=correlation_id,
-                    status="error",
-                    error=f"Incident {number} not found.",
-                )
-
-            sys_id = result["records"][0]["sys_id"]
+            sys_id, err = await lookup_record_by_number(client, "incident", number, "Incident", correlation_id)
+            if err:
+                return err
 
             resolved_state = await choices.resolve("incident", "state", "resolved") if choices else "6"
             changes = {
@@ -387,13 +325,9 @@ def register_tools(
         if blocked:
             return blocked
 
-        if not number.upper().startswith("INC"):
-            return format_response(
-                data=None,
-                correlation_id=correlation_id,
-                status="error",
-                error=f"Invalid incident number: {number}. Must start with INC prefix.",
-            )
+        err = validate_number_prefix(number, "INC", "incident", correlation_id)
+        if err:
+            return err
 
         if not comment and not work_note:
             return format_response(
@@ -404,20 +338,9 @@ def register_tools(
             )
 
         async with ServiceNowClient(settings, auth_provider) as client:
-            result = await client.query_records(
-                table="incident",
-                query=ServiceNowQuery().equals("number", number.upper()).build(),
-                limit=1,
-            )
-            if not result["records"]:
-                return format_response(
-                    data=None,
-                    correlation_id=correlation_id,
-                    status="error",
-                    error=f"Incident {number} not found.",
-                )
-
-            sys_id = result["records"][0]["sys_id"]
+            sys_id, err = await lookup_record_by_number(client, "incident", number, "Incident", correlation_id)
+            if err:
+                return err
 
             changes = {}
             if comment:

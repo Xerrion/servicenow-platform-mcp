@@ -397,7 +397,8 @@ async def explain(client, element_id) -> dict:
 | `mcp_tool_package`        | `str`       | `"full"`                                               | `MCP_TOOL_PACKAGE`        |
 | `servicenow_env`          | `str`       | `"dev"`                                                | `SERVICENOW_ENV`          |
 | `max_row_limit`           | `int`       | `100` (range 1-10000)                                  | `MAX_ROW_LIMIT`           |
-| `large_table_names_csv`   | `str`       | `"syslog,sys_audit,sys_log_transaction,sys_email_log"` | `LARGE_TABLE_NAMES_CSV`   |
+| `
+`   | `str`       | `"syslog,sys_audit,sys_log_transaction,sys_email_log"` | `LARGE_TABLE_NAMES_CSV`   |
 
 ### Computed Properties
 
@@ -423,7 +424,7 @@ async def explain(client, element_id) -> dict:
 | `none`                 | 0      | No tools loaded                    |
 | `itil`                 | 12     | ITIL process tools                 |
 | `developer`            | 11     | Development-focused tools          |
-| `readonly`             | 10     | Read-only operations               |
+| `readonly`             | 9      | Read-only operations               |
 | `analyst`              | 8      | Analysis and reporting             |
 | `incident_management`  | 5      | Incident lifecycle tools           |
 | `change_management`    | 4      | Change request tools               |

@@ -49,7 +49,8 @@ def register_tools(
         Returns:
             Tuple of (sys_id, None) on success, or (None, error_response) on failure.
         """
-        is_sys_id = bool(_SYS_ID_PATTERN.match(number_or_sys_id.lower()))
+        normalized_input = number_or_sys_id.lower()
+        is_sys_id = bool(_SYS_ID_PATTERN.match(normalized_input))
 
         result = await client.query_records(
             table="kb_knowledge",
@@ -60,7 +61,7 @@ def register_tools(
         if not result["records"] and is_sys_id:
             result = await client.query_records(
                 table="kb_knowledge",
-                query=ServiceNowQuery().equals("sys_id", number_or_sys_id).build(),
+                query=ServiceNowQuery().equals("sys_id", normalized_input).build(),
                 limit=1,
             )
 
@@ -254,7 +255,13 @@ def register_tools(
             sys_id, error = await _resolve_article_sys_id(client, number_or_sys_id, correlation_id)
             if error:
                 return error
-            assert sys_id is not None  # Guaranteed when error is None
+            if sys_id is None:
+                return format_response(
+                    data=None,
+                    correlation_id=correlation_id,
+                    status="error",
+                    error=f"Failed to resolve article '{number_or_sys_id}'",
+                )
 
             # Build changes dict (only include non-empty params)
             changes: dict[str, str] = {}
@@ -332,7 +339,13 @@ def register_tools(
             article_sys_id, error = await _resolve_article_sys_id(client, number_or_sys_id, correlation_id)
             if error:
                 return error
-            assert article_sys_id is not None  # Guaranteed when error is None
+            if article_sys_id is None:
+                return format_response(
+                    data=None,
+                    correlation_id=correlation_id,
+                    status="error",
+                    error=f"Failed to resolve article '{number_or_sys_id}'",
+                )
 
             feedback_data: dict[str, str] = {"article": article_sys_id}
             if rating is not None:

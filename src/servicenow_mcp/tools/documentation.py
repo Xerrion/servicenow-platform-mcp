@@ -257,7 +257,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         async with ServiceNowClient(settings, auth_provider) as client:
             record, script = await _fetch_artifact_script(client, table, sys_id)
 
-        scenarios = _generate_test_scenarios(script, record)
+        scenarios = _generate_test_scenarios(script)
 
         return format_response(
             data={
@@ -381,7 +381,7 @@ _SCENARIO_PATTERNS: list[tuple[re.Pattern[str], dict[str, str]]] = [
 ]
 
 
-def _generate_test_scenarios(script: str, record: dict[str, Any]) -> list[dict[str, str]]:
+def _generate_test_scenarios(script: str) -> list[dict[str, str]]:
     """Analyze script and generate test scenario suggestions."""
     scenarios: list[dict[str, str]] = []
 

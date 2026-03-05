@@ -186,7 +186,7 @@ def _apply_datepart(
 
 
 def _apply_new_query(
-    query: ServiceNowQuery, field: str, operator: str, condition: dict[str, Any], correlation_id: str
+    query: ServiceNowQuery, _field: str, _operator: str, _condition: dict[str, Any], _correlation_id: str
 ) -> str | None:
     """Apply the new_query separator."""
     query.new_query()
@@ -213,7 +213,7 @@ def _apply_rl_query(
 
 
 def _apply_order_by(
-    query: ServiceNowQuery, field: str, operator: str, condition: dict[str, Any], correlation_id: str
+    query: ServiceNowQuery, field: str, _operator: str, condition: dict[str, Any], _correlation_id: str
 ) -> str | None:
     """Apply the order_by operator."""
     descending = bool(condition.get("descending", False))

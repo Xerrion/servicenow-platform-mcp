@@ -1,6 +1,7 @@
 """Workflow introspection tools for the legacy Workflow Engine."""
 
 import asyncio
+import logging
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
@@ -9,8 +10,10 @@ from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
-from servicenow_mcp.policy import check_table_access, mask_sensitive_fields
+from servicenow_mcp.policy import check_table_access, enforce_query_safety, mask_sensitive_fields
 from servicenow_mcp.utils import ServiceNowQuery, format_response, validate_identifier
+
+logger = logging.getLogger(__name__)
 
 
 def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthProvider) -> None:
@@ -34,11 +37,15 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             state: Filter legacy contexts by state. Legacy values: executing, finished, cancelled. Flow Designer values: IN_PROGRESS, COMPLETE, ERROR, CANCELLED.
             limit: Maximum number of records to return per engine (default 10).
         """
+        validate_identifier(record_sys_id)
         check_table_access("wf_context")
         check_table_access("sys_flow_context")
 
         if table:
             validate_identifier(table)
+
+        # Clamp limit to 1-100
+        safe_limit = max(1, min(limit, 100))
 
         legacy_query = (
             ServiceNowQuery()
@@ -48,6 +55,9 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             .build()
         )
         flow_query = ServiceNowQuery().equals("source_record", record_sys_id).build()
+
+        enforce_query_safety("wf_context", legacy_query, safe_limit, settings)
+        enforce_query_safety("sys_flow_context", flow_query, safe_limit, settings)
 
         async with ServiceNowClient(settings, auth_provider) as client:
             legacy_result, flow_result = await asyncio.gather(
@@ -66,7 +76,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                         "running_duration",
                         "active",
                     ],
-                    limit=limit,
+                    limit=safe_limit,
                     display_values=True,
                 ),
                 client.query_records(
@@ -82,7 +92,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                         "source_table",
                         "source_record",
                     ],
-                    limit=limit,
+                    limit=safe_limit,
                     display_values=True,
                 ),
             )
@@ -110,6 +120,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         Args:
             workflow_version_sys_id: The sys_id of the wf_workflow_version record.
         """
+        validate_identifier(workflow_version_sys_id)
         check_table_access("wf_workflow_version")
         check_table_access("wf_activity")
         check_table_access("wf_transition")
@@ -117,6 +128,9 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
 
         activity_query = ServiceNowQuery().equals("workflow_version", workflow_version_sys_id).order_by("x").build()
         transition_query = ServiceNowQuery().equals("from.workflow_version", workflow_version_sys_id).build()
+
+        enforce_query_safety("wf_activity", activity_query, 100, settings)
+        enforce_query_safety("wf_transition", transition_query, 200, settings)
 
         async with ServiceNowClient(settings, auth_provider) as client:
             version_record, activity_result, transition_result = await asyncio.gather(
@@ -168,6 +182,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                     .in_list("document_key", activity_sys_ids)
                     .build()
                 )
+                enforce_query_safety("sys_variable_value", vars_query, 500, settings)
                 vars_result = await client.query_records(
                     "sys_variable_value",
                     vars_query,
@@ -210,12 +225,16 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         Args:
             context_sys_id: The sys_id of the wf_context record.
         """
+        validate_identifier(context_sys_id)
         check_table_access("wf_context")
         check_table_access("wf_executing")
         check_table_access("wf_history")
 
         executing_query = ServiceNowQuery().equals("context", context_sys_id).order_by("started").build()
         history_query = ServiceNowQuery().equals("context", context_sys_id).order_by("started").build()
+
+        enforce_query_safety("wf_executing", executing_query, 50, settings)
+        enforce_query_safety("wf_history", history_query, 50, settings)
 
         async with ServiceNowClient(settings, auth_provider) as client:
             context_record, executing_result, history_result = await asyncio.gather(
@@ -281,6 +300,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         Args:
             activity_sys_id: The sys_id of the wf_activity record.
         """
+        validate_identifier(activity_sys_id)
         check_table_access("wf_activity")
         check_table_access("wf_element_definition")
         check_table_access("sys_variable_value")
@@ -288,6 +308,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         variables_query = (
             ServiceNowQuery().equals("document", "wf_activity").equals("document_key", activity_sys_id).build()
         )
+        enforce_query_safety("sys_variable_value", variables_query, 50, settings)
 
         async with ServiceNowClient(settings, auth_provider) as client:
             # Phase 1: raw activity to extract the activity_definition sys_id
@@ -308,6 +329,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                 )
                 definition_record = None
             else:
+                validate_identifier(definition_sys_id)
                 display_activity, definition_record, variables_result = await asyncio.gather(
                     client.get_record("wf_activity", activity_sys_id, display_values=True),
                     client.get_record("wf_element_definition", definition_sys_id, display_values=True),
@@ -348,7 +370,11 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         validate_identifier(table)
         check_table_access("wf_workflow_version")
 
+        # Clamp limit to 1-100
+        safe_limit = max(1, min(limit, 100))
+
         query = ServiceNowQuery().equals("table", table).equals_if("active", "true", active_only).build()
+        enforce_query_safety("wf_workflow_version", query, safe_limit, settings)
 
         async with ServiceNowClient(settings, auth_provider) as client:
             result = await client.query_records(
@@ -365,7 +391,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                     "checked_out_by",
                     "workflow",
                 ],
-                limit=limit,
+                limit=safe_limit,
                 display_values=True,
             )
 

@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.7.0](https://github.com/Xerrion/servicenow-devtools-mcp/compare/v0.6.0...v0.7.0) (2026-03-05)
+
+
+### Features
+
+* structured error format and workflow hardening ([#52](https://github.com/Xerrion/servicenow-devtools-mcp/issues/52)) ([3bc3302](https://github.com/Xerrion/servicenow-devtools-mcp/commit/3bc3302482b234e60cf8cd39280d26ab1421ccc5))
+
+
+### Documentation
+
+* complete rewrite of AGENTS.md from codebase audit ([#53](https://github.com/Xerrion/servicenow-devtools-mcp/issues/53)) ([46f526b](https://github.com/Xerrion/servicenow-devtools-mcp/commit/46f526b402902781e7495e7a489455c37a16dbbb))
+
 ## [0.6.0](https://github.com/Xerrion/servicenow-devtools-mcp/compare/v0.5.0...v0.6.0) (2026-03-04)
 
 

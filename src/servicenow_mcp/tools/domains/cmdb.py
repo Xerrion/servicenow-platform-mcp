@@ -13,6 +13,14 @@ from servicenow_mcp.policy import check_table_access, mask_sensitive_fields
 from servicenow_mcp.utils import ServiceNowQuery, format_response
 
 
+_SYS_ID_RE: re.Pattern[str] = re.compile(r"^[a-f0-9]{32}$")
+
+
+def _is_sys_id(value: str) -> bool:
+    """Check if a string looks like a ServiceNow sys_id (32-char hex)."""
+    return bool(_SYS_ID_RE.match(value.lower()))
+
+
 def register_tools(
     mcp: FastMCP,
     settings: Settings,
@@ -87,7 +95,7 @@ def register_tools(
         check_table_access(ci_class)
 
         # Detect if input is sys_id (32-char hex string)
-        is_sys_id = bool(re.match(r"^[a-f0-9]{32}$", name_or_sys_id.lower()))
+        is_sys_id = _is_sys_id(name_or_sys_id)
 
         if is_sys_id:
             query = ServiceNowQuery().equals("sys_id", name_or_sys_id).build()
@@ -131,7 +139,7 @@ def register_tools(
         check_table_access("cmdb_rel_ci")
 
         # Detect if input is sys_id (32-char hex string)
-        is_sys_id = bool(re.match(r"^[a-f0-9]{32}$", name_or_sys_id.lower()))
+        is_sys_id = _is_sys_id(name_or_sys_id)
 
         async with ServiceNowClient(settings, auth_provider) as client:
             # If name provided, resolve to sys_id first

@@ -45,6 +45,19 @@ SCRIPT_TABLES: list[str] = [
 ]
 
 
+def _resolve_artifact_table(artifact_type: str) -> str:
+    """Resolve artifact_type to its ServiceNow table name.
+
+    Raises:
+        ValueError: If artifact_type is not in ARTIFACT_TABLES.
+    """
+    table = ARTIFACT_TABLES.get(artifact_type)
+    if table is None:
+        valid_types = ", ".join(sorted(ARTIFACT_TABLES.keys()))
+        raise ValueError(f"Unknown artifact_type '{artifact_type}'. Valid types: {valid_types}")
+    return table
+
+
 def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthProvider) -> None:
     """Register metadata tools on the MCP server."""
     query_store: QueryTokenStore = mcp._sn_query_store  # type: ignore[attr-defined]
@@ -67,10 +80,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                 Leave empty for no additional filter.
             limit: Maximum number of artifacts to return.
         """
-        table = ARTIFACT_TABLES.get(artifact_type)
-        if table is None:
-            valid_types = ", ".join(sorted(ARTIFACT_TABLES.keys()))
-            raise ValueError(f"Unknown artifact type '{artifact_type}'. Valid types: {valid_types}")
+        table = _resolve_artifact_table(artifact_type)
 
         check_table_access(table)
 
@@ -110,10 +120,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             artifact_type: The type of artifact (business_rule, script_include, etc.).
             sys_id: The sys_id of the artifact to retrieve.
         """
-        table = ARTIFACT_TABLES.get(artifact_type)
-        if table is None:
-            valid_types = ", ".join(sorted(ARTIFACT_TABLES.keys()))
-            raise ValueError(f"Unknown artifact type '{artifact_type}'. Valid types: {valid_types}")
+        table = _resolve_artifact_table(artifact_type)
 
         check_table_access(table)
 

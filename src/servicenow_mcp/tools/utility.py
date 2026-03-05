@@ -156,7 +156,7 @@ def _apply_between(
     """Apply the between operator (requires start and end)."""
     start = condition.get("start") or condition.get("value")
     end = condition.get("end", "")
-    if not start or not end:
+    if start is None or start == "" or end is None or end == "":
         return format_response(
             data=None,
             correlation_id=correlation_id,
@@ -174,7 +174,7 @@ def _apply_datepart(
     part = condition.get("part", "")
     dp_operator = condition.get("dp_operator") or condition.get("value", "")
     dp_value = condition.get("dp_value", "")
-    if not part or not dp_operator or not dp_value:
+    if part is None or part == "" or dp_operator is None or dp_operator == "" or dp_value is None or dp_value == "":
         return format_response(
             data=None,
             correlation_id=correlation_id,

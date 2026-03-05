@@ -9,6 +9,7 @@ from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.policy import (
     check_table_access,
+    enforce_query_safety,
     mask_sensitive_fields,
     write_gate,
 )
@@ -22,6 +23,10 @@ from servicenow_mcp.tools.domains._helpers import (
     validate_required_string,
 )
 from servicenow_mcp.utils import ServiceNowQuery, format_response
+
+
+_CHANGE_ENTITY_LABEL = "change request"
+_CHANGE_ENTITY_TITLE = "Change request"
 
 
 def register_tools(
@@ -74,13 +79,16 @@ def register_tools(
         query = q.build()
         field_list = parse_field_list(fields)
 
+        safety = enforce_query_safety("change_request", query, limit, settings)
+        effective_limit = safety["limit"]
+
         async with ServiceNowClient(settings, auth_provider) as client:
             result = await client.query_records(
                 table="change_request",
                 query=query,
                 fields=field_list,
                 display_values=True,
-                limit=limit,
+                limit=effective_limit,
             )
             masked = [mask_sensitive_fields(r) for r in result["records"]]
             return format_response(data=masked, correlation_id=correlation_id)
@@ -95,12 +103,12 @@ def register_tools(
         """
         check_table_access("change_request")
 
-        err = validate_number_prefix(number, "CHG", "change request", correlation_id)
+        err = validate_number_prefix(number, "CHG", _CHANGE_ENTITY_LABEL, correlation_id)
         if err:
             return err
 
         async with ServiceNowClient(settings, auth_provider) as client:
-            return await fetch_record_by_number(client, "change_request", number, "Change request", correlation_id)
+            return await fetch_record_by_number(client, "change_request", number, _CHANGE_ENTITY_TITLE, correlation_id)
 
     @mcp.tool()
     @tool_handler
@@ -196,13 +204,13 @@ def register_tools(
         if blocked:
             return blocked
 
-        err = validate_number_prefix(number, "CHG", "change request", correlation_id)
+        err = validate_number_prefix(number, "CHG", _CHANGE_ENTITY_LABEL, correlation_id)
         if err:
             return err
 
         async with ServiceNowClient(settings, auth_provider) as client:
             sys_id, err = await lookup_record_by_number(
-                client, "change_request", number, "Change request", correlation_id
+                client, "change_request", number, _CHANGE_ENTITY_TITLE, correlation_id
             )
             if err:
                 return err
@@ -247,19 +255,23 @@ def register_tools(
         """
         check_table_access("change_task")
 
-        err = validate_number_prefix(number, "CHG", "change request", correlation_id)
+        err = validate_number_prefix(number, "CHG", _CHANGE_ENTITY_LABEL, correlation_id)
         if err:
             return err
 
         field_list = parse_field_list(fields)
 
+        query = ServiceNowQuery().equals("change_request.number", number.upper()).build()
+        safety = enforce_query_safety("change_task", query, limit, settings)
+        effective_limit = safety["limit"]
+
         async with ServiceNowClient(settings, auth_provider) as client:
             result = await client.query_records(
                 table="change_task",
-                query=ServiceNowQuery().equals("change_request.number", number.upper()).build(),
+                query=query,
                 fields=field_list,
                 display_values=True,
-                limit=limit,
+                limit=effective_limit,
             )
             masked = [mask_sensitive_fields(r) for r in result["records"]]
             return format_response(data=masked, correlation_id=correlation_id)
@@ -286,7 +298,7 @@ def register_tools(
         if blocked:
             return blocked
 
-        err = validate_number_prefix(number, "CHG", "change request", correlation_id)
+        err = validate_number_prefix(number, "CHG", _CHANGE_ENTITY_LABEL, correlation_id)
         if err:
             return err
 
@@ -300,7 +312,7 @@ def register_tools(
 
         async with ServiceNowClient(settings, auth_provider) as client:
             sys_id, err = await lookup_record_by_number(
-                client, "change_request", number, "Change request", correlation_id
+                client, "change_request", number, _CHANGE_ENTITY_TITLE, correlation_id
             )
             if err:
                 return err

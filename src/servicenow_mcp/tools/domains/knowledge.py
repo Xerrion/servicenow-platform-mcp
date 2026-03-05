@@ -11,6 +11,7 @@ from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.policy import (
     check_table_access,
+    enforce_query_safety,
     mask_sensitive_fields,
     write_gate,
 )
@@ -85,6 +86,49 @@ def register_tools(
         record = result["records"][0]
         return record["sys_id"], record, None
 
+    async def _resolve_article_sys_id(
+        client: ServiceNowClient,
+        number_or_sys_id: str,
+        correlation_id: str,
+        display_values: bool = False,
+    ) -> tuple[str, dict[str, str] | None, str | None]:
+        """Resolve a KB number or sys_id to (sys_id, record_or_None, error_or_None).
+
+        When display_values=True, returns the full record (for knowledge_get).
+        Otherwise returns just the sys_id (for update/feedback).
+        """
+        is_sys_id = bool(_SYS_ID_PATTERN.match(number_or_sys_id.lower()))
+
+        result = await client.query_records(
+            table="kb_knowledge",
+            query=ServiceNowQuery().equals("number", number_or_sys_id.upper()).build(),
+            display_values=display_values,
+            limit=1,
+        )
+
+        if not result["records"] and is_sys_id:
+            result = await client.query_records(
+                table="kb_knowledge",
+                query=ServiceNowQuery().equals("sys_id", number_or_sys_id).build(),
+                display_values=display_values,
+                limit=1,
+            )
+
+        if not result["records"]:
+            return (
+                "",
+                None,
+                format_response(
+                    data=None,
+                    correlation_id=correlation_id,
+                    status="error",
+                    error=f"Knowledge article '{number_or_sys_id}' not found.",
+                ),
+            )
+
+        record = result["records"][0]
+        return record["sys_id"], record, None
+
     @mcp.tool()
     @tool_handler
     async def knowledge_search(
@@ -115,13 +159,16 @@ def register_tools(
         )
         field_list = parse_field_list(fields)
 
+        safety = enforce_query_safety("kb_knowledge", search_query, limit, settings)
+        effective_limit = safety["limit"]
+
         async with ServiceNowClient(settings, auth_provider) as client:
             result = await client.query_records(
                 table="kb_knowledge",
                 query=search_query,
                 fields=field_list,
                 display_values=True,
-                limit=limit,
+                limit=effective_limit,
             )
             masked = [mask_sensitive_fields(r) for r in result["records"]]
             return format_response(data=masked, correlation_id=correlation_id)

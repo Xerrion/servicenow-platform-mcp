@@ -9,6 +9,7 @@ from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.policy import (
     check_table_access,
+    enforce_query_safety,
     mask_sensitive_fields,
     write_gate,
 )
@@ -75,13 +76,16 @@ def register_tools(
         query = q.build()
         field_list = parse_field_list(fields)
 
+        safety = enforce_query_safety("incident", query, limit, settings)
+        effective_limit = safety["limit"]
+
         async with ServiceNowClient(settings, auth_provider) as client:
             result = await client.query_records(
                 table="incident",
                 query=query,
                 fields=field_list,
                 display_values=True,
-                limit=limit,
+                limit=effective_limit,
             )
             masked = [mask_sensitive_fields(r) for r in result["records"]]
             return format_response(data=masked, correlation_id=correlation_id)
@@ -148,6 +152,10 @@ def register_tools(
             return err
 
         err = validate_int_range(impact, "impact", 1, 4, correlation_id)
+        if err:
+            return err
+
+        err = validate_int_range(priority, "priority", 1, 5, correlation_id)
         if err:
             return err
 

@@ -43,7 +43,7 @@ def _resolve_artifact_table(artifact_type: str, correlation_id: str) -> tuple[st
 async def _fetch_artifact_script(client: ServiceNowClient, table: str, sys_id: str) -> tuple[dict[str, Any], str]:
     """Fetch an artifact record and return (masked_record, script_body)."""
     record = mask_sensitive_fields(await client.get_record(table, sys_id))
-    script = record.get("script", "")
+    script = record.get("script", "") or ""
     return record, script
 
 
@@ -326,6 +326,9 @@ def _extract_gliderecord_tables(script: str) -> list[str]:
     return result
 
 
+_WHILE_BLOCK_RE: re.Pattern[str] = re.compile(r"while\s*\([^)]*(?:\([^)]*\)[^)]*)*\)\s*\{")
+_GR_IN_BLOCK_RE: re.Pattern[str] = re.compile(r"new\s+GlideRecord\s*\(")
+
 _SCENARIO_PATTERNS: list[tuple[re.Pattern[str], dict[str, str]]] = [
     (
         re.compile(r"current\.operation\(\)\s*==\s*['\"]insert['\"]"),
@@ -440,7 +443,7 @@ def _scan_for_anti_patterns(script: str) -> list[dict[str, str]]:
         return findings
 
     # 1. GlideRecord inside a loop (while/for containing new GlideRecord)
-    if re.search(r"while\s*\([^()]*(?:\([^)]*\)[^()]*)*\)\s*\{[^}]*new\s+GlideRecord\s*\(", script, re.DOTALL):
+    if any(_GR_IN_BLOCK_RE.search(script, m.end()) for m in _WHILE_BLOCK_RE.finditer(script)):
         findings.append(
             {
                 "category": "gliderecord_in_loop",

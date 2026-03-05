@@ -740,10 +740,8 @@ class ServiceNowClient:
                 json=data,
             )
             self._raise_for_status(response)
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 404:
-                raise NotFoundError(_ATF_PLUGIN_ERROR) from None
-            raise
+        except NotFoundError:
+            raise NotFoundError(_ATF_PLUGIN_ERROR) from None
 
         response_data = response.json()
         try:
@@ -770,10 +768,8 @@ class ServiceNowClient:
                 params=params,
             )
             self._raise_for_status(response)
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 404:
-                raise NotFoundError(_ATF_PLUGIN_ERROR) from None
-            raise
+        except NotFoundError:
+            raise NotFoundError(_ATF_PLUGIN_ERROR) from None
 
         response_data = response.json()
         try:
@@ -800,10 +796,8 @@ class ServiceNowClient:
                 json=data,
             )
             self._raise_for_status(response)
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 404:
-                raise NotFoundError(_ATF_PLUGIN_ERROR) from None
-            raise
+        except NotFoundError:
+            raise NotFoundError(_ATF_PLUGIN_ERROR) from None
 
         response_data = response.json()
         try:

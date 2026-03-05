@@ -1112,3 +1112,52 @@ class TestUrlBuilderValidation:
         client = ServiceNowClient(settings, auth_provider)
         url = client._table_url("incident")
         assert "incident" in url
+
+
+class TestATFCloudRunner404:
+    """Test ATF Cloud Runner methods raise NotFoundError with plugin hint on 404."""
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_atf_run_not_found(self, settings, auth_provider):
+        """404 from atf_run raises NotFoundError with plugin hint."""
+        from servicenow_mcp.client import ServiceNowClient
+        from servicenow_mcp.errors import NotFoundError
+
+        respx.post(f"{BASE_URL}/api/now/sn_atf_tg/test_runner").mock(
+            return_value=httpx.Response(404),
+        )
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            with pytest.raises(NotFoundError, match="ATF Cloud Runner"):
+                await client.atf_run("test_sys_id_123")
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_atf_progress_not_found(self, settings, auth_provider):
+        """404 from atf_progress raises NotFoundError with plugin hint."""
+        from servicenow_mcp.client import ServiceNowClient
+        from servicenow_mcp.errors import NotFoundError
+
+        respx.get(f"{BASE_URL}/api/now/sn_atf_tg/test_runner_progress").mock(
+            return_value=httpx.Response(404),
+        )
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            with pytest.raises(NotFoundError, match="ATF Cloud Runner"):
+                await client.atf_progress("snboq_id_123")
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_atf_cancel_not_found(self, settings, auth_provider):
+        """404 from atf_cancel raises NotFoundError with plugin hint."""
+        from servicenow_mcp.client import ServiceNowClient
+        from servicenow_mcp.errors import NotFoundError
+
+        respx.post(f"{BASE_URL}/api/now/sn_atf_tg/cancel_test_runner").mock(
+            return_value=httpx.Response(404),
+        )
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            with pytest.raises(NotFoundError, match="ATF Cloud Runner"):
+                await client.atf_cancel("snboq_id_123")

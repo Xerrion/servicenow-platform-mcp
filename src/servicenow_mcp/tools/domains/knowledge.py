@@ -253,10 +253,8 @@ def register_tools(
 
         async with ServiceNowClient(settings, auth_provider) as client:
             sys_id, error = await _resolve_article_sys_id(client, number_or_sys_id, correlation_id)
-            if error:
-                return error
-            if sys_id is None:
-                return format_response(
+            if error or not sys_id:
+                return error or format_response(
                     data=None,
                     correlation_id=correlation_id,
                     status="error",
@@ -337,10 +335,8 @@ def register_tools(
 
         async with ServiceNowClient(settings, auth_provider) as client:
             article_sys_id, error = await _resolve_article_sys_id(client, number_or_sys_id, correlation_id)
-            if error:
-                return error
-            if article_sys_id is None:
-                return format_response(
+            if error or not article_sys_id:
+                return error or format_response(
                     data=None,
                     correlation_id=correlation_id,
                     status="error",

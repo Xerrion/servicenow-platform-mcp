@@ -432,7 +432,7 @@ def _scan_for_anti_patterns(script: str) -> list[dict[str, str]]:
         return findings
 
     # 1. GlideRecord inside a loop (while/for containing new GlideRecord)
-    if re.search(r"while\s*\(.*?\)\s*\{.*?new\s+GlideRecord\s*\(", script, re.DOTALL):
+    if re.search(r"while\s*\([^()]*(?:\([^)]*\)[^()]*)*\)\s*\{[^}]*new\s+GlideRecord\s*\(", script, re.DOTALL):
         findings.append(
             {
                 "category": "gliderecord_in_loop",
@@ -455,7 +455,7 @@ def _scan_for_anti_patterns(script: str) -> list[dict[str, str]]:
         )
 
     # 3. Unbounded GlideRecord query (query() without addQuery/addEncodedQuery/get)
-    gr_blocks = re.findall(r"new\s+GlideRecord\s*\([^)]+\)\s*;(.*?)\.query\(\)", script, re.DOTALL)
+    gr_blocks = re.findall(r"new\s+GlideRecord\s*\([^)]+\)\s*;(.{0,2000}?)\.query\(\)", script, re.DOTALL)
     for block in gr_blocks:
         if "addQuery" not in block and "addEncodedQuery" not in block and "get(" not in block:
             findings.append(

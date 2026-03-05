@@ -61,6 +61,227 @@ _FIELD_OPERATORS = {
     "not_same_as",
 }
 
+_ALL_VALID_OPERATORS = sorted(
+    _UNARY_OPERATORS
+    | _TIME_OPERATORS
+    | _BINARY_OPERATORS
+    | _OR_BINARY_OPERATORS
+    | _LIST_OPERATORS
+    | _FIELD_OPERATORS
+    | {"order_by", "between", "datepart", "new_query", "rl_query"}
+)
+
+
+def _require_value(
+    condition: dict[str, Any],
+    operator: str,
+    correlation_id: str,
+    message: str | None = None,
+) -> tuple[Any, str | None]:
+    """Return (value, None) if condition has a non-None 'value', else (None, error_response)."""
+    value = condition.get("value")
+    if value is None:
+        msg = message or f"Operator '{operator}' requires a 'value'."
+        return None, format_response(data=None, correlation_id=correlation_id, status="error", error=msg)
+    return value, None
+
+
+def _apply_unary(
+    query: ServiceNowQuery, field: str, operator: str, condition: dict[str, Any], correlation_id: str
+) -> str | None:
+    """Apply a unary operator (no value needed)."""
+    getattr(query, operator)(field)
+    return None
+
+
+def _apply_time(
+    query: ServiceNowQuery, field: str, operator: str, condition: dict[str, Any], correlation_id: str
+) -> str | None:
+    """Apply a time operator (requires integer value)."""
+    value, err = _require_value(
+        condition, operator, correlation_id, f"Time operator '{operator}' requires an integer 'value'."
+    )
+    if err:
+        return err
+    getattr(query, operator)(field, int(value))
+    return None
+
+
+def _apply_binary(
+    query: ServiceNowQuery, field: str, operator: str, condition: dict[str, Any], correlation_id: str
+) -> str | None:
+    """Apply a binary or OR-binary operator (requires string value)."""
+    value, err = _require_value(condition, operator, correlation_id)
+    if err:
+        return err
+    getattr(query, operator)(field, str(value))
+    return None
+
+
+def _apply_list(
+    query: ServiceNowQuery, field: str, operator: str, condition: dict[str, Any], correlation_id: str
+) -> str | None:
+    """Apply a list operator (requires list value)."""
+    value = condition.get("value")
+    if value is None or not isinstance(value, list):
+        return format_response(
+            data=None,
+            correlation_id=correlation_id,
+            status="error",
+            error=f"Operator '{operator}' requires a 'value' that is a list of strings.",
+        )
+    getattr(query, operator)(field, [str(v) for v in value])
+    return None
+
+
+def _apply_field(
+    query: ServiceNowQuery, field: str, operator: str, condition: dict[str, Any], correlation_id: str
+) -> str | None:
+    """Apply a field comparison operator (requires other_field)."""
+    other_field = condition.get("other_field") or condition.get("value")
+    if not other_field:
+        return format_response(
+            data=None,
+            correlation_id=correlation_id,
+            status="error",
+            error=f"Operator '{operator}' requires 'other_field' (or 'value' as the other field name).",
+        )
+    getattr(query, operator)(field, str(other_field))
+    return None
+
+
+def _apply_between(
+    query: ServiceNowQuery, field: str, operator: str, condition: dict[str, Any], correlation_id: str
+) -> str | None:
+    """Apply the between operator (requires start and end)."""
+    start = condition.get("start") or condition.get("value")
+    end = condition.get("end", "")
+    if not start or not end:
+        return format_response(
+            data=None,
+            correlation_id=correlation_id,
+            status="error",
+            error="Operator 'between' requires 'start' and 'end' values (or 'value' for start).",
+        )
+    query.between(field, str(start), str(end))
+    return None
+
+
+def _apply_datepart(
+    query: ServiceNowQuery, field: str, operator: str, condition: dict[str, Any], correlation_id: str
+) -> str | None:
+    """Apply the datepart operator (requires part, dp_operator, dp_value)."""
+    part = condition.get("part", "")
+    dp_operator = condition.get("dp_operator") or condition.get("value", "")
+    dp_value = condition.get("dp_value", "")
+    if not part or not dp_operator or not dp_value:
+        return format_response(
+            data=None,
+            correlation_id=correlation_id,
+            status="error",
+            error="Operator 'datepart' requires 'part', 'dp_operator', and 'dp_value'.",
+        )
+    query.datepart(field, str(part), str(dp_operator), str(dp_value))
+    return None
+
+
+def _apply_new_query(
+    query: ServiceNowQuery, field: str, operator: str, condition: dict[str, Any], correlation_id: str
+) -> str | None:
+    """Apply the new_query separator."""
+    query.new_query()
+    return None
+
+
+def _apply_rl_query(
+    query: ServiceNowQuery, field: str, operator: str, condition: dict[str, Any], correlation_id: str
+) -> str | None:
+    """Apply the rl_query operator (requires related_table, related_field, rl_operator)."""
+    related_table = condition.get("related_table", "")
+    related_field = condition.get("related_field") or field
+    rl_operator = condition.get("rl_operator", "")
+    rl_value = condition.get("value", "")
+    if not related_table or not related_field or not rl_operator:
+        return format_response(
+            data=None,
+            correlation_id=correlation_id,
+            status="error",
+            error="Operator 'rl_query' requires 'related_table', 'related_field' (or 'field'), and 'rl_operator'.",
+        )
+    query.rl_query(str(related_table), str(related_field), str(rl_operator), str(rl_value))
+    return None
+
+
+def _apply_order_by(
+    query: ServiceNowQuery, field: str, operator: str, condition: dict[str, Any], correlation_id: str
+) -> str | None:
+    """Apply the order_by operator."""
+    descending = bool(condition.get("descending", False))
+    query.order_by(field, descending=descending)
+    return None
+
+
+def _get_handler(operator: str) -> Any | None:
+    """Look up the handler function for an operator, or None if unknown."""
+    if operator in _UNARY_OPERATORS:
+        return _apply_unary
+    if operator in _TIME_OPERATORS:
+        return _apply_time
+    if operator in _BINARY_OPERATORS or operator in _OR_BINARY_OPERATORS:
+        return _apply_binary
+    if operator in _LIST_OPERATORS:
+        return _apply_list
+    if operator in _FIELD_OPERATORS:
+        return _apply_field
+    # Single-operator handlers
+    return {
+        "between": _apply_between,
+        "datepart": _apply_datepart,
+        "new_query": _apply_new_query,
+        "rl_query": _apply_rl_query,
+        "order_by": _apply_order_by,
+    }.get(operator)
+
+
+def _apply_condition(
+    query: ServiceNowQuery,
+    condition: dict[str, Any],
+    correlation_id: str,
+) -> str | None:
+    """Process a single condition object and apply it to the query.
+
+    Returns None on success, or a formatted error response string on failure.
+    """
+    operator = condition.get("operator", "")
+    field = condition.get("field", "")
+
+    if not operator:
+        return format_response(
+            data=None,
+            correlation_id=correlation_id,
+            status="error",
+            error=f"Each condition requires 'operator'. Got: {condition}",
+        )
+
+    if operator != "new_query" and not field:
+        return format_response(
+            data=None,
+            correlation_id=correlation_id,
+            status="error",
+            error=f"Operator '{operator}' requires a 'field'. Got: {condition}",
+        )
+
+    handler = _get_handler(operator)
+    if handler is None:
+        return format_response(
+            data=None,
+            correlation_id=correlation_id,
+            status="error",
+            error=f"Unknown operator '{operator}'. Valid operators: {_ALL_VALID_OPERATORS}",
+        )
+
+    return handler(query, field, operator, condition, correlation_id)
+
 
 def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthProvider) -> None:
     """Register utility tools on the MCP server."""
@@ -117,133 +338,9 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
 
             query = ServiceNowQuery()
             for condition in parsed:
-                operator = condition.get("operator", "")
-                field = condition.get("field", "")
-                value = condition.get("value")
-
-                if not operator:
-                    return format_response(
-                        data=None,
-                        correlation_id=correlation_id,
-                        status="error",
-                        error=f"Each condition requires 'operator'. Got: {condition}",
-                    )
-
-                if operator != "new_query" and not field:
-                    return format_response(
-                        data=None,
-                        correlation_id=correlation_id,
-                        status="error",
-                        error=f"Operator '{operator}' requires a 'field'. Got: {condition}",
-                    )
-
-                if operator in _UNARY_OPERATORS:
-                    getattr(query, operator)(field)
-                elif operator in _TIME_OPERATORS:
-                    if value is None:
-                        return format_response(
-                            data=None,
-                            correlation_id=correlation_id,
-                            status="error",
-                            error=f"Time operator '{operator}' requires an integer 'value'.",
-                        )
-                    getattr(query, operator)(field, int(value))
-                elif operator in _BINARY_OPERATORS or operator in _OR_BINARY_OPERATORS:
-                    if value is None:
-                        return format_response(
-                            data=None,
-                            correlation_id=correlation_id,
-                            status="error",
-                            error=f"Operator '{operator}' requires a 'value'.",
-                        )
-                    getattr(query, operator)(field, str(value))
-                elif operator in _LIST_OPERATORS:
-                    if value is None or not isinstance(value, list):
-                        return format_response(
-                            data=None,
-                            correlation_id=correlation_id,
-                            status="error",
-                            error=f"Operator '{operator}' requires a 'value' that is a list of strings.",
-                        )
-                    getattr(query, operator)(field, [str(v) for v in value])
-                elif operator in _FIELD_OPERATORS:
-                    other_field = condition.get("other_field") or condition.get("value")
-                    if not other_field:
-                        return format_response(
-                            data=None,
-                            correlation_id=correlation_id,
-                            status="error",
-                            error=f"Operator '{operator}' requires 'other_field' (or 'value' as the other field name).",
-                        )
-                    getattr(query, operator)(field, str(other_field))
-                elif operator == "between":
-                    start = condition.get("start") or condition.get("value")
-                    end = condition.get("end", "")
-                    if not start or not end:
-                        return format_response(
-                            data=None,
-                            correlation_id=correlation_id,
-                            status="error",
-                            error="Operator 'between' requires 'start' and 'end' values (or 'value' for start).",
-                        )
-                    query.between(field, str(start), str(end))
-                elif operator == "datepart":
-                    part = condition.get("part", "")
-                    dp_operator = condition.get("dp_operator") or condition.get("value", "")
-                    dp_value = condition.get("dp_value", "")
-                    if not part or not dp_operator or not dp_value:
-                        return format_response(
-                            data=None,
-                            correlation_id=correlation_id,
-                            status="error",
-                            error="Operator 'datepart' requires 'part', 'dp_operator', and 'dp_value'.",
-                        )
-                    query.datepart(field, str(part), str(dp_operator), str(dp_value))
-                elif operator == "new_query":
-                    query.new_query()
-                elif operator == "rl_query":
-                    related_table = condition.get("related_table", "")
-                    related_field = condition.get("related_field") or field
-                    rl_operator = condition.get("rl_operator", "")
-                    rl_value = condition.get("value", "")
-                    if not related_table or not related_field or not rl_operator:
-                        return format_response(
-                            data=None,
-                            correlation_id=correlation_id,
-                            status="error",
-                            error="Operator 'rl_query' requires 'related_table', 'related_field' (or 'field'), and 'rl_operator'.",
-                        )
-                    query.rl_query(
-                        str(related_table),
-                        str(related_field),
-                        str(rl_operator),
-                        str(rl_value),
-                    )
-                elif operator == "order_by":
-                    descending = bool(condition.get("descending", False))
-                    query.order_by(field, descending=descending)
-                else:
-                    valid = sorted(
-                        _UNARY_OPERATORS
-                        | _TIME_OPERATORS
-                        | _BINARY_OPERATORS
-                        | _OR_BINARY_OPERATORS
-                        | _LIST_OPERATORS
-                        | _FIELD_OPERATORS
-                        | {
-                            "order_by",
-                            "between",
-                            "datepart",
-                            "new_query",
-                            "rl_query",
-                        }
-                    )
-                    return format_response(
-                        data=None,
-                        correlation_id=correlation_id,
-                        status="error",
-                        error=f"Unknown operator '{operator}'. Valid operators: {valid}",
-                    )
+                err = _apply_condition(query, condition, correlation_id)
+                if err:
+                    return err
 
             built = query.build()
             query_token = query_store.create({"query": built})

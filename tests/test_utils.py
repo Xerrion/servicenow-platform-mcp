@@ -59,7 +59,7 @@ class TestFormatResponse:
         resp = toon_decode(raw)
 
         assert resp["status"] == "error"
-        assert resp["error"] == "Something went wrong"
+        assert resp["error"] == {"message": "Something went wrong"}
 
     def test_pagination_included(self):
         from servicenow_mcp.utils import format_response
@@ -959,8 +959,9 @@ class TestSafeToolCall:
         result = await safe_tool_call(fn, "test-corr-id")
         parsed = toon_decode(result)
         assert parsed["status"] == "error"
-        assert "Access denied by ServiceNow ACL" in parsed["error"]
-        assert "no access to incident" in parsed["error"]
+        assert isinstance(parsed["error"], dict)
+        assert "Access denied by ServiceNow ACL" in parsed["error"]["message"]
+        assert "no access to incident" in parsed["error"]["message"]
         assert parsed["correlation_id"] == "test-corr-id"
 
     async def test_generic_exception_returns_error_envelope(self):
@@ -972,5 +973,6 @@ class TestSafeToolCall:
         result = await safe_tool_call(fn, "test-corr-id")
         parsed = toon_decode(result)
         assert parsed["status"] == "error"
-        assert "something broke" in parsed["error"]
+        assert isinstance(parsed["error"], dict)
+        assert "something broke" in parsed["error"]["message"]
         assert parsed["correlation_id"] == "test-corr-id"

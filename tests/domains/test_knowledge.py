@@ -143,7 +143,7 @@ class TestKnowledgeGet:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "not found" in data["error"].lower()
+        assert "not found" in data["error"]["message"].lower()
 
 
 class TestKnowledgeCreate:
@@ -185,7 +185,7 @@ class TestKnowledgeCreate:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "short_description" in data["error"].lower()
+        assert "short_description" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     @respx.mock
@@ -196,7 +196,7 @@ class TestKnowledgeCreate:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "text" in data["error"].lower()
+        assert "text" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     @respx.mock
@@ -258,7 +258,7 @@ class TestKnowledgeCreate:
             data = toon_decode(result)
 
             assert data["status"] == "error"
-            assert "production" in data["error"].lower()
+            assert "production" in data["error"]["message"].lower()
 
 
 class TestKnowledgeUpdate:
@@ -333,7 +333,7 @@ class TestKnowledgeUpdate:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "not found" in data["error"].lower()
+        assert "not found" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     @respx.mock
@@ -348,7 +348,7 @@ class TestKnowledgeUpdate:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "no fields" in data["error"].lower()
+        assert "no fields" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     async def test_update_production_blocked(self):
@@ -369,7 +369,7 @@ class TestKnowledgeUpdate:
             data = toon_decode(result)
 
             assert data["status"] == "error"
-            assert "production" in data["error"].lower()
+            assert "production" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     @respx.mock
@@ -501,7 +501,7 @@ class TestKnowledgeFeedback:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "rating or comment" in data["error"].lower()
+        assert "rating or comment" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     @respx.mock
@@ -512,7 +512,7 @@ class TestKnowledgeFeedback:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "between 1 and 5" in data["error"].lower()
+        assert "between 1 and 5" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     @respx.mock
@@ -523,7 +523,7 @@ class TestKnowledgeFeedback:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "between 1 and 5" in data["error"].lower()
+        assert "between 1 and 5" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     async def test_feedback_production_blocked(self):
@@ -544,7 +544,7 @@ class TestKnowledgeFeedback:
             data = toon_decode(result)
 
             assert data["status"] == "error"
-            assert "production" in data["error"].lower()
+            assert "production" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     @respx.mock
@@ -595,4 +595,4 @@ class TestKnowledgeFeedback:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "not found" in data["error"].lower()
+        assert "not found" in data["error"]["message"].lower()

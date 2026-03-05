@@ -129,7 +129,7 @@ class TestRequestGet:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "REQ" in data["error"]
+        assert "REQ" in data["error"]["message"]
 
     @pytest.mark.asyncio
     @respx.mock
@@ -142,7 +142,7 @@ class TestRequestGet:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "not found" in data["error"].lower()
+        assert "not found" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     @respx.mock
@@ -208,7 +208,7 @@ class TestRequestItems:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "REQ" in data["error"]
+        assert "REQ" in data["error"]["message"]
 
     @pytest.mark.asyncio
     @respx.mock
@@ -258,7 +258,7 @@ class TestRequestItemGet:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "RITM" in data["error"]
+        assert "RITM" in data["error"]["message"]
 
     @pytest.mark.asyncio
     @respx.mock
@@ -271,7 +271,7 @@ class TestRequestItemGet:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "not found" in data["error"].lower()
+        assert "not found" in data["error"]["message"].lower()
 
 
 class TestRequestItemUpdate:
@@ -354,7 +354,7 @@ class TestRequestItemUpdate:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "RITM" in data["error"]
+        assert "RITM" in data["error"]["message"]
 
     @pytest.mark.asyncio
     @respx.mock
@@ -368,7 +368,7 @@ class TestRequestItemUpdate:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "not found" in data["error"].lower()
+        assert "not found" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     @respx.mock
@@ -387,7 +387,7 @@ class TestRequestItemUpdate:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "no fields" in data["error"].lower()
+        assert "no fields" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     async def test_update_blocked_in_prod(self):
@@ -411,4 +411,4 @@ class TestRequestItemUpdate:
             data = toon_decode(result)
 
             assert data["status"] == "error"
-            assert "production" in data["error"].lower()
+            assert "production" in data["error"]["message"].lower()

@@ -90,7 +90,7 @@ class TestBuildQuery:
         raw = tools["build_query"](conditions='[{"operator": "INVALID", "field": "active", "value": "true"}]')
         result = toon_decode(raw)
         assert result["status"] == "error"
-        assert "Unknown operator" in result["error"]
+        assert "Unknown operator" in result["error"]["message"]
 
     def test_invalid_json_returns_error(self, settings, auth_provider):
         """Malformed JSON returns an error response."""
@@ -98,7 +98,7 @@ class TestBuildQuery:
         raw = tools["build_query"](conditions="not valid json")
         result = toon_decode(raw)
         assert result["status"] == "error"
-        assert "Invalid JSON" in result["error"]
+        assert "Invalid JSON" in result["error"]["message"]
 
     def test_missing_field_returns_error(self, settings, auth_provider):
         """Missing required 'field' key returns an error."""
@@ -106,7 +106,7 @@ class TestBuildQuery:
         raw = tools["build_query"](conditions='[{"operator": "equals", "value": "true"}]')
         result = toon_decode(raw)
         assert result["status"] == "error"
-        assert "requires a 'field'" in result["error"]
+        assert "requires a 'field'" in result["error"]["message"]
 
     def test_missing_value_for_binary_operator_returns_error(self, settings, auth_provider):
         """Binary operators require a value."""
@@ -114,7 +114,7 @@ class TestBuildQuery:
         raw = tools["build_query"](conditions='[{"operator": "equals", "field": "active"}]')
         result = toon_decode(raw)
         assert result["status"] == "error"
-        assert "requires a 'value'" in result["error"]
+        assert "requires a 'value'" in result["error"]["message"]
 
     def test_not_array_returns_error(self, settings, auth_provider):
         """Non-array JSON returns an error."""
@@ -122,7 +122,7 @@ class TestBuildQuery:
         raw = tools["build_query"](conditions='{"operator": "equals"}')
         result = toon_decode(raw)
         assert result["status"] == "error"
-        assert "must be a JSON array" in result["error"]
+        assert "must be a JSON array" in result["error"]["message"]
 
     def test_empty_array_returns_empty_query(self, settings, auth_provider):
         """Empty array returns empty query string."""
@@ -220,7 +220,7 @@ class TestBuildQuery:
         raw = tools["build_query"](conditions=conditions)
         result = toon_decode(raw)
         assert result["status"] == "error"
-        assert "list of strings" in result["error"]
+        assert "list of strings" in result["error"]["message"]
 
     def test_order_by_ascending(self, settings, auth_provider):
         """Test order_by operator (ascending by default)."""
@@ -275,7 +275,7 @@ class TestBuildQuery:
         )
         result = toon_decode(raw)
         assert result["status"] == "error"
-        assert "requires an integer 'value'" in result["error"]
+        assert "requires an integer 'value'" in result["error"]["message"]
 
     def test_unexpected_exception_returns_error(self, settings, auth_provider):
         """Unexpected exception in ServiceNowQuery triggers generic handler (lines 155-156)."""
@@ -286,7 +286,7 @@ class TestBuildQuery:
             raw = tools["build_query"](conditions='[{"operator": "equals", "field": "active", "value": "true"}]')
         result = toon_decode(raw)
         assert result["status"] == "error"
-        assert "boom" in result["error"]
+        assert "boom" in result["error"]["message"]
 
     def test_query_token_is_resolvable(self, settings):
         """build_query returns a token that resolves back to the built query."""

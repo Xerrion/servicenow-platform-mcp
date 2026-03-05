@@ -116,7 +116,7 @@ class TestDevToggle:
 
         result = toon_decode(raw)
         assert result["status"] == "error"
-        assert "acl" in result["error"].lower() or "forbidden" in result["error"].lower()
+        assert "acl" in result["error"]["message"].lower() or "forbidden" in result["error"]["message"].lower()
 
 
 # -- dev_set_property ----------------------------------------------------------
@@ -271,7 +271,7 @@ class TestDevToggleGenericException:
             raw = await tools["dev_toggle"](artifact_type="business_rule", sys_id="br001", active=False)
         result = toon_decode(raw)
         assert result["status"] == "error"
-        assert "connection failed" in result["error"]
+        assert "connection failed" in result["error"]["message"]
 
 
 class TestDevSetPropertyGenericException:
@@ -292,4 +292,4 @@ class TestDevSetPropertyGenericException:
             raw = await tools["dev_set_property"](name="glide.ui.session_timeout", value="60")
         result = toon_decode(raw)
         assert result["status"] == "error"
-        assert "network failure" in result["error"]
+        assert "network failure" in result["error"]["message"]

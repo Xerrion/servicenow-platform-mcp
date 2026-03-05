@@ -179,7 +179,7 @@ class TestChangesUpdatesetInspect:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "invalid identifier" in result["error"].lower()
+        assert "invalid identifier" in result["error"]["message"].lower()
 
 
 class TestChangesDiffArtifact:
@@ -541,4 +541,4 @@ class TestChangesReleaseNotes:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "invalid identifier" in result["error"].lower()
+        assert "invalid identifier" in result["error"]["message"].lower()

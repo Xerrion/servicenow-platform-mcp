@@ -84,7 +84,7 @@ class TestToolHandler:
         result = await my_tool()
         parsed = toon_decode(result)
         assert parsed["status"] == "error"
-        assert "something broke" in parsed["error"]
+        assert "something broke" in parsed["error"]["message"]
 
     async def test_catches_forbidden_error(self) -> None:
         """ForbiddenError is caught and returned as an ACL denial error envelope."""
@@ -96,7 +96,7 @@ class TestToolHandler:
         result = await my_tool()
         parsed = toon_decode(result)
         assert parsed["status"] == "error"
-        assert "Access denied" in parsed["error"] or "ACL" in parsed["error"]
+        assert "Access denied" in parsed["error"]["message"] or "ACL" in parsed["error"]["message"]
 
     async def test_passes_args_and_kwargs(self) -> None:
         """Positional and keyword arguments are forwarded correctly."""

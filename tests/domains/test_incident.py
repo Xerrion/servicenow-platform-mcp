@@ -112,7 +112,7 @@ class TestIncidentGet:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "INC" in data["error"]
+        assert "INC" in data["error"]["message"]
 
     @pytest.mark.asyncio
     @respx.mock
@@ -125,7 +125,7 @@ class TestIncidentGet:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "not found" in data["error"].lower()
+        assert "not found" in data["error"]["message"].lower()
 
 
 class TestIncidentCreate:
@@ -168,7 +168,7 @@ class TestIncidentCreate:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "short_description" in data["error"].lower()
+        assert "short_description" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     async def test_create_invalid_urgency(self, settings, auth_provider):
@@ -179,13 +179,13 @@ class TestIncidentCreate:
         result = await tools["incident_create"](short_description="Test", urgency=0)
         data = toon_decode(result)
         assert data["status"] == "error"
-        assert "urgency" in data["error"].lower()
+        assert "urgency" in data["error"]["message"].lower()
 
         # Test urgency=5
         result = await tools["incident_create"](short_description="Test", urgency=5)
         data = toon_decode(result)
         assert data["status"] == "error"
-        assert "urgency" in data["error"].lower()
+        assert "urgency" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     async def test_create_invalid_impact(self, settings, auth_provider):
@@ -195,12 +195,12 @@ class TestIncidentCreate:
         result = await tools["incident_create"](short_description="Test", impact=0)
         data = toon_decode(result)
         assert data["status"] == "error"
-        assert "impact" in data["error"].lower()
+        assert "impact" in data["error"]["message"].lower()
 
         result = await tools["incident_create"](short_description="Test", impact=5)
         data = toon_decode(result)
         assert data["status"] == "error"
-        assert "impact" in data["error"].lower()
+        assert "impact" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     async def test_create_blocked_in_prod(self):
@@ -221,7 +221,7 @@ class TestIncidentCreate:
             data = toon_decode(result)
 
             assert data["status"] == "error"
-            assert "production" in data["error"].lower()
+            assert "production" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     @respx.mock
@@ -309,7 +309,7 @@ class TestIncidentUpdate:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "INC" in data["error"]
+        assert "INC" in data["error"]["message"]
 
     @pytest.mark.asyncio
     async def test_update_blocked_in_prod(self):
@@ -333,7 +333,7 @@ class TestIncidentUpdate:
             data = toon_decode(result)
 
             assert data["status"] == "error"
-            assert "production" in data["error"].lower()
+            assert "production" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     @respx.mock
@@ -346,7 +346,7 @@ class TestIncidentUpdate:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "not found" in data["error"].lower()
+        assert "not found" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     @respx.mock
@@ -364,7 +364,7 @@ class TestIncidentUpdate:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "no fields" in data["error"].lower()
+        assert "no fields" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     @respx.mock
@@ -471,7 +471,7 @@ class TestIncidentResolve:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "close_code" in data["error"].lower()
+        assert "close_code" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     async def test_resolve_missing_close_notes(self, settings, auth_provider):
@@ -485,7 +485,7 @@ class TestIncidentResolve:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "close_notes" in data["error"].lower()
+        assert "close_notes" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     async def test_resolve_blocked_in_prod(self):
@@ -510,7 +510,7 @@ class TestIncidentResolve:
             data = toon_decode(result)
 
             assert data["status"] == "error"
-            assert "production" in data["error"].lower()
+            assert "production" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     async def test_resolve_invalid_number(self, settings, auth_provider):
@@ -524,7 +524,7 @@ class TestIncidentResolve:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "INC" in data["error"]
+        assert "INC" in data["error"]["message"]
 
     @pytest.mark.asyncio
     @respx.mock
@@ -541,7 +541,7 @@ class TestIncidentResolve:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "not found" in data["error"].lower()
+        assert "not found" in data["error"]["message"].lower()
 
 
 class TestIncidentAddComment:
@@ -623,7 +623,7 @@ class TestIncidentAddComment:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "comment" in data["error"].lower() or "work_note" in data["error"].lower()
+        assert "comment" in data["error"]["message"].lower() or "work_note" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     async def test_add_comment_blocked_in_prod(self):
@@ -647,7 +647,7 @@ class TestIncidentAddComment:
             data = toon_decode(result)
 
             assert data["status"] == "error"
-            assert "production" in data["error"].lower()
+            assert "production" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     async def test_add_comment_invalid_number(self, settings, auth_provider):
@@ -660,7 +660,7 @@ class TestIncidentAddComment:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "INC" in data["error"]
+        assert "INC" in data["error"]["message"]
 
     @pytest.mark.asyncio
     @respx.mock
@@ -676,4 +676,4 @@ class TestIncidentAddComment:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "not found" in data["error"].lower()
+        assert "not found" in data["error"]["message"].lower()

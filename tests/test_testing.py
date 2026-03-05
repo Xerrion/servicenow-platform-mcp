@@ -403,7 +403,7 @@ class TestAtfGetResults:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "not both" in result["error"].lower()
+        assert "not both" in result["error"]["message"].lower()
 
     @pytest.mark.asyncio
     async def test_get_results_missing_both_ids(self, settings, auth_provider):
@@ -413,7 +413,7 @@ class TestAtfGetResults:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "exactly one" in result["error"].lower()
+        assert "exactly one" in result["error"]["message"].lower()
 
     @pytest.mark.asyncio
     @respx.mock
@@ -506,7 +506,7 @@ class TestAtfRunTest:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "production" in result["error"].lower() or "blocked" in result["error"].lower()
+        assert "production" in result["error"]["message"].lower() or "blocked" in result["error"]["message"].lower()
 
     @pytest.mark.asyncio
     @respx.mock
@@ -524,7 +524,7 @@ class TestAtfRunTest:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "no execution id" in result["error"].lower()
+        assert "no execution id" in result["error"]["message"].lower()
 
     @pytest.mark.asyncio
     @respx.mock
@@ -646,7 +646,7 @@ class TestAtfRunSuite:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "production" in result["error"].lower() or "blocked" in result["error"].lower()
+        assert "production" in result["error"]["message"].lower() or "blocked" in result["error"]["message"].lower()
 
     @pytest.mark.asyncio
     @respx.mock
@@ -664,7 +664,7 @@ class TestAtfRunSuite:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "no execution id" in result["error"].lower()
+        assert "no execution id" in result["error"]["message"].lower()
 
     @pytest.mark.asyncio
     @respx.mock
@@ -841,7 +841,7 @@ class TestAtfTestHealth:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "exactly one" in result["error"].lower()
+        assert "exactly one" in result["error"]["message"].lower()
 
     @pytest.mark.asyncio
     async def test_health_both_ids_provided(self, settings, auth_provider):
@@ -851,7 +851,7 @@ class TestAtfTestHealth:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "exactly one" in result["error"].lower() and "not both" in result["error"].lower()
+        assert "exactly one" in result["error"]["message"].lower() and "not both" in result["error"]["message"].lower()
 
     @pytest.mark.asyncio
     @respx.mock

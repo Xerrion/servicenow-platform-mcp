@@ -85,7 +85,7 @@ class TestTableDescribe:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "denied" in result["error"].lower()
+        assert "denied" in result["error"]["message"].lower()
 
     @pytest.mark.asyncio
     @respx.mock
@@ -175,7 +175,7 @@ class TestTableGet:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "denied" in result["error"].lower()
+        assert "denied" in result["error"]["message"].lower()
 
 
 class TestTableQuery:
@@ -240,7 +240,7 @@ class TestTableQuery:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "date" in result["error"].lower()
+        assert "date" in result["error"]["message"].lower()
 
     @pytest.mark.asyncio
     async def test_denied_table_returns_error(self, settings, auth_provider):
@@ -252,7 +252,7 @@ class TestTableQuery:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "denied" in result["error"].lower()
+        assert "denied" in result["error"]["message"].lower()
 
     @pytest.mark.asyncio
     @respx.mock
@@ -316,7 +316,7 @@ class TestTableAggregate:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "denied" in result["error"].lower()
+        assert "denied" in result["error"]["message"].lower()
 
 
 # ── Error propagation tests ──────────────────────────────────────────────
@@ -342,7 +342,7 @@ class TestErrorPropagation:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "not authenticated" in result["error"].lower()
+        assert "not authenticated" in result["error"]["message"].lower()
         assert "correlation_id" in result
 
     @pytest.mark.asyncio
@@ -361,7 +361,7 @@ class TestErrorPropagation:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "insufficient" in result["error"].lower() or "forbidden" in result["error"].lower()
+        assert "insufficient" in result["error"]["message"].lower() or "forbidden" in result["error"]["message"].lower()
         assert "correlation_id" in result
 
     @pytest.mark.asyncio
@@ -380,7 +380,7 @@ class TestErrorPropagation:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "not found" in result["error"].lower()
+        assert "not found" in result["error"]["message"].lower()
         assert "correlation_id" in result
 
     @pytest.mark.asyncio
@@ -399,7 +399,10 @@ class TestErrorPropagation:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "internal server error" in result["error"].lower() or "server error" in result["error"].lower()
+        assert (
+            "internal server error" in result["error"]["message"].lower()
+            or "server error" in result["error"]["message"].lower()
+        )
         assert "correlation_id" in result
 
     @pytest.mark.asyncio
@@ -419,7 +422,10 @@ class TestErrorPropagation:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "session expired" in result["error"].lower() or "authentication" in result["error"].lower()
+        assert (
+            "session expired" in result["error"]["message"].lower()
+            or "authentication" in result["error"]["message"].lower()
+        )
         assert "correlation_id" in result
 
     @pytest.mark.asyncio
@@ -439,7 +445,7 @@ class TestErrorPropagation:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert result["error"]  # Error message is non-empty
+        assert result["error"]["message"]  # Error message is non-empty
         assert "correlation_id" in result
 
 
@@ -454,7 +460,7 @@ class TestQueryTokenValidation:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "build_query" in result["error"].lower()
+        assert "build_query" in result["error"]["message"].lower()
 
     @pytest.mark.asyncio
     @respx.mock

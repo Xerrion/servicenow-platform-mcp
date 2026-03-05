@@ -390,7 +390,7 @@ class TestTableHealth:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "Invalid identifier" in result["error"]
+        assert "Invalid identifier" in result["error"]["message"]
 
 
 # ── acl_conflicts ─────────────────────────────────────────────────────────
@@ -1018,7 +1018,7 @@ class TestExplainPerformanceBottlenecks:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "Invalid identifier" in result["error"]
+        assert "Invalid identifier" in result["error"]["message"]
 
     @pytest.mark.asyncio
     async def test_explain_denied_table(self, settings, auth_provider):
@@ -1031,7 +1031,7 @@ class TestExplainPerformanceBottlenecks:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "denied" in result["error"].lower()
+        assert "denied" in result["error"]["message"].lower()
 
     @pytest.mark.asyncio
     @respx.mock
@@ -1211,7 +1211,7 @@ class TestExplainSecurityRestrictions:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "Invalid identifier" in result["error"]
+        assert "Invalid identifier" in result["error"]["message"]
 
 
 # ── WP5: element_id split guard tests ────────────────────────────────────
@@ -1414,7 +1414,7 @@ class TestErrorAnalysisCheckTableAccess:
             result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "denied" in result["error"].lower()
+        assert "denied" in result["error"]["message"].lower()
 
 
 # ── WP5: validate_identifier + check_table_access for perf bottlenecks ───
@@ -1434,7 +1434,7 @@ class TestPerformanceBottlenecksElseBranch:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "Invalid identifier" in result["error"]
+        assert "Invalid identifier" in result["error"]["message"]
 
     @pytest.mark.asyncio
     async def test_explain_special_chars_table(self, settings, auth_provider):
@@ -1447,7 +1447,7 @@ class TestPerformanceBottlenecksElseBranch:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "Invalid identifier" in result["error"]
+        assert "Invalid identifier" in result["error"]["message"]
 
     @pytest.mark.asyncio
     async def test_explain_denied_table_else_branch(self, settings, auth_provider):
@@ -1460,7 +1460,7 @@ class TestPerformanceBottlenecksElseBranch:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "denied" in result["error"].lower()
+        assert "denied" in result["error"]["message"].lower()
 
 
 # ── Direct module tests for coverage gaps ─────────────────────────────────
@@ -1934,7 +1934,7 @@ class TestPerformanceBottlenecksCheckTableAccess:
             result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "denied" in result["error"].lower()
+        assert "denied" in result["error"]["message"].lower()
 
 
 class TestSlowTransactionsCheckTableAccess:
@@ -1961,7 +1961,7 @@ class TestSlowTransactionsCheckTableAccess:
             result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "denied" in result["error"].lower()
+        assert "denied" in result["error"]["message"].lower()
 
 
 class TestStaleAutomationsCheckTableAccess:
@@ -1988,7 +1988,7 @@ class TestStaleAutomationsCheckTableAccess:
             result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "denied" in result["error"].lower()
+        assert "denied" in result["error"]["message"].lower()
 
 
 class TestTableHealthExplainCheckTableAccess:
@@ -2014,7 +2014,7 @@ class TestTableHealthExplainCheckTableAccess:
             result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "denied" in result["error"].lower()
+        assert "denied" in result["error"]["message"].lower()
 
 
 # ── Clamping: hours/stale_days minimum 1 ──────────────────────────────────

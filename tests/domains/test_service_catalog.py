@@ -370,7 +370,7 @@ class TestScOrderNow:
             data = toon_decode(result)
 
             assert data["status"] == "error"
-            assert "production" in data["error"].lower()
+            assert "production" in data["error"]["message"].lower()
 
 
 # ── Add to Cart ──────────────────────────────────────────────────────────
@@ -439,7 +439,7 @@ class TestScAddToCart:
             data = toon_decode(result)
 
             assert data["status"] == "error"
-            assert "production" in data["error"].lower()
+            assert "production" in data["error"]["message"].lower()
 
 
 # ── Cart Get ─────────────────────────────────────────────────────────────
@@ -518,7 +518,7 @@ class TestScCartSubmit:
             data = toon_decode(result)
 
             assert data["status"] == "error"
-            assert "production" in data["error"].lower()
+            assert "production" in data["error"]["message"].lower()
 
 
 # ── Cart Checkout ────────────────────────────────────────────────────────
@@ -565,4 +565,4 @@ class TestScCartCheckout:
             data = toon_decode(result)
 
             assert data["status"] == "error"
-            assert "production" in data["error"].lower()
+            assert "production" in data["error"]["message"].lower()

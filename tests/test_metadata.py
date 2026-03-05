@@ -129,7 +129,7 @@ class TestMetaListArtifacts:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "unknown" in result["error"].lower() or "type" in result["error"].lower()
+        assert "unknown" in result["error"]["message"].lower() or "type" in result["error"]["message"].lower()
 
     @pytest.mark.asyncio
     @respx.mock

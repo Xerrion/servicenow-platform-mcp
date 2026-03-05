@@ -106,7 +106,7 @@ class TestRelReferencesTo:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "denied" in result["error"].lower()
+        assert "denied" in result["error"]["message"].lower()
 
     @pytest.mark.asyncio
     @respx.mock
@@ -478,7 +478,7 @@ class TestRelReferencesFrom:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "denied" in result["error"].lower()
+        assert "denied" in result["error"]["message"].lower()
 
 
 class TestRelReferencesToBoundedConcurrency:

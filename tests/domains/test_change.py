@@ -112,7 +112,7 @@ class TestChangeGet:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "CHG" in data["error"]
+        assert "CHG" in data["error"]["message"]
 
     @pytest.mark.asyncio
     @respx.mock
@@ -125,7 +125,7 @@ class TestChangeGet:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "not found" in data["error"].lower()
+        assert "not found" in data["error"]["message"].lower()
 
 
 class TestChangeCreate:
@@ -227,7 +227,7 @@ class TestChangeCreate:
             data = toon_decode(result)
 
             assert data["status"] == "error"
-            assert "production" in data["error"].lower()
+            assert "production" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     async def test_create_missing_short_description(self, settings, auth_provider):
@@ -237,7 +237,7 @@ class TestChangeCreate:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "short_description" in data["error"].lower()
+        assert "short_description" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     async def test_create_invalid_type(self, settings, auth_provider):
@@ -247,7 +247,7 @@ class TestChangeCreate:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "type" in data["error"].lower()
+        assert "type" in data["error"]["message"].lower()
 
 
 class TestChangeUpdate:
@@ -294,7 +294,7 @@ class TestChangeUpdate:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "CHG" in data["error"]
+        assert "CHG" in data["error"]["message"]
 
     @pytest.mark.asyncio
     async def test_update_blocked_in_prod(self):
@@ -318,7 +318,7 @@ class TestChangeUpdate:
             data = toon_decode(result)
 
             assert data["status"] == "error"
-            assert "production" in data["error"].lower()
+            assert "production" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     @respx.mock
@@ -334,7 +334,7 @@ class TestChangeUpdate:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "not found" in data["error"].lower()
+        assert "not found" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     @respx.mock
@@ -398,7 +398,7 @@ class TestChangeUpdate:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "no fields" in data["error"].lower()
+        assert "no fields" in data["error"]["message"].lower()
 
 
 class TestChangeTasks:
@@ -436,7 +436,7 @@ class TestChangeTasks:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "CHG" in data["error"]
+        assert "CHG" in data["error"]["message"]
 
     @pytest.mark.asyncio
     @respx.mock
@@ -536,7 +536,7 @@ class TestChangeAddComment:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "comment" in data["error"].lower() or "work_note" in data["error"].lower()
+        assert "comment" in data["error"]["message"].lower() or "work_note" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     async def test_add_comment_blocked_in_prod(self):
@@ -560,7 +560,7 @@ class TestChangeAddComment:
             data = toon_decode(result)
 
             assert data["status"] == "error"
-            assert "production" in data["error"].lower()
+            assert "production" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     async def test_add_comment_invalid_prefix(self, settings, auth_provider):
@@ -573,7 +573,7 @@ class TestChangeAddComment:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "CHG" in data["error"]
+        assert "CHG" in data["error"]["message"]
 
     @pytest.mark.asyncio
     @respx.mock
@@ -589,4 +589,4 @@ class TestChangeAddComment:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "not found" in data["error"].lower()
+        assert "not found" in data["error"]["message"].lower()

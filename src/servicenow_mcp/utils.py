@@ -105,18 +105,21 @@ def format_response(
     data: Any,
     correlation_id: str,
     status: str = "success",
-    error: str | None = None,
+    error: str | dict[str, str] | None = None,
     pagination: dict[str, int] | None = None,
     warnings: list[str] | None = None,
 ) -> str:
-    """Build and serialize a standardized response envelope."""
+    """Build and serialize a standardized response envelope.
+
+    The *error* field accepts a plain string (for backward compatibility)
+    or a structured dict (preferred: ``{"message": "..."}``)."""
     response: dict[str, Any] = {
         "correlation_id": correlation_id,
         "status": status,
         "data": data,
     }
     if error is not None:
-        response["error"] = error
+        response["error"] = {"message": error} if isinstance(error, str) else error
     if pagination is not None:
         response["pagination"] = pagination
     if warnings is not None:

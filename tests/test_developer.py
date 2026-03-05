@@ -86,7 +86,7 @@ class TestRecordCreate:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "production" in result["error"].lower()
+        assert "production" in result["error"]["message"].lower()
 
     @pytest.mark.asyncio
     async def test_denied_table_returns_error(self, settings, auth_provider):
@@ -101,7 +101,7 @@ class TestRecordCreate:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "denied" in result["error"].lower()
+        assert "denied" in result["error"]["message"].lower()
 
     @pytest.mark.asyncio
     async def test_invalid_json_returns_error(self, settings, auth_provider):
@@ -128,7 +128,7 @@ class TestRecordCreate:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "acl" in result["error"].lower()
+        assert "acl" in result["error"]["message"].lower()
 
     @pytest.mark.asyncio
     @respx.mock
@@ -148,7 +148,7 @@ class TestRecordCreate:
             )
         result = toon_decode(raw)
         assert result["status"] == "error"
-        assert "connection failed" in result["error"]
+        assert "connection failed" in result["error"]["message"]
 
 
 # -- record_preview_create -----------------------------------------------------
@@ -304,7 +304,7 @@ class TestRecordUpdate:
         )
         result = toon_decode(raw)
         assert result["status"] == "error"
-        assert "acl" in result["error"].lower()
+        assert "acl" in result["error"]["message"].lower()
 
 
 # -- record_preview_update -----------------------------------------------------
@@ -466,7 +466,7 @@ class TestRecordDelete:
         raw = await tools["record_delete"](table="incident", sys_id="inc001")
         result = toon_decode(raw)
         assert result["status"] == "error"
-        assert "acl" in result["error"].lower()
+        assert "acl" in result["error"]["message"].lower()
 
 
 # -- record_preview_delete -----------------------------------------------------
@@ -648,7 +648,7 @@ class TestRecordApply:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "invalid" in result["error"].lower() or "expired" in result["error"].lower()
+        assert "invalid" in result["error"]["message"].lower() or "expired" in result["error"]["message"].lower()
 
     @pytest.mark.asyncio
     @respx.mock
@@ -677,7 +677,7 @@ class TestRecordApply:
         raw2 = await tools["record_apply"](preview_token=token)
         result2 = toon_decode(raw2)
         assert result2["status"] == "error"
-        assert "invalid" in result2["error"].lower() or "expired" in result2["error"].lower()
+        assert "invalid" in result2["error"]["message"].lower() or "expired" in result2["error"]["message"].lower()
 
     @pytest.mark.asyncio
     @respx.mock
@@ -728,7 +728,7 @@ class TestRecordApply:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "acl" in result["error"].lower()
+        assert "acl" in result["error"]["message"].lower()
 
 
 # -- mandatory field validation ------------------------------------------------
@@ -770,7 +770,7 @@ class TestMandatoryFieldValidation:
         assert result["status"] == "error"
         assert "missing_fields" in result["data"]
         assert "category" in result["data"]["missing_fields"]
-        assert "Missing mandatory fields" in result["error"]
+        assert "Missing mandatory fields" in result["error"]["message"]
 
     @pytest.mark.asyncio
     @respx.mock
@@ -815,7 +815,7 @@ class TestMandatoryFieldValidation:
 
         assert result["status"] == "error"
         assert "category" in result["data"]["missing_fields"]
-        assert "Missing mandatory fields" in result["error"]
+        assert "Missing mandatory fields" in result["error"]["message"]
 
     @pytest.mark.asyncio
     @respx.mock
@@ -865,7 +865,7 @@ class TestMandatoryFieldValidation:
 
         assert result["status"] == "error"
         assert "category" in result["data"]["missing_fields"]
-        assert "Missing mandatory fields" in result["error"]
+        assert "Missing mandatory fields" in result["error"]["message"]
 
     @pytest.mark.asyncio
     @respx.mock

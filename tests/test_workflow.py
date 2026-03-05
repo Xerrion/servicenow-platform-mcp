@@ -211,6 +211,8 @@ class TestWorkflowContexts:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
+        assert isinstance(result["error"], dict)
+        assert "Server error" in result["error"]["message"]
 
 
 # ---------------------------------------------------------------------------
@@ -418,6 +420,8 @@ class TestWorkflowMap:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
+        assert isinstance(result["error"], dict)
+        assert "Not found" in result["error"]["message"]
 
     @pytest.mark.asyncio
     @respx.mock
@@ -762,7 +766,10 @@ class TestWorkflowStatus:
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["workflow_status"](context_sys_id="ctx404")
         result = toon_decode(raw)
+
         assert result["status"] == "error"
+        assert isinstance(result["error"], dict)
+        assert "Record not found" in result["error"]["message"]
 
 
 # ---------------------------------------------------------------------------
@@ -890,6 +897,8 @@ class TestWorkflowActivityDetail:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
+        assert isinstance(result["error"], dict)
+        assert "Not found" in result["error"]["message"]
 
     @pytest.mark.asyncio
     @respx.mock
@@ -1101,4 +1110,7 @@ class TestWorkflowVersionList:
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["workflow_version_list"](table="incident")
         result = toon_decode(raw)
+
         assert result["status"] == "error"
+        assert isinstance(result["error"], dict)
+        assert "Internal server error" in result["error"]["message"]

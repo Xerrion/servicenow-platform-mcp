@@ -288,8 +288,8 @@ class TestDocsArtifactSummary:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "bogus_type" in result["error"]
-        assert "Valid:" in result["error"]
+        assert "bogus_type" in result["error"]["message"]
+        assert "Valid:" in result["error"]["message"]
 
     @pytest.mark.asyncio
     @respx.mock
@@ -458,8 +458,8 @@ class TestDocsTestScenarios:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "bogus_type" in result["error"]
-        assert "Valid:" in result["error"]
+        assert "bogus_type" in result["error"]["message"]
+        assert "Valid:" in result["error"]["message"]
 
     @pytest.mark.asyncio
     @respx.mock
@@ -663,8 +663,8 @@ class TestDocsReviewNotes:
         result = toon_decode(raw)
 
         assert result["status"] == "error"
-        assert "bogus_type" in result["error"]
-        assert "Valid:" in result["error"]
+        assert "bogus_type" in result["error"]["message"]
+        assert "Valid:" in result["error"]["message"]
 
     @pytest.mark.asyncio
     @respx.mock

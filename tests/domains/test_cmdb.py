@@ -180,7 +180,7 @@ class TestCmdbGet:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "not found" in data["error"].lower()
+        assert "not found" in data["error"]["message"].lower()
 
 
 class TestCmdbRelationships:
@@ -294,7 +294,7 @@ class TestCmdbRelationships:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "not found" in data["error"].lower()
+        assert "not found" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     @respx.mock
@@ -336,7 +336,7 @@ class TestCmdbRelationships:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "invalid direction" in data["error"].lower()
+        assert "invalid direction" in data["error"]["message"].lower()
 
 
 class TestCmdbClasses:
@@ -464,7 +464,7 @@ class TestErrorHandling:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "denied" in data["error"].lower() or "forbidden" in data["error"].lower()
+        assert "denied" in data["error"]["message"].lower() or "forbidden" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     @respx.mock

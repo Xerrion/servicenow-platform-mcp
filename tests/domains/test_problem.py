@@ -148,7 +148,7 @@ class TestProblemGet:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "PRB" in data["error"]
+        assert "PRB" in data["error"]["message"]
 
     @pytest.mark.asyncio
     @respx.mock
@@ -161,7 +161,7 @@ class TestProblemGet:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "not found" in data["error"].lower()
+        assert "not found" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     @respx.mock
@@ -262,7 +262,7 @@ class TestProblemCreate:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "short_description" in data["error"].lower()
+        assert "short_description" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     async def test_create_whitespace_short_description(self, settings, auth_provider):
@@ -272,7 +272,7 @@ class TestProblemCreate:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "short_description" in data["error"].lower()
+        assert "short_description" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     async def test_create_invalid_urgency_too_high(self, settings, auth_provider):
@@ -282,7 +282,7 @@ class TestProblemCreate:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "urgency" in data["error"].lower()
+        assert "urgency" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     async def test_create_invalid_urgency_too_low(self, settings, auth_provider):
@@ -292,7 +292,7 @@ class TestProblemCreate:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "urgency" in data["error"].lower()
+        assert "urgency" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     async def test_create_invalid_impact_too_high(self, settings, auth_provider):
@@ -302,7 +302,7 @@ class TestProblemCreate:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "impact" in data["error"].lower()
+        assert "impact" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     async def test_create_invalid_impact_too_low(self, settings, auth_provider):
@@ -312,7 +312,7 @@ class TestProblemCreate:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "impact" in data["error"].lower()
+        assert "impact" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     async def test_create_blocked_in_prod(self):
@@ -333,7 +333,7 @@ class TestProblemCreate:
             data = toon_decode(result)
 
             assert data["status"] == "error"
-            assert "production" in data["error"].lower()
+            assert "production" in data["error"]["message"].lower()
 
 
 class TestProblemUpdate:
@@ -380,7 +380,7 @@ class TestProblemUpdate:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "PRB" in data["error"]
+        assert "PRB" in data["error"]["message"]
 
     @pytest.mark.asyncio
     @respx.mock
@@ -393,7 +393,7 @@ class TestProblemUpdate:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "not found" in data["error"].lower()
+        assert "not found" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     @respx.mock
@@ -411,7 +411,7 @@ class TestProblemUpdate:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "no fields" in data["error"].lower()
+        assert "no fields" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     @respx.mock
@@ -522,7 +522,7 @@ class TestProblemUpdate:
             data = toon_decode(result)
 
             assert data["status"] == "error"
-            assert "production" in data["error"].lower()
+            assert "production" in data["error"]["message"].lower()
 
 
 class TestProblemRootCause:
@@ -608,7 +608,7 @@ class TestProblemRootCause:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "PRB" in data["error"]
+        assert "PRB" in data["error"]["message"]
 
     @pytest.mark.asyncio
     @respx.mock
@@ -624,7 +624,7 @@ class TestProblemRootCause:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "not found" in data["error"].lower()
+        assert "not found" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     async def test_root_cause_empty_cause_notes(self, settings, auth_provider):
@@ -637,7 +637,7 @@ class TestProblemRootCause:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "cause_notes" in data["error"].lower()
+        assert "cause_notes" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     async def test_root_cause_whitespace_cause_notes(self, settings, auth_provider):
@@ -650,7 +650,7 @@ class TestProblemRootCause:
         data = toon_decode(result)
 
         assert data["status"] == "error"
-        assert "cause_notes" in data["error"].lower()
+        assert "cause_notes" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio
     async def test_root_cause_blocked_in_prod(self):
@@ -674,4 +674,4 @@ class TestProblemRootCause:
             data = toon_decode(result)
 
             assert data["status"] == "error"
-            assert "production" in data["error"].lower()
+            assert "production" in data["error"]["message"].lower()

@@ -98,7 +98,7 @@ mypy override: `servicenow_mcp.server` has `call-arg` error code disabled.
 
 Custom exception hierarchy in `errors.py`:
 
-```
+```text
 ServiceNowMCPError(Exception)     # Root; has status_code attribute
   ├── AuthError                   # 401
   ├── ForbiddenError              # 403
@@ -227,7 +227,7 @@ return format_response(data=None, correlation_id=correlation_id, status="error",
 
 Two token store classes built on a common base:
 
-```
+```text
 _BaseTokenStore(ttl_seconds=300, max_size=1000)
   ├── PreviewTokenStore    # Single-use tokens (has consume() method)
   └── QueryTokenStore      # Reusable tokens (no consume method)

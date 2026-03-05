@@ -11,6 +11,7 @@ from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.policy import (
     check_table_access,
+    enforce_query_safety,
     mask_sensitive_fields,
     write_gate,
 )
@@ -158,13 +159,16 @@ def register_tools(
         )
         field_list = parse_field_list(fields)
 
+        safety = enforce_query_safety("kb_knowledge", search_query, limit, settings)
+        effective_limit = safety["limit"]
+
         async with ServiceNowClient(settings, auth_provider) as client:
             result = await client.query_records(
                 table="kb_knowledge",
                 query=search_query,
                 fields=field_list,
                 display_values=True,
-                limit=limit,
+                limit=effective_limit,
             )
             masked = [mask_sensitive_fields(r) for r in result["records"]]
             return format_response(data=masked, correlation_id=correlation_id)

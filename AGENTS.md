@@ -418,13 +418,13 @@ async def explain(client, element_id) -> dict:
 
 | Package              | Groups | Description                        |
 | -------------------- | ------ | ---------------------------------- |
-| `full`                 | 17     | Default - all standard tool groups |
+| `full`                 | 18     | Default - all standard tool groups |
 | `introspection_only`   | 4      | Read-only introspection tools      |
 | `none`                 | 0      | No tools loaded                    |
 | `itil`                 | 12     | ITIL process tools                 |
 | `developer`            | 11     | Development-focused tools          |
-| `readonly`             | 10     | Read-only operations               |
-| `analyst`              | 8      | Analysis and reporting             |
+| `readonly`             | 9      | Read-only operations               |
+| `analyst`              | 7      | Analysis and reporting             |
 | `incident_management`  | 5      | Incident lifecycle tools           |
 | `change_management`    | 4      | Change request tools               |
 | `cmdb`                 | 4      | CMDB management tools              |

@@ -54,6 +54,80 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         ]
         return [f for f in mandatory_fields if f not in data]
 
+    async def _check_mandatory_or_error(
+        client: ServiceNowClient,
+        table: str,
+        data: dict[str, Any],
+        correlation_id: str,
+    ) -> str | None:
+        """Check for missing mandatory fields and return error response if any, else None."""
+        missing = await _check_mandatory_fields(client, table, data)
+        if missing:
+            return format_response(
+                data={"table": table, "missing_fields": missing},
+                correlation_id=correlation_id,
+                status="error",
+                error=f"Missing mandatory fields for table '{table}': {', '.join(missing)}",
+            )
+        return None
+
+    async def _execute_apply_action(
+        client: ServiceNowClient,
+        payload: dict[str, Any],
+        table: str,
+        correlation_id: str,
+    ) -> str:
+        """Execute a previewed create/update/delete action."""
+        action = payload["action"]
+
+        if action == "create":
+            err = await _check_mandatory_or_error(client, table, payload["data"], correlation_id)
+            if err:
+                return err
+            result = await client.create_record(table, payload["data"])
+            return format_response(
+                data={
+                    "action": "create",
+                    "table": table,
+                    "sys_id": result["sys_id"],
+                    "record": mask_sensitive_fields(result),
+                },
+                correlation_id=correlation_id,
+            )
+
+        if action == "update":
+            sys_id = payload["sys_id"]
+            result = await client.update_record(table, sys_id, payload["changes"])
+            return format_response(
+                data={
+                    "action": "update",
+                    "table": table,
+                    "sys_id": sys_id,
+                    "record": mask_sensitive_fields(result),
+                },
+                correlation_id=correlation_id,
+            )
+
+        if action == "delete":
+            sys_id = payload["sys_id"]
+            await client.delete_record(table, sys_id)
+            return format_response(
+                data={
+                    "action": "delete",
+                    "table": table,
+                    "sys_id": sys_id,
+                    "deleted": True,
+                },
+                correlation_id=correlation_id,
+            )
+
+        return format_response(
+            data=None,
+            correlation_id=correlation_id,
+            status="error",
+            error=f"Unknown preview action: '{action}'",
+        )
+
     @mcp.tool()
     @tool_handler
     async def record_create(table: str, data: str, *, correlation_id: str) -> str:
@@ -73,14 +147,9 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         record_data = json.loads(data)
 
         async with ServiceNowClient(settings, auth_provider) as client:
-            missing = await _check_mandatory_fields(client, table, record_data)
-            if missing:
-                return format_response(
-                    data={"table": table, "missing_fields": missing},
-                    correlation_id=correlation_id,
-                    status="error",
-                    error=f"Missing mandatory fields for table '{table}': {', '.join(missing)}",
-                )
+            err = await _check_mandatory_or_error(client, table, record_data, correlation_id)
+            if err:
+                return err
             created = await client.create_record(table, record_data)
 
         return format_response(
@@ -111,14 +180,9 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         record_data = json.loads(data)
 
         async with ServiceNowClient(settings, auth_provider) as client:
-            missing = await _check_mandatory_fields(client, table, record_data)
-            if missing:
-                return format_response(
-                    data={"table": table, "missing_fields": missing},
-                    correlation_id=correlation_id,
-                    status="error",
-                    error=f"Missing mandatory fields for table '{table}': {', '.join(missing)}",
-                )
+            err = await _check_mandatory_or_error(client, table, record_data, correlation_id)
+            if err:
+                return err
 
         # Store for later apply - no further HTTP call needed
         token = preview_store.create(
@@ -310,7 +374,6 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                 error="Invalid or expired preview token",
             )
 
-        action = payload["action"]
         table = payload["table"]
 
         # Defense in depth - re-check access and write gate
@@ -320,58 +383,4 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             return blocked
 
         async with ServiceNowClient(settings, auth_provider) as client:
-            if action == "create":
-                missing = await _check_mandatory_fields(client, payload["table"], payload["data"])
-                if missing:
-                    return format_response(
-                        data={
-                            "table": payload["table"],
-                            "missing_fields": missing,
-                        },
-                        correlation_id=correlation_id,
-                        status="error",
-                        error=f"Missing mandatory fields for table '{payload['table']}': {', '.join(missing)}",
-                    )
-                result = await client.create_record(table, payload["data"])
-                return format_response(
-                    data={
-                        "action": "create",
-                        "table": table,
-                        "sys_id": result["sys_id"],
-                        "record": mask_sensitive_fields(result),
-                    },
-                    correlation_id=correlation_id,
-                )
-
-            if action == "update":
-                sys_id = payload["sys_id"]
-                result = await client.update_record(table, sys_id, payload["changes"])
-                return format_response(
-                    data={
-                        "action": "update",
-                        "table": table,
-                        "sys_id": sys_id,
-                        "record": mask_sensitive_fields(result),
-                    },
-                    correlation_id=correlation_id,
-                )
-
-            if action == "delete":
-                sys_id = payload["sys_id"]
-                await client.delete_record(table, sys_id)
-                return format_response(
-                    data={
-                        "action": "delete",
-                        "table": table,
-                        "sys_id": sys_id,
-                        "deleted": True,
-                    },
-                    correlation_id=correlation_id,
-                )
-
-            return format_response(
-                data=None,
-                correlation_id=correlation_id,
-                status="error",
-                error=f"Unknown preview action: '{action}'",
-            )
+            return await _execute_apply_action(client, payload, table, correlation_id)

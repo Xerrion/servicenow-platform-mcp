@@ -165,6 +165,8 @@ async def explain(client: ServiceNowClient, element_id: str) -> dict[str, Any]:
     stats_result = await client.aggregate(element_id, query="")
     record_count = int(stats_result.get("stats", {}).get("count", 0))
 
+    check_table_access("sys_script")
+
     br_query = ServiceNowQuery().equals("collection", element_id).equals("active", "true").build()
     br_result = await client.query_records(
         "sys_script",

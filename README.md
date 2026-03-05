@@ -518,27 +518,27 @@ The server includes built-in guardrails that are always active:
 Here are some real-world prompts you can use with an AI agent that has this MCP server connected:
 
 > Describe the incident table and show me all the business rules that fire on it.
-
+>
 > List all P1 incidents from the last week and show me who resolved them.
-
+>
 > Trace the full lifecycle of INC0010042 -- show me every field change, comment, and log entry.
-
+>
 > Inspect update set "Q1 Release" and generate release notes. Flag any risky changes.
-
+>
 > Run the stale_automations investigation and explain the top findings.
-
+>
 > Find all scripts that reference the "cmdb_ci_server" table and check them for anti-patterns.
-
+>
 > Create a new incident with priority 1 and short description "Server outage". Show me a preview first.
-
+>
 > Show me the performance bottlenecks investigation and explain any slow transactions found.
-
+>
 > List all open change requests and show me the tasks for CHG0010023.
-
+>
 > Search the knowledge base for "VPN setup" and update the article with the new server address.
-
+>
 > Browse the service catalog for laptop requests and show me the available options.
-
+>
 > Check CMDB health and show me the relationships for our production database server.
 
 ---

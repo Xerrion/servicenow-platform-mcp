@@ -99,8 +99,10 @@ async def explain(client: ServiceNowClient, element_id: str) -> dict[str, Any]:
     explanation_parts = [
         f"ACL '{record.get('name', '')}' controls {record.get('operation', '')} access.",
         f"Condition: '{record.get('condition', '(none)')}'.",
-        "When multiple ACLs share the same name, ServiceNow evaluates all of them. "
-        "Conflicting conditions can lead to unexpected access behavior.",
+        (
+            "When multiple ACLs share the same name, ServiceNow evaluates all of them. "
+            "Conflicting conditions can lead to unexpected access behavior."
+        ),
         "Review whether these ACLs should be consolidated.",
     ]
 

@@ -98,7 +98,7 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
     )
 
 
-def _build_explanation(table: str, sys_id: str, record: dict[str, Any]) -> list[str]:
+def _build_explanation(table: str, _sys_id: str, record: dict[str, Any]) -> list[str]:
     """Build explanation parts for a slow transaction finding."""
     explanation_parts = [
         f"Performance pattern from '{table}'.",
@@ -109,8 +109,10 @@ def _build_explanation(table: str, sys_id: str, record: dict[str, Any]) -> list[
         explanation_parts.append(f"Hit count: {record['count']}.")
 
     explanation_parts.append(
-        "Review this pattern to determine if query optimization, "
-        "script optimization, or architecture changes are needed."
+        (  # noqa: UP034
+            "Review this pattern to determine if query optimization, "
+            "script optimization, or architecture changes are needed."
+        )
     )
 
     return explanation_parts

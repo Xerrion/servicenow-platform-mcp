@@ -5,7 +5,7 @@ import logging
 import re
 import uuid
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, override
 
 from toon_format import encode as toon_encode
 
@@ -71,8 +71,10 @@ def validate_identifier(name: str) -> None:
     """
     if not _IDENTIFIER_RE.match(name):
         raise ValueError(
-            f"Invalid identifier: {name!r}. "
-            "Only lowercase alphanumeric characters, underscores, and dot-walked segments are allowed."
+            (  # noqa: UP034
+                f"Invalid identifier: {name!r}. "
+                "Only lowercase alphanumeric characters, underscores, and dot-walked segments are allowed."
+            )
         )
 
 
@@ -676,6 +678,7 @@ class ServiceNowQuery:
         """Return the joined encoded query string."""
         return "^".join(self._parts)
 
+    @override
     def __str__(self) -> str:
         """Return the built query string."""
         return self.build()

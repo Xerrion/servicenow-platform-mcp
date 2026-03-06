@@ -48,9 +48,9 @@ _DATE_FIELD_PATTERNS: list[str] = [
 
 # Regex to match: a date field name following a condition separator, with a comparison operator
 _DATE_CONSTRAINT_RE: re.Pattern[str] = re.compile(
-    r"(?:^|\^(?:OR)?)"  # start of string or ^ or ^OR separator
-    r"(" + "|".join(re.escape(f) for f in _DATE_FIELD_PATTERNS) + r")"  # date field name
-    r"(>=?|<=?|BETWEEN|javascript:gs\.\w+Ago)",  # comparison operator
+    r"(?:^|\^(?:OR)?)"  # start of string or ^ or ^OR separator  # noqa: ISC003
+    + r"(" + "|".join(re.escape(f) for f in _DATE_FIELD_PATTERNS) + r")"  # date field name
+    + r"(>=?|<=?|BETWEEN|javascript:gs\.\w+Ago)",  # comparison operator
 )
 
 
@@ -131,9 +131,11 @@ def enforce_query_safety(
     # Large tables require date-bounded filters
     if table in settings.large_table_names and not _has_date_filter(query):
         raise QuerySafetyError(
-            f"Table '{table}' is large and requires a date-bounded filter "
-            f"(e.g., sys_created_on>=YYYY-MM-DD). "
-            f"Add a date field constraint to your query."
+            (  # noqa: UP034
+                f"Table '{table}' is large and requires a date-bounded filter "
+                f"(e.g., sys_created_on>=YYYY-MM-DD). "
+                f"Add a date field constraint to your query."
+            )
         )
 
     return {"limit": effective_limit}

@@ -8,6 +8,8 @@ from servicenow_mcp.config import Settings
 class BasicAuthProvider:
     """Basic HTTP authentication provider."""
 
+    _settings: Settings
+
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
 

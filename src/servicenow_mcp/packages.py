@@ -190,13 +190,17 @@ def get_package(name: str) -> list[str]:
     errors: list[str] = []
     if collisions:
         errors.append(
-            f"Cannot use preset package names as group names: {', '.join(sorted(collisions))}. "
-            f"Use them as a package name directly instead."
+            (  # noqa: UP034
+                f"Cannot use preset package names as group names: {', '.join(sorted(collisions))}. "
+                f"Use them as a package name directly instead."
+            )
         )
     if unknown:
         errors.append(
-            f"Unknown group names: {', '.join(sorted(unknown))}. "
-            f"Valid groups: {', '.join(sorted(_TOOL_GROUP_MODULES.keys()))}"
+            (  # noqa: UP034
+                f"Unknown group names: {', '.join(sorted(unknown))}. "
+                f"Valid groups: {', '.join(sorted(_TOOL_GROUP_MODULES.keys()))}"
+            )
         )
     if errors:
         raise ValueError(" ".join(errors))

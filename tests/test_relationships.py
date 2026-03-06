@@ -1,28 +1,29 @@
 """Tests for relationship tools (rel_references_to, rel_references_from)."""
 
 import asyncio
-from typing import Any
+from typing import Any, override
 from unittest.mock import patch
 
 import httpx
 import pytest
 import respx
-from toon_format import decode as toon_decode
 
 from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp.config import Settings
 from servicenow_mcp.policy import DENIED_TABLES
+from tests.helpers import decode_response, get_tool_functions
 
 
 BASE_URL = "https://test.service-now.com"
 
 
 @pytest.fixture()
-def auth_provider(settings):
+def auth_provider(settings: Settings) -> BasicAuthProvider:
     """Create a BasicAuthProvider from test settings."""
     return BasicAuthProvider(settings)
 
 
-def _register_and_get_tools(settings, auth_provider):
+def _register_and_get_tools(settings: Settings, auth_provider: BasicAuthProvider) -> dict[str, Any]:
     """Helper: register relationship tools on a fresh MCP server and return tool map."""
     from mcp.server.fastmcp import FastMCP
 
@@ -30,7 +31,7 @@ def _register_and_get_tools(settings, auth_provider):
 
     mcp = FastMCP("test")
     register_tools(mcp, settings, auth_provider)
-    return {t.name: t.fn for t in mcp._tool_manager._tools.values()}
+    return get_tool_functions(mcp)
 
 
 class TestRelReferencesTo:
@@ -38,7 +39,7 @@ class TestRelReferencesTo:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_finds_incoming_references(self, settings, auth_provider):
+    async def test_finds_incoming_references(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Finds records in other tables that reference the target record."""
         # Mock: query sys_dictionary for reference fields pointing to 'incident'
         respx.get(f"{BASE_URL}/api/now/table/sys_dictionary").mock(
@@ -71,7 +72,7 @@ class TestRelReferencesTo:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["rel_references_to"](table="incident", sys_id="abc123")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["target"]["table"] == "incident"
@@ -81,7 +82,7 @@ class TestRelReferencesTo:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_handles_no_references(self, settings, auth_provider):
+    async def test_handles_no_references(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns empty incoming_references when no references exist."""
         respx.get(f"{BASE_URL}/api/now/table/sys_dictionary").mock(
             return_value=httpx.Response(
@@ -93,25 +94,25 @@ class TestRelReferencesTo:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["rel_references_to"](table="incident", sys_id="abc123")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["incoming_references"] == []
 
     @pytest.mark.asyncio()
-    async def test_denied_table_returns_error(self, settings, auth_provider):
+    async def test_denied_table_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Denied table returns error without making HTTP call."""
         denied = next(iter(DENIED_TABLES))
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["rel_references_to"](table=denied, sys_id="abc")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
         assert "denied" in result["error"]["message"].lower()
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_paginates_all_dictionary_entries(self, settings, auth_provider):
+    async def test_paginates_all_dictionary_entries(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Paginated sys_dictionary fetches collect fields across all pages."""
         page_size = 1000
 
@@ -177,7 +178,7 @@ class TestRelReferencesTo:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["rel_references_to"](table="sys_user", sys_id="user123")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         refs = result["data"]["incoming_references"]
@@ -192,7 +193,9 @@ class TestRelReferencesTo:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_filters_denied_and_internal_tables(self, settings, auth_provider):
+    async def test_filters_denied_and_internal_tables(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """Denied tables and system-internal var__m_ entries are skipped."""
         denied = next(iter(DENIED_TABLES))
         respx.get(f"{BASE_URL}/api/now/table/sys_dictionary").mock(
@@ -245,7 +248,7 @@ class TestRelReferencesTo:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["rel_references_to"](table="sys_user", sys_id="user1")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         refs = result["data"]["incoming_references"]
@@ -260,7 +263,7 @@ class TestRelReferencesFrom:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_finds_outgoing_references(self, settings, auth_provider):
+    async def test_finds_outgoing_references(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Finds what a record references via its reference fields."""
         # Mock: get the record itself
         respx.get(f"{BASE_URL}/api/now/table/incident/abc123").mock(
@@ -308,7 +311,7 @@ class TestRelReferencesFrom:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["rel_references_from"](table="incident", sys_id="abc123")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["source"]["table"] == "incident"
@@ -320,7 +323,7 @@ class TestRelReferencesFrom:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_finds_inherited_reference_fields(self, settings, auth_provider):
+    async def test_finds_inherited_reference_fields(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Inherited reference fields from parent tables are included."""
         # Mock: get the incident record -- has fields from both incident and task
         respx.get(f"{BASE_URL}/api/now/table/incident/inc001").mock(
@@ -394,7 +397,7 @@ class TestRelReferencesFrom:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["rel_references_from"](table="incident", sys_id="inc001")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         outgoing = result["data"]["outgoing_references"]
@@ -407,7 +410,7 @@ class TestRelReferencesFrom:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_hierarchy_stops_at_root(self, settings, auth_provider):
+    async def test_hierarchy_stops_at_root(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Hierarchy walk terminates when there is no super_class."""
         # Mock: get the record
         respx.get(f"{BASE_URL}/api/now/table/task/t1").mock(
@@ -448,7 +451,7 @@ class TestRelReferencesFrom:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["rel_references_from"](table="task", sys_id="t1")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         outgoing = result["data"]["outgoing_references"]
@@ -459,7 +462,7 @@ class TestRelReferencesFrom:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_handles_no_reference_fields(self, settings, auth_provider):
+    async def test_handles_no_reference_fields(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns empty outgoing_references when record has no reference fields."""
         respx.get(f"{BASE_URL}/api/now/table/cmdb_ci/ci1").mock(
             return_value=httpx.Response(
@@ -485,18 +488,18 @@ class TestRelReferencesFrom:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["rel_references_from"](table="cmdb_ci", sys_id="ci1")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["outgoing_references"] == []
 
     @pytest.mark.asyncio()
-    async def test_denied_table_returns_error(self, settings, auth_provider):
+    async def test_denied_table_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Denied table returns error."""
         denied = next(iter(DENIED_TABLES))
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["rel_references_from"](table=denied, sys_id="abc")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
         assert "denied" in result["error"]["message"].lower()
@@ -507,7 +510,9 @@ class TestRelReferencesToBoundedConcurrency:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_rel_references_to_bounded_concurrency(self, settings, auth_provider):
+    async def test_rel_references_to_bounded_concurrency(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """Verifies that rel_references_to uses a Semaphore to bound concurrent lookups."""
         # Mock sys_dictionary to return many reference fields
         ref_fields = [
@@ -540,11 +545,15 @@ class TestRelReferencesToBoundedConcurrency:
         class TrackingSemaphore(asyncio.Semaphore):
             """Semaphore subclass that tracks __aenter__ calls."""
 
+            enter_count: int
+
+            @override
             def __init__(self, *args: Any, **kwargs: Any) -> None:
                 super().__init__(*args, **kwargs)
                 semaphore_instances.append(self)
                 self.enter_count = 0
 
+            @override
             async def __aenter__(self) -> None:
                 self.enter_count += 1
                 await super().__aenter__()
@@ -555,7 +564,7 @@ class TestRelReferencesToBoundedConcurrency:
         ):
             tools = _register_and_get_tools(settings, auth_provider)
             raw = await tools["rel_references_to"](table="incident", sys_id="abc123")
-            result = toon_decode(raw)
+            result = decode_response(raw)
 
         assert result["status"] == "success"
         # Verify the semaphore was actually created and used

@@ -231,8 +231,10 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                 "artifact": record,
                 "referenced_tables": referenced_tables,
                 "referenced_by": referenced_by,
-                "summary": f"Artifact '{artifact_name}' references {len(referenced_tables)} table(s) "
-                f"and is referenced by {len(referenced_by)} other artifact(s).",
+                "summary": (
+                    f"Artifact '{artifact_name}' references {len(referenced_tables)} table(s) "
+                    f"and is referenced by {len(referenced_by)} other artifact(s)."
+                ),
             },
             correlation_id=correlation_id,
         )
@@ -507,8 +509,10 @@ def _scan_for_anti_patterns(script: str) -> list[dict[str, str]]:
             {
                 "category": "gliderecord_in_loop",
                 "severity": "warning",
-                "message": "GlideRecord instantiated inside a loop. This is a major performance "
-                "concern - move the query outside the loop or use GlideAggregate.",
+                "message": (
+                    "GlideRecord instantiated inside a loop. This is a major performance "
+                    "concern - move the query outside the loop or use GlideAggregate."
+                ),
             }
         )
 
@@ -519,8 +523,10 @@ def _scan_for_anti_patterns(script: str) -> list[dict[str, str]]:
             {
                 "category": "hardcoded_sys_id",
                 "severity": "warning",
-                "message": f"Found {len(sysid_matches)} hardcoded sys_id(s). Use system properties "
-                "or reference qualifiers instead for portability across instances.",
+                "message": (
+                    f"Found {len(sysid_matches)} hardcoded sys_id(s). Use system properties "
+                    "or reference qualifiers instead for portability across instances."
+                ),
             }
         )
 
@@ -532,8 +538,10 @@ def _scan_for_anti_patterns(script: str) -> list[dict[str, str]]:
                 {
                     "category": "unbounded_query",
                     "severity": "info",
-                    "message": "GlideRecord.query() called without addQuery or addEncodedQuery. "
-                    "This may return all records in the table. Add appropriate filters.",
+                "message": (
+                        "GlideRecord.query() called without addQuery or addEncodedQuery. "
+                        "This may return all records in the table. Add appropriate filters."
+                    ),
                 }
             )
             break  # Report once
@@ -544,8 +552,10 @@ def _scan_for_anti_patterns(script: str) -> list[dict[str, str]]:
             {
                 "category": "current_update_in_br",
                 "severity": "warning",
-                "message": "current.update() called in script. In a business rule, this can cause "
-                "recursive execution. Use workflow: false or autoSysFields: false if intentional.",
+                "message": (
+                    "current.update() called in script. In a business rule, this can cause "
+                    "recursive execution. Use workflow: false or autoSysFields: false if intentional."
+                ),
             }
         )
 

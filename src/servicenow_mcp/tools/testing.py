@@ -11,6 +11,7 @@ from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
+from servicenow_mcp.mcp_state import get_query_store
 from servicenow_mcp.policy import (
     check_table_access,
     mask_sensitive_fields,
@@ -188,7 +189,7 @@ def _compute_trend(records: list[dict[str, Any]]) -> str:
 
 def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthProvider) -> None:
     """Register ATF (Automated Test Framework) tools on the MCP server."""
-    query_store: QueryTokenStore = mcp._sn_query_store  # type: ignore[attr-defined]
+    query_store: QueryTokenStore = get_query_store(mcp)
 
     @mcp.tool()
     @tool_handler

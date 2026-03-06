@@ -1,23 +1,27 @@
 """Tests for investigation tools (investigate_run, investigate_explain) and 7 investigation modules."""
 
+from typing import Any
+from urllib.parse import unquote
+
 import httpx
 import pytest
 import respx
-from toon_format import decode as toon_decode
 
 from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp.config import Settings
+from tests.helpers import decode_response, get_tool_functions
 
 
 BASE_URL = "https://test.service-now.com"
 
 
 @pytest.fixture()
-def auth_provider(settings):
+def auth_provider(settings: Settings) -> BasicAuthProvider:
     """Create a BasicAuthProvider from test settings."""
     return BasicAuthProvider(settings)
 
 
-def _register_and_get_tools(settings, auth_provider):
+def _register_and_get_tools(settings: Settings, auth_provider: BasicAuthProvider) -> dict[str, Any]:
     """Helper: register investigation tools on a fresh MCP server and return tool map."""
     from mcp.server.fastmcp import FastMCP
 
@@ -25,7 +29,7 @@ def _register_and_get_tools(settings, auth_provider):
 
     mcp = FastMCP("test")
     register_tools(mcp, settings, auth_provider)
-    return {t.name: t.fn for t in mcp._tool_manager._tools.values()}
+    return get_tool_functions(mcp)
 
 
 # ── Dispatcher: investigate_run ───────────────────────────────────────────
@@ -36,7 +40,7 @@ class TestInvestigateRun:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_dispatches_to_stale_automations(self, settings, auth_provider):
+    async def test_dispatches_to_stale_automations(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Dispatches to stale_automations and returns findings."""
         # Stuck flow context
         respx.get(f"{BASE_URL}/api/now/table/flow_context").mock(
@@ -82,24 +86,26 @@ class TestInvestigateRun:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate_run"](investigation="stale_automations")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["finding_count"] >= 1
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_rejects_unknown_investigation(self, settings, auth_provider):
+    async def test_rejects_unknown_investigation(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns error for unknown investigation name."""
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate_run"](investigation="nonexistent")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_investigate_explain_returns_context(self, settings, auth_provider):
+    async def test_investigate_explain_returns_context(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """investigate_explain returns contextual explanation for a finding."""
         # Mock fetching the flow_context record
         respx.get(f"{BASE_URL}/api/now/table/flow_context/fc001").mock(
@@ -121,7 +127,7 @@ class TestInvestigateRun:
             investigation="stale_automations",
             element_id="flow_context:fc001",
         )
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert "explanation" in result["data"]
@@ -136,7 +142,7 @@ class TestStaleAutomations:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_finds_stuck_flow(self, settings, auth_provider):
+    async def test_finds_stuck_flow(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Finds a stuck Flow Designer context."""
         respx.get(f"{BASE_URL}/api/now/table/flow_context").mock(
             return_value=httpx.Response(
@@ -166,7 +172,7 @@ class TestStaleAutomations:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate_run"](investigation="stale_automations")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["finding_count"] == 1
@@ -174,7 +180,7 @@ class TestStaleAutomations:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_clean_instance_no_findings(self, settings, auth_provider):
+    async def test_clean_instance_no_findings(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Clean instance returns no findings."""
         for table in [
             "flow_context",
@@ -188,14 +194,14 @@ class TestStaleAutomations:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate_run"](investigation="stale_automations")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["finding_count"] == 0
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_uses_gs_days_ago(self, settings, auth_provider):
+    async def test_uses_gs_days_ago(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Queries use gs.daysAgoEnd instead of Python datetime strings."""
         respx.get(f"{BASE_URL}/api/now/table/flow_context").mock(
             return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
@@ -215,7 +221,7 @@ class TestStaleAutomations:
             investigation="stale_automations",
             params='{"stale_days": 30}',
         )
-        result = toon_decode(raw)
+        result = decode_response(raw)
         assert result["status"] == "success"
         assert result["data"]["params"]["stale_days"] == 30
 
@@ -228,33 +234,24 @@ class TestDeprecatedApis:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_finds_deprecated_pattern(self, settings, auth_provider):
+    async def test_finds_deprecated_pattern(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Finds scripts using deprecated Packages. API."""
-        # Code Search returns a match for "Packages."
-        respx.get(f"{BASE_URL}/api/sn_codesearch/code_search/search").mock(
-            side_effect=lambda request: httpx.Response(
-                200,
-                json={
-                    "result": {
-                        "search_results": (
-                            [
-                                {
-                                    "sys_id": "script001",
-                                    "className": "sys_script_include",
-                                    "name": "OldHelper",
-                                }
-                            ]
-                            if "Packages." in str(request.url)
-                            else []
-                        )
-                    }
-                },
+
+        def _code_search_side_effect(request: httpx.Request) -> httpx.Response:
+            """Return a match only when the query contains 'Packages.'."""
+            hits = (
+                [{"sys_id": "script001", "className": "sys_script_include", "name": "OldHelper"}]
+                if "Packages." in str(request.url)
+                else []
             )
-        )
+            return httpx.Response(200, json={"result": {"search_results": hits}})
+
+        # Code Search returns a match for "Packages."
+        respx.get(f"{BASE_URL}/api/sn_codesearch/code_search/search").mock(side_effect=_code_search_side_effect)
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate_run"](investigation="deprecated_apis")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["finding_count"] >= 1
@@ -264,7 +261,7 @@ class TestDeprecatedApis:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_clean_code_no_findings(self, settings, auth_provider):
+    async def test_clean_code_no_findings(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Clean code returns no findings."""
         respx.get(f"{BASE_URL}/api/sn_codesearch/code_search/search").mock(
             return_value=httpx.Response(
@@ -275,7 +272,7 @@ class TestDeprecatedApis:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate_run"](investigation="deprecated_apis")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["finding_count"] == 0
@@ -289,7 +286,7 @@ class TestTableHealth:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_returns_health_report(self, settings, auth_provider):
+    async def test_returns_health_report(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns a complete health report for a table."""
         # Aggregate count
         respx.get(f"{BASE_URL}/api/now/stats/incident").mock(
@@ -347,7 +344,7 @@ class TestTableHealth:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate_run"](investigation="table_health", params='{"table": "incident"}')
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         data = result["data"]
@@ -359,7 +356,7 @@ class TestTableHealth:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_filters_by_hours(self, settings, auth_provider):
+    async def test_filters_by_hours(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """All queries include time filter when hours is specified."""
         # Aggregate
         respx.get(f"{BASE_URL}/api/now/stats/incident").mock(
@@ -381,20 +378,20 @@ class TestTableHealth:
             investigation="table_health",
             params='{"table": "incident", "hours": 24}',
         )
-        result = toon_decode(raw)
+        result = decode_response(raw)
         assert result["status"] == "success"
         assert result["data"]["hours"] == 24
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_rejects_invalid_table_identifier(self, settings, auth_provider):
+    async def test_rejects_invalid_table_identifier(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Rejects a table name containing injection characters."""
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate_run"](
             investigation="table_health",
             params='{"table": "incident^active=true"}',
         )
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
         assert "Invalid identifier" in result["error"]["message"]
@@ -408,7 +405,7 @@ class TestAclConflicts:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_detects_overlapping_acls(self, settings, auth_provider):
+    async def test_detects_overlapping_acls(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Detects two ACLs with the same name but different conditions."""
         respx.get(
             f"{BASE_URL}/api/now/table/sys_security_acl",
@@ -442,14 +439,14 @@ class TestAclConflicts:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate_run"](investigation="acl_conflicts", params='{"table": "incident"}')
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["finding_count"] >= 1
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_no_conflicts(self, settings, auth_provider):
+    async def test_no_conflicts(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Unique ACL names produce no conflicts."""
         respx.get(
             f"{BASE_URL}/api/now/table/sys_security_acl",
@@ -483,7 +480,7 @@ class TestAclConflicts:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate_run"](investigation="acl_conflicts", params='{"table": "incident"}')
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["finding_count"] == 0
@@ -497,7 +494,7 @@ class TestErrorAnalysis:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_clusters_errors_by_source(self, settings, auth_provider):
+    async def test_clusters_errors_by_source(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Clusters syslog errors by source field."""
         respx.get(f"{BASE_URL}/api/now/table/syslog").mock(
             return_value=httpx.Response(
@@ -533,7 +530,7 @@ class TestErrorAnalysis:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate_run"](investigation="error_analysis")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["finding_count"] == 2  # 2 clusters
@@ -543,7 +540,7 @@ class TestErrorAnalysis:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_no_errors_clean_report(self, settings, auth_provider):
+    async def test_no_errors_clean_report(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """No syslog errors returns clean report."""
         respx.get(f"{BASE_URL}/api/now/table/syslog").mock(
             return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
@@ -551,14 +548,14 @@ class TestErrorAnalysis:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate_run"](investigation="error_analysis")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["finding_count"] == 0
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_filters_by_hours(self, settings, auth_provider):
+    async def test_filters_by_hours(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """syslog query includes time filter."""
         respx.get(f"{BASE_URL}/api/now/table/syslog").mock(
             return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
@@ -566,7 +563,7 @@ class TestErrorAnalysis:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate_run"](investigation="error_analysis", params='{"hours": 6}')
-        result = toon_decode(raw)
+        result = decode_response(raw)
         assert result["status"] == "success"
         assert result["data"]["params"]["hours"] == 6
 
@@ -579,7 +576,7 @@ class TestSlowTransactions:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_finds_slow_query_pattern(self, settings, auth_provider):
+    async def test_finds_slow_query_pattern(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Finds a slow query pattern from sys_query_pattern."""
         # sys_query_pattern returns a hit
         respx.get(f"{BASE_URL}/api/now/table/sys_query_pattern").mock(
@@ -613,7 +610,7 @@ class TestSlowTransactions:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate_run"](investigation="slow_transactions")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["finding_count"] >= 1
@@ -621,7 +618,7 @@ class TestSlowTransactions:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_filters_by_hours(self, settings, auth_provider):
+    async def test_filters_by_hours(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Queries include gs.hoursAgoStart time filter."""
         # Mock all 7 pattern tables
         for table in [
@@ -639,13 +636,13 @@ class TestSlowTransactions:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate_run"](investigation="slow_transactions", params='{"hours": 12}')
-        result = toon_decode(raw)
+        result = decode_response(raw)
         assert result["status"] == "success"
         assert result["data"]["params"]["hours"] == 12
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_default_hours_is_24(self, settings, auth_provider):
+    async def test_default_hours_is_24(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Default hours is 24 when not specified."""
         for table in [
             "sys_query_pattern",
@@ -662,7 +659,7 @@ class TestSlowTransactions:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate_run"](investigation="slow_transactions")
-        result = toon_decode(raw)
+        result = decode_response(raw)
         assert result["status"] == "success"
         assert result["data"]["params"]["hours"] == 24
 
@@ -675,7 +672,7 @@ class TestPerformanceBottlenecks:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_finds_heavy_automation_table(self, settings, auth_provider):
+    async def test_finds_heavy_automation_table(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Finds a table with excessive active business rules."""
         # Query sys_script for active BRs — returns many for 'incident'
         respx.get(f"{BASE_URL}/api/now/table/sys_script").mock(
@@ -706,7 +703,7 @@ class TestPerformanceBottlenecks:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate_run"](investigation="performance_bottlenecks")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["finding_count"] >= 1
@@ -714,7 +711,7 @@ class TestPerformanceBottlenecks:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_filters_by_hours(self, settings, auth_provider):
+    async def test_filters_by_hours(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Queries include time filter when hours is specified."""
         respx.get(f"{BASE_URL}/api/now/table/sys_script").mock(
             return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
@@ -728,13 +725,13 @@ class TestPerformanceBottlenecks:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate_run"](investigation="performance_bottlenecks", params='{"hours": 12}')
-        result = toon_decode(raw)
+        result = decode_response(raw)
         assert result["status"] == "success"
         assert result["data"]["params"]["hours"] == 12
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_no_hours_defaults_to_none(self, settings, auth_provider):
+    async def test_no_hours_defaults_to_none(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Hours defaults to None when not specified."""
         respx.get(f"{BASE_URL}/api/now/table/sys_script").mock(
             return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
@@ -748,7 +745,7 @@ class TestPerformanceBottlenecks:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate_run"](investigation="performance_bottlenecks")
-        result = toon_decode(raw)
+        result = decode_response(raw)
         assert result["status"] == "success"
         assert result["data"]["params"]["hours"] is None
 
@@ -761,7 +758,7 @@ class TestExplainStaleAutomations:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_explain_flow_context(self, settings, auth_provider):
+    async def test_explain_flow_context(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """explain() returns context for a stuck flow_context record."""
         respx.get(f"{BASE_URL}/api/now/table/flow_context/fc001").mock(
             return_value=httpx.Response(
@@ -782,7 +779,7 @@ class TestExplainStaleAutomations:
             investigation="stale_automations",
             element_id="flow_context:fc001",
         )
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert "explanation" in result["data"]
@@ -792,7 +789,7 @@ class TestExplainStaleAutomations:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_explain_sys_script(self, settings, auth_provider):
+    async def test_explain_sys_script(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """explain() returns context for a disabled business rule."""
         respx.get(f"{BASE_URL}/api/now/table/sys_script/br001").mock(
             return_value=httpx.Response(
@@ -813,7 +810,7 @@ class TestExplainStaleAutomations:
             investigation="stale_automations",
             element_id="sys_script:br001",
         )
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert "disabled" in result["data"]["explanation"].lower()
@@ -821,7 +818,7 @@ class TestExplainStaleAutomations:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_explain_sys_script_include(self, settings, auth_provider):
+    async def test_explain_sys_script_include(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """explain() returns context for a disabled script include."""
         respx.get(f"{BASE_URL}/api/now/table/sys_script_include/si001").mock(
             return_value=httpx.Response(
@@ -842,7 +839,7 @@ class TestExplainStaleAutomations:
             investigation="stale_automations",
             element_id="sys_script_include:si001",
         )
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert "disabled" in result["data"]["explanation"].lower()
@@ -850,7 +847,7 @@ class TestExplainStaleAutomations:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_explain_sysauto_script(self, settings, auth_provider):
+    async def test_explain_sysauto_script(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """explain() returns context for a stale scheduled job."""
         respx.get(f"{BASE_URL}/api/now/table/sysauto_script/sj001").mock(
             return_value=httpx.Response(
@@ -871,7 +868,7 @@ class TestExplainStaleAutomations:
             investigation="stale_automations",
             element_id="sysauto_script:sj001",
         )
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert "Nightly Cleanup" in result["data"]["explanation"]
@@ -883,7 +880,7 @@ class TestExplainDeprecatedApis:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_explain_deprecated_script(self, settings, auth_provider):
+    async def test_explain_deprecated_script(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """explain() returns context for a script using deprecated APIs."""
         respx.get(f"{BASE_URL}/api/now/table/sys_script_include/script001").mock(
             return_value=httpx.Response(
@@ -904,7 +901,7 @@ class TestExplainDeprecatedApis:
             investigation="deprecated_apis",
             element_id="sys_script_include:script001",
         )
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert "deprecated" in result["data"]["explanation"].lower()
@@ -917,7 +914,7 @@ class TestExplainErrorAnalysis:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_explain_syslog_error(self, settings, auth_provider):
+    async def test_explain_syslog_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """explain() returns context for a syslog error entry."""
         respx.get(f"{BASE_URL}/api/now/table/syslog/log001").mock(
             return_value=httpx.Response(
@@ -939,7 +936,7 @@ class TestExplainErrorAnalysis:
             investigation="error_analysis",
             element_id="syslog:log001",
         )
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert "sys_script.My BR" in result["data"]["explanation"]
@@ -952,7 +949,7 @@ class TestExplainSlowTransactions:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_explain_query_pattern(self, settings, auth_provider):
+    async def test_explain_query_pattern(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """explain() returns context for a slow query pattern."""
         respx.get(f"{BASE_URL}/api/now/table/sys_query_pattern/qp001").mock(
             return_value=httpx.Response(
@@ -973,7 +970,7 @@ class TestExplainSlowTransactions:
             investigation="slow_transactions",
             element_id="sys_query_pattern:qp001",
         )
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert "sys_query_pattern" in result["data"]["explanation"]
@@ -987,7 +984,7 @@ class TestExplainPerformanceBottlenecks:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_explain_table_with_colon(self, settings, auth_provider):
+    async def test_explain_table_with_colon(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """explain() with table:sys_id returns record context."""
         respx.get(f"{BASE_URL}/api/now/table/sysauto_script/sj001").mock(
             return_value=httpx.Response(
@@ -1007,7 +1004,7 @@ class TestExplainPerformanceBottlenecks:
             investigation="performance_bottlenecks",
             element_id="sysauto_script:sj001",
         )
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert "Heavy Job" in result["data"]["explanation"]
@@ -1015,34 +1012,34 @@ class TestExplainPerformanceBottlenecks:
         assert result["data"]["record"]["sys_id"] == "sj001"
 
     @pytest.mark.asyncio()
-    async def test_explain_invalid_table_identifier(self, settings, auth_provider):
+    async def test_explain_invalid_table_identifier(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """explain() with an invalid table name in element_id returns an error."""
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate_explain"](
             investigation="performance_bottlenecks",
             element_id="../evil_table:sj001",
         )
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
         assert "Invalid identifier" in result["error"]["message"]
 
     @pytest.mark.asyncio()
-    async def test_explain_denied_table(self, settings, auth_provider):
+    async def test_explain_denied_table(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """explain() with a denied table name in element_id returns an error."""
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate_explain"](
             investigation="performance_bottlenecks",
             element_id="sys_user_token:sj001",
         )
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
         assert "denied" in result["error"]["message"].lower()
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_explain_heavy_automation_table(self, settings, auth_provider):
+    async def test_explain_heavy_automation_table(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """explain() with a plain table name returns aggregate context."""
         # Aggregate count for 'incident'
         respx.get(f"{BASE_URL}/api/now/stats/incident").mock(
@@ -1074,7 +1071,7 @@ class TestExplainPerformanceBottlenecks:
             investigation="performance_bottlenecks",
             element_id="incident",
         )
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["record_count"] == 5000
@@ -1087,7 +1084,7 @@ class TestExplainAclConflicts:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_explain_acl_record(self, settings, auth_provider):
+    async def test_explain_acl_record(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """explain() returns context for an ACL conflict finding."""
         respx.get(f"{BASE_URL}/api/now/table/sys_security_acl/acl001").mock(
             return_value=httpx.Response(
@@ -1110,7 +1107,7 @@ class TestExplainAclConflicts:
             investigation="acl_conflicts",
             element_id="acl001",
         )
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert "incident.*.read" in result["data"]["explanation"]
@@ -1127,7 +1124,7 @@ class TestExplainTableHealth:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_explain_table_health(self, settings, auth_provider):
+    async def test_explain_table_health(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """explain() returns aggregate context for a table."""
         respx.get(f"{BASE_URL}/api/now/stats/incident").mock(
             return_value=httpx.Response(
@@ -1141,7 +1138,7 @@ class TestExplainTableHealth:
             investigation="table_health",
             element_id="incident",
         )
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["record_count"] == 10000
@@ -1157,14 +1154,16 @@ class TestExplainSecurityRestrictions:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_deprecated_apis_rejects_disallowed_table(self, settings, auth_provider):
+    async def test_deprecated_apis_rejects_disallowed_table(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """deprecated_apis explain() returns error for a table not in _ALLOWED_TABLES."""
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate_explain"](
             investigation="deprecated_apis",
             element_id="sys_user:abc123456789012345678901234567ab",
         )
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"  # Dispatcher succeeds; module returns error in data
         assert "error" in result["data"]
@@ -1172,14 +1171,16 @@ class TestExplainSecurityRestrictions:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_error_analysis_rejects_non_syslog_table(self, settings, auth_provider):
+    async def test_error_analysis_rejects_non_syslog_table(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """error_analysis explain() returns error for a table other than syslog."""
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate_explain"](
             investigation="error_analysis",
             element_id="incident:abc123456789012345678901234567ab",
         )
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert "error" in result["data"]
@@ -1187,14 +1188,16 @@ class TestExplainSecurityRestrictions:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_slow_transactions_rejects_disallowed_table(self, settings, auth_provider):
+    async def test_slow_transactions_rejects_disallowed_table(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """slow_transactions explain() returns error for a table not in PERFORMANCE_TABLES."""
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate_explain"](
             investigation="slow_transactions",
             element_id="sys_user:abc123456789012345678901234567ab",
         )
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert "error" in result["data"]
@@ -1202,14 +1205,16 @@ class TestExplainSecurityRestrictions:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_stale_automations_rejects_disallowed_table(self, settings, auth_provider):
+    async def test_stale_automations_rejects_disallowed_table(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """stale_automations explain() returns error for a table not in _ALLOWED_TABLES."""
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate_explain"](
             investigation="stale_automations",
             element_id="sys_user:abc123456789012345678901234567ab",
         )
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert "error" in result["data"]
@@ -1217,14 +1222,14 @@ class TestExplainSecurityRestrictions:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_invalid_sys_id_format(self, settings, auth_provider):
+    async def test_invalid_sys_id_format(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Any investigation rejects element_id with an invalid sys_id format."""
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate_explain"](
             investigation="error_analysis",
             element_id="syslog:not-a-sys-id",
         )
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
         assert "Invalid identifier" in result["error"]["message"]
@@ -1237,56 +1242,56 @@ class TestExplainElementIdSplitGuard:
     """Tests that explain() returns an error dict for element_ids with no colon."""
 
     @pytest.mark.asyncio()
-    async def test_deprecated_apis_no_colon(self, settings, auth_provider):
+    async def test_deprecated_apis_no_colon(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """deprecated_apis explain() returns error for element_id without colon."""
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate_explain"](
             investigation="deprecated_apis",
             element_id="invalid_no_colon",
         )
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert "error" in result["data"]
         assert "expected 'table:sys_id'" in result["data"]["error"]
 
     @pytest.mark.asyncio()
-    async def test_error_analysis_no_colon(self, settings, auth_provider):
+    async def test_error_analysis_no_colon(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """error_analysis explain() returns error for element_id without colon."""
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate_explain"](
             investigation="error_analysis",
             element_id="invalid_no_colon",
         )
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert "error" in result["data"]
         assert "expected 'table:sys_id'" in result["data"]["error"]
 
     @pytest.mark.asyncio()
-    async def test_slow_transactions_no_colon(self, settings, auth_provider):
+    async def test_slow_transactions_no_colon(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """slow_transactions explain() returns error for element_id without colon."""
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate_explain"](
             investigation="slow_transactions",
             element_id="invalid_no_colon",
         )
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert "error" in result["data"]
         assert "expected 'table:sys_id'" in result["data"]["error"]
 
     @pytest.mark.asyncio()
-    async def test_stale_automations_no_colon(self, settings, auth_provider):
+    async def test_stale_automations_no_colon(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """stale_automations explain() returns error for element_id without colon."""
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate_explain"](
             investigation="stale_automations",
             element_id="invalid_no_colon",
         )
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert "error" in result["data"]
@@ -1301,7 +1306,7 @@ class TestTypeCoercion:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_slow_transactions_string_limit(self, settings, auth_provider):
+    async def test_slow_transactions_string_limit(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """slow_transactions run() accepts limit as a string."""
         for table in [
             "sys_query_pattern",
@@ -1321,13 +1326,15 @@ class TestTypeCoercion:
             investigation="slow_transactions",
             params='{"limit": "50"}',
         )
-        result = toon_decode(raw)
+        result = decode_response(raw)
         assert result["status"] == "success"
         assert result["data"]["params"]["limit"] == 50
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_stale_automations_string_stale_days(self, settings, auth_provider):
+    async def test_stale_automations_string_stale_days(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """stale_automations run() accepts stale_days as a string."""
         for table in [
             "flow_context",
@@ -1344,14 +1351,16 @@ class TestTypeCoercion:
             investigation="stale_automations",
             params='{"stale_days": "30", "limit": "10"}',
         )
-        result = toon_decode(raw)
+        result = decode_response(raw)
         assert result["status"] == "success"
         assert result["data"]["params"]["stale_days"] == 30
         assert result["data"]["params"]["limit"] == 10
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_performance_bottlenecks_string_hours_and_limit(self, settings, auth_provider):
+    async def test_performance_bottlenecks_string_hours_and_limit(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """performance_bottlenecks run() accepts hours and limit as strings."""
         respx.get(f"{BASE_URL}/api/now/table/sys_script").mock(
             return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
@@ -1368,14 +1377,14 @@ class TestTypeCoercion:
             investigation="performance_bottlenecks",
             params='{"hours": "12", "limit": "5"}',
         )
-        result = toon_decode(raw)
+        result = decode_response(raw)
         assert result["status"] == "success"
         assert result["data"]["params"]["hours"] == 12
         assert result["data"]["params"]["limit"] == 5
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_table_health_string_hours(self, settings, auth_provider):
+    async def test_table_health_string_hours(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """table_health run() accepts hours as a string."""
         respx.get(f"{BASE_URL}/api/now/stats/incident").mock(
             return_value=httpx.Response(200, json={"result": {"stats": {"count": "100"}}})
@@ -1396,13 +1405,13 @@ class TestTypeCoercion:
             investigation="table_health",
             params='{"table": "incident", "hours": "48"}',
         )
-        result = toon_decode(raw)
+        result = decode_response(raw)
         assert result["status"] == "success"
         assert result["data"]["hours"] == 48
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_deprecated_apis_string_limit(self, settings, auth_provider):
+    async def test_deprecated_apis_string_limit(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """deprecated_apis run() accepts limit as a string."""
         respx.get(f"{BASE_URL}/api/sn_codesearch/code_search/search").mock(
             return_value=httpx.Response(200, json={"result": {"search_results": []}})
@@ -1413,7 +1422,7 @@ class TestTypeCoercion:
             investigation="deprecated_apis",
             params='{"limit": "50"}',
         )
-        result = toon_decode(raw)
+        result = decode_response(raw)
         assert result["status"] == "success"
         assert result["data"]["params"]["limit"] == 50
 
@@ -1425,7 +1434,9 @@ class TestErrorAnalysisCheckTableAccess:
     """Tests that error_analysis run() calls check_table_access."""
 
     @pytest.mark.asyncio()
-    async def test_check_table_access_propagates_through_dispatcher(self, settings, auth_provider):
+    async def test_check_table_access_propagates_through_dispatcher(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """error_analysis run() propagates PolicyError through the dispatcher."""
         from unittest.mock import patch
 
@@ -1438,7 +1449,7 @@ class TestErrorAnalysisCheckTableAccess:
             side_effect=PolicyError("Access to table 'syslog' is denied by policy"),
         ):
             raw = await tools["investigate_run"](investigation="error_analysis")
-            result = toon_decode(raw)
+            result = decode_response(raw)
 
         assert result["status"] == "error"
         assert "denied" in result["error"]["message"].lower()
@@ -1451,40 +1462,40 @@ class TestPerformanceBottlenecksElseBranch:
     """Tests for performance_bottlenecks explain() else-branch (table name only)."""
 
     @pytest.mark.asyncio()
-    async def test_explain_invalid_table_chars(self, settings, auth_provider):
+    async def test_explain_invalid_table_chars(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """explain() with invalid chars in table name raises ValueError."""
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate_explain"](
             investigation="performance_bottlenecks",
             element_id="INVALID_TABLE",
         )
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
         assert "Invalid identifier" in result["error"]["message"]
 
     @pytest.mark.asyncio()
-    async def test_explain_special_chars_table(self, settings, auth_provider):
+    async def test_explain_special_chars_table(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """explain() with special chars in table name (no colon) raises ValueError."""
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate_explain"](
             investigation="performance_bottlenecks",
             element_id="my-table!",
         )
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
         assert "Invalid identifier" in result["error"]["message"]
 
     @pytest.mark.asyncio()
-    async def test_explain_denied_table_else_branch(self, settings, auth_provider):
+    async def test_explain_denied_table_else_branch(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """explain() with a denied table name in the else-branch returns error."""
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate_explain"](
             investigation="performance_bottlenecks",
             element_id="sys_user_token",
         )
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
         assert "denied" in result["error"]["message"].lower()
@@ -1498,9 +1509,10 @@ class TestPerformanceBottlenecksCoverage:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_invalid_params_and_nonempty_records(self, settings, auth_provider):
+    async def test_invalid_params_and_nonempty_records(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """Invalid limit/hours fall back to defaults; non-empty sysauto_script and flow_context records hit loop bodies."""
-        from servicenow_mcp.auth import BasicAuthProvider
         from servicenow_mcp.client import ServiceNowClient
         from servicenow_mcp.investigations import performance_bottlenecks
 
@@ -1544,8 +1556,7 @@ class TestPerformanceBottlenecksCoverage:
             )
         )
 
-        auth = BasicAuthProvider(settings)
-        async with ServiceNowClient(settings, auth) as client:
+        async with ServiceNowClient(settings, auth_provider) as client:
             result = await performance_bottlenecks.run(
                 client,
                 {"limit": "not_a_number", "hours": "bad", "table": "incident"},
@@ -1566,9 +1577,10 @@ class TestStaleAutomationsCoverage:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_invalid_params_and_nonempty_records(self, settings, auth_provider):
+    async def test_invalid_params_and_nonempty_records(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """Invalid stale_days/limit fall back to defaults; non-empty records hit loop bodies."""
-        from servicenow_mcp.auth import BasicAuthProvider
         from servicenow_mcp.client import ServiceNowClient
         from servicenow_mcp.investigations import stale_automations
 
@@ -1628,8 +1640,7 @@ class TestStaleAutomationsCoverage:
             )
         )
 
-        auth = BasicAuthProvider(settings)
-        async with ServiceNowClient(settings, auth) as client:
+        async with ServiceNowClient(settings, auth_provider) as client:
             result = await stale_automations.run(
                 client,
                 {"stale_days": "bad", "limit": "bad", "table": "incident"},
@@ -1651,9 +1662,8 @@ class TestErrorAnalysisCoverage:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_invalid_hours_and_limit(self, settings, auth_provider):
+    async def test_invalid_hours_and_limit(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Invalid hours/limit fall back to defaults."""
-        from servicenow_mcp.auth import BasicAuthProvider
         from servicenow_mcp.client import ServiceNowClient
         from servicenow_mcp.investigations import error_analysis
 
@@ -1661,8 +1671,7 @@ class TestErrorAnalysisCoverage:
             return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
         )
 
-        auth = BasicAuthProvider(settings)
-        async with ServiceNowClient(settings, auth) as client:
+        async with ServiceNowClient(settings, auth_provider) as client:
             result = await error_analysis.run(client, {"hours": "bad", "limit": "bad"})
 
         # Invalid hours falls back to 24 (lines 24-25)
@@ -1672,9 +1681,8 @@ class TestErrorAnalysisCoverage:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_source_filter(self, settings, auth_provider):
+    async def test_source_filter(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Source filter triggers the .like() branch (line 36)."""
-        from servicenow_mcp.auth import BasicAuthProvider
         from servicenow_mcp.client import ServiceNowClient
         from servicenow_mcp.investigations import error_analysis
 
@@ -1682,8 +1690,7 @@ class TestErrorAnalysisCoverage:
             return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
         )
 
-        auth = BasicAuthProvider(settings)
-        async with ServiceNowClient(settings, auth) as client:
+        async with ServiceNowClient(settings, auth_provider) as client:
             result = await error_analysis.run(client, {"source": "my_source"})
 
         assert result["params"]["source"] == "my_source"
@@ -1695,9 +1702,8 @@ class TestDeprecatedApisCoverage:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_invalid_limit(self, settings, auth_provider):
+    async def test_invalid_limit(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Invalid limit falls back to default 20."""
-        from servicenow_mcp.auth import BasicAuthProvider
         from servicenow_mcp.client import ServiceNowClient
         from servicenow_mcp.investigations import deprecated_apis
 
@@ -1705,8 +1711,7 @@ class TestDeprecatedApisCoverage:
             return_value=httpx.Response(200, json={"result": {"search_results": []}})
         )
 
-        auth = BasicAuthProvider(settings)
-        async with ServiceNowClient(settings, auth) as client:
+        async with ServiceNowClient(settings, auth_provider) as client:
             result = await deprecated_apis.run(client, {"limit": "bad"})
 
         # Invalid limit falls back to 20 (lines 38-39)
@@ -1714,15 +1719,16 @@ class TestDeprecatedApisCoverage:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_code_search_exception_skips_pattern(self, settings, auth_provider):
+    async def test_code_search_exception_skips_pattern(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """When code_search raises for one pattern, it's skipped (lines 56-58)."""
-        from servicenow_mcp.auth import BasicAuthProvider
         from servicenow_mcp.client import ServiceNowClient
         from servicenow_mcp.investigations import deprecated_apis
 
         call_count = 0
 
-        def side_effect(request: httpx.Request) -> httpx.Response:
+        def side_effect(_request: httpx.Request) -> httpx.Response:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -1732,8 +1738,7 @@ class TestDeprecatedApisCoverage:
 
         respx.get(f"{BASE_URL}/api/sn_codesearch/code_search/search").mock(side_effect=side_effect)
 
-        auth = BasicAuthProvider(settings)
-        async with ServiceNowClient(settings, auth) as client:
+        async with ServiceNowClient(settings, auth_provider) as client:
             result = await deprecated_apis.run(client, {})
 
         # Should complete without error, skipping the failed pattern
@@ -1746,9 +1751,8 @@ class TestSlowTransactionsCoverage:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_invalid_hours_and_limit(self, settings, auth_provider):
+    async def test_invalid_hours_and_limit(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Invalid hours/limit fall back to defaults (lines 36-37, 40-41)."""
-        from servicenow_mcp.auth import BasicAuthProvider
         from servicenow_mcp.client import ServiceNowClient
         from servicenow_mcp.investigations import slow_transactions
 
@@ -1765,8 +1769,7 @@ class TestSlowTransactionsCoverage:
                 return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
             )
 
-        auth = BasicAuthProvider(settings)
-        async with ServiceNowClient(settings, auth) as client:
+        async with ServiceNowClient(settings, auth_provider) as client:
             result = await slow_transactions.run(client, {"hours": "bad", "limit": "bad"})
 
         assert result["params"]["hours"] == 24
@@ -1774,9 +1777,8 @@ class TestSlowTransactionsCoverage:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_categories_filter(self, settings, auth_provider):
+    async def test_categories_filter(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Category filter skips non-matching tables (lines 45, 51)."""
-        from servicenow_mcp.auth import BasicAuthProvider
         from servicenow_mcp.client import ServiceNowClient
         from servicenow_mcp.investigations import slow_transactions
 
@@ -1785,8 +1787,7 @@ class TestSlowTransactionsCoverage:
             return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
         )
 
-        auth = BasicAuthProvider(settings)
-        async with ServiceNowClient(settings, auth) as client:
+        async with ServiceNowClient(settings, auth_provider) as client:
             result = await slow_transactions.run(client, {"categories": "slow_query"})
 
         assert result["params"]["categories"] == "slow_query"
@@ -1795,9 +1796,10 @@ class TestSlowTransactionsCoverage:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_query_records_exception_skips_table(self, settings, auth_provider):
+    async def test_query_records_exception_skips_table(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """When query_records raises for a table, it's skipped (lines 84-86)."""
-        from servicenow_mcp.auth import BasicAuthProvider
         from servicenow_mcp.client import ServiceNowClient
         from servicenow_mcp.investigations import slow_transactions
 
@@ -1817,8 +1819,7 @@ class TestSlowTransactionsCoverage:
                 return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
             )
 
-        auth = BasicAuthProvider(settings)
-        async with ServiceNowClient(settings, auth) as client:
+        async with ServiceNowClient(settings, auth_provider) as client:
             result = await slow_transactions.run(client, {})
 
         # Should complete without error despite one table failing
@@ -1830,14 +1831,12 @@ class TestTableHealthCoverage:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_missing_table_param(self, settings, auth_provider):
+    async def test_missing_table_param(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Missing table param returns error (line 23)."""
-        from servicenow_mcp.auth import BasicAuthProvider
         from servicenow_mcp.client import ServiceNowClient
         from servicenow_mcp.investigations import table_health
 
-        auth = BasicAuthProvider(settings)
-        async with ServiceNowClient(settings, auth) as client:
+        async with ServiceNowClient(settings, auth_provider) as client:
             result = await table_health.run(client, {})
 
         assert result["error"] == "Missing required parameter: table"
@@ -1845,9 +1844,8 @@ class TestTableHealthCoverage:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_invalid_hours_param(self, settings, auth_provider):
+    async def test_invalid_hours_param(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Invalid hours falls back to 24 (lines 38-39)."""
-        from servicenow_mcp.auth import BasicAuthProvider
         from servicenow_mcp.client import ServiceNowClient
         from servicenow_mcp.investigations import table_health
 
@@ -1866,17 +1864,15 @@ class TestTableHealthCoverage:
                 return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
             )
 
-        auth = BasicAuthProvider(settings)
-        async with ServiceNowClient(settings, auth) as client:
+        async with ServiceNowClient(settings, auth_provider) as client:
             result = await table_health.run(client, {"table": "incident", "hours": "bad"})
 
         assert result["hours"] == 24
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_health_indicators_thresholds(self, settings, auth_provider):
+    async def test_health_indicators_thresholds(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Triggers all health indicator thresholds (lines 101, 103, 105)."""
-        from servicenow_mcp.auth import BasicAuthProvider
         from servicenow_mcp.client import ServiceNowClient
         from servicenow_mcp.investigations import table_health
 
@@ -1944,8 +1940,7 @@ class TestTableHealthCoverage:
             )
         )
 
-        auth = BasicAuthProvider(settings)
-        async with ServiceNowClient(settings, auth) as client:
+        async with ServiceNowClient(settings, auth_provider) as client:
             result = await table_health.run(client, {"table": "incident"})
 
         # All three thresholds should be triggered
@@ -1963,7 +1958,7 @@ class TestPerformanceBottlenecksCheckTableAccess:
     """Tests that performance_bottlenecks run() calls check_table_access for each queried table."""
 
     @pytest.mark.asyncio()
-    async def test_run_raises_on_denied_sys_script(self, settings, auth_provider):
+    async def test_run_raises_on_denied_sys_script(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """run() raises PolicyError when sys_script is denied."""
         from unittest.mock import patch
 
@@ -1980,7 +1975,7 @@ class TestPerformanceBottlenecksCheckTableAccess:
             side_effect=deny_sys_script,
         ):
             raw = await tools["investigate_run"](investigation="performance_bottlenecks")
-            result = toon_decode(raw)
+            result = decode_response(raw)
 
         assert result["status"] == "error"
         assert "denied" in result["error"]["message"].lower()
@@ -1990,7 +1985,7 @@ class TestSlowTransactionsCheckTableAccess:
     """Tests that slow_transactions run() calls check_table_access for each queried table."""
 
     @pytest.mark.asyncio()
-    async def test_run_raises_on_denied_table(self, settings, auth_provider):
+    async def test_run_raises_on_denied_table(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """run() raises PolicyError when a performance pattern table is denied."""
         from unittest.mock import patch
 
@@ -2007,7 +2002,7 @@ class TestSlowTransactionsCheckTableAccess:
             side_effect=deny_first_table,
         ):
             raw = await tools["investigate_run"](investigation="slow_transactions")
-            result = toon_decode(raw)
+            result = decode_response(raw)
 
         assert result["status"] == "error"
         assert "denied" in result["error"]["message"].lower()
@@ -2017,7 +2012,9 @@ class TestStaleAutomationsCheckTableAccess:
     """Tests that stale_automations run() calls check_table_access for each queried table."""
 
     @pytest.mark.asyncio()
-    async def test_run_raises_on_denied_flow_context(self, settings, auth_provider):
+    async def test_run_raises_on_denied_flow_context(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """run() raises PolicyError when flow_context is denied."""
         from unittest.mock import patch
 
@@ -2034,7 +2031,7 @@ class TestStaleAutomationsCheckTableAccess:
             side_effect=deny_flow_context,
         ):
             raw = await tools["investigate_run"](investigation="stale_automations")
-            result = toon_decode(raw)
+            result = decode_response(raw)
 
         assert result["status"] == "error"
         assert "denied" in result["error"]["message"].lower()
@@ -2044,7 +2041,7 @@ class TestTableHealthExplainCheckTableAccess:
     """Tests that table_health explain() calls check_table_access."""
 
     @pytest.mark.asyncio()
-    async def test_explain_raises_on_denied_table(self, settings, auth_provider):
+    async def test_explain_raises_on_denied_table(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """explain() raises PolicyError when the element_id table is denied."""
         from unittest.mock import patch
 
@@ -2060,7 +2057,7 @@ class TestTableHealthExplainCheckTableAccess:
                 investigation="table_health",
                 element_id="incident",
             )
-            result = toon_decode(raw)
+            result = decode_response(raw)
 
         assert result["status"] == "error"
         assert "denied" in result["error"]["message"].lower()
@@ -2074,11 +2071,11 @@ class TestClampingMinimumOne:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_error_analysis_clamps_hours_zero_to_one(self, settings, auth_provider):
+    async def test_error_analysis_clamps_hours_zero_to_one(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """error_analysis run() with hours=0 clamps to 1."""
-        from urllib.parse import unquote
 
-        from servicenow_mcp.auth import BasicAuthProvider
         from servicenow_mcp.client import ServiceNowClient
         from servicenow_mcp.investigations import error_analysis
 
@@ -2086,22 +2083,23 @@ class TestClampingMinimumOne:
             return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
         )
 
-        auth = BasicAuthProvider(settings)
-        async with ServiceNowClient(settings, auth) as client:
+        async with ServiceNowClient(settings, auth_provider) as client:
             result = await error_analysis.run(client, {"hours": 0})
 
         assert result["params"]["hours"] == 1
         # Verify the actual query used hours_ago with value 1
-        request_url = unquote(str(route.calls[0].request.url))
+        last_call = route.calls.last
+        assert last_call is not None
+        request_url = unquote(str(last_call.request.url))
         assert "javascript:gs.hoursAgoStart(1)" in request_url
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_slow_transactions_clamps_hours_zero_to_one(self, settings, auth_provider):
+    async def test_slow_transactions_clamps_hours_zero_to_one(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """slow_transactions run() with hours=0 clamps to 1."""
-        from urllib.parse import unquote
 
-        from servicenow_mcp.auth import BasicAuthProvider
         from servicenow_mcp.client import ServiceNowClient
         from servicenow_mcp.investigations import slow_transactions
 
@@ -2119,22 +2117,23 @@ class TestClampingMinimumOne:
                 return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
             )
 
-        auth = BasicAuthProvider(settings)
-        async with ServiceNowClient(settings, auth) as client:
+        async with ServiceNowClient(settings, auth_provider) as client:
             result = await slow_transactions.run(client, {"hours": 0})
 
         assert result["params"]["hours"] == 1
         # Verify that syslog_cancellation query used hours_ago with value 1
-        cancellation_url = unquote(str(routes["syslog_cancellation"].calls[0].request.url))
+        last_call = routes["syslog_cancellation"].calls.last
+        assert last_call is not None
+        cancellation_url = unquote(str(last_call.request.url))
         assert "javascript:gs.hoursAgoStart(1)" in cancellation_url
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_stale_automations_clamps_stale_days_zero_to_one(self, settings, auth_provider):
+    async def test_stale_automations_clamps_stale_days_zero_to_one(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """stale_automations run() with stale_days=0 clamps to 1."""
-        from urllib.parse import unquote
 
-        from servicenow_mcp.auth import BasicAuthProvider
         from servicenow_mcp.client import ServiceNowClient
         from servicenow_mcp.investigations import stale_automations
 
@@ -2151,22 +2150,23 @@ class TestClampingMinimumOne:
             return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
         )
 
-        auth = BasicAuthProvider(settings)
-        async with ServiceNowClient(settings, auth) as client:
+        async with ServiceNowClient(settings, auth_provider) as client:
             result = await stale_automations.run(client, {"stale_days": 0})
 
         assert result["params"]["stale_days"] == 1
         # Verify the flow_context query used older_than_days with value 1
-        flow_url = unquote(str(flow_route.calls[0].request.url))
+        last_call = flow_route.calls.last
+        assert last_call is not None
+        flow_url = unquote(str(last_call.request.url))
         assert "javascript:gs.daysAgoEnd(1)" in flow_url
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_performance_bottlenecks_clamps_negative_hours_to_one(self, settings, auth_provider):
+    async def test_performance_bottlenecks_clamps_negative_hours_to_one(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """performance_bottlenecks run() with hours=-5 clamps to 1."""
-        from urllib.parse import unquote
 
-        from servicenow_mcp.auth import BasicAuthProvider
         from servicenow_mcp.client import ServiceNowClient
         from servicenow_mcp.investigations import performance_bottlenecks
 
@@ -2180,11 +2180,12 @@ class TestClampingMinimumOne:
             return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
         )
 
-        auth = BasicAuthProvider(settings)
-        async with ServiceNowClient(settings, auth) as client:
+        async with ServiceNowClient(settings, auth_provider) as client:
             result = await performance_bottlenecks.run(client, {"hours": -5})
 
         assert result["params"]["hours"] == 1
         # Verify the sys_script query used hours_ago with value 1
-        script_url = unquote(str(sys_script_route.calls[0].request.url))
+        last_call = sys_script_route.calls.last
+        assert last_call is not None
+        script_url = unquote(str(last_call.request.url))
         assert "javascript:gs.hoursAgoStart(1)" in script_url

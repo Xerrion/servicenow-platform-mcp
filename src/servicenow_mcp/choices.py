@@ -75,6 +75,11 @@ class ChoiceRegistry:
         },
     }
 
+    _settings: Settings
+    _auth_provider: BasicAuthProvider
+    _fetched: bool
+    _lock: asyncio.Lock
+
     def __init__(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         self._settings = settings
         self._auth_provider = auth_provider

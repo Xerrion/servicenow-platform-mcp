@@ -1,6 +1,7 @@
 """CMDB domain tools for ServiceNow MCP server."""
 
 import re
+from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
@@ -201,12 +202,17 @@ def register_tools(
         check_table_access("cmdb_ci")
 
         async with ServiceNowClient(settings, auth_provider) as client:
-            result = await client.aggregate(
+            aggregate_result: Any = await client.aggregate(
                 table="cmdb_ci",
                 query="",
                 group_by="sys_class_name",
             )
-            return format_response(data=result, correlation_id=correlation_id)
+            if isinstance(aggregate_result, list):
+                return format_response(data=aggregate_result[:limit], correlation_id=correlation_id)
+
+            groups = aggregate_result.get("group_by", [])
+            truncated = groups[:limit]
+            return format_response(data={**aggregate_result, "group_by": truncated}, correlation_id=correlation_id)
 
     @mcp.tool()
     @tool_handler

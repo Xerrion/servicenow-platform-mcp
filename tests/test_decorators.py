@@ -9,6 +9,7 @@ from toon_format import decode as toon_decode
 from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.errors import ForbiddenError
 from servicenow_mcp.utils import format_response
+from tests.helpers import get_registered_tools
 
 
 class TestToolHandler:
@@ -26,6 +27,7 @@ class TestToolHandler:
         result = await my_tool("incident")
         assert captured["correlation_id"]  # non-empty UUID
         parsed = toon_decode(result)
+        assert isinstance(parsed, dict)
         assert parsed["status"] == "success"
         assert parsed["correlation_id"] == captured["correlation_id"]
 
@@ -45,20 +47,20 @@ class TestToolHandler:
         """The correlation_id parameter is hidden from inspect.signature()."""
 
         @tool_handler
-        async def my_tool(table: str, limit: int = 10, *, correlation_id: str) -> str:
+        async def my_tool(_table: str, _limit: int = 10, *, correlation_id: str) -> str:
             return format_response(data=None, correlation_id=correlation_id)
 
         sig = inspect.signature(my_tool)
         param_names = list(sig.parameters.keys())
         assert "correlation_id" not in param_names
-        assert "table" in param_names
-        assert "limit" in param_names
+        assert "_table" in param_names
+        assert "_limit" in param_names
 
     def test_preserves_function_name(self) -> None:
         """functools.wraps preserves __name__ and __doc__."""
 
         @tool_handler
-        async def my_tool(table: str, *, correlation_id: str) -> str:
+        async def my_tool(_table: str, *, correlation_id: str) -> str:
             """My tool docstring."""
             return format_response(data=None, correlation_id=correlation_id)
 
@@ -79,10 +81,12 @@ class TestToolHandler:
 
         @tool_handler
         async def my_tool(*, correlation_id: str) -> str:
+            _ = correlation_id
             raise ValueError("something broke")
 
         result = await my_tool()
         parsed = toon_decode(result)
+        assert isinstance(parsed, dict)
         assert parsed["status"] == "error"
         assert "something broke" in parsed["error"]["message"]
 
@@ -91,10 +95,12 @@ class TestToolHandler:
 
         @tool_handler
         async def my_tool(*, correlation_id: str) -> str:
+            _ = correlation_id
             raise ForbiddenError("ACL blocked")
 
         result = await my_tool()
         parsed = toon_decode(result)
+        assert isinstance(parsed, dict)
         assert parsed["status"] == "error"
         assert "Access denied" in parsed["error"]["message"] or "ACL" in parsed["error"]["message"]
 
@@ -143,7 +149,7 @@ class TestToolHandler:
             return format_response(data={"table": table}, correlation_id=correlation_id)
 
         # Check the tool was registered
-        tools = {t.name: t for t in mcp._tool_manager._tools.values()}
+        tools = get_registered_tools(mcp)
         assert "test_tool" in tools
 
         # Check the schema does NOT contain correlation_id
@@ -155,5 +161,6 @@ class TestToolHandler:
         # Check calling the tool works
         result = await tool.fn("my_table")
         parsed = toon_decode(result)
+        assert isinstance(parsed, dict)
         assert parsed["status"] == "success"
         assert parsed["data"]["table"] == "my_table"

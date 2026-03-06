@@ -3,18 +3,14 @@
     "basedpyright": {
       "binary": {
         "path": "basedpyright-langserver",
-        "arguments": [
-          "--stdio"
-        ]
-      }
+        "arguments": ["--stdio"],
+      },
     },
     "ruff": {
       "binary": {
         "path": "ruff server",
-        "arguments": [
-          "--stdio"
-        ]
-      }
-    }
-  }
+        "arguments": ["--stdio"],
+      },
+    },
+  },
 }

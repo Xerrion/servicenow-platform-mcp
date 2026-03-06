@@ -7,6 +7,7 @@ import pytest
 
 from servicenow_mcp.packages import PACKAGE_REGISTRY
 from servicenow_mcp.server import create_mcp_server
+from tests.helpers import get_registered_tools, get_tool_names
 
 
 pytestmark = pytest.mark.integration
@@ -42,7 +43,7 @@ class TestPackageLoading:
         """Verify each package loads the expected number of tools."""
         with patch.dict(os.environ, {"MCP_TOOL_PACKAGE": package_name}):
             mcp = create_mcp_server()
-            tool_count = len(mcp._tool_manager._tools)  # type: ignore[attr-defined]
+            tool_count = len(get_registered_tools(mcp))
         assert tool_count == expected_count, (
             f"Package '{package_name}' loaded {tool_count} tools, expected {expected_count}"
         )
@@ -56,7 +57,7 @@ class TestPackageLoading:
         """Verify no duplicate tool names within a package."""
         with patch.dict(os.environ, {"MCP_TOOL_PACKAGE": package_name}):
             mcp = create_mcp_server()
-            tool_names = list(mcp._tool_manager._tools.keys())  # type: ignore[attr-defined]
+            tool_names = get_tool_names(mcp)
         assert len(tool_names) == len(set(tool_names)), (
             f"Package '{package_name}' has duplicate tool names: {[n for n in tool_names if tool_names.count(n) > 1]}"
         )
@@ -75,7 +76,7 @@ class TestPackageLoading:
         """Verify that list_tool_packages is registered in every package including 'none'."""
         with patch.dict(os.environ, {"MCP_TOOL_PACKAGE": "none"}):
             mcp = create_mcp_server()
-            tool_names = list(mcp._tool_manager._tools.keys())  # type: ignore[attr-defined]
+            tool_names = get_tool_names(mcp)
         assert "list_tool_packages" in tool_names
 
     @pytest.mark.parametrize(
@@ -95,7 +96,7 @@ class TestPackageLoading:
         """Verify comma-separated group syntax creates a working server."""
         with patch.dict(os.environ, {"MCP_TOOL_PACKAGE": groups_csv}):
             mcp = create_mcp_server()
-            tool_count = len(mcp._tool_manager._tools)  # type: ignore[attr-defined]
+            tool_count = len(get_registered_tools(mcp))
         # At minimum: list_tool_packages + at least one tool from each group
         assert tool_count > 1, f"Comma-separated groups '{groups_csv}' loaded only {tool_count} tools"
 
@@ -103,7 +104,7 @@ class TestPackageLoading:
         """Verify the 'full' package includes all 32 domain tools."""
         with patch.dict(os.environ, {"MCP_TOOL_PACKAGE": "full"}):
             mcp = create_mcp_server()
-            tool_names = set(mcp._tool_manager._tools.keys())  # type: ignore[attr-defined]
+            tool_names = set(get_tool_names(mcp))
 
         domain_tools = {
             # Incident domain (6)

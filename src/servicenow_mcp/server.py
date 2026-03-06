@@ -8,6 +8,7 @@ from mcp.server.fastmcp import FastMCP
 from servicenow_mcp.auth import create_auth
 from servicenow_mcp.choices import ChoiceRegistry
 from servicenow_mcp.config import Settings
+from servicenow_mcp.mcp_state import attach_servicenow_state
 from servicenow_mcp.packages import (
     _TOOL_GROUP_MODULES,
     get_package,
@@ -27,15 +28,9 @@ def create_mcp_server() -> FastMCP:
 
     mcp = FastMCP("servicenow-dev-debug")
 
-    # Store settings and client factory on the server for tools to access
-    mcp._sn_settings = settings  # type: ignore[attr-defined]
-    mcp._sn_auth = auth_provider  # type: ignore[attr-defined]
-
     query_store = QueryTokenStore()
-    mcp._sn_query_store = query_store  # type: ignore[attr-defined]
-
     choices = ChoiceRegistry(settings, auth_provider)
-    mcp._sn_choices = choices  # type: ignore[attr-defined]
+    attach_servicenow_state(mcp, settings, auth_provider, query_store, choices)
 
     # Always register the list_tool_packages tool
     @mcp.tool()

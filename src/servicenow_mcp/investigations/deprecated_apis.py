@@ -66,7 +66,7 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
     )
 
 
-def _build_explanation(table: str, sys_id: str, record: dict[str, Any]) -> list[str]:
+def _build_explanation(table: str, _sys_id: str, record: dict[str, Any]) -> list[str]:
     """Build explanation parts for a deprecated API finding."""
     return [
         f"Script '{record.get('name', '')}' in table '{table}' uses deprecated API patterns.",

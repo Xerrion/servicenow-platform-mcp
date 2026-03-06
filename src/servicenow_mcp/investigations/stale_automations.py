@@ -131,8 +131,10 @@ def _build_explanation(table: str, sys_id: str, record: dict[str, Any]) -> list[
 
     if table == "flow_context":
         explanation_parts.append(
-            f"Flow '{record.get('name', '')}' has been in state "
-            f"'{record.get('state', '')}' since {record.get('sys_created_on', '')}."
+            (  # noqa: UP034
+                f"Flow '{record.get('name', '')}' has been in state "
+                f"'{record.get('state', '')}' since {record.get('sys_created_on', '')}."
+            )
         )
         explanation_parts.append(
             "Consider cancelling this flow if it is no longer needed, or investigate why it is stuck."

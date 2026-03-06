@@ -16,6 +16,8 @@ class _BaseTokenStore:
     """
 
     _store_label: str = "Token"
+    _ttl: int
+    _max_size: int
 
     def __init__(self, ttl_seconds: int = 300, max_size: int = 1000) -> None:
         self._ttl = ttl_seconds
@@ -70,7 +72,7 @@ class PreviewTokenStore(_BaseTokenStore):
     Expired tokens are automatically rejected on get/consume.
     """
 
-    _store_label = "Preview token"
+    _store_label: str = "Preview token"
 
     def consume(self, token: str) -> dict[str, Any] | None:
         """Return the payload and remove the token. Returns None if expired/missing."""
@@ -88,4 +90,4 @@ class QueryTokenStore(_BaseTokenStore):
     Expired tokens are automatically rejected on get.
     """
 
-    _store_label = "Query token"
+    _store_label: str = "Query token"

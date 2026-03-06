@@ -1,9 +1,10 @@
 """Configuration settings for the ServiceNow MCP server."""
 
 from functools import cached_property
+from typing import ClassVar
 
 from pydantic import SecretStr, field_validator
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 _DEFAULT_LARGE_TABLES = "syslog,sys_audit,sys_log_transaction,sys_email_log"
@@ -20,12 +21,12 @@ class Settings(BaseSettings):
     max_row_limit: int = 100
     large_table_names_csv: str = _DEFAULT_LARGE_TABLES
 
-    model_config = {
-        "env_file": [".env", ".env.local"],
-        "env_file_encoding": "utf-8",
-        "env_prefix": "",
-        "extra": "ignore",
-    }
+    model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(
+        env_file=[".env", ".env.local"],
+        env_file_encoding="utf-8",
+        env_prefix="",
+        extra="ignore",
+    )
 
     @field_validator("servicenow_instance_url")
     @classmethod

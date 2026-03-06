@@ -24,6 +24,9 @@ _ATF_PLUGIN_ERROR = "ATF Cloud Runner plugin (sn_atf_tg) may not be installed"
 class ServiceNowClient:
     """Async HTTP client for the ServiceNow REST API."""
 
+    _settings: Settings
+    _auth_provider: BasicAuthProvider
+
     def __init__(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         self._settings = settings
         self._auth_provider = auth_provider

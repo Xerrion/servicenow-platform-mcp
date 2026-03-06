@@ -1,23 +1,26 @@
 """Tests for documentation tools (docs_logic_map, docs_artifact_summary, docs_test_scenarios, docs_review_notes)."""
 
+from typing import Any
+
 import httpx
 import pytest
 import respx
-from toon_format import decode as toon_decode
 
 from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp.config import Settings
+from tests.helpers import decode_response, get_tool_functions
 
 
 BASE_URL = "https://test.service-now.com"
 
 
 @pytest.fixture()
-def auth_provider(settings):
+def auth_provider(settings: Settings) -> BasicAuthProvider:
     """Create a BasicAuthProvider from test settings."""
     return BasicAuthProvider(settings)
 
 
-def _register_and_get_tools(settings, auth_provider):
+def _register_and_get_tools(settings: Settings, auth_provider: BasicAuthProvider) -> dict[str, Any]:
     """Helper: register documentation tools on a fresh MCP server and return tool map."""
     from mcp.server.fastmcp import FastMCP
 
@@ -25,7 +28,7 @@ def _register_and_get_tools(settings, auth_provider):
 
     mcp = FastMCP("test")
     register_tools(mcp, settings, auth_provider)
-    return {t.name: t.fn for t in mcp._tool_manager._tools.values()}
+    return get_tool_functions(mcp)
 
 
 # ── docs_logic_map ────────────────────────────────────────────────────────
@@ -36,7 +39,7 @@ class TestDocsLogicMap:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_returns_lifecycle_map(self, settings, auth_provider):
+    async def test_returns_lifecycle_map(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns automation grouped by lifecycle phase."""
         # Business rules
         respx.get(f"{BASE_URL}/api/now/table/sys_script").mock(
@@ -95,7 +98,7 @@ class TestDocsLogicMap:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["docs_logic_map"](table="incident")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         data = result["data"]
@@ -106,7 +109,7 @@ class TestDocsLogicMap:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_empty_table_no_automation(self, settings, auth_provider):
+    async def test_empty_table_no_automation(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Table with no automation returns empty phases."""
         for table in [
             "sys_script",
@@ -120,14 +123,16 @@ class TestDocsLogicMap:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["docs_logic_map"](table="custom_table")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["total_automations"] == 0
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_br_delete_action_and_no_operations(self, settings, auth_provider):
+    async def test_br_delete_action_and_no_operations(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """Covers delete action branch and fallback to 'all' when no operations are set."""
         respx.get(f"{BASE_URL}/api/now/table/sys_script").mock(
             return_value=httpx.Response(
@@ -169,7 +174,7 @@ class TestDocsLogicMap:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["docs_logic_map"](table="incident")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         phases = result["data"]["phases"]
@@ -180,7 +185,9 @@ class TestDocsLogicMap:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_ui_policies_and_ui_actions_populated(self, settings, auth_provider):
+    async def test_ui_policies_and_ui_actions_populated(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """Covers non-empty UI policies and UI actions phases."""
         respx.get(f"{BASE_URL}/api/now/table/sys_script").mock(
             return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
@@ -222,7 +229,7 @@ class TestDocsLogicMap:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["docs_logic_map"](table="incident")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         phases = result["data"]["phases"]
@@ -241,7 +248,9 @@ class TestDocsArtifactSummary:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_returns_summary_with_dependencies(self, settings, auth_provider):
+    async def test_returns_summary_with_dependencies(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """Returns artifact summary with referenced tables and referenced_by."""
         # Get the artifact
         respx.get(f"{BASE_URL}/api/now/table/sys_script/br001").mock(
@@ -268,7 +277,7 @@ class TestDocsArtifactSummary:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["docs_artifact_summary"](artifact_type="business_rule", sys_id="br001")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         data = result["data"]
@@ -278,7 +287,7 @@ class TestDocsArtifactSummary:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_not_found_returns_error(self, settings, auth_provider):
+    async def test_not_found_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns error for non-existent artifact."""
         respx.get(f"{BASE_URL}/api/now/table/sys_script/bad_id").mock(
             return_value=httpx.Response(404, json={"error": {"message": "Not found"}})
@@ -286,16 +295,18 @@ class TestDocsArtifactSummary:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["docs_artifact_summary"](artifact_type="business_rule", sys_id="bad_id")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
 
     @pytest.mark.asyncio()
-    async def test_invalid_artifact_type_returns_error(self, settings, auth_provider):
+    async def test_invalid_artifact_type_returns_error(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """Unknown artifact_type returns an error with valid types listed."""
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["docs_artifact_summary"](artifact_type="bogus_type", sys_id="abc123")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
         assert "bogus_type" in result["error"]["message"]
@@ -303,7 +314,7 @@ class TestDocsArtifactSummary:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_code_search_failure_is_silent(self, settings, auth_provider):
+    async def test_code_search_failure_is_silent(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Code search exception is caught silently; referenced_by is empty."""
         respx.get(f"{BASE_URL}/api/now/table/sys_script/br_search_fail").mock(
             return_value=httpx.Response(
@@ -326,7 +337,7 @@ class TestDocsArtifactSummary:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["docs_artifact_summary"](artifact_type="business_rule", sys_id="br_search_fail")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["referenced_by"] == []
@@ -334,7 +345,7 @@ class TestDocsArtifactSummary:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_masks_sensitive_fields(self, settings, auth_provider):
+    async def test_masks_sensitive_fields(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Sensitive fields in the artifact record are masked in the response."""
         respx.get(f"{BASE_URL}/api/now/table/sys_script/br_sensitive").mock(
             return_value=httpx.Response(
@@ -361,7 +372,7 @@ class TestDocsArtifactSummary:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["docs_artifact_summary"](artifact_type="business_rule", sys_id="br_sensitive")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         artifact = result["data"]["artifact"]
@@ -382,7 +393,7 @@ class TestDocsTestScenarios:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_detects_condition_branches(self, settings, auth_provider):
+    async def test_detects_condition_branches(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Detects if/else conditions and suggests test scenarios."""
         respx.get(f"{BASE_URL}/api/now/table/sys_script/br001").mock(
             return_value=httpx.Response(
@@ -400,7 +411,7 @@ class TestDocsTestScenarios:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["docs_test_scenarios"](artifact_type="business_rule", sys_id="br001")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert len(result["data"]["scenarios"]) >= 1
@@ -410,7 +421,7 @@ class TestDocsTestScenarios:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_detects_insert_vs_update(self, settings, auth_provider):
+    async def test_detects_insert_vs_update(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Detects insert/update operation checks."""
         respx.get(f"{BASE_URL}/api/now/table/sys_script/br002").mock(
             return_value=httpx.Response(
@@ -428,7 +439,7 @@ class TestDocsTestScenarios:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["docs_test_scenarios"](artifact_type="business_rule", sys_id="br002")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         scenario_names = [s["scenario"] for s in result["data"]["scenarios"]]
@@ -436,7 +447,7 @@ class TestDocsTestScenarios:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_empty_script_returns_generic(self, settings, auth_provider):
+    async def test_empty_script_returns_generic(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Empty script returns generic suggestions."""
         respx.get(f"{BASE_URL}/api/now/table/sys_script/br003").mock(
             return_value=httpx.Response(
@@ -454,18 +465,20 @@ class TestDocsTestScenarios:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["docs_test_scenarios"](artifact_type="business_rule", sys_id="br003")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         # Should still return at least generic scenarios
         assert len(result["data"]["scenarios"]) >= 1
 
     @pytest.mark.asyncio()
-    async def test_invalid_artifact_type_returns_error(self, settings, auth_provider):
+    async def test_invalid_artifact_type_returns_error(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """Unknown artifact_type returns an error with valid types listed."""
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["docs_test_scenarios"](artifact_type="bogus_type", sys_id="abc123")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
         assert "bogus_type" in result["error"]["message"]
@@ -473,7 +486,7 @@ class TestDocsTestScenarios:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_detects_delete_operation(self, settings, auth_provider):
+    async def test_detects_delete_operation(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Detects delete operation check in script."""
         respx.get(f"{BASE_URL}/api/now/table/sys_script/br_del").mock(
             return_value=httpx.Response(
@@ -491,7 +504,7 @@ class TestDocsTestScenarios:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["docs_test_scenarios"](artifact_type="business_rule", sys_id="br_del")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         scenario_names = [s["scenario"] for s in result["data"]["scenarios"]]
@@ -499,7 +512,7 @@ class TestDocsTestScenarios:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_detects_is_new_record(self, settings, auth_provider):
+    async def test_detects_is_new_record(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Detects isNewRecord() check in script."""
         respx.get(f"{BASE_URL}/api/now/table/sys_script/br_new").mock(
             return_value=httpx.Response(
@@ -517,7 +530,7 @@ class TestDocsTestScenarios:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["docs_test_scenarios"](artifact_type="business_rule", sys_id="br_new")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         scenario_names = [s["scenario"] for s in result["data"]["scenarios"]]
@@ -525,7 +538,7 @@ class TestDocsTestScenarios:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_detects_role_check(self, settings, auth_provider):
+    async def test_detects_role_check(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Detects gs.hasRole() check in script."""
         respx.get(f"{BASE_URL}/api/now/table/sys_script/br_role").mock(
             return_value=httpx.Response(
@@ -543,7 +556,7 @@ class TestDocsTestScenarios:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["docs_test_scenarios"](artifact_type="business_rule", sys_id="br_role")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         scenario_names = [s["scenario"] for s in result["data"]["scenarios"]]
@@ -551,7 +564,7 @@ class TestDocsTestScenarios:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_detects_abort_action(self, settings, auth_provider):
+    async def test_detects_abort_action(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Detects setAbortAction(true) in script."""
         respx.get(f"{BASE_URL}/api/now/table/sys_script/br_abort").mock(
             return_value=httpx.Response(
@@ -569,7 +582,7 @@ class TestDocsTestScenarios:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["docs_test_scenarios"](artifact_type="business_rule", sys_id="br_abort")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         scenario_names = [s["scenario"] for s in result["data"]["scenarios"]]
@@ -577,7 +590,7 @@ class TestDocsTestScenarios:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_detects_gliderecord_dependency(self, settings, auth_provider):
+    async def test_detects_gliderecord_dependency(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Detects GlideRecord table dependencies in script."""
         respx.get(f"{BASE_URL}/api/now/table/sys_script/br_gr").mock(
             return_value=httpx.Response(
@@ -595,7 +608,7 @@ class TestDocsTestScenarios:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["docs_test_scenarios"](artifact_type="business_rule", sys_id="br_gr")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         scenario_names = [s["scenario"] for s in result["data"]["scenarios"]]
@@ -603,7 +616,7 @@ class TestDocsTestScenarios:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_no_patterns_returns_generic(self, settings, auth_provider):
+    async def test_no_patterns_returns_generic(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Script with no detectable patterns returns generic fallback scenario."""
         # Use a non-empty script that matches none of the detection patterns
         respx.get(f"{BASE_URL}/api/now/table/sys_script/br_plain").mock(
@@ -622,7 +635,7 @@ class TestDocsTestScenarios:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["docs_test_scenarios"](artifact_type="business_rule", sys_id="br_plain")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["scenario_count"] >= 1
@@ -631,7 +644,7 @@ class TestDocsTestScenarios:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_masks_sensitive_fields_in_record(self, settings, auth_provider):
+    async def test_masks_sensitive_fields_in_record(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Sensitive fields in the artifact record are masked before generating scenarios."""
         respx.get(f"{BASE_URL}/api/now/table/sys_script/br_sensitive").mock(
             return_value=httpx.Response(
@@ -650,7 +663,7 @@ class TestDocsTestScenarios:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["docs_test_scenarios"](artifact_type="business_rule", sys_id="br_sensitive")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         # The artifact name in response should reflect the masked record
@@ -666,11 +679,13 @@ class TestDocsReviewNotes:
     """Tests for the docs_review_notes tool."""
 
     @pytest.mark.asyncio()
-    async def test_invalid_artifact_type_returns_error(self, settings, auth_provider):
+    async def test_invalid_artifact_type_returns_error(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """Unknown artifact_type returns an error with valid types listed."""
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["docs_review_notes"](artifact_type="bogus_type", sys_id="abc123")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
         assert "bogus_type" in result["error"]["message"]
@@ -678,7 +693,7 @@ class TestDocsReviewNotes:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_empty_script_no_findings(self, settings, auth_provider):
+    async def test_empty_script_no_findings(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Empty script returns empty findings list."""
         respx.get(f"{BASE_URL}/api/now/table/sys_script/br_empty").mock(
             return_value=httpx.Response(
@@ -696,7 +711,7 @@ class TestDocsReviewNotes:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["docs_review_notes"](artifact_type="business_rule", sys_id="br_empty")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["findings"] == []
@@ -704,7 +719,7 @@ class TestDocsReviewNotes:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_detects_current_update(self, settings, auth_provider):
+    async def test_detects_current_update(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Detects current.update() anti-pattern in script."""
         script = "current.state = 2;\ncurrent.update();"
         respx.get(f"{BASE_URL}/api/now/table/sys_script/br_cupd").mock(
@@ -723,7 +738,7 @@ class TestDocsReviewNotes:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["docs_review_notes"](artifact_type="business_rule", sys_id="br_cupd")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         categories = [f["category"] for f in result["data"]["findings"]]
@@ -731,7 +746,7 @@ class TestDocsReviewNotes:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_detects_gliderecord_in_loop(self, settings, auth_provider):
+    async def test_detects_gliderecord_in_loop(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Detects GlideRecord query inside a loop."""
         script = (
             "var gr = new GlideRecord('task');\n"
@@ -757,7 +772,7 @@ class TestDocsReviewNotes:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["docs_review_notes"](artifact_type="business_rule", sys_id="br001")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         findings = result["data"]["findings"]
@@ -767,7 +782,7 @@ class TestDocsReviewNotes:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_detects_hardcoded_sysid(self, settings, auth_provider):
+    async def test_detects_hardcoded_sysid(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Detects hardcoded 32-char hex sys_ids in script."""
         script = "var user = gs.getUser('6816f79cc0a8016401c5a33be04be441');"
         respx.get(f"{BASE_URL}/api/now/table/sys_script/br002").mock(
@@ -786,7 +801,7 @@ class TestDocsReviewNotes:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["docs_review_notes"](artifact_type="business_rule", sys_id="br002")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         categories = [f["category"] for f in result["data"]["findings"]]
@@ -794,7 +809,7 @@ class TestDocsReviewNotes:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_clean_script_no_findings(self, settings, auth_provider):
+    async def test_clean_script_no_findings(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Clean script returns no findings."""
         script = "current.state = 2;"
         respx.get(f"{BASE_URL}/api/now/table/sys_script/br003").mock(
@@ -813,14 +828,14 @@ class TestDocsReviewNotes:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["docs_review_notes"](artifact_type="business_rule", sys_id="br003")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert len(result["data"]["findings"]) == 0
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_masks_sensitive_fields_in_record(self, settings, auth_provider):
+    async def test_masks_sensitive_fields_in_record(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Sensitive fields in the artifact record are masked before scanning."""
         respx.get(f"{BASE_URL}/api/now/table/sys_script/br_sensitive").mock(
             return_value=httpx.Response(
@@ -840,7 +855,7 @@ class TestDocsReviewNotes:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["docs_review_notes"](artifact_type="business_rule", sys_id="br_sensitive")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         # The artifact name in response should be present
@@ -848,7 +863,7 @@ class TestDocsReviewNotes:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_loop_truncated_at_eof(self, settings, auth_provider):
+    async def test_loop_truncated_at_eof(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Loop condition at EOF with no body is silently skipped."""
         script = "var gr = new GlideRecord('task');\ngr.query();\nwhile (gr.next())   "
         respx.get(f"{BASE_URL}/api/now/table/sys_script/br002").mock(
@@ -867,7 +882,7 @@ class TestDocsReviewNotes:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["docs_review_notes"](artifact_type="business_rule", sys_id="br002")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         categories = [f["category"] for f in result["data"]["findings"]]

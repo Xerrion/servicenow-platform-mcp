@@ -1,21 +1,22 @@
 """Tests for Service Catalog domain tools."""
 
+from typing import Any
 from unittest.mock import patch
 
 import pytest
 import respx
 from httpx import Response
-from toon_format import decode as toon_decode
 
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.config import Settings
+from tests.helpers import decode_response, get_tool_functions
 
 
 BASE_URL = "https://test.service-now.com"
 SC_BASE = f"{BASE_URL}/api/sn_sc/servicecatalog"
 
 
-def _register_and_get_tools(settings: Settings, auth_provider: BasicAuthProvider) -> dict:
+def _register_and_get_tools(settings: Settings, auth_provider: BasicAuthProvider) -> dict[str, Any]:
     """Helper to register service catalog tools and extract callables."""
     from mcp.server.fastmcp import FastMCP
 
@@ -27,7 +28,7 @@ def _register_and_get_tools(settings: Settings, auth_provider: BasicAuthProvider
     choices._fetched = True
     choices._cache = {k: dict(v) for k, v in ChoiceRegistry._DEFAULTS.items()}
     register_tools(mcp, settings, auth_provider, choices=choices)
-    return {t.name: t.fn for t in mcp._tool_manager._tools.values()}
+    return get_tool_functions(mcp)
 
 
 # ── Catalog List ─────────────────────────────────────────────────────────
@@ -38,7 +39,7 @@ class TestScCatalogsList:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_list_defaults(self, settings, auth_provider):
+    async def test_list_defaults(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Should list catalogs with default parameters."""
         respx.get(f"{SC_BASE}/catalogs").mock(
             return_value=Response(
@@ -54,7 +55,7 @@ class TestScCatalogsList:
 
         tools = _register_and_get_tools(settings, auth_provider)
         result = await tools["sc_catalogs_list"]()
-        data = toon_decode(result)
+        data = decode_response(result)
 
         assert data["status"] == "success"
         assert len(data["data"]) == 2
@@ -62,7 +63,7 @@ class TestScCatalogsList:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_list_with_text_filter(self, settings, auth_provider):
+    async def test_list_with_text_filter(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Should pass text search parameter."""
         respx.get(f"{SC_BASE}/catalogs").mock(return_value=Response(200, json={"result": []}))
 
@@ -74,7 +75,7 @@ class TestScCatalogsList:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_list_with_limit(self, settings, auth_provider):
+    async def test_list_with_limit(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Should pass limit parameter."""
         respx.get(f"{SC_BASE}/catalogs").mock(return_value=Response(200, json={"result": []}))
 
@@ -93,7 +94,7 @@ class TestScCatalogGet:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_get_catalog(self, settings, auth_provider):
+    async def test_get_catalog(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Should fetch a specific catalog by sys_id."""
         respx.get(f"{SC_BASE}/catalogs/cat123").mock(
             return_value=Response(
@@ -104,7 +105,7 @@ class TestScCatalogGet:
 
         tools = _register_and_get_tools(settings, auth_provider)
         result = await tools["sc_catalog_get"](sys_id="cat123")
-        data = toon_decode(result)
+        data = decode_response(result)
 
         assert data["status"] == "success"
         assert data["data"]["sys_id"] == "cat123"
@@ -119,7 +120,7 @@ class TestScCategoriesList:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_list_categories(self, settings, auth_provider):
+    async def test_list_categories(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Should list categories for a catalog."""
         respx.get(f"{SC_BASE}/catalogs/cat123/categories").mock(
             return_value=Response(
@@ -135,7 +136,7 @@ class TestScCategoriesList:
 
         tools = _register_and_get_tools(settings, auth_provider)
         result = await tools["sc_categories_list"](catalog_sys_id="cat123")
-        data = toon_decode(result)
+        data = decode_response(result)
 
         assert data["status"] == "success"
         assert len(data["data"]) == 2
@@ -143,7 +144,7 @@ class TestScCategoriesList:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_list_categories_with_pagination(self, settings, auth_provider):
+    async def test_list_categories_with_pagination(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Should pass limit and offset parameters."""
         respx.get(f"{SC_BASE}/catalogs/cat123/categories").mock(return_value=Response(200, json={"result": []}))
 
@@ -157,7 +158,7 @@ class TestScCategoriesList:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_list_categories_top_level_only(self, settings, auth_provider):
+    async def test_list_categories_top_level_only(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Should pass top_level_only parameter."""
         respx.get(f"{SC_BASE}/catalogs/cat123/categories").mock(return_value=Response(200, json={"result": []}))
 
@@ -176,7 +177,7 @@ class TestScCategoryGet:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_get_category(self, settings, auth_provider):
+    async def test_get_category(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Should fetch a specific category by sys_id."""
         respx.get(f"{SC_BASE}/categories/categ123").mock(
             return_value=Response(
@@ -187,7 +188,7 @@ class TestScCategoryGet:
 
         tools = _register_and_get_tools(settings, auth_provider)
         result = await tools["sc_category_get"](sys_id="categ123")
-        data = toon_decode(result)
+        data = decode_response(result)
 
         assert data["status"] == "success"
         assert data["data"]["sys_id"] == "categ123"
@@ -202,7 +203,7 @@ class TestScItemsList:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_list_items_defaults(self, settings, auth_provider):
+    async def test_list_items_defaults(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Should list catalog items with default parameters."""
         respx.get(f"{SC_BASE}/items").mock(
             return_value=Response(
@@ -218,7 +219,7 @@ class TestScItemsList:
 
         tools = _register_and_get_tools(settings, auth_provider)
         result = await tools["sc_items_list"]()
-        data = toon_decode(result)
+        data = decode_response(result)
 
         assert data["status"] == "success"
         assert len(data["data"]) == 2
@@ -226,7 +227,7 @@ class TestScItemsList:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_list_items_with_filters(self, settings, auth_provider):
+    async def test_list_items_with_filters(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Should pass text, catalog, and category filters."""
         respx.get(f"{SC_BASE}/items").mock(return_value=Response(200, json={"result": []}))
 
@@ -256,7 +257,7 @@ class TestScItemGet:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_get_item(self, settings, auth_provider):
+    async def test_get_item(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Should fetch a specific catalog item by sys_id."""
         respx.get(f"{SC_BASE}/items/item123").mock(
             return_value=Response(
@@ -273,7 +274,7 @@ class TestScItemGet:
 
         tools = _register_and_get_tools(settings, auth_provider)
         result = await tools["sc_item_get"](sys_id="item123")
-        data = toon_decode(result)
+        data = decode_response(result)
 
         assert data["status"] == "success"
         assert data["data"]["sys_id"] == "item123"
@@ -288,7 +289,7 @@ class TestScItemVariables:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_get_variables(self, settings, auth_provider):
+    async def test_get_variables(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Should fetch variables for a catalog item."""
         respx.get(f"{SC_BASE}/items/item123/variables").mock(
             return_value=Response(
@@ -312,7 +313,7 @@ class TestScItemVariables:
 
         tools = _register_and_get_tools(settings, auth_provider)
         result = await tools["sc_item_variables"](sys_id="item123")
-        data = toon_decode(result)
+        data = decode_response(result)
 
         assert data["status"] == "success"
         assert len(data["data"]) == 2
@@ -328,7 +329,9 @@ class TestScOrderNow:
     @pytest.mark.asyncio()
     @respx.mock
     @patch("servicenow_mcp.policy.write_gate", return_value=None)
-    async def test_order_now_no_variables(self, mock_write_gate, settings, auth_provider):
+    async def test_order_now_no_variables(
+        self, _mock_write_gate: Any, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """Should order an item without variables."""
         respx.post(f"{SC_BASE}/items/item123/order_now").mock(
             return_value=Response(
@@ -339,7 +342,7 @@ class TestScOrderNow:
 
         tools = _register_and_get_tools(settings, auth_provider)
         result = await tools["sc_order_now"](item_sys_id="item123")
-        data = toon_decode(result)
+        data = decode_response(result)
 
         assert data["status"] == "success"
         assert data["data"]["number"] == "REQ0010001"
@@ -347,7 +350,9 @@ class TestScOrderNow:
     @pytest.mark.asyncio()
     @respx.mock
     @patch("servicenow_mcp.policy.write_gate", return_value=None)
-    async def test_order_now_with_variables(self, mock_write_gate, settings, auth_provider):
+    async def test_order_now_with_variables(
+        self, _mock_write_gate: Any, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """Should order an item with variables JSON."""
         respx.post(f"{SC_BASE}/items/item123/order_now").mock(
             return_value=Response(
@@ -361,31 +366,20 @@ class TestScOrderNow:
             item_sys_id="item123",
             variables='{"urgency": "1"}',
         )
-        data = toon_decode(result)
+        data = decode_response(result)
 
         assert data["status"] == "success"
         assert data["data"]["number"] == "REQ0010001"
 
     @pytest.mark.asyncio()
-    async def test_order_now_blocked_in_prod(self):
+    async def test_order_now_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider) -> None:
         """Should block ordering in production."""
-        prod_env = {
-            "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
-            "SERVICENOW_USERNAME": "admin",
-            "SERVICENOW_PASSWORD": "password",
-            "MCP_TOOL_PACKAGE": "full",
-            "SERVICENOW_ENV": "prod",
-        }
-        with patch.dict("os.environ", prod_env, clear=True):
-            prod_settings = Settings(_env_file=None)
-            prod_auth = BasicAuthProvider(prod_settings)
+        tools = _register_and_get_tools(prod_settings, prod_auth_provider)
+        result = await tools["sc_order_now"](item_sys_id="item123")
+        data = decode_response(result)
 
-            tools = _register_and_get_tools(prod_settings, prod_auth)
-            result = await tools["sc_order_now"](item_sys_id="item123")
-            data = toon_decode(result)
-
-            assert data["status"] == "error"
-            assert "production" in data["error"]["message"].lower()
+        assert data["status"] == "error"
+        assert "production" in data["error"]["message"].lower()
 
 
 # ── Add to Cart ──────────────────────────────────────────────────────────
@@ -397,7 +391,9 @@ class TestScAddToCart:
     @pytest.mark.asyncio()
     @respx.mock
     @patch("servicenow_mcp.policy.write_gate", return_value=None)
-    async def test_add_to_cart_no_variables(self, mock_write_gate, settings, auth_provider):
+    async def test_add_to_cart_no_variables(
+        self, _mock_write_gate: Any, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """Should add item to cart without variables."""
         respx.post(f"{SC_BASE}/items/item123/add_to_cart").mock(
             return_value=Response(
@@ -408,7 +404,7 @@ class TestScAddToCart:
 
         tools = _register_and_get_tools(settings, auth_provider)
         result = await tools["sc_add_to_cart"](item_sys_id="item123")
-        data = toon_decode(result)
+        data = decode_response(result)
 
         assert data["status"] == "success"
         assert data["data"]["cart_item_id"] == "ci123"
@@ -416,7 +412,9 @@ class TestScAddToCart:
     @pytest.mark.asyncio()
     @respx.mock
     @patch("servicenow_mcp.policy.write_gate", return_value=None)
-    async def test_add_to_cart_with_variables(self, mock_write_gate, settings, auth_provider):
+    async def test_add_to_cart_with_variables(
+        self, _mock_write_gate: Any, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """Should add item to cart with variables JSON."""
         respx.post(f"{SC_BASE}/items/item123/add_to_cart").mock(
             return_value=Response(
@@ -430,31 +428,22 @@ class TestScAddToCart:
             item_sys_id="item123",
             variables='{"quantity": "2"}',
         )
-        data = toon_decode(result)
+        data = decode_response(result)
 
         assert data["status"] == "success"
         assert data["data"]["cart_item_id"] == "ci123"
 
     @pytest.mark.asyncio()
-    async def test_add_to_cart_blocked_in_prod(self):
+    async def test_add_to_cart_blocked_in_prod(
+        self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider
+    ) -> None:
         """Should block add-to-cart in production."""
-        prod_env = {
-            "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
-            "SERVICENOW_USERNAME": "admin",
-            "SERVICENOW_PASSWORD": "password",
-            "MCP_TOOL_PACKAGE": "full",
-            "SERVICENOW_ENV": "prod",
-        }
-        with patch.dict("os.environ", prod_env, clear=True):
-            prod_settings = Settings(_env_file=None)
-            prod_auth = BasicAuthProvider(prod_settings)
+        tools = _register_and_get_tools(prod_settings, prod_auth_provider)
+        result = await tools["sc_add_to_cart"](item_sys_id="item123")
+        data = decode_response(result)
 
-            tools = _register_and_get_tools(prod_settings, prod_auth)
-            result = await tools["sc_add_to_cart"](item_sys_id="item123")
-            data = toon_decode(result)
-
-            assert data["status"] == "error"
-            assert "production" in data["error"]["message"].lower()
+        assert data["status"] == "error"
+        assert "production" in data["error"]["message"].lower()
 
 
 # ── Cart Get ─────────────────────────────────────────────────────────────
@@ -465,7 +454,7 @@ class TestScCartGet:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_get_cart(self, settings, auth_provider):
+    async def test_get_cart(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Should retrieve the current user's cart."""
         respx.get(f"{SC_BASE}/cart").mock(
             return_value=Response(
@@ -483,7 +472,7 @@ class TestScCartGet:
 
         tools = _register_and_get_tools(settings, auth_provider)
         result = await tools["sc_cart_get"]()
-        data = toon_decode(result)
+        data = decode_response(result)
 
         assert data["status"] == "success"
         assert data["data"]["subtotal"] == "$1200"
@@ -498,7 +487,9 @@ class TestScCartSubmit:
     @pytest.mark.asyncio()
     @respx.mock
     @patch("servicenow_mcp.policy.write_gate", return_value=None)
-    async def test_submit_cart(self, mock_write_gate, settings, auth_provider):
+    async def test_submit_cart(
+        self, _mock_write_gate: Any, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """Should submit the cart as an order."""
         respx.post(f"{SC_BASE}/cart/submit_order").mock(
             return_value=Response(
@@ -514,31 +505,22 @@ class TestScCartSubmit:
 
         tools = _register_and_get_tools(settings, auth_provider)
         result = await tools["sc_cart_submit"]()
-        data = toon_decode(result)
+        data = decode_response(result)
 
         assert data["status"] == "success"
         assert data["data"]["request_number"] == "REQ0010001"
 
     @pytest.mark.asyncio()
-    async def test_submit_cart_blocked_in_prod(self):
+    async def test_submit_cart_blocked_in_prod(
+        self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider
+    ) -> None:
         """Should block cart submission in production."""
-        prod_env = {
-            "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
-            "SERVICENOW_USERNAME": "admin",
-            "SERVICENOW_PASSWORD": "password",
-            "MCP_TOOL_PACKAGE": "full",
-            "SERVICENOW_ENV": "prod",
-        }
-        with patch.dict("os.environ", prod_env, clear=True):
-            prod_settings = Settings(_env_file=None)
-            prod_auth = BasicAuthProvider(prod_settings)
+        tools = _register_and_get_tools(prod_settings, prod_auth_provider)
+        result = await tools["sc_cart_submit"]()
+        data = decode_response(result)
 
-            tools = _register_and_get_tools(prod_settings, prod_auth)
-            result = await tools["sc_cart_submit"]()
-            data = toon_decode(result)
-
-            assert data["status"] == "error"
-            assert "production" in data["error"]["message"].lower()
+        assert data["status"] == "error"
+        assert "production" in data["error"]["message"].lower()
 
 
 # ── Cart Checkout ────────────────────────────────────────────────────────
@@ -550,7 +532,9 @@ class TestScCartCheckout:
     @pytest.mark.asyncio()
     @respx.mock
     @patch("servicenow_mcp.policy.write_gate", return_value=None)
-    async def test_checkout_cart(self, mock_write_gate, settings, auth_provider):
+    async def test_checkout_cart(
+        self, _mock_write_gate: Any, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """Should checkout the cart."""
         respx.post(f"{SC_BASE}/cart/checkout").mock(
             return_value=Response(
@@ -566,28 +550,19 @@ class TestScCartCheckout:
 
         tools = _register_and_get_tools(settings, auth_provider)
         result = await tools["sc_cart_checkout"]()
-        data = toon_decode(result)
+        data = decode_response(result)
 
         assert data["status"] == "success"
         assert data["data"]["request_number"] == "REQ0010002"
 
     @pytest.mark.asyncio()
-    async def test_checkout_blocked_in_prod(self):
+    async def test_checkout_blocked_in_prod(
+        self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider
+    ) -> None:
         """Should block checkout in production."""
-        prod_env = {
-            "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
-            "SERVICENOW_USERNAME": "admin",
-            "SERVICENOW_PASSWORD": "password",
-            "MCP_TOOL_PACKAGE": "full",
-            "SERVICENOW_ENV": "prod",
-        }
-        with patch.dict("os.environ", prod_env, clear=True):
-            prod_settings = Settings(_env_file=None)
-            prod_auth = BasicAuthProvider(prod_settings)
+        tools = _register_and_get_tools(prod_settings, prod_auth_provider)
+        result = await tools["sc_cart_checkout"]()
+        data = decode_response(result)
 
-            tools = _register_and_get_tools(prod_settings, prod_auth)
-            result = await tools["sc_cart_checkout"]()
-            data = toon_decode(result)
-
-            assert data["status"] == "error"
-            assert "production" in data["error"]["message"].lower()
+        assert data["status"] == "error"
+        assert "production" in data["error"]["message"].lower()

@@ -31,6 +31,7 @@ class TestValidateNumberPrefix:
         raw = validate_number_prefix("PRB001", "INC", "incident", CID)
         assert raw is not None
         result = toon_decode(raw)
+        assert isinstance(result, dict)
         assert result["status"] == "error"
         assert "Must start with INC prefix" in result["error"]["message"]
 
@@ -38,6 +39,7 @@ class TestValidateNumberPrefix:
         raw = validate_number_prefix("INC001", "CHG", "change request", CID)
         assert raw is not None
         result = toon_decode(raw)
+        assert isinstance(result, dict)
         assert "Invalid change request number" in result["error"]["message"]
 
 
@@ -58,6 +60,7 @@ class TestLookupRecordByNumber:
         assert sys_id == ""
         assert error is not None
         result = toon_decode(error)
+        assert isinstance(result, dict)
         assert result["status"] == "error"
         assert "Incident INC001 not found" in result["error"]["message"]
 
@@ -77,6 +80,7 @@ class TestFetchRecordByNumber:
         client.query_records.return_value = {"records": [{"sys_id": "abc", "short_description": "test"}]}
         raw = await fetch_record_by_number(client, "incident", "INC001", "Incident", CID)
         result = toon_decode(raw)
+        assert isinstance(result, dict)
         assert result["status"] == "success"
         assert result["data"]["short_description"] == "test"
 
@@ -86,6 +90,7 @@ class TestFetchRecordByNumber:
         client.query_records.return_value = {"records": []}
         raw = await fetch_record_by_number(client, "incident", "INC001", "Incident", CID)
         result = toon_decode(raw)
+        assert isinstance(result, dict)
         assert result["status"] == "error"
         assert "Incident INC001 not found" in result["error"]["message"]
 
@@ -112,6 +117,7 @@ class TestValidateIntRange:
         raw = validate_int_range(0, "urgency", 1, 4, CID)
         assert raw is not None
         result = toon_decode(raw)
+        assert isinstance(result, dict)
         assert result["status"] == "error"
         assert "urgency must be between 1 and 4, got 0" in result["error"]["message"]
 
@@ -119,6 +125,7 @@ class TestValidateIntRange:
         raw = validate_int_range(5, "impact", 1, 4, CID)
         assert raw is not None
         result = toon_decode(raw)
+        assert isinstance(result, dict)
         assert "impact must be between 1 and 4, got 5" in result["error"]["message"]
 
 
@@ -130,6 +137,7 @@ class TestValidateRequiredString:
         raw = validate_required_string("", "short_description", CID)
         assert raw is not None
         result = toon_decode(raw)
+        assert isinstance(result, dict)
         assert result["status"] == "error"
         assert "short_description is required and cannot be empty" in result["error"]["message"]
 
@@ -137,6 +145,7 @@ class TestValidateRequiredString:
         raw = validate_required_string("   ", "close_code", CID)
         assert raw is not None
         result = toon_decode(raw)
+        assert isinstance(result, dict)
         assert "close_code is required and cannot be empty" in result["error"]["message"]
 
     def test_none_like_empty(self) -> None:
@@ -153,6 +162,7 @@ class TestValidateNoEmptyChanges:
         raw = validate_no_empty_changes({}, CID)
         assert raw is not None
         result = toon_decode(raw)
+        assert isinstance(result, dict)
         assert result["status"] == "error"
         assert "No fields to update provided" in result["error"]["message"]
 

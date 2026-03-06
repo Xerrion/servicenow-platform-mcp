@@ -708,3 +708,38 @@ class TestProblemRootCause:
 
             assert data["status"] == "error"
             assert "production" in data["error"]["message"].lower()
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_root_cause_whitespace_fix_notes_ignored(self, settings, auth_provider):
+        """Whitespace-only fix_notes should not be included in the update."""
+        respx.get(f"{BASE_URL}/api/now/table/problem").mock(
+            return_value=Response(
+                200,
+                json={"result": [{"sys_id": "abc123", "number": "PRB0010001"}]},
+            )
+        )
+        respx.patch(f"{BASE_URL}/api/now/table/problem/abc123").mock(
+            return_value=Response(
+                200,
+                json={
+                    "result": {
+                        "sys_id": "abc123",
+                        "number": "PRB0010001",
+                        "cause_notes": "Memory leak in module X",
+                    }
+                },
+            )
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        result = await tools["problem_root_cause"](
+            number="PRB0010001",
+            cause_notes="Memory leak in module X",
+            fix_notes="   ",
+        )
+        data = toon_decode(result)
+
+        assert data["status"] == "success"
+        assert data["data"]["cause_notes"] == "Memory leak in module X"
+        assert "fix_notes" not in data["data"]

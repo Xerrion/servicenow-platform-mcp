@@ -559,3 +559,23 @@ class TestBuildQuery:
         raw = tools["build_query"](conditions=conditions)
         result = toon_decode(raw)
         assert result["status"] == "error"
+
+    def test_time_operator_non_integer_value_returns_error(self, settings, auth_provider):
+        """Time operator with non-integer value returns structured error."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = tools["build_query"](
+            conditions='[{"operator": "hours_ago", "field": "sys_created_on", "value": "abc"}]',
+        )
+        result = toon_decode(raw)
+        assert result["status"] == "error"
+        assert "integer" in result["error"]["message"].lower()
+
+    def test_non_string_operator_returns_error(self, settings, auth_provider):
+        """Non-string operator value returns type error."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = tools["build_query"](
+            conditions='[{"operator": 123, "field": "state"}]',
+        )
+        result = toon_decode(raw)
+        assert result["status"] == "error"
+        assert "string" in result["error"]["message"].lower()

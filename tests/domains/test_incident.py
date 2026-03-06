@@ -29,6 +29,17 @@ def _register_and_get_tools(settings: Settings, auth_provider: BasicAuthProvider
     return {t.name: t.fn for t in mcp._tool_manager._tools.values()}
 
 
+def _register_and_get_tools_no_choices(settings: Settings, auth_provider: BasicAuthProvider) -> dict:
+    """Helper to register incident tools without a ChoiceRegistry."""
+    from mcp.server.fastmcp import FastMCP
+
+    from servicenow_mcp.tools.domains.incident import register_tools
+
+    mcp = FastMCP("test")
+    register_tools(mcp, settings, auth_provider, choices=None)
+    return {t.name: t.fn for t in mcp._tool_manager._tools.values()}
+
+
 class TestIncidentList:
     """Tests for incident_list tool."""
 
@@ -575,6 +586,50 @@ class TestIncidentResolve:
 
         assert data["status"] == "error"
         assert "not found" in data["error"]["message"].lower()
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_resolve_without_choices_uses_fallback(self, settings, auth_provider):
+        """Without ChoiceRegistry, resolved state falls back to '6'."""
+        respx.get(f"{BASE_URL}/api/now/table/incident").mock(
+            return_value=Response(
+                200,
+                json={
+                    "result": [
+                        {
+                            "sys_id": "abc123",
+                            "number": "INC0010001",
+                            "state": "2",
+                        }
+                    ]
+                },
+            )
+        )
+        respx.patch(f"{BASE_URL}/api/now/table/incident/abc123").mock(
+            return_value=Response(
+                200,
+                json={
+                    "result": {
+                        "sys_id": "abc123",
+                        "number": "INC0010001",
+                        "state": "6",
+                        "close_code": "Solved (Permanently)",
+                        "close_notes": "Fixed the issue",
+                    }
+                },
+            )
+        )
+
+        tools = _register_and_get_tools_no_choices(settings, auth_provider)
+        result = await tools["incident_resolve"](
+            number="INC0010001",
+            close_code="Solved (Permanently)",
+            close_notes="Fixed the issue",
+        )
+        data = toon_decode(result)
+
+        assert data["status"] == "success"
+        assert data["data"]["state"] == "6"
 
 
 class TestIncidentAddComment:

@@ -845,3 +845,30 @@ class TestDocsReviewNotes:
         assert result["status"] == "success"
         # The artifact name in response should be present
         assert result["data"]["artifact"]["name"] == "Sensitive BR"
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_loop_truncated_at_eof(self, settings, auth_provider):
+        """Loop condition at EOF with no body is silently skipped."""
+        script = "var gr = new GlideRecord('task');\ngr.query();\nwhile (gr.next())   "
+        respx.get(f"{BASE_URL}/api/now/table/sys_script/br002").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "result": {
+                        "sys_id": "br002",
+                        "name": "Truncated BR",
+                        "script": script,
+                        "collection": "incident",
+                    }
+                },
+            )
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["docs_review_notes"](artifact_type="business_rule", sys_id="br002")
+        result = toon_decode(raw)
+
+        assert result["status"] == "success"
+        categories = [f["category"] for f in result["data"]["findings"]]
+        assert "gliderecord_in_loop" not in categories

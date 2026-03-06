@@ -467,7 +467,7 @@ def _scan_for_anti_patterns(script: str) -> list[dict[str, str]]:
         # Find the matching closing paren for the condition
         open_paren = script.find("(", m.start())
         if open_paren == -1:
-            continue
+            continue  # pragma: no cover
         depth = 1
         pos = open_paren + 1
         while pos < len(script) and depth > 0:

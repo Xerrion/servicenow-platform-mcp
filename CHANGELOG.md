@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.7.1](https://github.com/Xerrion/servicenow-devtools-mcp/compare/v0.7.0...v0.7.1) (2026-03-06)
+
+
+### Bug Fixes
+
+* harden input validation in utility, documentation, and knowledge tools ([#61](https://github.com/Xerrion/servicenow-devtools-mcp/issues/61)) ([05cbebc](https://github.com/Xerrion/servicenow-devtools-mcp/commit/05cbebc3313e4ea1a7e335211fda1068b4699cf5))
+* resolve 22 SonarQube quick-win issues ([#59](https://github.com/Xerrion/servicenow-devtools-mcp/issues/59)) ([6399ba2](https://github.com/Xerrion/servicenow-devtools-mcp/commit/6399ba264b8959c6b27ea097aab60d0f71de662d))
+
+
+### Documentation
+
+* comprehensive README.md rewrite with all 86 tools ([#55](https://github.com/Xerrion/servicenow-devtools-mcp/issues/55)) ([ab5c498](https://github.com/Xerrion/servicenow-devtools-mcp/commit/ab5c4987ef340118d1eb51b4e9668dabbaa78c88))
+
 ## [0.7.0](https://github.com/Xerrion/servicenow-devtools-mcp/compare/v0.6.0...v0.7.0) (2026-03-05)
 
 

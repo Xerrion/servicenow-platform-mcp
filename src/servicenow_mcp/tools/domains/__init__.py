@@ -7,7 +7,7 @@ Each domain module provides a curated set of tools with explicit parameters
 for common workflows, complementing the generic table tools.
 """
 
-from . import change, cmdb, incident, knowledge, problem, request, service_catalog
+from servicenow_mcp.tools.domains import change, cmdb, incident, knowledge, problem, request, service_catalog
 
 
 __all__ = ["change", "cmdb", "incident", "knowledge", "problem", "request", "service_catalog"]

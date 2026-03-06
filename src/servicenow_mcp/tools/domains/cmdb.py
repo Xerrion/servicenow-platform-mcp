@@ -10,7 +10,7 @@ from servicenow_mcp.choices import ChoiceRegistry
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
-from servicenow_mcp.policy import check_table_access, mask_sensitive_fields
+from servicenow_mcp.policy import check_table_access, enforce_query_safety, mask_sensitive_fields
 from servicenow_mcp.utils import ServiceNowQuery, format_response
 
 
@@ -200,6 +200,8 @@ def register_tools(
             limit: Maximum number of classes to return (default 50)
         """
         check_table_access("cmdb_ci")
+        safety = enforce_query_safety("cmdb_ci", "", limit, settings)
+        effective_limit = safety["limit"]
 
         async with ServiceNowClient(settings, auth_provider) as client:
             aggregate_result: Any = await client.aggregate(
@@ -208,10 +210,10 @@ def register_tools(
                 group_by="sys_class_name",
             )
             if isinstance(aggregate_result, list):
-                return format_response(data=aggregate_result[:limit], correlation_id=correlation_id)
+                return format_response(data=aggregate_result[:effective_limit], correlation_id=correlation_id)
 
             groups = aggregate_result.get("group_by", [])
-            truncated = groups[:limit]
+            truncated = groups[:effective_limit]
             return format_response(data={**aggregate_result, "group_by": truncated}, correlation_id=correlation_id)
 
     @mcp.tool()

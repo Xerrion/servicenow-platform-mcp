@@ -37,12 +37,8 @@ RISKY_TYPES = {
 RELEASE_NOTES_MARKDOWN_ALIASES = {"", "markdown", "md"}
 
 
-def _normalize_release_notes_format(format_value: str) -> str:
+def _normalize_release_notes_format(_format_value: str) -> str:
     """Normalize release note format inputs to the supported markdown output."""
-    normalized_format = format_value.strip().lower()
-    if normalized_format in RELEASE_NOTES_MARKDOWN_ALIASES:
-        return "markdown"
-
     return "markdown"
 
 

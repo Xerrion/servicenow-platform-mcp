@@ -1,5 +1,7 @@
 """Tests for Incident Management domain tools."""
 
+from __future__ import annotations
+
 from typing import Any
 
 import pytest
@@ -7,36 +9,38 @@ import respx
 from httpx import Response
 
 from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp.choices import ChoiceRegistry
 from servicenow_mcp.config import Settings
 from tests.helpers import decode_response, get_tool_functions
 
 
 BASE_URL = "https://test.service-now.com"
 
+_UNSET: Any = object()
 
-def _register_and_get_tools(settings: Settings, auth_provider: BasicAuthProvider) -> dict[str, Any]:
-    """Helper to register incident tools and extract callables."""
+
+def _register_and_get_tools(
+    settings: Settings,
+    auth_provider: BasicAuthProvider,
+    choices: ChoiceRegistry | None = _UNSET,
+) -> dict[str, Any]:
+    """Helper to register incident tools and extract callables.
+
+    When *choices* is omitted a ``ChoiceRegistry`` pre-loaded with defaults is
+    created automatically, matching the behaviour most tests expect.  Pass
+    ``choices=None`` explicitly to register tools without a ChoiceRegistry.
+    """
     from mcp.server.fastmcp import FastMCP
 
-    from servicenow_mcp.choices import ChoiceRegistry
     from servicenow_mcp.tools.domains.incident import register_tools
 
+    if choices is _UNSET:
+        choices = ChoiceRegistry(settings, auth_provider)
+        choices._fetched = True
+        choices._cache = {k: dict(v) for k, v in ChoiceRegistry._DEFAULTS.items()}
+
     mcp = FastMCP("test")
-    choices = ChoiceRegistry(settings, auth_provider)
-    choices._fetched = True
-    choices._cache = {k: dict(v) for k, v in ChoiceRegistry._DEFAULTS.items()}
     register_tools(mcp, settings, auth_provider, choices=choices)
-    return get_tool_functions(mcp)
-
-
-def _register_and_get_tools_no_choices(settings: Settings, auth_provider: BasicAuthProvider) -> dict[str, Any]:
-    """Helper to register incident tools without a ChoiceRegistry."""
-    from mcp.server.fastmcp import FastMCP
-
-    from servicenow_mcp.tools.domains.incident import register_tools
-
-    mcp = FastMCP("test")
-    register_tools(mcp, settings, auth_provider, choices=None)
     return get_tool_functions(mcp)
 
 
@@ -591,7 +595,7 @@ class TestIncidentResolve:
             )
         )
 
-        tools = _register_and_get_tools_no_choices(settings, auth_provider)
+        tools = _register_and_get_tools(settings, auth_provider, choices=None)
         result = await tools["incident_resolve"](
             number="INC0010001",
             close_code="Solved (Permanently)",

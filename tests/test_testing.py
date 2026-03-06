@@ -23,7 +23,9 @@ def auth_provider(settings: Settings) -> BasicAuthProvider:
     return BasicAuthProvider(settings)
 
 
-def _register_and_get_tools(settings: Any, auth_provider: BasicAuthProvider) -> tuple[dict[str, Any], QueryTokenStore]:
+def _register_and_get_tools(
+    settings: Settings, auth_provider: BasicAuthProvider
+) -> tuple[dict[str, Any], QueryTokenStore]:
     """Helper: register testing tools on a fresh MCP server and return tool map + query store."""
     from mcp.server.fastmcp import FastMCP
 
@@ -498,14 +500,7 @@ class TestAtfRunTest:
         self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider
     ) -> None:
         """Write gate blocks execution in production environment."""
-        from mcp.server.fastmcp import FastMCP
-
-        from servicenow_mcp.tools.testing import register_tools
-
-        mcp = FastMCP("test")
-        attach_query_store(mcp, QueryTokenStore())
-        register_tools(mcp, prod_settings, prod_auth_provider)
-        tools = get_tool_functions(mcp)
+        tools, _query_store = _register_and_get_tools(prod_settings, prod_auth_provider)
 
         raw = await tools["atf_run_test"](test_id="test123")
         result = decode_response(raw)
@@ -654,14 +649,7 @@ class TestAtfRunSuite:
         self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider
     ) -> None:
         """Write gate blocks suite execution in production."""
-        from mcp.server.fastmcp import FastMCP
-
-        from servicenow_mcp.tools.testing import register_tools
-
-        mcp = FastMCP("test")
-        attach_query_store(mcp, QueryTokenStore())
-        register_tools(mcp, prod_settings, prod_auth_provider)
-        tools = get_tool_functions(mcp)
+        tools, _query_store = _register_and_get_tools(prod_settings, prod_auth_provider)
 
         raw = await tools["atf_run_suite"](suite_id="suite999")
         result = decode_response(raw)

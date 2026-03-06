@@ -155,6 +155,7 @@ reportUnknownMemberType = false
 reportUnknownArgumentType = false
 reportUnknownVariableType = false
 reportUnknownLambdaType = false
+reportImplicitStringConcatenation = false
 
 [tool.uv.sources]
 toon-format = { git = "https://github.com/toon-format/toon-python.git" }

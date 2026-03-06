@@ -78,13 +78,7 @@ class TestDevToggle:
     @respx.mock
     async def test_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider) -> None:
         """Returns error when environment is production."""
-        from mcp.server.fastmcp import FastMCP
-
-        from servicenow_mcp.tools.dev_utils import register_tools
-
-        mcp = FastMCP("test")
-        register_tools(mcp, prod_settings, prod_auth_provider)
-        tools = get_tool_functions(mcp)
+        tools = _register_and_get_tools(prod_settings, prod_auth_provider)
 
         raw = await tools["dev_toggle"](artifact_type="business_rule", sys_id="br001", active=False)
         result = decode_response(raw)
@@ -172,13 +166,7 @@ class TestDevSetProperty:
     @respx.mock
     async def test_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider) -> None:
         """Returns error when environment is production."""
-        from mcp.server.fastmcp import FastMCP
-
-        from servicenow_mcp.tools.dev_utils import register_tools
-
-        mcp = FastMCP("test")
-        register_tools(mcp, prod_settings, prod_auth_provider)
-        tools = get_tool_functions(mcp)
+        tools = _register_and_get_tools(prod_settings, prod_auth_provider)
 
         raw = await tools["dev_set_property"](name="glide.ui.session_timeout", value="60")
         result = decode_response(raw)

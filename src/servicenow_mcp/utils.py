@@ -71,10 +71,8 @@ def validate_identifier(name: str) -> None:
     """
     if not _IDENTIFIER_RE.match(name):
         raise ValueError(
-            (  # noqa: UP034
-                f"Invalid identifier: {name!r}. "
-                "Only lowercase alphanumeric characters, underscores, and dot-walked segments are allowed."
-            )
+            f"Invalid identifier: {name!r}. "
+            "Only lowercase alphanumeric characters, underscores, and dot-walked segments are allowed."
         )
 
 

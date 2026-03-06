@@ -22,7 +22,7 @@ def auth_provider(settings: Settings) -> BasicAuthProvider:
     return BasicAuthProvider(settings)
 
 
-def _register_and_get_tools(settings: Any, auth_provider: BasicAuthProvider) -> dict[str, Any]:
+def _register_and_get_tools(settings: Settings, auth_provider: BasicAuthProvider) -> dict[str, Any]:
     """Helper: register developer tools on a fresh MCP server and return tool map."""
     from mcp.server.fastmcp import FastMCP
 
@@ -75,13 +75,7 @@ class TestRecordCreate:
     @pytest.mark.asyncio()
     async def test_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider) -> None:
         """Returns error when environment is production."""
-        from mcp.server.fastmcp import FastMCP
-
-        from servicenow_mcp.tools.developer import register_tools
-
-        mcp = FastMCP("test")
-        register_tools(mcp, prod_settings, prod_auth_provider)
-        tools = get_tool_functions(mcp)
+        tools = _register_and_get_tools(prod_settings, prod_auth_provider)
 
         raw = await tools["record_create"](
             table="incident",
@@ -180,13 +174,7 @@ class TestRecordPreviewCreate:
     @pytest.mark.asyncio()
     async def test_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider) -> None:
         """Returns error when environment is production."""
-        from mcp.server.fastmcp import FastMCP
-
-        from servicenow_mcp.tools.developer import register_tools
-
-        mcp = FastMCP("test")
-        register_tools(mcp, prod_settings, prod_auth_provider)
-        tools = get_tool_functions(mcp)
+        tools = _register_and_get_tools(prod_settings, prod_auth_provider)
 
         raw = await tools["record_preview_create"](
             table="incident",
@@ -245,13 +233,7 @@ class TestRecordUpdate:
     @pytest.mark.asyncio()
     async def test_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider) -> None:
         """Returns error in production."""
-        from mcp.server.fastmcp import FastMCP
-
-        from servicenow_mcp.tools.developer import register_tools
-
-        mcp = FastMCP("test")
-        register_tools(mcp, prod_settings, prod_auth_provider)
-        tools = get_tool_functions(mcp)
+        tools = _register_and_get_tools(prod_settings, prod_auth_provider)
 
         raw = await tools["record_update"](
             table="incident",
@@ -380,13 +362,7 @@ class TestRecordPreviewUpdate:
     @pytest.mark.asyncio()
     async def test_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider) -> None:
         """Returns error in production."""
-        from mcp.server.fastmcp import FastMCP
-
-        from servicenow_mcp.tools.developer import register_tools
-
-        mcp = FastMCP("test")
-        register_tools(mcp, prod_settings, prod_auth_provider)
-        tools = get_tool_functions(mcp)
+        tools = _register_and_get_tools(prod_settings, prod_auth_provider)
 
         raw = await tools["record_preview_update"](
             table="incident",
@@ -421,13 +397,7 @@ class TestRecordDelete:
     @pytest.mark.asyncio()
     async def test_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider) -> None:
         """Returns error in production."""
-        from mcp.server.fastmcp import FastMCP
-
-        from servicenow_mcp.tools.developer import register_tools
-
-        mcp = FastMCP("test")
-        register_tools(mcp, prod_settings, prod_auth_provider)
-        tools = get_tool_functions(mcp)
+        tools = _register_and_get_tools(prod_settings, prod_auth_provider)
 
         raw = await tools["record_delete"](table="incident", sys_id="inc001")
         result = decode_response(raw)
@@ -509,13 +479,7 @@ class TestRecordPreviewDelete:
     @pytest.mark.asyncio()
     async def test_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider) -> None:
         """Returns error in production."""
-        from mcp.server.fastmcp import FastMCP
-
-        from servicenow_mcp.tools.developer import register_tools
-
-        mcp = FastMCP("test")
-        register_tools(mcp, prod_settings, prod_auth_provider)
-        tools = get_tool_functions(mcp)
+        tools = _register_and_get_tools(prod_settings, prod_auth_provider)
 
         raw = await tools["record_preview_delete"](table="incident", sys_id="inc001")
         result = decode_response(raw)

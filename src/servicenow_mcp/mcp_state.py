@@ -43,4 +43,10 @@ def attach_query_store(mcp: FastMCP, query_store: QueryTokenStore) -> None:
 def get_query_store(mcp: FastMCP) -> QueryTokenStore:
     """Return the typed query token store attached to an MCP instance."""
     typed_mcp = cast("_ServiceNowStateCarrier", cast("object", mcp))
-    return typed_mcp._sn_query_store
+    store = getattr(typed_mcp, "_sn_query_store", None)
+    if store is None:
+        raise RuntimeError(
+            "QueryTokenStore not found on FastMCP instance. "
+            "Call attach_servicenow_state() before accessing the query store."
+        )
+    return store

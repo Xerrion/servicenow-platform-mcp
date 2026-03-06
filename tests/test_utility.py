@@ -18,7 +18,7 @@ def auth_provider(settings: Settings) -> BasicAuthProvider:
     return BasicAuthProvider(settings)
 
 
-def _register_and_get_tools(settings: Any, auth_provider: BasicAuthProvider) -> dict[str, Any]:
+def _register_and_get_tools(settings: Settings, auth_provider: BasicAuthProvider) -> dict[str, Any]:
     """Helper: register utility tools on a fresh MCP server and return tool map."""
     from mcp.server.fastmcp import FastMCP
 

@@ -842,6 +842,7 @@ class TestWorkflowActivityDetail:
         self, settings: Settings, auth_provider: BasicAuthProvider
     ) -> None:
         """Returns activity display values alongside the element definition."""
+
         # Phase 1: raw activity (display_values=False) to get the definition sys_id
         def _act001_side_effect(request: httpx.Request) -> httpx.Response:
             result = (
@@ -863,9 +864,7 @@ class TestWorkflowActivityDetail:
             )
             return httpx.Response(200, json={"result": result})
 
-        respx.get(f"{BASE_URL}/api/now/table/wf_activity/act001").mock(
-            side_effect=_act001_side_effect
-        )
+        respx.get(f"{BASE_URL}/api/now/table/wf_activity/act001").mock(side_effect=_act001_side_effect)
         # Phase 2: element definition with display values
         respx.get(f"{BASE_URL}/api/now/table/wf_element_definition/def001").mock(
             return_value=httpx.Response(
@@ -913,6 +912,7 @@ class TestWorkflowActivityDetail:
     @respx.mock
     async def test_activity_with_no_definition(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns definition as None when activity has no linked definition."""
+
         # Phase 1: raw activity with empty activity_definition
         def _nodef_side_effect(_request: httpx.Request) -> httpx.Response:
             return httpx.Response(
@@ -928,9 +928,7 @@ class TestWorkflowActivityDetail:
                 },
             )
 
-        respx.get(f"{BASE_URL}/api/now/table/wf_activity/act_nodef").mock(
-            side_effect=_nodef_side_effect
-        )
+        respx.get(f"{BASE_URL}/api/now/table/wf_activity/act_nodef").mock(side_effect=_nodef_side_effect)
         respx.get(f"{BASE_URL}/api/now/table/sys_variable_value").mock(
             return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
         )
@@ -966,6 +964,7 @@ class TestWorkflowActivityDetail:
         self, settings: Settings, auth_provider: BasicAuthProvider
     ) -> None:
         """Returns multiple configured variables for an activity."""
+
         def _act_vars_side_effect(_request: httpx.Request) -> httpx.Response:
             return httpx.Response(
                 200,
@@ -980,9 +979,7 @@ class TestWorkflowActivityDetail:
                 },
             )
 
-        respx.get(f"{BASE_URL}/api/now/table/wf_activity/act_vars").mock(
-            side_effect=_act_vars_side_effect
-        )
+        respx.get(f"{BASE_URL}/api/now/table/wf_activity/act_vars").mock(side_effect=_act_vars_side_effect)
         respx.get(f"{BASE_URL}/api/now/table/wf_element_definition/def_script").mock(
             return_value=httpx.Response(
                 200,

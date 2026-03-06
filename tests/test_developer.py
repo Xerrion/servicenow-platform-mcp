@@ -73,9 +73,7 @@ class TestRecordCreate:
         assert result["data"]["record"]["password"] == "***MASKED***"
 
     @pytest.mark.asyncio()
-    async def test_blocked_in_prod(
-        self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider
-    ) -> None:
+    async def test_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider) -> None:
         """Returns error when environment is production."""
         from mcp.server.fastmcp import FastMCP
 
@@ -180,9 +178,7 @@ class TestRecordPreviewCreate:
         assert result["data"]["data"]["password"] == "***MASKED***"
 
     @pytest.mark.asyncio()
-    async def test_blocked_in_prod(
-        self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider
-    ) -> None:
+    async def test_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider) -> None:
         """Returns error when environment is production."""
         from mcp.server.fastmcp import FastMCP
 
@@ -247,9 +243,7 @@ class TestRecordUpdate:
         assert result["data"]["record"]["password"] == "***MASKED***"
 
     @pytest.mark.asyncio()
-    async def test_blocked_in_prod(
-        self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider
-    ) -> None:
+    async def test_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider) -> None:
         """Returns error in production."""
         from mcp.server.fastmcp import FastMCP
 
@@ -384,9 +378,7 @@ class TestRecordPreviewUpdate:
         assert result["data"]["diff"]["password"]["new"] == "***MASKED***"
 
     @pytest.mark.asyncio()
-    async def test_blocked_in_prod(
-        self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider
-    ) -> None:
+    async def test_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider) -> None:
         """Returns error in production."""
         from mcp.server.fastmcp import FastMCP
 
@@ -427,9 +419,7 @@ class TestRecordDelete:
         assert result["data"]["deleted"] is True
 
     @pytest.mark.asyncio()
-    async def test_blocked_in_prod(
-        self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider
-    ) -> None:
+    async def test_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider) -> None:
         """Returns error in production."""
         from mcp.server.fastmcp import FastMCP
 
@@ -517,9 +507,7 @@ class TestRecordPreviewDelete:
         assert result["data"]["record_snapshot"]["password"] == "***MASKED***"
 
     @pytest.mark.asyncio()
-    async def test_blocked_in_prod(
-        self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider
-    ) -> None:
+    async def test_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider) -> None:
         """Returns error in production."""
         from mcp.server.fastmcp import FastMCP
 

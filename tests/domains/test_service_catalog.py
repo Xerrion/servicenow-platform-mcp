@@ -372,7 +372,9 @@ class TestScOrderNow:
         assert data["data"]["number"] == "REQ0010001"
 
     @pytest.mark.asyncio()
-    async def test_order_now_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider) -> None:
+    async def test_order_now_blocked_in_prod(
+        self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider
+    ) -> None:
         """Should block ordering in production."""
         tools = _register_and_get_tools(prod_settings, prod_auth_provider)
         result = await tools["sc_order_now"](item_sys_id="item123")

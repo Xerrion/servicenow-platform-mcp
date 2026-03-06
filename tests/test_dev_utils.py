@@ -76,9 +76,7 @@ class TestDevToggle:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_blocked_in_prod(
-        self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider
-    ) -> None:
+    async def test_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider) -> None:
         """Returns error when environment is production."""
         from mcp.server.fastmcp import FastMCP
 
@@ -172,9 +170,7 @@ class TestDevSetProperty:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_blocked_in_prod(
-        self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider
-    ) -> None:
+    async def test_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider) -> None:
         """Returns error when environment is production."""
         from mcp.server.fastmcp import FastMCP
 

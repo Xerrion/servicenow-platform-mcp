@@ -49,7 +49,9 @@ _DATE_FIELD_PATTERNS: list[str] = [
 # Regex to match: a date field name following a condition separator, with a comparison operator
 _DATE_CONSTRAINT_RE: re.Pattern[str] = re.compile(
     r"(?:^|\^(?:OR)?)"  # start of string or ^ or ^OR separator  # noqa: ISC003
-    + r"(" + "|".join(re.escape(f) for f in _DATE_FIELD_PATTERNS) + r")"  # date field name
+    + r"("
+    + "|".join(re.escape(f) for f in _DATE_FIELD_PATTERNS)
+    + r")"  # date field name
     + r"(>=?|<=?|BETWEEN|javascript:gs\.\w+Ago)",  # comparison operator
 )
 

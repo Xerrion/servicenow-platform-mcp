@@ -538,7 +538,7 @@ def _scan_for_anti_patterns(script: str) -> list[dict[str, str]]:
                 {
                     "category": "unbounded_query",
                     "severity": "info",
-                "message": (
+                    "message": (
                         "GlideRecord.query() called without addQuery or addEncodedQuery. "
                         "This may return all records in the table. Add appropriate filters."
                     ),

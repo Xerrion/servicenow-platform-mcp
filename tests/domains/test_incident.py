@@ -510,7 +510,9 @@ class TestIncidentResolve:
         assert "close_notes" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio()
-    async def test_resolve_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider) -> None:
+    async def test_resolve_blocked_in_prod(
+        self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider
+    ) -> None:
         """Should block resolving in production."""
         tools = _register_and_get_tools(prod_settings, prod_auth_provider)
         result = await tools["incident_resolve"](
@@ -683,7 +685,9 @@ class TestIncidentAddComment:
         assert "comment" in data["error"]["message"].lower() or "work_note" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio()
-    async def test_add_comment_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider) -> None:
+    async def test_add_comment_blocked_in_prod(
+        self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider
+    ) -> None:
         """Should block adding comments in production."""
         tools = _register_and_get_tools(prod_settings, prod_auth_provider)
         result = await tools["incident_add_comment"](

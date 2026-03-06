@@ -10,14 +10,14 @@ from servicenow_mcp.state import PreviewTokenStore, QueryTokenStore
 class TestPreviewTokenStore:
     """Tests for PreviewTokenStore."""
 
-    def test_create_returns_token_string(self):
+    def test_create_returns_token_string(self) -> None:
         """create() returns a UUID-style string token."""
         store = PreviewTokenStore(ttl_seconds=300)
         token = store.create({"table": "incident", "sys_id": "abc", "changes": {"state": "2"}})
         assert isinstance(token, str)
         assert len(token) > 0
 
-    def test_get_returns_stored_payload(self):
+    def test_get_returns_stored_payload(self) -> None:
         """get() returns the payload stored for a valid token."""
         store = PreviewTokenStore(ttl_seconds=300)
         payload = {
@@ -31,13 +31,13 @@ class TestPreviewTokenStore:
         assert result["table"] == "incident"
         assert result["changes"] == {"state": "2"}
 
-    def test_get_returns_none_for_unknown_token(self):
+    def test_get_returns_none_for_unknown_token(self) -> None:
         """get() returns None for a token that was never created."""
         store = PreviewTokenStore(ttl_seconds=300)
         result = store.get("nonexistent-token")
         assert result is None
 
-    def test_get_returns_none_for_expired_token(self):
+    def test_get_returns_none_for_expired_token(self) -> None:
         """get() returns None for a token that has expired (mocked clock)."""
         fake_time = 1000.0
         with patch(
@@ -53,7 +53,7 @@ class TestPreviewTokenStore:
 
         assert result is None
 
-    def test_consume_returns_payload_and_removes(self):
+    def test_consume_returns_payload_and_removes(self) -> None:
         """consume() returns the payload and removes the token from the store."""
         store = PreviewTokenStore(ttl_seconds=300)
         payload = {"table": "incident", "sys_id": "abc"}
@@ -66,7 +66,7 @@ class TestPreviewTokenStore:
         # Token should be gone now
         assert store.get(token) is None
 
-    def test_consume_returns_none_for_expired_token(self):
+    def test_consume_returns_none_for_expired_token(self) -> None:
         """consume() returns None for an expired token (mocked clock)."""
         fake_time = 1000.0
         with patch(
@@ -82,7 +82,7 @@ class TestPreviewTokenStore:
 
         assert result is None
 
-    def test_get_returns_payload_before_ttl_expires(self):
+    def test_get_returns_payload_before_ttl_expires(self) -> None:
         """get() returns the payload when the TTL has not yet expired (mocked clock)."""
         fake_time = 1000.0
         with patch(
@@ -99,7 +99,7 @@ class TestPreviewTokenStore:
         assert result is not None
         assert result["table"] == "incident"
 
-    def test_consume_at_exact_boundary(self):
+    def test_consume_at_exact_boundary(self) -> None:
         """consume() at exact TTL boundary is NOT expired (uses > not >=)."""
         fake_time = 1000.0
         with patch(
@@ -115,7 +115,7 @@ class TestPreviewTokenStore:
 
         assert result_at_boundary is not None
 
-    def test_store_max_size(self):
+    def test_store_max_size(self) -> None:
         """create() raises RuntimeError when max_size is reached and no entries are expired."""
         store = PreviewTokenStore(ttl_seconds=300, max_size=3)
         store.create({"table": "incident"})
@@ -125,7 +125,7 @@ class TestPreviewTokenStore:
         with pytest.raises(RuntimeError, match="store is full"):
             store.create({"table": "kb_knowledge"})
 
-    def test_sweep_expired_on_create(self):
+    def test_sweep_expired_on_create(self) -> None:
         """create() sweeps expired entries first, allowing new tokens when space is freed."""
         fake_time = 1000.0
         with patch("servicenow_mcp.state.time.monotonic", return_value=fake_time):
@@ -141,7 +141,7 @@ class TestPreviewTokenStore:
         assert result is not None
         assert result["table"] == "change_request"
 
-    def test_sweep_expired_frees_space(self):
+    def test_sweep_expired_frees_space(self) -> None:
         """_sweep_expired() removes expired entries, reducing store size."""
         fake_time = 1000.0
         with patch("servicenow_mcp.state.time.monotonic", return_value=fake_time):
@@ -162,14 +162,14 @@ class TestPreviewTokenStore:
 class TestQueryTokenStore:
     """Tests for QueryTokenStore."""
 
-    def test_create_returns_token_string(self):
+    def test_create_returns_token_string(self) -> None:
         """create() returns a UUID-style string token."""
         store = QueryTokenStore(ttl_seconds=300)
         token = store.create({"query": "active=true"})
         assert isinstance(token, str)
         assert len(token) > 0
 
-    def test_get_returns_stored_payload(self):
+    def test_get_returns_stored_payload(self) -> None:
         """get() returns the payload stored for a valid token."""
         store = QueryTokenStore(ttl_seconds=300)
         payload = {"query": "active=true"}
@@ -178,13 +178,13 @@ class TestQueryTokenStore:
         assert result is not None
         assert result["query"] == "active=true"
 
-    def test_get_returns_none_for_unknown_token(self):
+    def test_get_returns_none_for_unknown_token(self) -> None:
         """get() returns None for a token that was never created."""
         store = QueryTokenStore(ttl_seconds=300)
         result = store.get("nonexistent-token")
         assert result is None
 
-    def test_get_returns_none_for_expired_token(self):
+    def test_get_returns_none_for_expired_token(self) -> None:
         """get() returns None for a token that has expired (mocked clock)."""
         fake_time = 1000.0
         with patch(
@@ -200,7 +200,7 @@ class TestQueryTokenStore:
 
         assert result is None
 
-    def test_get_is_reusable_within_ttl(self):
+    def test_get_is_reusable_within_ttl(self) -> None:
         """get() succeeds multiple times for the same token (non-destructive)."""
         store = QueryTokenStore(ttl_seconds=300)
         token = store.create({"query": "active=true"})
@@ -216,7 +216,7 @@ class TestQueryTokenStore:
         assert result2["query"] == "active=true"
         assert result3["query"] == "active=true"
 
-    def test_get_returns_payload_before_ttl_expires(self):
+    def test_get_returns_payload_before_ttl_expires(self) -> None:
         """get() returns the payload when the TTL has not yet expired (mocked clock)."""
         fake_time = 1000.0
         with patch(
@@ -233,7 +233,7 @@ class TestQueryTokenStore:
         assert result is not None
         assert result["query"] == "active=true"
 
-    def test_get_at_exact_boundary(self):
+    def test_get_at_exact_boundary(self) -> None:
         """get() at exact TTL boundary is NOT expired (uses > not >=)."""
         fake_time = 1000.0
         with patch(
@@ -249,7 +249,7 @@ class TestQueryTokenStore:
 
         assert result is not None
 
-    def test_store_max_size(self):
+    def test_store_max_size(self) -> None:
         """create() raises RuntimeError when max_size is reached and no entries are expired."""
         store = QueryTokenStore(ttl_seconds=300, max_size=3)
         store.create({"query": "active=true"})
@@ -259,7 +259,7 @@ class TestQueryTokenStore:
         with pytest.raises(RuntimeError, match="store is full"):
             store.create({"query": "impact=1"})
 
-    def test_sweep_expired_on_create(self):
+    def test_sweep_expired_on_create(self) -> None:
         """create() sweeps expired entries first, allowing new tokens when space is freed."""
         fake_time = 1000.0
         with patch("servicenow_mcp.state.time.monotonic", return_value=fake_time):
@@ -275,7 +275,7 @@ class TestQueryTokenStore:
         assert result is not None
         assert result["query"] == "priority=1"
 
-    def test_sweep_expired_frees_space(self):
+    def test_sweep_expired_frees_space(self) -> None:
         """_sweep_expired() removes expired entries, reducing store size."""
         fake_time = 1000.0
         with patch("servicenow_mcp.state.time.monotonic", return_value=fake_time):

@@ -8,7 +8,7 @@ import pytest
 class TestSettings:
     """Test ServiceNow MCP settings loading and validation."""
 
-    def _make_env(self, **overrides):
+    def _make_env(self, **overrides: str) -> dict[str, str]:
         """Create a minimal valid environment dict."""
         base = {
             "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
@@ -18,7 +18,7 @@ class TestSettings:
         base.update(overrides)
         return base
 
-    def test_load_valid_config(self):
+    def test_load_valid_config(self) -> None:
         """Settings loads correctly from valid environment variables."""
         from servicenow_mcp.config import Settings
 
@@ -30,7 +30,7 @@ class TestSettings:
         assert settings.servicenow_username == "admin"
         assert settings.servicenow_password.get_secret_value() == "password123"
 
-    def test_missing_instance_url_raises(self):
+    def test_missing_instance_url_raises(self) -> None:
         """Missing SERVICENOW_INSTANCE_URL raises validation error."""
         from servicenow_mcp.config import Settings
 
@@ -42,7 +42,7 @@ class TestSettings:
         ):
             Settings(_env_file=None)
 
-    def test_missing_username_raises(self):
+    def test_missing_username_raises(self) -> None:
         """Missing SERVICENOW_USERNAME raises validation error."""
         from servicenow_mcp.config import Settings
 
@@ -54,7 +54,7 @@ class TestSettings:
         ):
             Settings(_env_file=None)
 
-    def test_missing_password_raises(self):
+    def test_missing_password_raises(self) -> None:
         """Missing SERVICENOW_PASSWORD raises validation error."""
         from servicenow_mcp.config import Settings
 
@@ -66,7 +66,7 @@ class TestSettings:
         ):
             Settings(_env_file=None)
 
-    def test_default_mcp_tool_package(self):
+    def test_default_mcp_tool_package(self) -> None:
         """MCP_TOOL_PACKAGE defaults to 'full'."""
         from servicenow_mcp.config import Settings
 
@@ -76,7 +76,7 @@ class TestSettings:
 
         assert settings.mcp_tool_package == "full"
 
-    def test_custom_mcp_tool_package(self):
+    def test_custom_mcp_tool_package(self) -> None:
         """MCP_TOOL_PACKAGE can be overridden."""
         from servicenow_mcp.config import Settings
 
@@ -86,7 +86,7 @@ class TestSettings:
 
         assert settings.mcp_tool_package == "full"
 
-    def test_default_env(self):
+    def test_default_env(self) -> None:
         """SERVICENOW_ENV defaults to 'dev'."""
         from servicenow_mcp.config import Settings
 
@@ -96,7 +96,7 @@ class TestSettings:
 
         assert settings.servicenow_env == "dev"
 
-    def test_default_max_row_limit(self):
+    def test_default_max_row_limit(self) -> None:
         """MAX_ROW_LIMIT defaults to 100."""
         from servicenow_mcp.config import Settings
 
@@ -106,7 +106,7 @@ class TestSettings:
 
         assert settings.max_row_limit == 100
 
-    def test_custom_max_row_limit(self):
+    def test_custom_max_row_limit(self) -> None:
         """MAX_ROW_LIMIT can be overridden."""
         from servicenow_mcp.config import Settings
 
@@ -116,7 +116,7 @@ class TestSettings:
 
         assert settings.max_row_limit == 50
 
-    def test_large_table_names_default(self):
+    def test_large_table_names_default(self) -> None:
         """LARGE_TABLE_NAMES_CSV has sensible defaults."""
         from servicenow_mcp.config import Settings
 
@@ -127,7 +127,7 @@ class TestSettings:
         assert "syslog" in settings.large_table_names
         assert "sys_audit" in settings.large_table_names
 
-    def test_large_table_names_from_csv(self):
+    def test_large_table_names_from_csv(self) -> None:
         """LARGE_TABLE_NAMES_CSV parses comma-separated string."""
         from servicenow_mcp.config import Settings
 
@@ -137,7 +137,7 @@ class TestSettings:
 
         assert settings.large_table_names == frozenset({"table_a", "table_b", "table_c"})
 
-    def test_instance_url_trailing_slash_stripped(self):
+    def test_instance_url_trailing_slash_stripped(self) -> None:
         """Trailing slash is stripped from instance URL."""
         from servicenow_mcp.config import Settings
 
@@ -147,7 +147,7 @@ class TestSettings:
 
         assert settings.servicenow_instance_url == "https://test.service-now.com"
 
-    def test_is_production_true(self):
+    def test_is_production_true(self) -> None:
         """is_production returns True when env is 'prod'."""
         from servicenow_mcp.config import Settings
 
@@ -157,7 +157,7 @@ class TestSettings:
 
         assert settings.is_production is True
 
-    def test_is_production_false(self):
+    def test_is_production_false(self) -> None:
         """is_production returns False when env is not 'prod'."""
         from servicenow_mcp.config import Settings
 
@@ -167,7 +167,7 @@ class TestSettings:
 
         assert settings.is_production is False
 
-    def test_is_production_with_production_string(self):
+    def test_is_production_with_production_string(self) -> None:
         """is_production returns True when env is 'production'."""
         from servicenow_mcp.config import Settings
 
@@ -177,7 +177,7 @@ class TestSettings:
 
         assert settings.is_production is True
 
-    def test_is_production_case_insensitive(self):
+    def test_is_production_case_insensitive(self) -> None:
         """is_production returns True for case-insensitive 'PROD'."""
         from servicenow_mcp.config import Settings
 
@@ -187,7 +187,7 @@ class TestSettings:
 
         assert settings.is_production is True
 
-    def test_invalid_url_scheme_rejected(self):
+    def test_invalid_url_scheme_rejected(self) -> None:
         """Instance URL without https:// scheme is rejected."""
         from servicenow_mcp.config import Settings
 
@@ -198,7 +198,7 @@ class TestSettings:
         ):
             Settings(_env_file=None)
 
-    def test_max_row_limit_too_low_rejected(self):
+    def test_max_row_limit_too_low_rejected(self) -> None:
         """max_row_limit below 1 is rejected."""
         from servicenow_mcp.config import Settings
 
@@ -209,7 +209,7 @@ class TestSettings:
         ):
             Settings(_env_file=None)
 
-    def test_max_row_limit_too_high_rejected(self):
+    def test_max_row_limit_too_high_rejected(self) -> None:
         """max_row_limit above 10000 is rejected."""
         from servicenow_mcp.config import Settings
 
@@ -220,7 +220,7 @@ class TestSettings:
         ):
             Settings(_env_file=None)
 
-    def test_invalid_tool_package_rejected(self):
+    def test_invalid_tool_package_rejected(self) -> None:
         """Unknown mcp_tool_package is rejected."""
         from servicenow_mcp.config import Settings
 
@@ -231,7 +231,7 @@ class TestSettings:
         ):
             Settings(_env_file=None)
 
-    def test_large_table_names_is_frozenset(self):
+    def test_large_table_names_is_frozenset(self) -> None:
         """large_table_names returns a frozenset."""
         from servicenow_mcp.config import Settings
 
@@ -241,7 +241,7 @@ class TestSettings:
 
         assert isinstance(settings.large_table_names, frozenset)
 
-    def test_large_table_names_cached(self):
+    def test_large_table_names_cached(self) -> None:
         """large_table_names returns the same cached object on repeated access."""
         from servicenow_mcp.config import Settings
 

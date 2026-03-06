@@ -4,6 +4,8 @@
 class ServiceNowMCPError(Exception):
     """Base exception for all ServiceNow MCP errors."""
 
+    status_code: int | None
+
     def __init__(self, message: str, status_code: int | None = None) -> None:
         super().__init__(message)
         self.status_code = status_code

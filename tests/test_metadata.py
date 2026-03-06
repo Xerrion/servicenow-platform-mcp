@@ -1,14 +1,17 @@
 """Tests for metadata tools (meta_list_artifacts, meta_get_artifact, meta_find_references, meta_what_writes)."""
 
+from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
 import respx
-from toon_format import decode as toon_decode
 
 from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp.config import Settings
+from servicenow_mcp.mcp_state import attach_query_store
 from servicenow_mcp.state import QueryTokenStore
+from tests.helpers import decode_response, get_tool_functions
 
 
 BASE_URL = "https://test.service-now.com"
@@ -36,12 +39,14 @@ SCRIPT_TABLES = [
 
 
 @pytest.fixture()
-def auth_provider(settings):
+def auth_provider(settings: Settings) -> BasicAuthProvider:
     """Create a BasicAuthProvider from test settings."""
     return BasicAuthProvider(settings)
 
 
-def _register_and_get_tools(settings, auth_provider):
+def _register_and_get_tools(
+    settings: Settings, auth_provider: BasicAuthProvider
+) -> tuple[dict[str, Any], QueryTokenStore]:
     """Helper: register metadata tools on a fresh MCP server and return tool map + query store."""
     from mcp.server.fastmcp import FastMCP
 
@@ -49,9 +54,9 @@ def _register_and_get_tools(settings, auth_provider):
 
     mcp = FastMCP("test")
     query_store = QueryTokenStore()
-    mcp._sn_query_store = query_store  # type: ignore[attr-defined]
+    attach_query_store(mcp, query_store)
     register_tools(mcp, settings, auth_provider)
-    return {t.name: t.fn for t in mcp._tool_manager._tools.values()}, query_store
+    return get_tool_functions(mcp), query_store
 
 
 class TestMetaListArtifacts:
@@ -59,7 +64,7 @@ class TestMetaListArtifacts:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_lists_artifacts_by_type(self, settings, auth_provider):
+    async def test_lists_artifacts_by_type(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Lists artifacts filtered by type (e.g., business_rule)."""
         respx.get(f"{BASE_URL}/api/now/table/sys_script").mock(
             return_value=httpx.Response(
@@ -86,7 +91,7 @@ class TestMetaListArtifacts:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["meta_list_artifacts"](artifact_type="business_rule")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert len(result["data"]["artifacts"]) == 2
@@ -95,7 +100,9 @@ class TestMetaListArtifacts:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_lists_artifacts_with_query_filter(self, settings, auth_provider):
+    async def test_lists_artifacts_with_query_filter(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """Filters artifacts by a user-provided query string."""
         respx.get(f"{BASE_URL}/api/now/table/sys_script").mock(
             return_value=httpx.Response(
@@ -117,24 +124,24 @@ class TestMetaListArtifacts:
         tools, query_store = _register_and_get_tools(settings, auth_provider)
         token = query_store.create({"query": "collection=incident^active=true"})
         raw = await tools["meta_list_artifacts"](artifact_type="business_rule", query_token=token)
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert len(result["data"]["artifacts"]) == 1
 
     @pytest.mark.asyncio()
-    async def test_unknown_type_returns_error(self, settings, auth_provider):
+    async def test_unknown_type_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Unknown artifact type returns an error."""
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["meta_list_artifacts"](artifact_type="nonexistent_type")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
         assert "unknown" in result["error"]["message"].lower() or "type" in result["error"]["message"].lower()
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_includes_correlation_id(self, settings, auth_provider):
+    async def test_includes_correlation_id(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Response always contains a correlation_id."""
         respx.get(f"{BASE_URL}/api/now/table/sys_script").mock(
             return_value=httpx.Response(
@@ -146,14 +153,14 @@ class TestMetaListArtifacts:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["meta_list_artifacts"](artifact_type="business_rule")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert "correlation_id" in result
         assert len(result["correlation_id"]) > 0
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_meta_list_artifacts_limit_capped(self, settings, auth_provider):
+    async def test_meta_list_artifacts_limit_capped(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Limit exceeding max_row_limit is capped via enforce_query_safety."""
         route = respx.get(f"{BASE_URL}/api/now/table/sys_script").mock(
             return_value=httpx.Response(
@@ -166,15 +173,13 @@ class TestMetaListArtifacts:
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         # Pass limit=9999, which should be capped to settings.max_row_limit (default 100)
         raw = await tools["meta_list_artifacts"](artifact_type="business_rule", limit=9999)
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         # Verify the request used the capped limit, not the original 9999
-        request = route.calls[0].request
-        url_str = str(request.url)
-        from urllib.parse import parse_qs, urlparse
-
-        parsed = urlparse(url_str)
+        assert route.calls.last is not None
+        request = route.calls.last.request
+        parsed = urlparse(str(request.url))
         qs = parse_qs(parsed.query)
         assert qs["sysparm_limit"] == [str(settings.max_row_limit)]
 
@@ -184,7 +189,7 @@ class TestMetaGetArtifact:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_returns_full_artifact(self, settings, auth_provider):
+    async def test_returns_full_artifact(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns full artifact details including script body."""
         respx.get(f"{BASE_URL}/api/now/table/sys_script/br1").mock(
             return_value=httpx.Response(
@@ -204,7 +209,7 @@ class TestMetaGetArtifact:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["meta_get_artifact"](artifact_type="business_rule", sys_id="br1")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["sys_id"] == "br1"
@@ -212,7 +217,7 @@ class TestMetaGetArtifact:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_not_found_returns_error(self, settings, auth_provider):
+    async def test_not_found_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """404 from ServiceNow produces an error response."""
         respx.get(f"{BASE_URL}/api/now/table/sys_script/missing").mock(
             return_value=httpx.Response(404, json={"error": {"message": "Not found"}})
@@ -220,7 +225,7 @@ class TestMetaGetArtifact:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["meta_get_artifact"](artifact_type="business_rule", sys_id="missing")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
 
@@ -230,7 +235,9 @@ class TestMetaFindReferences:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_uses_code_search_api_when_available(self, settings, auth_provider):
+    async def test_uses_code_search_api_when_available(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """Prefers Code Search API and returns results from it."""
         respx.get(f"{BASE_URL}/api/sn_codesearch/code_search/search").mock(
             return_value=httpx.Response(
@@ -253,7 +260,7 @@ class TestMetaFindReferences:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["meta_find_references"](target="GlideRecord")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert len(result["data"]["matches"]) >= 1
@@ -261,7 +268,7 @@ class TestMetaFindReferences:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_falls_back_to_table_search(self, settings, auth_provider):
+    async def test_falls_back_to_table_search(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Falls back to per-table scriptCONTAINS when Code Search API fails."""
         # Code Search API fails
         respx.get(f"{BASE_URL}/api/sn_codesearch/code_search/search").mock(
@@ -297,7 +304,7 @@ class TestMetaFindReferences:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["meta_find_references"](target="GlideRecord")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert len(result["data"]["matches"]) >= 1
@@ -307,7 +314,7 @@ class TestMetaFindReferences:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_no_references_found(self, settings, auth_provider):
+    async def test_no_references_found(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns empty matches when target string is not found anywhere."""
         # Code Search returns empty
         respx.get(f"{BASE_URL}/api/sn_codesearch/code_search/search").mock(
@@ -319,14 +326,16 @@ class TestMetaFindReferences:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["meta_find_references"](target="NonExistentAPI12345")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["matches"] == []
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_meta_find_references_limit_capped(self, settings, auth_provider):
+    async def test_meta_find_references_limit_capped(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """Limit exceeding max_row_limit is capped in fallback per-table queries."""
         # Code Search API fails → triggers fallback
         respx.get(f"{BASE_URL}/api/sn_codesearch/code_search/search").mock(
@@ -346,7 +355,7 @@ class TestMetaFindReferences:
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         # Pass limit=9999, which should be capped to settings.max_row_limit (default 100)
         raw = await tools["meta_find_references"](target="SomeTarget", limit=9999)
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["search_method"] == "table_scan_fallback"
@@ -356,14 +365,15 @@ class TestMetaFindReferences:
 
         for table, route in routes.items():
             assert route.called, f"Expected query to {table}"
-            request = route.calls[0].request
+            assert route.calls.last is not None
+            request = route.calls.last.request
             parsed = urlparse(str(request.url))
             qs = parse_qs(parsed.query)
             assert qs["sysparm_limit"] == [str(settings.max_row_limit)], f"Table '{table}' should have capped limit"
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_caret_in_target_single_sanitized(self, settings, auth_provider):
+    async def test_caret_in_target_single_sanitized(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Target with carets is single-sanitized (^ → ^^) in fallback CONTAINS queries."""
         # Code Search API fails → triggers fallback
         respx.get(f"{BASE_URL}/api/sn_codesearch/code_search/search").mock(
@@ -382,7 +392,7 @@ class TestMetaFindReferences:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["meta_find_references"](target="foo^bar")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["search_method"] == "table_scan_fallback"
@@ -390,7 +400,8 @@ class TestMetaFindReferences:
         # Verify every fallback query uses single-sanitized value (^^ not ^^^^)
         for table, route in routes.items():
             assert route.called, f"Expected query to {table}"
-            request = route.calls[0].request
+            assert route.calls.last is not None
+            request = route.calls.last.request
             parsed = urlparse(str(request.url))
             qs = parse_qs(parsed.query)
             query_str = qs["sysparm_query"][0]
@@ -403,7 +414,9 @@ class TestMetaWhatWrites:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_finds_business_rules_writing_to_table(self, settings, auth_provider):
+    async def test_finds_business_rules_writing_to_table(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """Finds business rules that write to the specified table."""
         # Mock: query sys_script for BRs on the target table
         respx.get(f"{BASE_URL}/api/now/table/sys_script").mock(
@@ -427,7 +440,7 @@ class TestMetaWhatWrites:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["meta_what_writes"](table="incident")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert len(result["data"]["writers"]) >= 1
@@ -436,7 +449,7 @@ class TestMetaWhatWrites:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_filters_by_field(self, settings, auth_provider):
+    async def test_filters_by_field(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """When field is specified, filters business rules whose script references the field."""
         # Return 2 BRs, but only one references 'priority' in its script
         respx.get(f"{BASE_URL}/api/now/table/sys_script").mock(
@@ -468,7 +481,7 @@ class TestMetaWhatWrites:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["meta_what_writes"](table="incident", field="priority")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         # Only the BR that references 'priority' should appear
@@ -478,7 +491,7 @@ class TestMetaWhatWrites:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_no_writers_found(self, settings, auth_provider):
+    async def test_no_writers_found(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns empty writers when no BRs write to the table."""
         respx.get(f"{BASE_URL}/api/now/table/sys_script").mock(
             return_value=httpx.Response(
@@ -490,7 +503,7 @@ class TestMetaWhatWrites:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["meta_what_writes"](table="cmdb_ci")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["writers"] == []

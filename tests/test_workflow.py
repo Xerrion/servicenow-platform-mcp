@@ -1,25 +1,27 @@
 """Tests for workflow introspection tools."""
 
+from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
 import respx
-from toon_format import decode as toon_decode
 
 from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp.config import Settings
+from tests.helpers import decode_response, get_tool_functions
 
 
 BASE_URL = "https://test.service-now.com"
 
 
 @pytest.fixture()
-def auth_provider(settings):
+def auth_provider(settings: Settings) -> BasicAuthProvider:
     """Create a BasicAuthProvider from test settings."""
     return BasicAuthProvider(settings)
 
 
-def _register_and_get_tools(settings, auth_provider):
+def _register_and_get_tools(settings: Settings, auth_provider: BasicAuthProvider) -> dict[str, Any]:
     """Helper: register workflow tools on a fresh MCP server and return tool map."""
     from mcp.server.fastmcp import FastMCP
 
@@ -27,7 +29,7 @@ def _register_and_get_tools(settings, auth_provider):
 
     mcp = FastMCP("test")
     register_tools(mcp, settings, auth_provider)
-    return {t.name: t.fn for t in mcp._tool_manager._tools.values()}
+    return get_tool_functions(mcp)
 
 
 # ---------------------------------------------------------------------------
@@ -38,7 +40,7 @@ def _register_and_get_tools(settings, auth_provider):
 class TestWorkflowToolRegistration:
     """Verify all workflow tools register correctly."""
 
-    def test_registers_all_five_tools(self, settings, auth_provider):
+    def test_registers_all_five_tools(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """All five workflow tools are registered on the MCP server."""
         tools = _register_and_get_tools(settings, auth_provider)
         expected = {
@@ -61,7 +63,9 @@ class TestWorkflowContexts:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_returns_both_legacy_and_flow_contexts(self, settings, auth_provider):
+    async def test_returns_both_legacy_and_flow_contexts(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """Returns legacy workflow contexts and flow designer contexts."""
         respx.get(f"{BASE_URL}/api/now/table/wf_context").mock(
             return_value=httpx.Response(
@@ -108,7 +112,7 @@ class TestWorkflowContexts:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["workflow_contexts"](record_sys_id="inc001")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert len(result["data"]["legacy_workflows"]) == 1
@@ -118,7 +122,7 @@ class TestWorkflowContexts:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_empty_results_for_both_engines(self, settings, auth_provider):
+    async def test_empty_results_for_both_engines(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns empty lists when no contexts found."""
         respx.get(f"{BASE_URL}/api/now/table/wf_context").mock(
             return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
@@ -129,7 +133,7 @@ class TestWorkflowContexts:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["workflow_contexts"](record_sys_id="inc999")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["legacy_workflows"] == []
@@ -137,7 +141,7 @@ class TestWorkflowContexts:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_filters_by_state(self, settings, auth_provider):
+    async def test_filters_by_state(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Passes state filter through to the legacy query."""
         legacy_route = respx.get(f"{BASE_URL}/api/now/table/wf_context").mock(
             return_value=httpx.Response(
@@ -167,17 +171,18 @@ class TestWorkflowContexts:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["workflow_contexts"](record_sys_id="inc001", state="finished")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         # Verify state was included in the legacy encoded query
-        request = legacy_route.calls[0].request
-        qs = parse_qs(urlparse(str(request.url)).query)
+        assert legacy_route.calls.last is not None
+        last_request = legacy_route.calls.last.request
+        qs = parse_qs(urlparse(str(last_request.url)).query)
         assert "state=finished" in qs["sysparm_query"][0]
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_filters_by_table(self, settings, auth_provider):
+    async def test_filters_by_table(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Passes table filter through to the legacy query."""
         legacy_route = respx.get(f"{BASE_URL}/api/now/table/wf_context").mock(
             return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
@@ -188,17 +193,18 @@ class TestWorkflowContexts:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["workflow_contexts"](record_sys_id="inc001", table="incident")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         # Verify table was included in the legacy encoded query
-        request = legacy_route.calls[0].request
-        qs = parse_qs(urlparse(str(request.url)).query)
+        assert legacy_route.calls.last is not None
+        last_request = legacy_route.calls.last.request
+        qs = parse_qs(urlparse(str(last_request.url)).query)
         assert "table=incident" in qs["sysparm_query"][0]
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_handles_server_error(self, settings, auth_provider):
+    async def test_handles_server_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns error envelope when legacy context query fails."""
         respx.get(f"{BASE_URL}/api/now/table/wf_context").mock(
             return_value=httpx.Response(500, json={"error": {"message": "Server error"}})
@@ -209,7 +215,7 @@ class TestWorkflowContexts:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["workflow_contexts"](record_sys_id="inc001")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
         assert isinstance(result["error"], dict)
@@ -226,7 +232,7 @@ class TestWorkflowMap:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_returns_full_map(self, settings, auth_provider):
+    async def test_returns_full_map(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns version, activities, and transitions."""
         respx.get(f"{BASE_URL}/api/now/table/wf_workflow_version/wfv001").mock(
             return_value=httpx.Response(
@@ -317,7 +323,7 @@ class TestWorkflowMap:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["workflow_map"](workflow_version_sys_id="wfv001")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["version"]["name"] == "Incident Workflow v2"
@@ -331,7 +337,7 @@ class TestWorkflowMap:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_empty_activities_and_transitions(self, settings, auth_provider):
+    async def test_empty_activities_and_transitions(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns version with empty activities and transitions lists."""
         respx.get(f"{BASE_URL}/api/now/table/wf_workflow_version/wfv_empty").mock(
             return_value=httpx.Response(
@@ -356,7 +362,7 @@ class TestWorkflowMap:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["workflow_map"](workflow_version_sys_id="wfv_empty")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["activities"] == []
@@ -364,7 +370,7 @@ class TestWorkflowMap:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_activities_sorted_by_x_position(self, settings, auth_provider):
+    async def test_activities_sorted_by_x_position(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Activities are returned ordered by x position from the query."""
         respx.get(f"{BASE_URL}/api/now/table/wf_workflow_version/wfv_sort").mock(
             return_value=httpx.Response(
@@ -410,7 +416,7 @@ class TestWorkflowMap:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["workflow_map"](workflow_version_sys_id="wfv_sort")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         names = [a["name"] for a in result["data"]["activities"]]
@@ -419,7 +425,7 @@ class TestWorkflowMap:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_error_on_missing_version(self, settings, auth_provider):
+    async def test_error_on_missing_version(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns error when the workflow version is not found."""
         respx.get(f"{BASE_URL}/api/now/table/wf_workflow_version/bad_id").mock(
             return_value=httpx.Response(404, json={"error": {"message": "Not found"}})
@@ -433,7 +439,7 @@ class TestWorkflowMap:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["workflow_map"](workflow_version_sys_id="bad_id")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
         assert isinstance(result["error"], dict)
@@ -441,7 +447,7 @@ class TestWorkflowMap:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_map_groups_variables_by_activity(self, settings, auth_provider):
+    async def test_map_groups_variables_by_activity(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Variables are grouped correctly per activity in the map."""
         respx.get(f"{BASE_URL}/api/now/table/wf_workflow_version/wfv_vars").mock(
             return_value=httpx.Response(
@@ -505,7 +511,7 @@ class TestWorkflowMap:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["workflow_map"](workflow_version_sys_id="wfv_vars")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         activities = result["data"]["activities"]
@@ -517,7 +523,9 @@ class TestWorkflowMap:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_map_empty_activities_skips_variable_fetch(self, settings, auth_provider):
+    async def test_map_empty_activities_skips_variable_fetch(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """No sys_variable_value call when there are no activities."""
         respx.get(f"{BASE_URL}/api/now/table/wf_workflow_version/wfv_none").mock(
             return_value=httpx.Response(
@@ -540,7 +548,7 @@ class TestWorkflowMap:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["workflow_map"](workflow_version_sys_id="wfv_none")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["activities"] == []
@@ -556,7 +564,9 @@ class TestWorkflowStatus:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_returns_context_with_executing_and_history(self, settings, auth_provider):
+    async def test_returns_context_with_executing_and_history(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """Returns context record alongside executing and history lists."""
         respx.get(f"{BASE_URL}/api/now/table/wf_context/ctx001").mock(
             return_value=httpx.Response(
@@ -619,7 +629,7 @@ class TestWorkflowStatus:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["workflow_status"](context_sys_id="ctx001")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["context"]["state"] == "Executing"
@@ -630,7 +640,7 @@ class TestWorkflowStatus:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_empty_executing_all_completed(self, settings, auth_provider):
+    async def test_empty_executing_all_completed(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns empty executing list when all activities have finished."""
         respx.get(f"{BASE_URL}/api/now/table/wf_context/ctx_done").mock(
             return_value=httpx.Response(
@@ -673,7 +683,7 @@ class TestWorkflowStatus:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["workflow_status"](context_sys_id="ctx_done")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["executing"] == []
@@ -681,7 +691,7 @@ class TestWorkflowStatus:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_multiple_executing_activities(self, settings, auth_provider):
+    async def test_multiple_executing_activities(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns multiple currently-executing activities."""
         respx.get(f"{BASE_URL}/api/now/table/wf_context/ctx_multi").mock(
             return_value=httpx.Response(
@@ -735,14 +745,14 @@ class TestWorkflowStatus:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["workflow_status"](context_sys_id="ctx_multi")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert len(result["data"]["executing"]) == 3
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_history_with_faults(self, settings, auth_provider):
+    async def test_history_with_faults(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns history entries with populated fault_description."""
         respx.get(f"{BASE_URL}/api/now/table/wf_context/ctx_fault").mock(
             return_value=httpx.Response(
@@ -794,7 +804,7 @@ class TestWorkflowStatus:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["workflow_status"](context_sys_id="ctx_fault")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         history = result["data"]["history"]
@@ -804,14 +814,14 @@ class TestWorkflowStatus:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_error_on_missing_context(self, settings, auth_provider):
+    async def test_error_on_missing_context(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns error envelope when wf_context is not found."""
         respx.get(f"{BASE_URL}/api/now/table/wf_context/ctx404").mock(
             return_value=httpx.Response(404, json={"error": {"message": "Record not found"}})
         )
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["workflow_status"](context_sys_id="ctx404")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
         assert isinstance(result["error"], dict)
@@ -828,33 +838,33 @@ class TestWorkflowActivityDetail:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_returns_activity_with_linked_definition(self, settings, auth_provider):
+    async def test_returns_activity_with_linked_definition(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """Returns activity display values alongside the element definition."""
+
         # Phase 1: raw activity (display_values=False) to get the definition sys_id
-        respx.get(f"{BASE_URL}/api/now/table/wf_activity/act001").mock(
-            side_effect=lambda request: httpx.Response(
-                200,
-                json={
-                    "result": (
-                        {
-                            "sys_id": "act001",
-                            "name": "Approval",
-                            "activity_definition": "def001",
-                            "x": "200",
-                            "y": "100",
-                        }
-                        if "sysparm_display_value" not in str(request.url)
-                        else {
-                            "sys_id": "act001",
-                            "name": "Approval",
-                            "activity_definition": "Approval - User",
-                            "x": "200",
-                            "y": "100",
-                        }
-                    )
-                },
+        def _act001_side_effect(request: httpx.Request) -> httpx.Response:
+            result = (
+                {
+                    "sys_id": "act001",
+                    "name": "Approval",
+                    "activity_definition": "def001",
+                    "x": "200",
+                    "y": "100",
+                }
+                if "sysparm_display_value" not in str(request.url)
+                else {
+                    "sys_id": "act001",
+                    "name": "Approval",
+                    "activity_definition": "Approval - User",
+                    "x": "200",
+                    "y": "100",
+                }
             )
-        )
+            return httpx.Response(200, json={"result": result})
+
+        respx.get(f"{BASE_URL}/api/now/table/wf_activity/act001").mock(side_effect=_act001_side_effect)
         # Phase 2: element definition with display values
         respx.get(f"{BASE_URL}/api/now/table/wf_element_definition/def001").mock(
             return_value=httpx.Response(
@@ -889,7 +899,7 @@ class TestWorkflowActivityDetail:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["workflow_activity_detail"](activity_sys_id="act001")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["activity"]["sys_id"] == "act001"
@@ -900,11 +910,12 @@ class TestWorkflowActivityDetail:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_activity_with_no_definition(self, settings, auth_provider):
+    async def test_activity_with_no_definition(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns definition as None when activity has no linked definition."""
+
         # Phase 1: raw activity with empty activity_definition
-        respx.get(f"{BASE_URL}/api/now/table/wf_activity/act_nodef").mock(
-            side_effect=lambda request: httpx.Response(
+        def _nodef_side_effect(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
                 200,
                 json={
                     "result": {
@@ -916,14 +927,15 @@ class TestWorkflowActivityDetail:
                     }
                 },
             )
-        )
+
+        respx.get(f"{BASE_URL}/api/now/table/wf_activity/act_nodef").mock(side_effect=_nodef_side_effect)
         respx.get(f"{BASE_URL}/api/now/table/sys_variable_value").mock(
             return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["workflow_activity_detail"](activity_sys_id="act_nodef")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["activity"]["sys_id"] == "act_nodef"
@@ -932,7 +944,7 @@ class TestWorkflowActivityDetail:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_error_on_missing_activity(self, settings, auth_provider):
+    async def test_error_on_missing_activity(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns error when the activity record is not found."""
         respx.get(f"{BASE_URL}/api/now/table/wf_activity/bad_id").mock(
             return_value=httpx.Response(404, json={"error": {"message": "Not found"}})
@@ -940,7 +952,7 @@ class TestWorkflowActivityDetail:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["workflow_activity_detail"](activity_sys_id="bad_id")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
         assert isinstance(result["error"], dict)
@@ -948,10 +960,13 @@ class TestWorkflowActivityDetail:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_activity_includes_multiple_variables(self, settings, auth_provider):
+    async def test_activity_includes_multiple_variables(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """Returns multiple configured variables for an activity."""
-        respx.get(f"{BASE_URL}/api/now/table/wf_activity/act_vars").mock(
-            side_effect=lambda request: httpx.Response(
+
+        def _act_vars_side_effect(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
                 200,
                 json={
                     "result": {
@@ -963,7 +978,8 @@ class TestWorkflowActivityDetail:
                     }
                 },
             )
-        )
+
+        respx.get(f"{BASE_URL}/api/now/table/wf_activity/act_vars").mock(side_effect=_act_vars_side_effect)
         respx.get(f"{BASE_URL}/api/now/table/wf_element_definition/def_script").mock(
             return_value=httpx.Response(
                 200,
@@ -1001,7 +1017,7 @@ class TestWorkflowActivityDetail:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["workflow_activity_detail"](activity_sys_id="act_vars")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert len(result["data"]["variables"]) == 2
@@ -1020,7 +1036,7 @@ class TestWorkflowVersionList:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_returns_versions_for_table(self, settings, auth_provider):
+    async def test_returns_versions_for_table(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns workflow versions defined for a specific table."""
         respx.get(f"{BASE_URL}/api/now/table/wf_workflow_version").mock(
             return_value=httpx.Response(
@@ -1057,7 +1073,7 @@ class TestWorkflowVersionList:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["workflow_version_list"](table="incident")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert len(result["data"]["versions"]) == 2
@@ -1065,7 +1081,7 @@ class TestWorkflowVersionList:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_empty_result(self, settings, auth_provider):
+    async def test_empty_result(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns empty versions list when none found."""
         respx.get(f"{BASE_URL}/api/now/table/wf_workflow_version").mock(
             return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
@@ -1073,14 +1089,16 @@ class TestWorkflowVersionList:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["workflow_version_list"](table="change_request")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["versions"] == []
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_active_only_false_includes_inactive(self, settings, auth_provider):
+    async def test_active_only_false_includes_inactive(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """Omits the active filter when active_only is False."""
         version_route = respx.get(f"{BASE_URL}/api/now/table/wf_workflow_version").mock(
             return_value=httpx.Response(
@@ -1102,18 +1120,21 @@ class TestWorkflowVersionList:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["workflow_version_list"](table="incident", active_only=False)
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert len(result["data"]["versions"]) == 1
         # Verify active=true was NOT in the encoded query
-        request = version_route.calls[0].request
-        qs = parse_qs(urlparse(str(request.url)).query)
+        assert version_route.calls.last is not None
+        last_request = version_route.calls.last.request
+        qs = parse_qs(urlparse(str(last_request.url)).query)
         assert "active=true" not in qs["sysparm_query"][0]
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_returns_versions_with_display_values(self, settings, auth_provider):
+    async def test_returns_versions_with_display_values(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """Display values are requested for version records."""
         version_route = respx.get(f"{BASE_URL}/api/now/table/wf_workflow_version").mock(
             return_value=httpx.Response(
@@ -1139,23 +1160,24 @@ class TestWorkflowVersionList:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["workflow_version_list"](table="problem")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         # Verify display_value=true was in the query params
-        request = version_route.calls[0].request
-        assert "sysparm_display_value=true" in str(request.url)
+        assert version_route.calls.last is not None
+        last_request = version_route.calls.last.request
+        assert "sysparm_display_value=true" in str(last_request.url)
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_handles_server_error(self, settings, auth_provider):
+    async def test_handles_server_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns error envelope on server error."""
         respx.get(f"{BASE_URL}/api/now/table/wf_workflow_version").mock(
             return_value=httpx.Response(500, json={"error": {"message": "Internal server error"}})
         )
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["workflow_version_list"](table="incident")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
         assert isinstance(result["error"], dict)

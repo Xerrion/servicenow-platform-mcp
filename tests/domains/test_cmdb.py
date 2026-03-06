@@ -1,5 +1,7 @@
 """Tests for CMDB domain tools."""
 
+from typing import Any
+
 import pytest
 import respx
 from httpx import Response
@@ -8,9 +10,10 @@ from toon_format import decode as toon_decode
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.tools.domains import cmdb
+from tests.helpers import get_tool_functions
 
 
-def _register_and_get_tools(settings: Settings, auth_provider: BasicAuthProvider) -> dict:
+def _register_and_get_tools(settings: Settings, auth_provider: BasicAuthProvider) -> dict[str, Any]:
     """Helper to register tools and return tool callables."""
     from mcp.server.fastmcp import FastMCP
 
@@ -21,7 +24,7 @@ def _register_and_get_tools(settings: Settings, auth_provider: BasicAuthProvider
     choices._fetched = True
     choices._cache = {k: dict(v) for k, v in ChoiceRegistry._DEFAULTS.items()}
     cmdb.register_tools(mcp, settings, auth_provider, choices=choices)
-    return {t.name: t.fn for t in mcp._tool_manager._tools.values()}
+    return get_tool_functions(mcp)
 
 
 class TestCmdbList:
@@ -29,7 +32,7 @@ class TestCmdbList:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_list_default_cmdb_ci(self, settings: Settings, auth_provider: BasicAuthProvider):
+    async def test_list_default_cmdb_ci(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Test listing CIs from default cmdb_ci table."""
         tools = _register_and_get_tools(settings, auth_provider)
         cmdb_list = tools["cmdb_list"]
@@ -56,6 +59,7 @@ class TestCmdbList:
 
         result = await cmdb_list()
         data = toon_decode(result)
+        assert isinstance(data, dict)
 
         assert data["status"] == "success"
         assert len(data["data"]) == 2
@@ -63,7 +67,7 @@ class TestCmdbList:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_list_with_ci_class_param(self, settings: Settings, auth_provider: BasicAuthProvider):
+    async def test_list_with_ci_class_param(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Test listing CIs from specific CI class table."""
         tools = _register_and_get_tools(settings, auth_provider)
         cmdb_list = tools["cmdb_list"]
@@ -85,6 +89,7 @@ class TestCmdbList:
 
         result = await cmdb_list(ci_class="cmdb_ci_server")
         data = toon_decode(result)
+        assert isinstance(data, dict)
 
         assert data["status"] == "success"
         assert len(data["data"]) == 1
@@ -92,7 +97,9 @@ class TestCmdbList:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_list_with_operational_status_filter(self, settings: Settings, auth_provider: BasicAuthProvider):
+    async def test_list_with_operational_status_filter(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """Test filtering by operational status."""
         tools = _register_and_get_tools(settings, auth_provider)
         cmdb_list = tools["cmdb_list"]
@@ -115,6 +122,7 @@ class TestCmdbList:
 
         result = await cmdb_list(operational_status="operational")
         data = toon_decode(result)
+        assert isinstance(data, dict)
 
         assert data["status"] == "success"
         request = respx.calls.last.request
@@ -126,7 +134,7 @@ class TestCmdbGet:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_get_by_sys_id(self, settings: Settings, auth_provider: BasicAuthProvider):
+    async def test_get_by_sys_id(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Test fetching CI by sys_id."""
         tools = _register_and_get_tools(settings, auth_provider)
         cmdb_get = tools["cmdb_get"]
@@ -149,6 +157,7 @@ class TestCmdbGet:
 
         result = await cmdb_get(name_or_sys_id=sys_id)
         data = toon_decode(result)
+        assert isinstance(data, dict)
 
         assert data["status"] == "success"
         assert data["data"]["name"] == "server-01"
@@ -157,7 +166,7 @@ class TestCmdbGet:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_get_by_name(self, settings: Settings, auth_provider: BasicAuthProvider):
+    async def test_get_by_name(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Test fetching CI by name."""
         tools = _register_and_get_tools(settings, auth_provider)
         cmdb_get = tools["cmdb_get"]
@@ -179,6 +188,7 @@ class TestCmdbGet:
 
         result = await cmdb_get(name_or_sys_id="server-01")
         data = toon_decode(result)
+        assert isinstance(data, dict)
 
         assert data["status"] == "success"
         assert data["data"]["name"] == "server-01"
@@ -188,7 +198,7 @@ class TestCmdbGet:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_get_not_found(self, settings: Settings, auth_provider: BasicAuthProvider):
+    async def test_get_not_found(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Test fetching non-existent CI."""
         tools = _register_and_get_tools(settings, auth_provider)
         cmdb_get = tools["cmdb_get"]
@@ -202,6 +212,7 @@ class TestCmdbGet:
 
         result = await cmdb_get(name_or_sys_id="nonexistent")
         data = toon_decode(result)
+        assert isinstance(data, dict)
 
         assert data["status"] == "error"
         assert "not found" in data["error"]["message"].lower()
@@ -212,7 +223,7 @@ class TestCmdbRelationships:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_relationships_both_directions(self, settings: Settings, auth_provider: BasicAuthProvider):
+    async def test_relationships_both_directions(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Test fetching relationships in both directions."""
         tools = _register_and_get_tools(settings, auth_provider)
         cmdb_relationships = tools["cmdb_relationships"]
@@ -240,13 +251,14 @@ class TestCmdbRelationships:
 
         result = await cmdb_relationships(name_or_sys_id=sys_id, direction="both")
         data = toon_decode(result)
+        assert isinstance(data, dict)
 
         assert data["status"] == "success"
         assert len(data["data"]) == 2
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_relationships_parent_only(self, settings: Settings, auth_provider: BasicAuthProvider):
+    async def test_relationships_parent_only(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Test fetching parent relationships only."""
         tools = _register_and_get_tools(settings, auth_provider)
         cmdb_relationships = tools["cmdb_relationships"]
@@ -269,6 +281,7 @@ class TestCmdbRelationships:
 
         result = await cmdb_relationships(name_or_sys_id=sys_id, direction="parent")
         data = toon_decode(result)
+        assert isinstance(data, dict)
 
         assert data["status"] == "success"
         # Verify query used child.sys_id
@@ -277,7 +290,7 @@ class TestCmdbRelationships:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_relationships_by_name_lookup(self, settings: Settings, auth_provider: BasicAuthProvider):
+    async def test_relationships_by_name_lookup(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Test fetching relationships by CI name (requires sys_id lookup first)."""
         tools = _register_and_get_tools(settings, auth_provider)
         cmdb_relationships = tools["cmdb_relationships"]
@@ -312,12 +325,13 @@ class TestCmdbRelationships:
 
         result = await cmdb_relationships(name_or_sys_id="server-01", direction="parent")
         data = toon_decode(result)
+        assert isinstance(data, dict)
 
         assert data["status"] == "success"
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_relationships_name_not_found(self, settings: Settings, auth_provider: BasicAuthProvider):
+    async def test_relationships_name_not_found(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Test that name lookup returning no records produces an error."""
         tools = _register_and_get_tools(settings, auth_provider)
         cmdb_relationships = tools["cmdb_relationships"]
@@ -332,13 +346,14 @@ class TestCmdbRelationships:
 
         result = await cmdb_relationships(name_or_sys_id="nonexistent-ci", direction="both")
         data = toon_decode(result)
+        assert isinstance(data, dict)
 
         assert data["status"] == "error"
         assert "not found" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_relationships_child_only(self, settings: Settings, auth_provider: BasicAuthProvider):
+    async def test_relationships_child_only(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Test fetching child relationships only."""
         tools = _register_and_get_tools(settings, auth_provider)
         cmdb_relationships = tools["cmdb_relationships"]
@@ -361,6 +376,7 @@ class TestCmdbRelationships:
 
         result = await cmdb_relationships(name_or_sys_id=sys_id, direction="child")
         data = toon_decode(result)
+        assert isinstance(data, dict)
 
         assert data["status"] == "success"
         assert len(data["data"]) == 1
@@ -370,7 +386,7 @@ class TestCmdbRelationships:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_relationships_invalid_direction(self, settings: Settings, auth_provider: BasicAuthProvider):
+    async def test_relationships_invalid_direction(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Test that an invalid direction produces an error."""
         tools = _register_and_get_tools(settings, auth_provider)
         cmdb_relationships = tools["cmdb_relationships"]
@@ -378,6 +394,7 @@ class TestCmdbRelationships:
         sys_id = "c" * 32
         result = await cmdb_relationships(name_or_sys_id=sys_id, direction="sideways")
         data = toon_decode(result)
+        assert isinstance(data, dict)
 
         assert data["status"] == "error"
         assert "invalid direction" in data["error"]["message"].lower()
@@ -388,7 +405,7 @@ class TestCmdbClasses:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_classes_aggregate(self, settings: Settings, auth_provider: BasicAuthProvider):
+    async def test_classes_aggregate(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Test listing unique CI classes via aggregate API."""
         tools = _register_and_get_tools(settings, auth_provider)
         cmdb_classes = tools["cmdb_classes"]
@@ -413,6 +430,7 @@ class TestCmdbClasses:
 
         result = await cmdb_classes(limit=50)
         data = toon_decode(result)
+        assert isinstance(data, dict)
 
         assert data["status"] == "success"
         assert isinstance(data["data"], list)
@@ -420,7 +438,7 @@ class TestCmdbClasses:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_classes_respects_limit(self, settings: Settings, auth_provider: BasicAuthProvider):
+    async def test_classes_respects_limit(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Test that cmdb_classes respects limit parameter."""
         tools = _register_and_get_tools(settings, auth_provider)
         cmdb_classes = tools["cmdb_classes"]
@@ -441,6 +459,7 @@ class TestCmdbClasses:
 
         result = await cmdb_classes(limit=10)
         data = toon_decode(result)
+        assert isinstance(data, dict)
 
         assert data["status"] == "success"
 
@@ -450,7 +469,7 @@ class TestCmdbHealth:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_health_default_table(self, settings: Settings, auth_provider: BasicAuthProvider):
+    async def test_health_default_table(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Test CMDB health check on default cmdb_ci table."""
         tools = _register_and_get_tools(settings, auth_provider)
         cmdb_health = tools["cmdb_health"]
@@ -479,6 +498,7 @@ class TestCmdbHealth:
 
         result = await cmdb_health()
         data = toon_decode(result)
+        assert isinstance(data, dict)
 
         assert data["status"] == "success"
         assert isinstance(data["data"], list)
@@ -486,7 +506,7 @@ class TestCmdbHealth:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_health_specific_ci_class(self, settings: Settings, auth_provider: BasicAuthProvider):
+    async def test_health_specific_ci_class(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Test CMDB health check on specific CI class."""
         tools = _register_and_get_tools(settings, auth_provider)
         cmdb_health = tools["cmdb_health"]
@@ -507,6 +527,7 @@ class TestCmdbHealth:
 
         result = await cmdb_health(ci_class="cmdb_ci_server")
         data = toon_decode(result)
+        assert isinstance(data, dict)
 
         assert data["status"] == "success"
         # Verify the correct table was queried
@@ -519,7 +540,7 @@ class TestErrorHandling:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_denied_table_access(self, settings: Settings, auth_provider: BasicAuthProvider):
+    async def test_denied_table_access(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Test that denied tables are blocked."""
         tools = _register_and_get_tools(settings, auth_provider)
         cmdb_list = tools["cmdb_list"]
@@ -527,13 +548,16 @@ class TestErrorHandling:
         # Try to access a denied table
         result = await cmdb_list(ci_class="sys_user_has_password")
         data = toon_decode(result)
+        assert isinstance(data, dict)
 
         assert data["status"] == "error"
         assert "denied" in data["error"]["message"].lower() or "forbidden" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_safe_tool_call_exception_handling(self, settings: Settings, auth_provider: BasicAuthProvider):
+    async def test_safe_tool_call_exception_handling(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """Test that exceptions are caught and returned as error responses."""
         tools = _register_and_get_tools(settings, auth_provider)
         cmdb_get = tools["cmdb_get"]
@@ -545,6 +569,7 @@ class TestErrorHandling:
 
         result = await cmdb_get(name_or_sys_id="test")
         data = toon_decode(result)
+        assert isinstance(data, dict)
 
         assert data["status"] == "error"
         assert "correlation_id" in data

@@ -6,49 +6,49 @@ import pytest
 class TestPackageRegistry:
     """Test package registry and loading."""
 
-    def test_registry_contains_full(self):
+    def test_registry_contains_full(self) -> None:
         """full package is defined in the registry."""
         from servicenow_mcp.packages import PACKAGE_REGISTRY
 
         assert "full" in PACKAGE_REGISTRY
 
-    def test_registry_contains_none(self):
+    def test_registry_contains_none(self) -> None:
         """'none' package is defined in the registry."""
         from servicenow_mcp.packages import PACKAGE_REGISTRY
 
         assert "none" in PACKAGE_REGISTRY
 
-    def test_registry_contains_introspection_only(self):
+    def test_registry_contains_introspection_only(self) -> None:
         """introspection_only package is defined."""
         from servicenow_mcp.packages import PACKAGE_REGISTRY
 
         assert "introspection_only" in PACKAGE_REGISTRY
 
-    def test_full_includes_introspection(self):
+    def test_full_includes_introspection(self) -> None:
         """full package includes introspection tools."""
         from servicenow_mcp.packages import PACKAGE_REGISTRY
 
         assert "introspection" in PACKAGE_REGISTRY["full"]
 
-    def test_full_includes_metadata(self):
+    def test_full_includes_metadata(self) -> None:
         """full package includes metadata tools."""
         from servicenow_mcp.packages import PACKAGE_REGISTRY
 
         assert "metadata" in PACKAGE_REGISTRY["full"]
 
-    def test_full_includes_relationships(self):
+    def test_full_includes_relationships(self) -> None:
         """full package includes relationship tools."""
         from servicenow_mcp.packages import PACKAGE_REGISTRY
 
         assert "relationships" in PACKAGE_REGISTRY["full"]
 
-    def test_none_package_is_empty(self):
+    def test_none_package_is_empty(self) -> None:
         """'none' package has no tool groups."""
         from servicenow_mcp.packages import PACKAGE_REGISTRY
 
         assert PACKAGE_REGISTRY["none"] == []
 
-    def test_get_package_valid(self):
+    def test_get_package_valid(self) -> None:
         """get_package returns tool groups for a valid package."""
         from servicenow_mcp.packages import get_package
 
@@ -56,26 +56,26 @@ class TestPackageRegistry:
         assert isinstance(groups, list)
         assert len(groups) > 0
 
-    def test_get_package_invalid_raises(self):
+    def test_get_package_invalid_raises(self) -> None:
         """get_package raises ValueError for unknown package."""
         from servicenow_mcp.packages import get_package
 
         with pytest.raises(ValueError, match="Unknown"):
             get_package("nonexistent_package")
 
-    def test_full_includes_changes(self):
+    def test_full_includes_changes(self) -> None:
         """full package includes change intelligence tools."""
         from servicenow_mcp.packages import PACKAGE_REGISTRY
 
         assert "changes" in PACKAGE_REGISTRY["full"]
 
-    def test_full_includes_debug(self):
+    def test_full_includes_debug(self) -> None:
         """full package includes debug/trace tools."""
         from servicenow_mcp.packages import PACKAGE_REGISTRY
 
         assert "debug" in PACKAGE_REGISTRY["full"]
 
-    def test_list_packages_returns_all(self):
+    def test_list_packages_returns_all(self) -> None:
         """list_packages returns all registered packages."""
         from servicenow_mcp.packages import list_packages
 
@@ -84,13 +84,13 @@ class TestPackageRegistry:
         assert "full" in packages
         assert "introspection_only" in packages
 
-    def test_dev_debug_not_in_registry(self):
+    def test_dev_debug_not_in_registry(self) -> None:
         """dev_debug package has been removed from the registry."""
         from servicenow_mcp.packages import PACKAGE_REGISTRY
 
         assert "dev_debug" not in PACKAGE_REGISTRY
 
-    def test_get_package_returns_copy(self):
+    def test_get_package_returns_copy(self) -> None:
         """get_package returns a copy — mutating it does not affect the registry."""
         from servicenow_mcp.packages import get_package
 
@@ -99,7 +99,7 @@ class TestPackageRegistry:
         fresh = get_package("full")
         assert "should_not_persist" not in fresh
 
-    def test_list_packages_returns_copies(self):
+    def test_list_packages_returns_copies(self) -> None:
         """list_packages returns deep copies of value lists."""
         from servicenow_mcp.packages import list_packages
 
@@ -108,7 +108,7 @@ class TestPackageRegistry:
         fresh = list_packages()
         assert "should_not_persist" not in fresh["full"]
 
-    def test_get_package_itil(self):
+    def test_get_package_itil(self) -> None:
         """get_package returns correct groups for itil preset."""
         from servicenow_mcp.packages import get_package
 
@@ -130,7 +130,7 @@ class TestPackageRegistry:
         assert groups == expected
         assert len(groups) == 12
 
-    def test_get_package_developer(self):
+    def test_get_package_developer(self) -> None:
         """get_package returns correct groups for developer preset."""
         from servicenow_mcp.packages import get_package
 
@@ -151,7 +151,7 @@ class TestPackageRegistry:
         assert groups == expected
         assert len(groups) == 11
 
-    def test_get_package_readonly(self):
+    def test_get_package_readonly(self) -> None:
         """get_package returns correct groups for readonly preset."""
         from servicenow_mcp.packages import get_package
 
@@ -170,7 +170,7 @@ class TestPackageRegistry:
         assert groups == expected
         assert len(groups) == 9
 
-    def test_get_package_analyst(self):
+    def test_get_package_analyst(self) -> None:
         """get_package returns correct groups for analyst preset."""
         from servicenow_mcp.packages import get_package
 
@@ -187,35 +187,35 @@ class TestPackageRegistry:
         assert groups == expected
         assert len(groups) == 7
 
-    def test_list_packages_includes_itil(self):
+    def test_list_packages_includes_itil(self) -> None:
         """list_packages includes itil preset."""
         from servicenow_mcp.packages import list_packages
 
         packages = list_packages()
         assert "itil" in packages
 
-    def test_list_packages_includes_developer(self):
+    def test_list_packages_includes_developer(self) -> None:
         """list_packages includes developer preset."""
         from servicenow_mcp.packages import list_packages
 
         packages = list_packages()
         assert "developer" in packages
 
-    def test_list_packages_includes_readonly(self):
+    def test_list_packages_includes_readonly(self) -> None:
         """list_packages includes readonly preset."""
         from servicenow_mcp.packages import list_packages
 
         packages = list_packages()
         assert "readonly" in packages
 
-    def test_list_packages_includes_analyst(self):
+    def test_list_packages_includes_analyst(self) -> None:
         """list_packages includes analyst preset."""
         from servicenow_mcp.packages import list_packages
 
         packages = list_packages()
         assert "analyst" in packages
 
-    def test_full_package_unchanged(self):
+    def test_full_package_unchanged(self) -> None:
         """full package still returns all groups unchanged."""
         from servicenow_mcp.packages import get_package
 
@@ -238,70 +238,70 @@ class TestPackageRegistry:
 class TestCommaSeparatedGroups:
     """Test comma-separated group syntax for custom tool packages."""
 
-    def test_comma_separated_valid_groups(self):
+    def test_comma_separated_valid_groups(self) -> None:
         """get_package accepts comma-separated group names and returns list."""
         from servicenow_mcp.packages import get_package
 
         groups = get_package("introspection,debug,utility")
         assert groups == ["introspection", "debug", "utility"]
 
-    def test_comma_separated_with_spaces(self):
+    def test_comma_separated_with_spaces(self) -> None:
         """get_package strips whitespace from comma-separated groups."""
         from servicenow_mcp.packages import get_package
 
         groups = get_package("introspection, debug, utility")
         assert groups == ["introspection", "debug", "utility"]
 
-    def test_comma_separated_deduplicates(self):
+    def test_comma_separated_deduplicates(self) -> None:
         """get_package deduplicates repeated group names."""
         from servicenow_mcp.packages import get_package
 
         groups = get_package("debug,debug,debug")
         assert groups == ["debug"]
 
-    def test_comma_separated_mixed_duplicates(self):
+    def test_comma_separated_mixed_duplicates(self) -> None:
         """get_package deduplicates mixed repeated groups."""
         from servicenow_mcp.packages import get_package
 
         groups = get_package("introspection,debug,introspection,utility,debug")
         assert groups == ["introspection", "debug", "utility"]
 
-    def test_comma_separated_invalid_group_raises(self):
+    def test_comma_separated_invalid_group_raises(self) -> None:
         """get_package raises ValueError for unknown group names."""
         from servicenow_mcp.packages import get_package
 
         with pytest.raises(ValueError, match="Unknown group"):
             get_package("introspection,invalid_group")
 
-    def test_comma_separated_multiple_invalid_groups_raises(self):
+    def test_comma_separated_multiple_invalid_groups_raises(self) -> None:
         """get_package mentions all invalid group names in error."""
         from servicenow_mcp.packages import get_package
 
         with pytest.raises(ValueError, match="invalid_group"):
             get_package("introspection,invalid_group,debug,fake_group")
 
-    def test_comma_separated_empty_groups_raises(self):
+    def test_comma_separated_empty_groups_raises(self) -> None:
         """get_package raises ValueError for empty group names."""
         from servicenow_mcp.packages import get_package
 
         with pytest.raises(ValueError, match="empty"):
             get_package(",,,")
 
-    def test_comma_separated_trailing_comma_raises(self):
+    def test_comma_separated_trailing_comma_raises(self) -> None:
         """get_package raises ValueError for trailing commas."""
         from servicenow_mcp.packages import get_package
 
         with pytest.raises(ValueError, match="empty"):
             get_package("debug,introspection,")
 
-    def test_comma_separated_leading_comma_raises(self):
+    def test_comma_separated_leading_comma_raises(self) -> None:
         """get_package raises ValueError for leading commas."""
         from servicenow_mcp.packages import get_package
 
         with pytest.raises(ValueError, match="empty"):
             get_package(",debug,introspection")
 
-    def test_preset_name_still_works(self):
+    def test_preset_name_still_works(self) -> None:
         """get_package still returns preset when name is in PACKAGE_REGISTRY."""
         from servicenow_mcp.packages import get_package
 
@@ -309,35 +309,35 @@ class TestCommaSeparatedGroups:
         assert isinstance(groups, list)
         assert "introspection" in groups
 
-    def test_comma_separated_cannot_use_preset_names(self):
+    def test_comma_separated_cannot_use_preset_names(self) -> None:
         """get_package rejects preset names in comma syntax."""
         from servicenow_mcp.packages import get_package
 
         with pytest.raises(ValueError, match="Cannot use preset package names"):
             get_package("introspection,itil,debug")
 
-    def test_comma_separated_single_group(self):
+    def test_comma_separated_single_group(self) -> None:
         """get_package accepts single group name."""
         from servicenow_mcp.packages import get_package
 
         groups = get_package("debug")
         assert groups == ["debug"]
 
-    def test_comma_separated_preserves_order(self):
+    def test_comma_separated_preserves_order(self) -> None:
         """get_package preserves order while deduplicating."""
         from servicenow_mcp.packages import get_package
 
         groups = get_package("utility,debug,introspection,debug")
         assert groups == ["utility", "debug", "introspection"]
 
-    def test_comma_separated_duplicate_preset_skipped(self):
+    def test_comma_separated_duplicate_preset_skipped(self) -> None:
         """get_package skips repeated preset names already flagged as collisions."""
         from servicenow_mcp.packages import get_package
 
         with pytest.raises(ValueError, match="Cannot use preset package names"):
             get_package("introspection,itil,itil,debug")
 
-    def test_comma_separated_duplicate_unknown_skipped(self):
+    def test_comma_separated_duplicate_unknown_skipped(self) -> None:
         """get_package skips repeated unknown names already flagged."""
         from servicenow_mcp.packages import get_package
 
@@ -348,7 +348,7 @@ class TestCommaSeparatedGroups:
 class TestDomainPackages:
     """Test domain-specific packages."""
 
-    def test_incident_management_package(self):
+    def test_incident_management_package(self) -> None:
         """incident_management package includes correct groups."""
         from servicenow_mcp.packages import get_package
 
@@ -360,7 +360,7 @@ class TestDomainPackages:
         assert "workflow" in groups
         assert len(groups) == 5
 
-    def test_change_management_package(self):
+    def test_change_management_package(self) -> None:
         """change_management package includes correct groups."""
         from servicenow_mcp.packages import get_package
 
@@ -371,7 +371,7 @@ class TestDomainPackages:
         assert "changes" in groups
         assert len(groups) == 4
 
-    def test_cmdb_package(self):
+    def test_cmdb_package(self) -> None:
         """cmdb package includes correct groups."""
         from servicenow_mcp.packages import get_package
 
@@ -382,7 +382,7 @@ class TestDomainPackages:
         assert "utility" in groups
         assert len(groups) == 4
 
-    def test_problem_management_package(self):
+    def test_problem_management_package(self) -> None:
         """problem_management package includes correct groups."""
         from servicenow_mcp.packages import get_package
 
@@ -394,7 +394,7 @@ class TestDomainPackages:
         assert "workflow" in groups
         assert len(groups) == 5
 
-    def test_request_management_package(self):
+    def test_request_management_package(self) -> None:
         """request_management package includes correct groups."""
         from servicenow_mcp.packages import get_package
 
@@ -405,7 +405,7 @@ class TestDomainPackages:
         assert "workflow" in groups
         assert len(groups) == 4
 
-    def test_knowledge_management_package(self):
+    def test_knowledge_management_package(self) -> None:
         """knowledge_management package includes correct groups."""
         from servicenow_mcp.packages import get_package
 
@@ -415,7 +415,7 @@ class TestDomainPackages:
         assert "utility" in groups
         assert len(groups) == 3
 
-    def test_full_package_includes_all_domain_groups(self):
+    def test_full_package_includes_all_domain_groups(self) -> None:
         """full package includes exactly 7 domain groups."""
         from servicenow_mcp.packages import get_package
 
@@ -430,7 +430,7 @@ class TestDomainPackages:
         assert "domain_knowledge" in domain_groups
         assert "domain_service_catalog" in domain_groups
 
-    def test_itil_package_includes_four_domain_groups(self):
+    def test_itil_package_includes_four_domain_groups(self) -> None:
         """itil package includes 4 domain groups (incident, change, problem, request)."""
         from servicenow_mcp.packages import get_package
 
@@ -442,7 +442,7 @@ class TestDomainPackages:
         assert "domain_problem" in domain_groups
         assert "domain_request" in domain_groups
 
-    def test_list_packages_includes_all_domain_packages(self):
+    def test_list_packages_includes_all_domain_packages(self) -> None:
         """list_packages includes all 7 domain-specific packages."""
         from servicenow_mcp.packages import list_packages
 
@@ -455,35 +455,35 @@ class TestDomainPackages:
         assert "knowledge_management" in packages
         assert "service_catalog" in packages
 
-    def test_comma_syntax_with_domain_groups(self):
+    def test_comma_syntax_with_domain_groups(self) -> None:
         """get_package accepts comma-separated syntax with domain groups."""
         from servicenow_mcp.packages import get_package
 
         groups = get_package("introspection,domain_incident,utility")
         assert groups == ["introspection", "domain_incident", "utility"]
 
-    def test_comma_syntax_multiple_domain_groups(self):
+    def test_comma_syntax_multiple_domain_groups(self) -> None:
         """get_package accepts multiple domain groups in comma syntax."""
         from servicenow_mcp.packages import get_package
 
         groups = get_package("domain_incident,domain_change,utility")
         assert groups == ["domain_incident", "domain_change", "utility"]
 
-    def test_backward_compatibility_full_package_count(self):
+    def test_backward_compatibility_full_package_count(self) -> None:
         """full package has 18 total groups (11 original + 7 domain)."""
         from servicenow_mcp.packages import get_package
 
         groups = get_package("full")
         assert len(groups) == 18
 
-    def test_backward_compatibility_itil_package_count(self):
+    def test_backward_compatibility_itil_package_count(self) -> None:
         """itil package has 12 total groups (8 original + 4 domain)."""
         from servicenow_mcp.packages import get_package
 
         groups = get_package("itil")
         assert len(groups) == 12
 
-    def test_developer_package_unchanged(self):
+    def test_developer_package_unchanged(self) -> None:
         """developer package still has 11 groups (no domain groups)."""
         from servicenow_mcp.packages import get_package
 
@@ -492,7 +492,7 @@ class TestDomainPackages:
         domain_groups = [g for g in groups if g.startswith("domain_")]
         assert len(domain_groups) == 0
 
-    def test_readonly_package_unchanged(self):
+    def test_readonly_package_unchanged(self) -> None:
         """readonly package still has 9 groups (no domain groups)."""
         from servicenow_mcp.packages import get_package
 
@@ -501,7 +501,7 @@ class TestDomainPackages:
         domain_groups = [g for g in groups if g.startswith("domain_")]
         assert len(domain_groups) == 0
 
-    def test_analyst_package_unchanged(self):
+    def test_analyst_package_unchanged(self) -> None:
         """analyst package still has 7 groups (no domain groups)."""
         from servicenow_mcp.packages import get_package
 
@@ -546,7 +546,7 @@ class TestToolNameUniqueness:
             all_tools.extend(tools)
         return all_tools
 
-    def test_full_package_tool_uniqueness(self):
+    def test_full_package_tool_uniqueness(self) -> None:
         """full package has no duplicate tool names."""
         tools_by_module = self._load_tools_for_package("full")
         all_tools = self._get_all_tool_names(tools_by_module)
@@ -560,7 +560,7 @@ class TestToolNameUniqueness:
 
         assert len(duplicates) == 0, f"Duplicate tools in 'full' package: {duplicates}"
 
-    def test_itil_package_tool_uniqueness(self):
+    def test_itil_package_tool_uniqueness(self) -> None:
         """itil package has no duplicate tool names."""
         tools_by_module = self._load_tools_for_package("itil")
         all_tools = self._get_all_tool_names(tools_by_module)
@@ -574,7 +574,7 @@ class TestToolNameUniqueness:
 
         assert len(duplicates) == 0, f"Duplicate tools in 'itil' package: {duplicates}"
 
-    def test_incident_management_package_tool_uniqueness(self):
+    def test_incident_management_package_tool_uniqueness(self) -> None:
         """incident_management package has no duplicate tool names."""
         tools_by_module = self._load_tools_for_package("incident_management")
         all_tools = self._get_all_tool_names(tools_by_module)
@@ -588,7 +588,7 @@ class TestToolNameUniqueness:
 
         assert len(duplicates) == 0, f"Duplicate tools in 'incident_management' package: {duplicates}"
 
-    def test_change_management_package_tool_uniqueness(self):
+    def test_change_management_package_tool_uniqueness(self) -> None:
         """change_management package has no duplicate tool names."""
         tools_by_module = self._load_tools_for_package("change_management")
         all_tools = self._get_all_tool_names(tools_by_module)
@@ -602,7 +602,7 @@ class TestToolNameUniqueness:
 
         assert len(duplicates) == 0, f"Duplicate tools in 'change_management' package: {duplicates}"
 
-    def test_cmdb_package_tool_uniqueness(self):
+    def test_cmdb_package_tool_uniqueness(self) -> None:
         """cmdb package has no duplicate tool names."""
         tools_by_module = self._load_tools_for_package("cmdb")
         all_tools = self._get_all_tool_names(tools_by_module)
@@ -616,7 +616,7 @@ class TestToolNameUniqueness:
 
         assert len(duplicates) == 0, f"Duplicate tools in 'cmdb' package: {duplicates}"
 
-    def test_problem_management_package_tool_uniqueness(self):
+    def test_problem_management_package_tool_uniqueness(self) -> None:
         """problem_management package has no duplicate tool names."""
         tools_by_module = self._load_tools_for_package("problem_management")
         all_tools = self._get_all_tool_names(tools_by_module)
@@ -630,7 +630,7 @@ class TestToolNameUniqueness:
 
         assert len(duplicates) == 0, f"Duplicate tools in 'problem_management' package: {duplicates}"
 
-    def test_request_management_package_tool_uniqueness(self):
+    def test_request_management_package_tool_uniqueness(self) -> None:
         """request_management package has no duplicate tool names."""
         tools_by_module = self._load_tools_for_package("request_management")
         all_tools = self._get_all_tool_names(tools_by_module)
@@ -644,7 +644,7 @@ class TestToolNameUniqueness:
 
         assert len(duplicates) == 0, f"Duplicate tools in 'request_management' package: {duplicates}"
 
-    def test_knowledge_management_package_tool_uniqueness(self):
+    def test_knowledge_management_package_tool_uniqueness(self) -> None:
         """knowledge_management package has no duplicate tool names."""
         tools_by_module = self._load_tools_for_package("knowledge_management")
         all_tools = self._get_all_tool_names(tools_by_module)

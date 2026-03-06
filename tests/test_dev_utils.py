@@ -1,23 +1,26 @@
 """Tests for developer utility tools (dev_toggle, dev_set_property)."""
 
+from typing import Any
+
 import httpx
 import pytest
 import respx
-from toon_format import decode as toon_decode
 
 from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp.config import Settings
+from tests.helpers import decode_response, get_tool_functions
 
 
 BASE_URL = "https://test.service-now.com"
 
 
 @pytest.fixture()
-def auth_provider(settings):
+def auth_provider(settings: Settings) -> BasicAuthProvider:
     """Create a BasicAuthProvider from test settings."""
     return BasicAuthProvider(settings)
 
 
-def _register_and_get_tools(settings, auth_provider):
+def _register_and_get_tools(settings: Settings, auth_provider: BasicAuthProvider) -> dict[str, Any]:
     """Helper: register dev_utils tools on a fresh MCP server and return tool map."""
     from mcp.server.fastmcp import FastMCP
 
@@ -25,7 +28,7 @@ def _register_and_get_tools(settings, auth_provider):
 
     mcp = FastMCP("test")
     register_tools(mcp, settings, auth_provider)
-    return {t.name: t.fn for t in mcp._tool_manager._tools.values()}
+    return get_tool_functions(mcp)
 
 
 # -- dev_toggle ----------------------------------------------------------------
@@ -36,7 +39,7 @@ class TestDevToggle:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_toggles_active_field(self, settings, auth_provider):
+    async def test_toggles_active_field(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Toggles the active field and returns old/new values."""
         respx.get(f"{BASE_URL}/api/now/table/sys_script/br001").mock(
             return_value=httpx.Response(
@@ -65,7 +68,7 @@ class TestDevToggle:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["dev_toggle"](artifact_type="business_rule", sys_id="br001", active=False)
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["old_active"] == "true"
@@ -73,35 +76,28 @@ class TestDevToggle:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_blocked_in_prod(self, prod_settings, auth_provider):
+    async def test_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider) -> None:
         """Returns error when environment is production."""
-        from mcp.server.fastmcp import FastMCP
-
-        from servicenow_mcp.tools.dev_utils import register_tools
-
-        prod_auth = BasicAuthProvider(prod_settings)
-        mcp = FastMCP("test")
-        register_tools(mcp, prod_settings, prod_auth)
-        tools = {t.name: t.fn for t in mcp._tool_manager._tools.values()}
+        tools = _register_and_get_tools(prod_settings, prod_auth_provider)
 
         raw = await tools["dev_toggle"](artifact_type="business_rule", sys_id="br001", active=False)
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_unknown_artifact_type(self, settings, auth_provider):
+    async def test_unknown_artifact_type(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns error for unknown artifact type."""
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["dev_toggle"](artifact_type="unknown_type", sys_id="br001", active=False)
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_denied_table_returns_error(self, settings, auth_provider):
+    async def test_denied_table_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns error when resolved table is denied by policy."""
         from unittest.mock import patch as mock_patch
 
@@ -115,7 +111,7 @@ class TestDevToggle:
         ):
             raw = await tools["dev_toggle"](artifact_type="business_rule", sys_id="br001", active=False)
 
-        result = toon_decode(raw)
+        result = decode_response(raw)
         assert result["status"] == "error"
         assert "acl" in result["error"]["message"].lower() or "forbidden" in result["error"]["message"].lower()
 
@@ -128,7 +124,7 @@ class TestDevSetProperty:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_updates_property_value(self, settings, auth_provider):
+    async def test_updates_property_value(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Updates a system property and returns old value."""
         respx.get(f"{BASE_URL}/api/now/table/sys_properties").mock(
             return_value=httpx.Response(
@@ -160,7 +156,7 @@ class TestDevSetProperty:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["dev_set_property"](name="glide.ui.session_timeout", value="60")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["old_value"] == "30"
@@ -168,25 +164,18 @@ class TestDevSetProperty:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_blocked_in_prod(self, prod_settings):
+    async def test_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider) -> None:
         """Returns error when environment is production."""
-        from mcp.server.fastmcp import FastMCP
-
-        from servicenow_mcp.tools.dev_utils import register_tools
-
-        prod_auth = BasicAuthProvider(prod_settings)
-        mcp = FastMCP("test")
-        register_tools(mcp, prod_settings, prod_auth)
-        tools = {t.name: t.fn for t in mcp._tool_manager._tools.values()}
+        tools = _register_and_get_tools(prod_settings, prod_auth_provider)
 
         raw = await tools["dev_set_property"](name="glide.ui.session_timeout", value="60")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_property_not_found(self, settings, auth_provider):
+    async def test_property_not_found(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns error when property doesn't exist."""
         respx.get(f"{BASE_URL}/api/now/table/sys_properties").mock(
             return_value=httpx.Response(
@@ -198,7 +187,7 @@ class TestDevSetProperty:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["dev_set_property"](name="nonexistent.property", value="x")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
 
@@ -211,7 +200,9 @@ class TestDevUtilsSensitiveFieldMasking:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_dev_set_property_masks_sensitive_value(self, settings, auth_provider):
+    async def test_dev_set_property_masks_sensitive_value(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """Setting a property with a sensitive name masks old/new values in response."""
         respx.get(f"{BASE_URL}/api/now/table/sys_properties").mock(
             return_value=httpx.Response(
@@ -243,7 +234,7 @@ class TestDevUtilsSensitiveFieldMasking:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["dev_set_property"](name="my.api_key_token", value="new_secret_key")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["old_value"] == "***MASKED***"
@@ -259,7 +250,7 @@ class TestDevToggleGenericException:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_unexpected_exception(self, settings, auth_provider):
+    async def test_unexpected_exception(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """dev_toggle returns error envelope when an unexpected exception occurs."""
         from unittest.mock import AsyncMock, patch
 
@@ -270,7 +261,7 @@ class TestDevToggleGenericException:
             side_effect=RuntimeError("connection failed"),
         ):
             raw = await tools["dev_toggle"](artifact_type="business_rule", sys_id="br001", active=False)
-        result = toon_decode(raw)
+        result = decode_response(raw)
         assert result["status"] == "error"
         assert "connection failed" in result["error"]["message"]
 
@@ -280,7 +271,7 @@ class TestDevSetPropertyGenericException:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_unexpected_exception(self, settings, auth_provider):
+    async def test_unexpected_exception(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """dev_set_property returns error envelope when an unexpected exception occurs."""
         from unittest.mock import AsyncMock, patch
 
@@ -291,6 +282,6 @@ class TestDevSetPropertyGenericException:
             side_effect=RuntimeError("network failure"),
         ):
             raw = await tools["dev_set_property"](name="glide.ui.session_timeout", value="60")
-        result = toon_decode(raw)
+        result = decode_response(raw)
         assert result["status"] == "error"
         assert "network failure" in result["error"]["message"]

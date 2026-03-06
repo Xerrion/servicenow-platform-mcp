@@ -3,8 +3,9 @@
 import functools
 import inspect
 from collections.abc import Callable, Coroutine
-from typing import Any
+from typing import Any, cast
 
+from servicenow_mcp.types import SignatureMutableCallable
 from servicenow_mcp.utils import generate_correlation_id, safe_tool_call
 
 
@@ -39,9 +40,10 @@ def tool_handler(
     # inspect.signature() follows __wrapped__ set by functools.wraps,
     # so we must remove it and provide an explicit __signature__ instead.
     original_sig = inspect.signature(fn)
-    wrapper.__signature__ = original_sig.replace(  # type: ignore[attr-defined]
+    typed_wrapper = cast("SignatureMutableCallable", cast("object", wrapper))
+    typed_wrapper.__signature__ = original_sig.replace(
         parameters=[p for p in original_sig.parameters.values() if p.name != "correlation_id"]
     )
-    del wrapper.__wrapped__
+    del typed_wrapper.__wrapped__
 
     return wrapper

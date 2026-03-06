@@ -34,6 +34,13 @@ RISKY_TYPES = {
     "sys_rest_message_fn",
 }
 
+RELEASE_NOTES_MARKDOWN_ALIASES = {"", "markdown", "md"}
+
+
+def _normalize_release_notes_format(_format_value: str) -> str:
+    """Normalize release note format inputs to the supported markdown output."""
+    return "markdown"
+
 
 def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthProvider) -> None:
     """Register change intelligence tools on the MCP server."""
@@ -72,7 +79,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         members = [mask_sensitive_fields(m) for m in members_result["records"]]
 
         # Group members by type
-        groups: dict[str, list[dict]] = defaultdict(list)
+        groups: dict[str, list[dict[str, str]]] = defaultdict(list)
         for member in members:
             artifact_type = member.get("type", "unknown")
             groups[artifact_type].append(
@@ -251,9 +258,10 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
 
         Args:
             update_set_id: The sys_id of the update set.
-            format: Output format (currently only 'markdown' supported).
+            format: Output format. Markdown aliases are normalized and other values fall back to markdown.
         """
         validate_identifier(update_set_id)
+        release_notes_format = _normalize_release_notes_format(format)
 
         async with ServiceNowClient(settings, auth_provider) as client:
             # Fetch update set metadata
@@ -317,6 +325,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
 
         return format_response(
             data={
+                "format": release_notes_format,
                 "update_set_name": us_name,
                 "release_notes": release_notes,
             },

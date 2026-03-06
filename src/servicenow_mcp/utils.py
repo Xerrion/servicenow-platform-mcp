@@ -5,7 +5,7 @@ import logging
 import re
 import uuid
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, override
 
 from toon_format import encode as toon_encode
 
@@ -676,6 +676,7 @@ class ServiceNowQuery:
         """Return the joined encoded query string."""
         return "^".join(self._parts)
 
+    @override
     def __str__(self) -> str:
         """Return the built query string."""
         return self.build()

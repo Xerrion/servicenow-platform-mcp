@@ -40,8 +40,10 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                 data=None,
                 correlation_id=correlation_id,
                 status="error",
-                error=f"Unknown artifact type: '{artifact_type}'. "
-                f"Valid types: {', '.join(sorted(ARTIFACT_TABLES.keys()))}",
+                error=(
+                    f"Unknown artifact type: '{artifact_type}'. "
+                    f"Valid types: {', '.join(sorted(ARTIFACT_TABLES.keys()))}"
+                ),
             )
 
         check_table_access(table)

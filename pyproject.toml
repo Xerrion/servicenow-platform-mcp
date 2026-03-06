@@ -62,6 +62,7 @@ dev = [
     "ruff>=0.9.0",
     "mypy>=1.14.0",
     "pytest-cov>=6.0.0",
+    "basedpyright>=1.29.0",
 ]
 
 [tool.ruff]
@@ -111,6 +112,7 @@ ignore = [
 "tests/**/*.py" = [
     "T20",    # print statements OK in tests
     "ERA001", # commented-out code OK in tests
+    "PT019",  # underscore-prefixed fixtures are used for @patch and side-effect injection
 ]
 "src/servicenow_mcp/tools/domains/*.py" = [
     "A002",   # shadowing built-in "type" used as ServiceNow parameter name
@@ -142,6 +144,19 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = "servicenow_mcp.server"
 disable_error_code = ["call-arg"]
+
+[tool.basedpyright]
+pythonVersion = "3.12"
+reportAny = false
+reportExplicitAny = false
+reportUnusedCallResult = false
+reportUnusedFunction = false
+reportPrivateUsage = false
+reportUnknownMemberType = false
+reportUnknownArgumentType = false
+reportUnknownVariableType = false
+reportUnknownLambdaType = false
+reportImplicitStringConcatenation = false
 
 [tool.uv.sources]
 toon-format = { git = "https://github.com/toon-format/toon-python.git" }

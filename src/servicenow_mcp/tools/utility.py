@@ -8,6 +8,7 @@ from mcp.server.fastmcp import FastMCP
 
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.config import Settings
+from servicenow_mcp.mcp_state import get_query_store
 from servicenow_mcp.state import QueryTokenStore
 from servicenow_mcp.utils import (
     ServiceNowQuery,
@@ -87,7 +88,7 @@ def _require_value(
 
 
 def _apply_unary(
-    query: ServiceNowQuery, field: str, operator: str, condition: dict[str, Any], correlation_id: str
+    query: ServiceNowQuery, field: str, operator: str, _condition: dict[str, Any], _correlation_id: str
 ) -> str | None:
     """Apply a unary operator (no value needed)."""
     getattr(query, operator)(field)
@@ -160,7 +161,7 @@ def _apply_field(
 
 
 def _apply_between(
-    query: ServiceNowQuery, field: str, operator: str, condition: dict[str, Any], correlation_id: str
+    query: ServiceNowQuery, field: str, _operator: str, condition: dict[str, Any], correlation_id: str
 ) -> str | None:
     """Apply the between operator (requires start and end)."""
     start = condition.get("start")
@@ -179,7 +180,7 @@ def _apply_between(
 
 
 def _apply_datepart(
-    query: ServiceNowQuery, field: str, operator: str, condition: dict[str, Any], correlation_id: str
+    query: ServiceNowQuery, field: str, _operator: str, condition: dict[str, Any], correlation_id: str
 ) -> str | None:
     """Apply the datepart operator (requires part, dp_operator, dp_value)."""
     part = condition.get("part", "")
@@ -207,7 +208,7 @@ def _apply_new_query(
 
 
 def _apply_rl_query(
-    query: ServiceNowQuery, field: str, operator: str, condition: dict[str, Any], correlation_id: str
+    query: ServiceNowQuery, field: str, _operator: str, condition: dict[str, Any], correlation_id: str
 ) -> str | None:
     """Apply the rl_query operator (requires related_table, related_field, rl_operator)."""
     related_table = condition.get("related_table", "")
@@ -315,7 +316,7 @@ def _apply_condition(
 def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthProvider) -> None:
     """Register utility tools on the MCP server."""
     _ = settings, auth_provider  # Required by register_tools interface contract
-    query_store: QueryTokenStore = mcp._sn_query_store  # type: ignore[attr-defined]
+    query_store: QueryTokenStore = get_query_store(mcp)
 
     @mcp.tool()
     def build_query(conditions: str) -> str:
@@ -356,7 +357,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         """
         correlation_id = generate_correlation_id()
         try:
-            parsed: list[dict[str, Any]] = json.loads(conditions)
+            parsed = json.loads(conditions)
             if not isinstance(parsed, list):
                 return format_response(
                     data=None,

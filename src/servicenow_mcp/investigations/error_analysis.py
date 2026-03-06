@@ -73,7 +73,7 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
     )
 
 
-def _build_explanation(table: str, sys_id: str, record: dict[str, Any]) -> list[str]:
+def _build_explanation(_table: str, _sys_id: str, record: dict[str, Any]) -> list[str]:
     """Build explanation parts for a syslog error record."""
     source = record.get("source", "")
     return [

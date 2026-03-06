@@ -1,25 +1,27 @@
 """Tests for change intelligence tools (changes_updateset_inspect, changes_diff_artifact, changes_last_touched, changes_release_notes)."""
 
+from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
 import respx
-from toon_format import decode as toon_decode
 
 from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp.config import Settings
+from tests.helpers import decode_response, get_tool_functions
 
 
 BASE_URL = "https://test.service-now.com"
 
 
 @pytest.fixture()
-def auth_provider(settings):
+def auth_provider(settings: Settings) -> BasicAuthProvider:
     """Create a BasicAuthProvider from test settings."""
     return BasicAuthProvider(settings)
 
 
-def _register_and_get_tools(settings, auth_provider):
+def _register_and_get_tools(settings: Settings, auth_provider: BasicAuthProvider) -> dict[str, Any]:
     """Helper: register change tools on a fresh MCP server and return tool map."""
     from mcp.server.fastmcp import FastMCP
 
@@ -27,7 +29,7 @@ def _register_and_get_tools(settings, auth_provider):
 
     mcp = FastMCP("test")
     register_tools(mcp, settings, auth_provider)
-    return {t.name: t.fn for t in mcp._tool_manager._tools.values()}
+    return get_tool_functions(mcp)
 
 
 class TestChangesUpdatesetInspect:
@@ -35,7 +37,7 @@ class TestChangesUpdatesetInspect:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_returns_grouped_summary(self, settings, auth_provider):
+    async def test_returns_grouped_summary(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns update set members grouped by table/type."""
         # Mock the update set record fetch
         respx.get(f"{BASE_URL}/api/now/table/sys_update_set/us001").mock(
@@ -89,7 +91,7 @@ class TestChangesUpdatesetInspect:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["changes_updateset_inspect"](update_set_id="us001")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         data = result["data"]
@@ -101,7 +103,7 @@ class TestChangesUpdatesetInspect:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_flags_risk_indicators(self, settings, auth_provider):
+    async def test_flags_risk_indicators(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Flags risk when dangerous artifact types are present (ACLs, scripts)."""
         respx.get(f"{BASE_URL}/api/now/table/sys_update_set/us002").mock(
             return_value=httpx.Response(
@@ -135,14 +137,14 @@ class TestChangesUpdatesetInspect:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["changes_updateset_inspect"](update_set_id="us002")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert len(result["data"]["risk_flags"]) > 0
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_empty_update_set(self, settings, auth_provider):
+    async def test_empty_update_set(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Handles update set with no members."""
         respx.get(f"{BASE_URL}/api/now/table/sys_update_set/us003").mock(
             return_value=httpx.Response(
@@ -166,18 +168,18 @@ class TestChangesUpdatesetInspect:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["changes_updateset_inspect"](update_set_id="us003")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["total_members"] == 0
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_rejects_invalid_update_set_id(self, settings, auth_provider):
+    async def test_rejects_invalid_update_set_id(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns error when update_set_id contains invalid characters."""
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["changes_updateset_inspect"](update_set_id="invalid;id")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
         assert "invalid identifier" in result["error"]["message"].lower()
@@ -188,7 +190,7 @@ class TestChangesDiffArtifact:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_returns_diff_between_versions(self, settings, auth_provider):
+    async def test_returns_diff_between_versions(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns a text diff between the two most recent versions."""
         route = respx.get(f"{BASE_URL}/api/now/table/sys_update_version").mock(
             return_value=httpx.Response(
@@ -215,13 +217,14 @@ class TestChangesDiffArtifact:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["changes_diff_artifact"](table="sys_script_include", sys_id="abc")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert "diff" in result["data"]
 
         # Verify the query includes inline ordering via ^ORDERBY
-        request = route.calls[0].request
+        assert route.calls.last is not None
+        request = route.calls.last.request
         url_str = str(request.url)
         assert "ORDERBYDESCsys_recorded_at" in url_str
 
@@ -232,7 +235,7 @@ class TestChangesDiffArtifact:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_returns_error_when_no_versions(self, settings, auth_provider):
+    async def test_returns_error_when_no_versions(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns error when fewer than 2 versions exist."""
         respx.get(f"{BASE_URL}/api/now/table/sys_update_version").mock(
             return_value=httpx.Response(
@@ -244,13 +247,13 @@ class TestChangesDiffArtifact:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["changes_diff_artifact"](table="sys_script_include", sys_id="abc")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_diff_version_ordering(self, settings, auth_provider):
+    async def test_diff_version_ordering(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Verifies that versions[1] (older) is treated as the base 'Old' in the diff output."""
         old_payload = '<record><sys_script_include action="INSERT_OR_UPDATE"><script>// old version</script></sys_script_include></record>'
         new_payload = '<record><sys_script_include action="INSERT_OR_UPDATE"><script>// new version</script></sys_script_include></record>'
@@ -281,7 +284,7 @@ class TestChangesDiffArtifact:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["changes_diff_artifact"](table="sys_script_include", sys_id="xyz")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         diff_text = result["data"]["diff"]
@@ -294,7 +297,9 @@ class TestChangesDiffArtifact:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_diff_artifact_uses_builder_order_by(self, settings, auth_provider):
+    async def test_diff_artifact_uses_builder_order_by(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """Verifies the query uses ServiceNowQuery builder with inline ORDERBYDESC."""
         route = respx.get(f"{BASE_URL}/api/now/table/sys_update_version").mock(
             return_value=httpx.Response(
@@ -321,12 +326,13 @@ class TestChangesDiffArtifact:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["changes_diff_artifact"](table="sys_script_include", sys_id="abc")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
 
         # Verify the query uses the builder-generated format with equals() + order_by()
-        request = route.calls[0].request
+        assert route.calls.last is not None
+        request = route.calls.last.request
         url_str = str(request.url)
 
         # Builder produces: name=sys_script_include_abc^ORDERBYDESCsys_recorded_at
@@ -340,7 +346,7 @@ class TestChangesDiffArtifact:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_caret_in_sys_id_single_sanitized(self, settings, auth_provider):
+    async def test_caret_in_sys_id_single_sanitized(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """sys_id with carets produces single-sanitized update_name (^ → ^^), not double (^ → ^^^^)."""
         route = respx.get(f"{BASE_URL}/api/now/table/sys_update_version").mock(
             return_value=httpx.Response(
@@ -367,12 +373,13 @@ class TestChangesDiffArtifact:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["changes_diff_artifact"](table="sys_script_include", sys_id="abc^def")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         # The update_name should be "sys_script_include_abc^def" (unsanitized),
         # and the builder's .equals() will sanitize ^ to ^^ in the query.
-        request = route.calls[0].request
+        assert route.calls.last is not None
+        request = route.calls.last.request
         parsed = urlparse(str(request.url))
         qs = parse_qs(parsed.query)
         query_str = qs["sysparm_query"][0]
@@ -387,7 +394,7 @@ class TestChangesLastTouched:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_returns_audit_history(self, settings, auth_provider):
+    async def test_returns_audit_history(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns who/when/what from sys_audit."""
         respx.get(f"{BASE_URL}/api/now/table/sys_audit").mock(
             return_value=httpx.Response(
@@ -420,7 +427,7 @@ class TestChangesLastTouched:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["changes_last_touched"](table="incident", sys_id="inc001")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert len(result["data"]["changes"]) == 2
@@ -428,7 +435,7 @@ class TestChangesLastTouched:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_returns_empty_for_no_audit(self, settings, auth_provider):
+    async def test_returns_empty_for_no_audit(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns success with empty changes when no audit trail exists."""
         respx.get(f"{BASE_URL}/api/now/table/sys_audit").mock(
             return_value=httpx.Response(
@@ -440,7 +447,7 @@ class TestChangesLastTouched:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["changes_last_touched"](table="incident", sys_id="inc999")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["changes"] == []
@@ -449,17 +456,15 @@ class TestChangesLastTouched:
 class TestChangesReleaseNotes:
     """Tests for the changes_release_notes tool."""
 
-    @pytest.mark.asyncio()
-    @respx.mock
-    async def test_generates_markdown_release_notes(self, settings, auth_provider):
-        """Generates Markdown release notes from update set."""
-        # Mock update set metadata
-        respx.get(f"{BASE_URL}/api/now/table/sys_update_set/us001").mock(
+    @staticmethod
+    def _mock_release_notes_requests(update_set_id: str) -> None:
+        """Mock the update set and member requests for release notes tests."""
+        respx.get(f"{BASE_URL}/api/now/table/sys_update_set/{update_set_id}").mock(
             return_value=httpx.Response(
                 200,
                 json={
                     "result": {
-                        "sys_id": "us001",
+                        "sys_id": update_set_id,
                         "name": "Sprint 42 Release",
                         "state": "complete",
                         "description": "Bug fixes and improvements",
@@ -469,7 +474,6 @@ class TestChangesReleaseNotes:
                 },
             )
         )
-        # Mock update set members
         respx.get(f"{BASE_URL}/api/now/table/sys_update_xml").mock(
             return_value=httpx.Response(
                 200,
@@ -493,18 +497,45 @@ class TestChangesReleaseNotes:
             )
         )
 
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_generates_markdown_release_notes(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        """Generates Markdown release notes from update set."""
+        self._mock_release_notes_requests("us001")
+
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["changes_release_notes"](update_set_id="us001")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
+        assert result["data"]["format"] == "markdown"
         notes = result["data"]["release_notes"]
         assert "Sprint 42 Release" in notes
         assert "IncidentUtils" in notes
 
     @pytest.mark.asyncio()
+    @pytest.mark.parametrize("format_value", ["markdown", "Markdown", " MARKDOWN ", "md", "MD", "html"])
     @respx.mock
-    async def test_handles_empty_update_set(self, settings, auth_provider):
+    async def test_normalizes_release_note_format_variants(
+        self,
+        settings: Settings,
+        auth_provider: BasicAuthProvider,
+        format_value: str,
+    ) -> None:
+        """Accepts markdown variants and preserves legacy fallback-to-markdown behavior."""
+        self._mock_release_notes_requests("us005")
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["changes_release_notes"](update_set_id="us005", format=format_value)
+        result = decode_response(raw)
+
+        assert result["status"] == "success"
+        assert result["data"]["format"] == "markdown"
+        assert "Sprint 42 Release" in result["data"]["release_notes"]
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_handles_empty_update_set(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Generates notes even for empty update set."""
         respx.get(f"{BASE_URL}/api/now/table/sys_update_set/us004").mock(
             return_value=httpx.Response(
@@ -528,18 +559,18 @@ class TestChangesReleaseNotes:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["changes_release_notes"](update_set_id="us004")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert "Empty Release" in result["data"]["release_notes"]
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_rejects_invalid_update_set_id(self, settings, auth_provider):
+    async def test_rejects_invalid_update_set_id(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns error when update_set_id contains invalid characters."""
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["changes_release_notes"](update_set_id="invalid;id")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
         assert "invalid identifier" in result["error"]["message"].lower()

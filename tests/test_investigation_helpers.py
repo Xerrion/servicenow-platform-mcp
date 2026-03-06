@@ -1,5 +1,6 @@
 """Tests for investigation_helpers — shared utilities for investigation modules."""
 
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -146,9 +147,9 @@ class TestFetchAndExplain:
     @patch("servicenow_mcp.investigation_helpers.validate_identifier")
     async def test_returns_correct_structure(
         self,
-        mock_validate: AsyncMock,
+        _mock_validate: AsyncMock,
         mock_mask: AsyncMock,
-        mock_check: AsyncMock,
+        _mock_check: AsyncMock,
     ) -> None:
         """Returns dict with element, explanation, and record keys."""
         test_record = {
@@ -161,7 +162,7 @@ class TestFetchAndExplain:
         client = AsyncMock()
         client.get_record.return_value = test_record
 
-        def build_explanation(table: str, sys_id: str, record: dict) -> list[str]:
+        def build_explanation(_table: str, _sys_id: str, record: dict[str, Any]) -> list[str]:
             return [f"Flow '{record['name']}' is stuck."]
 
         result = await fetch_and_explain(
@@ -183,7 +184,7 @@ class TestFetchAndExplain:
         self,
         mock_validate: AsyncMock,
         mock_mask: AsyncMock,
-        mock_check: AsyncMock,
+        _mock_check: AsyncMock,
     ) -> None:
         """Calls validate_identifier with the parsed sys_id."""
         mock_mask.return_value = {"sys_id": "abc123"}
@@ -205,7 +206,7 @@ class TestFetchAndExplain:
     @patch("servicenow_mcp.investigation_helpers.validate_identifier")
     async def test_calls_check_table_access_with_table(
         self,
-        mock_validate: AsyncMock,
+        _mock_validate: AsyncMock,
         mock_mask: AsyncMock,
         mock_check: AsyncMock,
     ) -> None:
@@ -229,9 +230,9 @@ class TestFetchAndExplain:
     @patch("servicenow_mcp.investigation_helpers.validate_identifier")
     async def test_calls_mask_sensitive_fields_on_record(
         self,
-        mock_validate: AsyncMock,
+        _mock_validate: AsyncMock,
         mock_mask: AsyncMock,
-        mock_check: AsyncMock,
+        _mock_check: AsyncMock,
     ) -> None:
         """Passes the raw record through mask_sensitive_fields."""
         raw_record = {"sys_id": "r001", "password": "secret"}
@@ -257,9 +258,9 @@ class TestFetchAndExplain:
     @patch("servicenow_mcp.investigation_helpers.validate_identifier")
     async def test_calls_build_explanation_with_masked_record(
         self,
-        mock_validate: AsyncMock,
+        _mock_validate: AsyncMock,
         mock_mask: AsyncMock,
-        mock_check: AsyncMock,
+        _mock_check: AsyncMock,
     ) -> None:
         """Passes the masked record (not the raw one) to the build_explanation callback."""
         raw_record = {"sys_id": "r001", "name": "Raw"}
@@ -269,9 +270,9 @@ class TestFetchAndExplain:
         client = AsyncMock()
         client.get_record.return_value = raw_record
 
-        received_records: list[dict] = []
+        received_records: list[dict[str, Any]] = []
 
-        def capture_explanation(table: str, sys_id: str, record: dict) -> list[str]:
+        def capture_explanation(_table: str, _sys_id: str, record: dict[str, Any]) -> list[str]:
             received_records.append(record)
             return ["explained"]
 
@@ -291,9 +292,9 @@ class TestFetchAndExplain:
     @patch("servicenow_mcp.investigation_helpers.validate_identifier")
     async def test_joins_explanation_parts_with_spaces(
         self,
-        mock_validate: AsyncMock,
+        _mock_validate: AsyncMock,
         mock_mask: AsyncMock,
-        mock_check: AsyncMock,
+        _mock_check: AsyncMock,
     ) -> None:
         """Joins the explanation parts list into a single space-separated string."""
         mock_mask.return_value = {"sys_id": "x"}

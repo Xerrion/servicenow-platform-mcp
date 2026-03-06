@@ -1,25 +1,27 @@
 """Tests for debug/trace tools."""
 
+from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
 import respx
-from toon_format import decode as toon_decode
 
 from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp.config import Settings
+from tests.helpers import decode_response, get_tool_functions
 
 
 BASE_URL = "https://test.service-now.com"
 
 
 @pytest.fixture()
-def auth_provider(settings):
+def auth_provider(settings: Settings) -> BasicAuthProvider:
     """Create a BasicAuthProvider from test settings."""
     return BasicAuthProvider(settings)
 
 
-def _register_and_get_tools(settings, auth_provider):
+def _register_and_get_tools(settings: Settings, auth_provider: BasicAuthProvider) -> dict[str, Any]:
     """Helper: register debug tools on a fresh MCP server and return tool map."""
     from mcp.server.fastmcp import FastMCP
 
@@ -27,7 +29,7 @@ def _register_and_get_tools(settings, auth_provider):
 
     mcp = FastMCP("test")
     register_tools(mcp, settings, auth_provider)
-    return {t.name: t.fn for t in mcp._tool_manager._tools.values()}
+    return get_tool_functions(mcp)
 
 
 class TestDebugTrace:
@@ -35,7 +37,7 @@ class TestDebugTrace:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_returns_merged_timeline(self, settings, auth_provider):
+    async def test_returns_merged_timeline(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns merged timeline from sys_audit, syslog, sys_journal_field."""
         # Mock sys_audit
         respx.get(f"{BASE_URL}/api/now/table/sys_audit").mock(
@@ -97,7 +99,7 @@ class TestDebugTrace:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["debug_trace"](record_sys_id="inc001", table="incident", minutes=60)
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert len(result["data"]["timeline"]) == 3
@@ -107,7 +109,7 @@ class TestDebugTrace:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_empty_trace(self, settings, auth_provider):
+    async def test_empty_trace(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns empty timeline when no events found."""
         respx.get(f"{BASE_URL}/api/now/table/sys_audit").mock(
             return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
@@ -121,14 +123,14 @@ class TestDebugTrace:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["debug_trace"](record_sys_id="inc999", table="incident")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["timeline"] == []
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_filters_by_minutes(self, settings, auth_provider):
+    async def test_filters_by_minutes(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Queries include gs.minutesAgoStart time filter."""
         respx.get(f"{BASE_URL}/api/now/table/sys_audit").mock(
             return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
@@ -142,12 +144,12 @@ class TestDebugTrace:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["debug_trace"](record_sys_id="inc001", table="incident", minutes=30)
-        result = toon_decode(raw)
+        result = decode_response(raw)
         assert result["status"] == "success"
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_caret_in_sys_id_single_sanitized(self, settings, auth_provider):
+    async def test_caret_in_sys_id_single_sanitized(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Values with carets are single-sanitized (^ → ^^), not double (^ → ^^^^)."""
         audit_route = respx.get(f"{BASE_URL}/api/now/table/sys_audit").mock(
             return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
@@ -161,11 +163,12 @@ class TestDebugTrace:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["debug_trace"](record_sys_id="abc^def", table="incident", minutes=60)
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         # Inspect the audit query: should contain abc^^def (single sanitization)
-        request = audit_route.calls[0].request
+        assert audit_route.calls.last is not None
+        request = audit_route.calls.last.request
         parsed = urlparse(str(request.url))
         qs = parse_qs(parsed.query)
         query_str = qs["sysparm_query"][0]
@@ -178,7 +181,7 @@ class TestDebugFlowExecution:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_returns_flow_steps(self, settings, auth_provider):
+    async def test_returns_flow_steps(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns flow execution steps from sys_flow_context and sys_flow_log."""
         # Mock flow context
         respx.get(f"{BASE_URL}/api/now/table/sys_flow_context/ctx001").mock(
@@ -225,7 +228,7 @@ class TestDebugFlowExecution:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["debug_flow_execution"](context_id="ctx001")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["context"]["name"] == "Auto-assign flow"
@@ -233,7 +236,7 @@ class TestDebugFlowExecution:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_handles_flow_with_errors(self, settings, auth_provider):
+    async def test_handles_flow_with_errors(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns error info when flow steps have errors."""
         respx.get(f"{BASE_URL}/api/now/table/sys_flow_context/ctx002").mock(
             return_value=httpx.Response(
@@ -268,7 +271,7 @@ class TestDebugFlowExecution:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["debug_flow_execution"](context_id="ctx002")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["steps"][0]["error_message"] == "NullPointerException at line 5"
@@ -279,7 +282,7 @@ class TestDebugEmailTrace:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_returns_email_chain(self, settings, auth_provider):
+    async def test_returns_email_chain(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Reconstructs email chain for a record."""
         respx.get(f"{BASE_URL}/api/now/table/sys_email").mock(
             return_value=httpx.Response(
@@ -312,14 +315,14 @@ class TestDebugEmailTrace:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["debug_email_trace"](record_sys_id="inc001")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert len(result["data"]["emails"]) == 2
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_handles_no_emails(self, settings, auth_provider):
+    async def test_handles_no_emails(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns empty list when no emails found."""
         respx.get(f"{BASE_URL}/api/now/table/sys_email").mock(
             return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
@@ -327,7 +330,7 @@ class TestDebugEmailTrace:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["debug_email_trace"](record_sys_id="inc999")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["emails"] == []
@@ -338,7 +341,7 @@ class TestDebugIntegrationHealth:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_returns_ecc_queue_errors(self, settings, auth_provider):
+    async def test_returns_ecc_queue_errors(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns ECC queue error summary."""
         respx.get(f"{BASE_URL}/api/now/table/ecc_queue").mock(
             return_value=httpx.Response(
@@ -361,7 +364,7 @@ class TestDebugIntegrationHealth:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["debug_integration_health"](kind="ecc_queue")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["kind"] == "ecc_queue"
@@ -369,7 +372,7 @@ class TestDebugIntegrationHealth:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_returns_rest_message_errors(self, settings, auth_provider):
+    async def test_returns_rest_message_errors(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns REST message error summary."""
         respx.get(f"{BASE_URL}/api/now/table/sys_rest_transaction").mock(
             return_value=httpx.Response(
@@ -392,7 +395,7 @@ class TestDebugIntegrationHealth:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["debug_integration_health"](kind="rest_message")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["kind"] == "rest_message"
@@ -400,7 +403,7 @@ class TestDebugIntegrationHealth:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_filters_by_hours(self, settings, auth_provider):
+    async def test_filters_by_hours(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Queries include gs.hoursAgoStart time filter."""
         respx.get(f"{BASE_URL}/api/now/table/ecc_queue").mock(
             return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
@@ -408,7 +411,7 @@ class TestDebugIntegrationHealth:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["debug_integration_health"](kind="ecc_queue", hours=12)
-        result = toon_decode(raw)
+        result = decode_response(raw)
         assert result["status"] == "success"
 
 
@@ -417,7 +420,7 @@ class TestDebugImportsetRun:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_returns_import_set_results(self, settings, auth_provider):
+    async def test_returns_import_set_results(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns import set run results."""
         # Mock import set header
         respx.get(f"{BASE_URL}/api/now/table/sys_import_set/imp001").mock(
@@ -460,7 +463,7 @@ class TestDebugImportsetRun:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["debug_importset_run"](import_set_sys_id="imp001")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["import_set"]["sys_id"] == "imp001"
@@ -470,7 +473,7 @@ class TestDebugImportsetRun:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_handles_empty_import_set(self, settings, auth_provider):
+    async def test_handles_empty_import_set(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Handles import set with no rows."""
         respx.get(f"{BASE_URL}/api/now/table/sys_import_set/imp002").mock(
             return_value=httpx.Response(
@@ -490,7 +493,7 @@ class TestDebugImportsetRun:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["debug_importset_run"](import_set_sys_id="imp002")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["summary"]["total"] == 0
@@ -501,7 +504,7 @@ class TestDebugFieldMutationStory:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_returns_field_history(self, settings, auth_provider):
+    async def test_returns_field_history(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns chronological field mutation history."""
         respx.get(f"{BASE_URL}/api/now/table/sys_audit").mock(
             return_value=httpx.Response(
@@ -532,7 +535,7 @@ class TestDebugFieldMutationStory:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["debug_field_mutation_story"](table="incident", sys_id="inc001", field="state")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         mutations = result["data"]["mutations"]
@@ -542,7 +545,7 @@ class TestDebugFieldMutationStory:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_handles_no_mutations(self, settings, auth_provider):
+    async def test_handles_no_mutations(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns empty when no mutations found for the field."""
         respx.get(f"{BASE_URL}/api/now/table/sys_audit").mock(
             return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
@@ -550,7 +553,7 @@ class TestDebugFieldMutationStory:
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["debug_field_mutation_story"](table="incident", sys_id="inc001", field="state")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["mutations"] == []

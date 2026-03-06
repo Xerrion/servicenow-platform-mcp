@@ -1,26 +1,31 @@
 """Tests for ATF introspection tools (atf_list_tests, atf_get_test, atf_list_suites, atf_get_results)."""
 
+from typing import Any
 from urllib.parse import unquote
 
 import httpx
 import pytest
 import respx
-from toon_format import decode as toon_decode
 
 from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp.config import Settings
+from servicenow_mcp.mcp_state import attach_query_store
 from servicenow_mcp.state import QueryTokenStore
+from tests.helpers import decode_response, get_tool_functions
 
 
 BASE_URL = "https://test.service-now.com"
 
 
 @pytest.fixture()
-def auth_provider(settings):
+def auth_provider(settings: Settings) -> BasicAuthProvider:
     """Create a BasicAuthProvider from test settings."""
     return BasicAuthProvider(settings)
 
 
-def _register_and_get_tools(settings, auth_provider):
+def _register_and_get_tools(
+    settings: Settings, auth_provider: BasicAuthProvider
+) -> tuple[dict[str, Any], QueryTokenStore]:
     """Helper: register testing tools on a fresh MCP server and return tool map + query store."""
     from mcp.server.fastmcp import FastMCP
 
@@ -28,9 +33,9 @@ def _register_and_get_tools(settings, auth_provider):
 
     mcp = FastMCP("test")
     query_store = QueryTokenStore()
-    mcp._sn_query_store = query_store  # type: ignore[attr-defined]
+    attach_query_store(mcp, query_store)
     register_tools(mcp, settings, auth_provider)
-    return {t.name: t.fn for t in mcp._tool_manager._tools.values()}, query_store
+    return get_tool_functions(mcp), query_store
 
 
 class TestAtfListTests:
@@ -38,7 +43,7 @@ class TestAtfListTests:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_list_tests_success(self, settings, auth_provider):
+    async def test_list_tests_success(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns ATF tests with expected fields."""
         respx.get(f"{BASE_URL}/api/now/table/sys_atf_test").mock(
             return_value=httpx.Response(
@@ -69,7 +74,7 @@ class TestAtfListTests:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_list_tests"]()
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["record_count"] == 2
@@ -78,7 +83,7 @@ class TestAtfListTests:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_list_tests_with_query(self, settings, auth_provider):
+    async def test_list_tests_with_query(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Verify custom query param is passed through to API call."""
         route = respx.get(f"{BASE_URL}/api/now/table/sys_atf_test").mock(
             return_value=httpx.Response(
@@ -102,7 +107,7 @@ class TestAtfListTests:
         tools, query_store = _register_and_get_tools(settings, auth_provider)
         token = query_store.create({"query": "active=true"})
         raw = await tools["atf_list_tests"](query_token=token)
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert route.called
@@ -111,7 +116,7 @@ class TestAtfListTests:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_list_tests_empty_results(self, settings, auth_provider):
+    async def test_list_tests_empty_results(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns success with empty data when no tests found."""
         respx.get(f"{BASE_URL}/api/now/table/sys_atf_test").mock(
             return_value=httpx.Response(
@@ -123,7 +128,7 @@ class TestAtfListTests:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_list_tests"]()
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["record_count"] == 0
@@ -135,7 +140,7 @@ class TestAtfGetTest:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_get_test_success(self, settings, auth_provider):
+    async def test_get_test_success(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns test record and steps in combined response."""
         # Mock test record
         respx.get(f"{BASE_URL}/api/now/table/sys_atf_test/test123").mock(
@@ -179,7 +184,7 @@ class TestAtfGetTest:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_get_test"](test_id="test123")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["test"]["sys_id"] == "test123"
@@ -188,7 +193,7 @@ class TestAtfGetTest:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_get_test_not_found(self, settings, auth_provider):
+    async def test_get_test_not_found(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns error envelope when test not found."""
         respx.get(f"{BASE_URL}/api/now/table/sys_atf_test/missing").mock(
             return_value=httpx.Response(
@@ -199,13 +204,13 @@ class TestAtfGetTest:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_get_test"](test_id="missing")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_get_test_with_steps(self, settings, auth_provider):
+    async def test_get_test_with_steps(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns test with 3 steps ordered correctly."""
         respx.get(f"{BASE_URL}/api/now/table/sys_atf_test/test456").mock(
             return_value=httpx.Response(
@@ -254,7 +259,7 @@ class TestAtfGetTest:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_get_test"](test_id="test456")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["step_count"] == 3
@@ -268,7 +273,7 @@ class TestAtfListSuites:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_list_suites_success(self, settings, auth_provider):
+    async def test_list_suites_success(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns suites with member counts."""
         # Mock suite query
         respx.get(f"{BASE_URL}/api/now/table/sys_atf_test_suite").mock(
@@ -298,7 +303,7 @@ class TestAtfListSuites:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_list_suites"]()
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["record_count"] == 1
@@ -307,7 +312,7 @@ class TestAtfListSuites:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_list_suites_empty(self, settings, auth_provider):
+    async def test_list_suites_empty(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns success with empty data when no suites found."""
         respx.get(f"{BASE_URL}/api/now/table/sys_atf_test_suite").mock(
             return_value=httpx.Response(
@@ -319,7 +324,7 @@ class TestAtfListSuites:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_list_suites"]()
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["record_count"] == 0
@@ -331,7 +336,7 @@ class TestAtfGetResults:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_get_results_for_test(self, settings, auth_provider):
+    async def test_get_results_for_test(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns test results from sys_atf_test_result table."""
         respx.get(f"{BASE_URL}/api/now/table/sys_atf_test_result").mock(
             return_value=httpx.Response(
@@ -355,7 +360,7 @@ class TestAtfGetResults:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_get_results"](test_id="test123")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["result_type"] == "test_results"
@@ -364,7 +369,7 @@ class TestAtfGetResults:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_get_results_for_suite(self, settings, auth_provider):
+    async def test_get_results_for_suite(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns suite results from sys_atf_test_suite_result table."""
         respx.get(f"{BASE_URL}/api/now/table/sys_atf_test_suite_result").mock(
             return_value=httpx.Response(
@@ -389,7 +394,7 @@ class TestAtfGetResults:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_get_results"](suite_id="suite456")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["result_type"] == "suite_results"
@@ -397,28 +402,28 @@ class TestAtfGetResults:
         assert result["data"]["results"][0]["status"] == "failure"
 
     @pytest.mark.asyncio()
-    async def test_get_results_both_ids_provided(self, settings, auth_provider):
+    async def test_get_results_both_ids_provided(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns error when both test_id and suite_id are provided."""
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_get_results"](test_id="test123", suite_id="suite456")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
         assert "not both" in result["error"]["message"].lower()
 
     @pytest.mark.asyncio()
-    async def test_get_results_missing_both_ids(self, settings, auth_provider):
+    async def test_get_results_missing_both_ids(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns error when neither test_id nor suite_id provided."""
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_get_results"]()
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
         assert "exactly one" in result["error"]["message"].lower()
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_get_results_empty(self, settings, auth_provider):
+    async def test_get_results_empty(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns success with empty results when no results found."""
         respx.get(f"{BASE_URL}/api/now/table/sys_atf_test_result").mock(
             return_value=httpx.Response(
@@ -430,7 +435,7 @@ class TestAtfGetResults:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_get_results"](test_id="test999")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["result_count"] == 0
@@ -442,7 +447,7 @@ class TestAtfRunTest:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_run_test_success_with_poll(self, settings, auth_provider):
+    async def test_run_test_success_with_poll(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Mock run + progress endpoints. Returns completed status with execution ID."""
         # Mock ATF run endpoint
         respx.post(f"{BASE_URL}/api/now/sn_atf_tg/test_runner").mock(
@@ -461,7 +466,7 @@ class TestAtfRunTest:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_run_test"](test_id="test456", poll=True, poll_interval=2, max_poll_duration=10)
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["execution_id"] == "exec123"
@@ -471,7 +476,7 @@ class TestAtfRunTest:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_run_test_no_poll(self, settings, auth_provider):
+    async def test_run_test_no_poll(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Call with poll=False. Returns immediately with execution ID."""
         respx.post(f"{BASE_URL}/api/now/sn_atf_tg/test_runner").mock(
             return_value=httpx.Response(
@@ -482,7 +487,7 @@ class TestAtfRunTest:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_run_test"](test_id="test999", poll=False)
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["execution_id"] == "exec789"
@@ -491,27 +496,21 @@ class TestAtfRunTest:
         assert result["data"]["test_id"] == "test999"
 
     @pytest.mark.asyncio()
-    async def test_run_test_write_gate_blocks(self, prod_settings):
+    async def test_run_test_write_gate_blocks(
+        self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider
+    ) -> None:
         """Write gate blocks execution in production environment."""
-        from mcp.server.fastmcp import FastMCP
-
-        from servicenow_mcp.tools.testing import register_tools
-
-        prod_auth = BasicAuthProvider(prod_settings)
-        mcp = FastMCP("test")
-        mcp._sn_query_store = QueryTokenStore()  # type: ignore[attr-defined]
-        register_tools(mcp, prod_settings, prod_auth)
-        tools = {t.name: t.fn for t in mcp._tool_manager._tools.values()}
+        tools, _query_store = _register_and_get_tools(prod_settings, prod_auth_provider)
 
         raw = await tools["atf_run_test"](test_id="test123")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
         assert "production" in result["error"]["message"].lower() or "blocked" in result["error"]["message"].lower()
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_run_test_no_execution_id(self, settings, auth_provider):
+    async def test_run_test_no_execution_id(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns error when ATF run does not return an execution ID."""
         respx.post(f"{BASE_URL}/api/now/sn_atf_tg/test_runner").mock(
             return_value=httpx.Response(
@@ -522,14 +521,14 @@ class TestAtfRunTest:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_run_test"](test_id="test_no_id", poll=True)
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
         assert "no execution id" in result["error"]["message"].lower()
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_run_test_timeout(self, settings, auth_provider):
+    async def test_run_test_timeout(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Mock progress endpoint always returning In Progress. Assert timeout."""
         respx.post(f"{BASE_URL}/api/now/sn_atf_tg/test_runner").mock(
             return_value=httpx.Response(
@@ -552,7 +551,7 @@ class TestAtfRunTest:
             poll_interval=2,
             max_poll_duration=10,
         )
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["status"] == "polling_timeout"
@@ -562,7 +561,7 @@ class TestAtfRunTest:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_run_test_failed_execution(self, settings, auth_provider):
+    async def test_run_test_failed_execution(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Mock progress returning Failure status. Assert failure captured."""
         respx.post(f"{BASE_URL}/api/now/sn_atf_tg/test_runner").mock(
             return_value=httpx.Response(
@@ -584,7 +583,7 @@ class TestAtfRunTest:
             poll_interval=2,
             max_poll_duration=10,
         )
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["status"] == "failure"
@@ -596,7 +595,7 @@ class TestAtfRunSuite:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_run_suite_success_with_poll(self, settings, auth_provider):
+    async def test_run_suite_success_with_poll(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Mock run + progress. Returns completed status."""
         respx.post(f"{BASE_URL}/api/now/sn_atf_tg/test_runner").mock(
             return_value=httpx.Response(
@@ -618,7 +617,7 @@ class TestAtfRunSuite:
             poll_interval=2,
             max_poll_duration=10,
         )
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["execution_id"] == "suite_exec123"
@@ -627,7 +626,7 @@ class TestAtfRunSuite:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_run_suite_no_poll(self, settings, auth_provider):
+    async def test_run_suite_no_poll(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Call with poll=False. Returns immediately."""
         respx.post(f"{BASE_URL}/api/now/sn_atf_tg/test_runner").mock(
             return_value=httpx.Response(
@@ -638,7 +637,7 @@ class TestAtfRunSuite:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_run_suite"](suite_id="suite_fast", poll=False)
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["execution_id"] == "suite_no_poll"
@@ -646,27 +645,21 @@ class TestAtfRunSuite:
         assert result["data"]["polling"] is False
 
     @pytest.mark.asyncio()
-    async def test_run_suite_write_gate_blocks(self, prod_settings):
+    async def test_run_suite_write_gate_blocks(
+        self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider
+    ) -> None:
         """Write gate blocks suite execution in production."""
-        from mcp.server.fastmcp import FastMCP
-
-        from servicenow_mcp.tools.testing import register_tools
-
-        prod_auth = BasicAuthProvider(prod_settings)
-        mcp = FastMCP("test")
-        mcp._sn_query_store = QueryTokenStore()  # type: ignore[attr-defined]
-        register_tools(mcp, prod_settings, prod_auth)
-        tools = {t.name: t.fn for t in mcp._tool_manager._tools.values()}
+        tools, _query_store = _register_and_get_tools(prod_settings, prod_auth_provider)
 
         raw = await tools["atf_run_suite"](suite_id="suite999")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
         assert "production" in result["error"]["message"].lower() or "blocked" in result["error"]["message"].lower()
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_run_suite_no_execution_id(self, settings, auth_provider):
+    async def test_run_suite_no_execution_id(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns error when ATF suite run does not return an execution ID."""
         respx.post(f"{BASE_URL}/api/now/sn_atf_tg/test_runner").mock(
             return_value=httpx.Response(
@@ -677,14 +670,14 @@ class TestAtfRunSuite:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_run_suite"](suite_id="suite_no_id", poll=True)
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
         assert "no execution id" in result["error"]["message"].lower()
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_run_suite_timeout(self, settings, auth_provider):
+    async def test_run_suite_timeout(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Mock progress always returning In Progress. Assert timeout with warnings."""
         respx.post(f"{BASE_URL}/api/now/sn_atf_tg/test_runner").mock(
             return_value=httpx.Response(
@@ -706,7 +699,7 @@ class TestAtfRunSuite:
             poll_interval=2,
             max_poll_duration=10,
         )
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["status"] == "polling_timeout"
@@ -717,7 +710,7 @@ class TestAtfRunSuite:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_run_suite_cancelled(self, settings, auth_provider):
+    async def test_run_suite_cancelled(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Mock progress returning Cancelled. Assert captured in response."""
         respx.post(f"{BASE_URL}/api/now/sn_atf_tg/test_runner").mock(
             return_value=httpx.Response(
@@ -739,7 +732,7 @@ class TestAtfRunSuite:
             poll_interval=2,
             max_poll_duration=10,
         )
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["status"] == "cancelled"
@@ -751,7 +744,7 @@ class TestAtfTestHealth:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_health_all_passing(self, settings, auth_provider):
+    async def test_health_all_passing(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Mock 10 results all passed. Assert 100% pass rate, not flaky."""
         respx.get(f"{BASE_URL}/api/now/table/sys_atf_test_result").mock(
             return_value=httpx.Response(
@@ -772,7 +765,7 @@ class TestAtfTestHealth:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_test_health"](test_id="test_stable", days=30, limit=50)
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["total_runs"] == 10
@@ -783,7 +776,7 @@ class TestAtfTestHealth:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_health_flaky_detection(self, settings, auth_provider):
+    async def test_health_flaky_detection(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Mock alternating pass/fail pattern. Assert flaky=true."""
         respx.get(f"{BASE_URL}/api/now/table/sys_atf_test_result").mock(
             return_value=httpx.Response(
@@ -804,7 +797,7 @@ class TestAtfTestHealth:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_test_health"](test_id="test_flaky", days=30, limit=50)
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["flaky"] is True
@@ -812,7 +805,7 @@ class TestAtfTestHealth:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_health_trending_downward(self, settings, auth_provider):
+    async def test_health_trending_downward(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Mock recent failures after earlier passes. Assert trend degrading."""
         respx.get(f"{BASE_URL}/api/now/table/sys_atf_test_result").mock(
             return_value=httpx.Response(
@@ -867,7 +860,7 @@ class TestAtfTestHealth:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_test_health"](test_id="test_degrading", days=30, limit=50)
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["recent_trend"] == "degrading"
@@ -875,7 +868,7 @@ class TestAtfTestHealth:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_health_no_results(self, settings, auth_provider):
+    async def test_health_no_results(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Mock empty results. Assert appropriate zero-state response."""
         respx.get(f"{BASE_URL}/api/now/table/sys_atf_test_result").mock(
             return_value=httpx.Response(
@@ -887,7 +880,7 @@ class TestAtfTestHealth:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_test_health"](test_id="test_no_data", days=30, limit=50)
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["total_runs"] == 0
@@ -896,21 +889,21 @@ class TestAtfTestHealth:
         assert "warnings" in result
 
     @pytest.mark.asyncio()
-    async def test_health_missing_both_ids(self, settings, auth_provider):
+    async def test_health_missing_both_ids(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Call with neither test_id nor suite_id. Assert error."""
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_test_health"]()
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
         assert "exactly one" in result["error"]["message"].lower()
 
     @pytest.mark.asyncio()
-    async def test_health_both_ids_provided(self, settings, auth_provider):
+    async def test_health_both_ids_provided(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Call with both test_id and suite_id. Assert error."""
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_test_health"](test_id="test123", suite_id="suite456")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
         error_msg = result["error"]["message"].lower()
@@ -919,7 +912,7 @@ class TestAtfTestHealth:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_health_trending_upward(self, settings, auth_provider):
+    async def test_health_trending_upward(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Mock early failures then later passes. Assert trend improving."""
         respx.get(f"{BASE_URL}/api/now/table/sys_atf_test_result").mock(
             return_value=httpx.Response(
@@ -974,7 +967,7 @@ class TestAtfTestHealth:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_test_health"](test_id="test_improving", days=30, limit=50)
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["recent_trend"] == "improving"
@@ -982,7 +975,7 @@ class TestAtfTestHealth:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_health_insufficient_data_trend(self, settings, auth_provider):
+    async def test_health_insufficient_data_trend(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Mock fewer than 4 runs. Assert trend is insufficient_data."""
         respx.get(f"{BASE_URL}/api/now/table/sys_atf_test_result").mock(
             return_value=httpx.Response(
@@ -1007,7 +1000,7 @@ class TestAtfTestHealth:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_test_health"](test_id="test_few_runs", days=30, limit=50)
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["total_runs"] == 2
@@ -1015,7 +1008,7 @@ class TestAtfTestHealth:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_health_for_suite(self, settings, auth_provider):
+    async def test_health_for_suite(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Mock suite results. Assert rolled-up metrics computed."""
         respx.get(f"{BASE_URL}/api/now/table/sys_atf_test_suite_result").mock(
             return_value=httpx.Response(
@@ -1036,7 +1029,7 @@ class TestAtfTestHealth:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["atf_test_health"](suite_id="suite_healthy", days=30, limit=50)
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["total_runs"] == 5

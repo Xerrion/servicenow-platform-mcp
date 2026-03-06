@@ -1,25 +1,31 @@
 """Tests for introspection tools (table_describe, table_get, table_query, table_aggregate)."""
 
+from typing import Any
+
 import httpx
 import pytest
 import respx
-from toon_format import decode as toon_decode
 
 from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp.config import Settings
+from servicenow_mcp.mcp_state import attach_query_store
 from servicenow_mcp.policy import DENIED_TABLES
 from servicenow_mcp.state import QueryTokenStore
+from tests.helpers import decode_response, get_tool_functions
 
 
 BASE_URL = "https://test.service-now.com"
 
 
 @pytest.fixture()
-def auth_provider(settings):
+def auth_provider(settings: Settings) -> BasicAuthProvider:
     """Create a BasicAuthProvider from test settings."""
     return BasicAuthProvider(settings)
 
 
-def _register_and_get_tools(settings, auth_provider):
+def _register_and_get_tools(
+    settings: Settings, auth_provider: BasicAuthProvider
+) -> tuple[dict[str, Any], QueryTokenStore]:
     """Helper: register introspection tools on a fresh MCP server and return tool map."""
     from mcp.server.fastmcp import FastMCP
 
@@ -27,9 +33,9 @@ def _register_and_get_tools(settings, auth_provider):
 
     mcp = FastMCP("test")
     query_store = QueryTokenStore()
-    mcp._sn_query_store = query_store  # type: ignore[attr-defined]
+    attach_query_store(mcp, query_store)
     register_tools(mcp, settings, auth_provider)
-    return {t.name: t.fn for t in mcp._tool_manager._tools.values()}, query_store
+    return get_tool_functions(mcp), query_store
 
 
 class TestTableDescribe:
@@ -37,7 +43,7 @@ class TestTableDescribe:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_returns_field_metadata(self, settings, auth_provider):
+    async def test_returns_field_metadata(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns structured field metadata for a known table."""
         respx.get(f"{BASE_URL}/api/now/table/sys_dictionary").mock(
             return_value=httpx.Response(
@@ -69,7 +75,7 @@ class TestTableDescribe:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["table_describe"](table="incident")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["table"] == "incident"
@@ -78,19 +84,19 @@ class TestTableDescribe:
         assert result["data"]["fields"][1]["element"] == "state"
 
     @pytest.mark.asyncio()
-    async def test_denied_table_returns_error(self, settings, auth_provider):
+    async def test_denied_table_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Blocked tables return an error response (no HTTP call made)."""
         denied = next(iter(DENIED_TABLES))
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["table_describe"](table=denied)
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
         assert "denied" in result["error"]["message"].lower()
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_includes_correlation_id(self, settings, auth_provider):
+    async def test_includes_correlation_id(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Response always contains a correlation_id."""
         respx.get(f"{BASE_URL}/api/now/table/sys_dictionary").mock(
             return_value=httpx.Response(200, json={"result": []})
@@ -98,7 +104,7 @@ class TestTableDescribe:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["table_describe"](table="incident")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert "correlation_id" in result
         assert len(result["correlation_id"]) > 0
@@ -109,7 +115,7 @@ class TestTableGet:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_returns_single_record(self, settings, auth_provider):
+    async def test_returns_single_record(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Fetches and returns a single record by sys_id."""
         respx.get(f"{BASE_URL}/api/now/table/incident/abc123").mock(
             return_value=httpx.Response(
@@ -126,7 +132,7 @@ class TestTableGet:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["table_get"](table="incident", sys_id="abc123")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["sys_id"] == "abc123"
@@ -134,7 +140,7 @@ class TestTableGet:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_masks_sensitive_fields(self, settings, auth_provider):
+    async def test_masks_sensitive_fields(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Sensitive fields like password are masked in the response."""
         respx.get(f"{BASE_URL}/api/now/table/sys_user/user1").mock(
             return_value=httpx.Response(
@@ -152,7 +158,7 @@ class TestTableGet:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["table_get"](table="sys_user", sys_id="user1")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["user_name"] == "admin"
@@ -161,7 +167,7 @@ class TestTableGet:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_not_found_returns_error(self, settings, auth_provider):
+    async def test_not_found_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """404 from ServiceNow produces an error response."""
         respx.get(f"{BASE_URL}/api/now/table/incident/missing").mock(
             return_value=httpx.Response(404, json={"error": {"message": "Not found"}})
@@ -169,17 +175,17 @@ class TestTableGet:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["table_get"](table="incident", sys_id="missing")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
 
     @pytest.mark.asyncio()
-    async def test_denied_table_returns_error(self, settings, auth_provider):
+    async def test_denied_table_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Denied table returns error without making HTTP call."""
         denied = next(iter(DENIED_TABLES))
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["table_get"](table=denied, sys_id="abc")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
         assert "denied" in result["error"]["message"].lower()
@@ -190,7 +196,7 @@ class TestTableQuery:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_returns_matching_records(self, settings, auth_provider):
+    async def test_returns_matching_records(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns records matching the query with pagination."""
         respx.get(f"{BASE_URL}/api/now/table/incident").mock(
             return_value=httpx.Response(
@@ -208,7 +214,7 @@ class TestTableQuery:
         tools, query_store = _register_and_get_tools(settings, auth_provider)
         token = query_store.create({"query": "active=true"})
         raw = await tools["table_query"](table="incident", query_token=token)
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert len(result["data"]) == 2
@@ -216,7 +222,7 @@ class TestTableQuery:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_limit_capped_with_warning(self, settings, auth_provider):
+    async def test_limit_capped_with_warning(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """When requested limit exceeds max_row_limit, it is capped and a warning is added."""
         respx.get(f"{BASE_URL}/api/now/table/incident").mock(
             return_value=httpx.Response(
@@ -230,40 +236,43 @@ class TestTableQuery:
         token = query_store.create({"query": "active=true"})
         # Default max_row_limit is 100, request 500
         raw = await tools["table_query"](table="incident", query_token=token, limit=500)
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["pagination"]["limit"] == 100
+        assert isinstance(result, dict)
         assert any("capped" in w.lower() for w in result.get("warnings", []))
 
     @pytest.mark.asyncio()
-    async def test_large_table_without_date_filter_returns_error(self, settings, auth_provider):
+    async def test_large_table_without_date_filter_returns_error(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """Large tables require a date filter; omitting it returns an error."""
         # Add syslog to large tables for this test
         settings.large_table_names_csv = "syslog,sys_audit"
         tools, query_store = _register_and_get_tools(settings, auth_provider)
         token = query_store.create({"query": "level=error"})
         raw = await tools["table_query"](table="syslog", query_token=token)
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
         assert "date" in result["error"]["message"].lower()
 
     @pytest.mark.asyncio()
-    async def test_denied_table_returns_error(self, settings, auth_provider):
+    async def test_denied_table_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Denied table returns error."""
         denied = next(iter(DENIED_TABLES))
         tools, query_store = _register_and_get_tools(settings, auth_provider)
         token = query_store.create({"query": "active=true"})
         raw = await tools["table_query"](table=denied, query_token=token)
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
         assert "denied" in result["error"]["message"].lower()
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_display_values_passed_to_client(self, settings, auth_provider):
+    async def test_display_values_passed_to_client(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """When display_values=True, sysparm_display_value=true is sent to the API."""
         route = respx.get(f"{BASE_URL}/api/now/table/incident").mock(
             return_value=httpx.Response(
@@ -284,7 +293,7 @@ class TestTableQuery:
         tools, query_store = _register_and_get_tools(settings, auth_provider)
         token = query_store.create({"query": "active=true"})
         raw = await tools["table_query"](table="incident", query_token=token, display_values=True)
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert len(result["data"]) == 1
@@ -300,7 +309,7 @@ class TestTableAggregate:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_returns_aggregate_stats(self, settings, auth_provider):
+    async def test_returns_aggregate_stats(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns aggregate statistics for the query."""
         respx.get(f"{BASE_URL}/api/now/stats/incident").mock(
             return_value=httpx.Response(
@@ -312,19 +321,19 @@ class TestTableAggregate:
         tools, query_store = _register_and_get_tools(settings, auth_provider)
         token = query_store.create({"query": "active=true"})
         raw = await tools["table_aggregate"](table="incident", query_token=token)
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["stats"]["count"] == "42"
 
     @pytest.mark.asyncio()
-    async def test_denied_table_returns_error(self, settings, auth_provider):
+    async def test_denied_table_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Denied table returns error."""
         denied = next(iter(DENIED_TABLES))
         tools, query_store = _register_and_get_tools(settings, auth_provider)
         token = query_store.create({"query": "active=true"})
         raw = await tools["table_aggregate"](table=denied, query_token=token)
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
         assert "denied" in result["error"]["message"].lower()
@@ -339,7 +348,9 @@ class TestErrorPropagation:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_auth_error_returns_error_envelope(self, settings, auth_provider):
+    async def test_auth_error_returns_error_envelope(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """AuthError (401) from client is caught and returned in error envelope."""
         respx.get(f"{BASE_URL}/api/now/table/incident/abc123").mock(
             return_value=httpx.Response(
@@ -350,7 +361,7 @@ class TestErrorPropagation:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["table_get"](table="incident", sys_id="abc123")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
         assert "not authenticated" in result["error"]["message"].lower()
@@ -358,7 +369,9 @@ class TestErrorPropagation:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_forbidden_error_returns_error_envelope(self, settings, auth_provider):
+    async def test_forbidden_error_returns_error_envelope(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """ForbiddenError (403) from client is caught and returned in error envelope."""
         respx.get(f"{BASE_URL}/api/now/table/incident/abc123").mock(
             return_value=httpx.Response(
@@ -369,7 +382,7 @@ class TestErrorPropagation:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["table_get"](table="incident", sys_id="abc123")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
         assert "insufficient" in result["error"]["message"].lower() or "forbidden" in result["error"]["message"].lower()
@@ -377,7 +390,9 @@ class TestErrorPropagation:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_not_found_error_returns_error_envelope(self, settings, auth_provider):
+    async def test_not_found_error_returns_error_envelope(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """NotFoundError (404) from client is caught and returned in error envelope."""
         respx.get(f"{BASE_URL}/api/now/table/incident/missing").mock(
             return_value=httpx.Response(
@@ -388,7 +403,7 @@ class TestErrorPropagation:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["table_get"](table="incident", sys_id="missing")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
         assert "not found" in result["error"]["message"].lower()
@@ -396,7 +411,9 @@ class TestErrorPropagation:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_server_error_returns_error_envelope(self, settings, auth_provider):
+    async def test_server_error_returns_error_envelope(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """ServerError (500) from client is caught and returned in error envelope."""
         respx.get(f"{BASE_URL}/api/now/table/sys_dictionary").mock(
             return_value=httpx.Response(
@@ -407,7 +424,7 @@ class TestErrorPropagation:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["table_describe"](table="incident")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
         assert (
@@ -418,7 +435,9 @@ class TestErrorPropagation:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_query_tool_auth_error_returns_error_envelope(self, settings, auth_provider):
+    async def test_query_tool_auth_error_returns_error_envelope(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """AuthError during table_query is caught and returned in error envelope."""
         respx.get(f"{BASE_URL}/api/now/table/incident").mock(
             return_value=httpx.Response(
@@ -430,7 +449,7 @@ class TestErrorPropagation:
         tools, query_store = _register_and_get_tools(settings, auth_provider)
         token = query_store.create({"query": "active=true"})
         raw = await tools["table_query"](table="incident", query_token=token)
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
         assert (
@@ -441,7 +460,9 @@ class TestErrorPropagation:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_aggregate_tool_server_error_returns_error_envelope(self, settings, auth_provider):
+    async def test_aggregate_tool_server_error_returns_error_envelope(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """ServerError during table_aggregate is caught and returned in error envelope."""
         respx.get(f"{BASE_URL}/api/now/stats/incident").mock(
             return_value=httpx.Response(
@@ -453,7 +474,7 @@ class TestErrorPropagation:
         tools, query_store = _register_and_get_tools(settings, auth_provider)
         token = query_store.create({"query": "active=true"})
         raw = await tools["table_aggregate"](table="incident", query_token=token)
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
         assert result["error"]["message"]  # Error message is non-empty
@@ -464,18 +485,20 @@ class TestQueryTokenValidation:
     """Tests that query token validation works correctly."""
 
     @pytest.mark.asyncio()
-    async def test_invalid_token_returns_error(self, settings, auth_provider):
+    async def test_invalid_token_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Passing a non-existent token returns a descriptive error."""
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["table_query"](table="incident", query_token="not-a-real-token")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "error"
         assert "build_query" in result["error"]["message"].lower()
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_empty_token_queries_without_filter(self, settings, auth_provider):
+    async def test_empty_token_queries_without_filter(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         """Empty query_token runs query with no filter."""
         respx.get(f"{BASE_URL}/api/now/table/incident").mock(
             return_value=httpx.Response(
@@ -487,6 +510,6 @@ class TestQueryTokenValidation:
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["table_query"](table="incident")
-        result = toon_decode(raw)
+        result = decode_response(raw)
 
         assert result["status"] == "success"

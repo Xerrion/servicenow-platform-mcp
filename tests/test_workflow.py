@@ -426,7 +426,7 @@ class TestWorkflowMap:
     @pytest.mark.asyncio()
     @respx.mock
     async def test_error_on_missing_version(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """Returns error when the workflow version is not found."""
+        """Returns success with a warning when the workflow version is not found (graceful degradation)."""
         respx.get(f"{BASE_URL}/api/now/table/wf_workflow_version/bad_id").mock(
             return_value=httpx.Response(404, json={"error": {"message": "Not found"}})
         )
@@ -441,9 +441,9 @@ class TestWorkflowMap:
         raw = await tools["workflow_map"](workflow_version_sys_id="bad_id")
         result = decode_response(raw)
 
-        assert result["status"] == "error"
-        assert isinstance(result["error"], dict)
-        assert "Not found" in result["error"]["message"]
+        assert result["status"] == "success"
+        assert result.get("warnings")
+        assert any("version" in w.lower() for w in result["warnings"])
 
     @pytest.mark.asyncio()
     @respx.mock
@@ -1182,3 +1182,136 @@ class TestWorkflowVersionList:
         assert result["status"] == "error"
         assert isinstance(result["error"], dict)
         assert "Internal server error" in result["error"]["message"]
+
+
+# ---------------------------------------------------------------------------
+# Dict reference field handling
+# ---------------------------------------------------------------------------
+
+
+class TestWorkflowDictReferenceFields:
+    """Verify workflow tools handle dict reference fields from ServiceNow display_value responses."""
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_workflow_map_handles_dict_sys_ids(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """workflow_map handles document_key and activity_definition returned as dicts.
+
+        sys_id is always a plain string in ServiceNow; reference fields like
+        activity_definition and document_key are the ones that may come back
+        as dicts when display_value query params are used.
+        """
+        dict_activity_def = {"display_value": "def001", "link": "https://test.service-now.com/api/..."}
+        dict_doc_key = {"display_value": "act001", "link": "https://test.service-now.com/api/..."}
+
+        respx.get(f"{BASE_URL}/api/now/table/wf_workflow_version/wfv_dict_test").mock(
+            return_value=httpx.Response(200, json={"result": {"sys_id": "wfv_dict_test", "name": "Test WF"}})
+        )
+        respx.get(f"{BASE_URL}/api/now/table/wf_activity").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "result": [
+                        {
+                            "sys_id": "act001",
+                            "name": "Script Step",
+                            "activity_definition": dict_activity_def,
+                            "activity_definition.name": "Run Script",
+                            "activity_definition.category": "Core",
+                            "x": "10",
+                            "y": "20",
+                            "timeout": "",
+                            "notes": "",
+                            "out_of_date": "false",
+                            "is_parent": "false",
+                            "stage": "",
+                        }
+                    ]
+                },
+                headers={"X-Total-Count": "1"},
+            )
+        )
+        respx.get(f"{BASE_URL}/api/now/table/wf_transition").mock(
+            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        )
+        respx.get(f"{BASE_URL}/api/now/table/sys_variable_value").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "result": [
+                        {
+                            "sys_id": "var001",
+                            "variable": "script",
+                            "value": "gs.log('hello');",
+                            "document_key": dict_doc_key,
+                        }
+                    ]
+                },
+                headers={"X-Total-Count": "1"},
+            )
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["workflow_map"](workflow_version_sys_id="wfv_dict_test")
+        result = decode_response(raw)
+
+        assert result["status"] == "success"
+        activities = result["data"]["activities"]
+        assert len(activities) == 1
+        # Variables should be attached via resolved dict key matching
+        assert len(activities[0]["variables"]) == 1
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_workflow_activity_detail_handles_dict_definition(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """workflow_activity_detail handles activity_definition returned as a dict."""
+        dict_definition = {"display_value": "act_def_001", "link": "https://test.service-now.com/api/..."}
+
+        # Phase 1: raw activity with dict reference
+        respx.get(f"{BASE_URL}/api/now/table/wf_activity/act_dict_test").mock(
+            side_effect=[
+                # First call: raw (display_values=False)
+                httpx.Response(
+                    200,
+                    json={
+                        "result": {
+                            "sys_id": "act_dict_test",
+                            "name": "My Activity",
+                            "activity_definition": dict_definition,
+                        }
+                    },
+                ),
+                # Second call: display (display_values=True)
+                httpx.Response(
+                    200,
+                    json={
+                        "result": {
+                            "sys_id": "act_dict_test",
+                            "name": "My Activity",
+                            "activity_definition": "Run Script",
+                        }
+                    },
+                ),
+            ]
+        )
+        respx.get(f"{BASE_URL}/api/now/table/sys_variable_value").mock(
+            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        )
+        respx.get(f"{BASE_URL}/api/now/table/wf_element_definition/act_def_001").mock(
+            return_value=httpx.Response(
+                200,
+                json={"result": {"sys_id": "act_def_001", "name": "Run Script Definition"}},
+            )
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["workflow_activity_detail"](activity_sys_id="act_dict_test")
+        result = decode_response(raw)
+
+        assert result["status"] == "success"
+        assert result["data"]["definition"] is not None
+        assert result["data"]["definition"]["name"] == "Run Script Definition"

@@ -18,6 +18,7 @@ from servicenow_mcp.policy import (
 from servicenow_mcp.utils import (
     ServiceNowQuery,
     format_response,
+    resolve_ref_value,
     validate_identifier,
 )
 
@@ -142,12 +143,10 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         act_safety = enforce_query_safety("wf_activity", activity_query, 100, settings)
         trans_safety = enforce_query_safety("wf_transition", transition_query, 200, settings)
 
+        warnings: list[str] = []
+
         async with ServiceNowClient(settings, auth_provider) as client:
-            (
-                version_record,
-                activity_result,
-                transition_result,
-            ) = await asyncio.gather(
+            results = await asyncio.gather(
                 client.get_record(
                     "wf_workflow_version",
                     workflow_version_sys_id,
@@ -187,39 +186,69 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                     limit=trans_safety["limit"],
                     display_values=True,
                 ),
+                return_exceptions=True,
             )
+
+            raw_version, raw_activities, raw_transitions = results[0], results[1], results[2]
+
+            # Version record is enrichment - degrade gracefully if unavailable
+            version_record: dict[str, Any]
+            if isinstance(raw_version, BaseException):
+                warnings.append(f"Could not fetch workflow version record: {raw_version}")
+                version_record = {}
+            else:
+                version_record = raw_version
+
+            # Activities are critical for a useful map
+            if isinstance(raw_activities, BaseException):
+                return format_response(
+                    data=None,
+                    correlation_id=correlation_id,
+                    status="error",
+                    error=f"Failed to fetch workflow activities: {raw_activities}",
+                )
+            activity_result: dict[str, Any] = raw_activities
+
+            # Transitions can degrade gracefully - show activities without connections
+            transition_result: dict[str, Any]
+            if isinstance(raw_transitions, BaseException):
+                warnings.append(f"Could not fetch transitions: {raw_transitions}")
+                transition_result = {"records": [], "count": 0}
+            else:
+                transition_result = raw_transitions
 
             # Bulk-fetch variables for all activities (display_values=False to keep raw sys_ids for grouping)
             activity_records = activity_result["records"]
-            activity_sys_ids = [a["sys_id"] for a in activity_records]
+            activity_sys_ids = [resolve_ref_value(a["sys_id"]) for a in activity_records]
 
+            vars_by_activity: dict[str, list[dict[str, Any]]] = {}
             if activity_sys_ids:
-                vars_query = (
-                    ServiceNowQuery()
-                    .equals("document", "wf_activity")
-                    .in_list("document_key", activity_sys_ids)
-                    .build()
-                )
-                vars_safety = enforce_query_safety("sys_variable_value", vars_query, 500, settings)
-                vars_result = await client.query_records(
-                    "sys_variable_value",
-                    vars_query,
-                    fields=["sys_id", "variable", "value", "document_key"],
-                    limit=vars_safety["limit"],
-                    display_values=False,
-                )
-                vars_by_activity: dict[str, list[dict[str, Any]]] = {}
-                for v in vars_result["records"]:
-                    key = v.get("document_key", "")
-                    vars_by_activity.setdefault(key, []).append(mask_sensitive_fields(v))
-            else:
-                vars_by_activity = {}
+                try:
+                    vars_query = (
+                        ServiceNowQuery()
+                        .equals("document", "wf_activity")
+                        .in_list("document_key", activity_sys_ids)
+                        .build()
+                    )
+                    vars_safety = enforce_query_safety("sys_variable_value", vars_query, 500, settings)
+                    vars_result = await client.query_records(
+                        "sys_variable_value",
+                        vars_query,
+                        fields=["sys_id", "variable", "value", "document_key"],
+                        limit=vars_safety["limit"],
+                        display_values=False,
+                    )
+                    for v in vars_result["records"]:
+                        key = resolve_ref_value(v.get("document_key", ""))
+                        vars_by_activity.setdefault(key, []).append(mask_sensitive_fields(v))
+                except Exception as exc:
+                    warnings.append(f"Could not fetch activity variables: {exc}")
 
         # Attach variables to each activity
         activities = []
         for a in activity_records:
             masked = mask_sensitive_fields(a)
-            masked["variables"] = vars_by_activity.get(a["sys_id"], [])
+            masked["variables"] = vars_by_activity.get(resolve_ref_value(a["sys_id"]), [])
             activities.append(masked)
 
         return format_response(
@@ -229,6 +258,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                 "transitions": [mask_sensitive_fields(t) for t in transition_result["records"]],
             },
             correlation_id=correlation_id,
+            warnings=warnings if warnings else None,
         )
 
     @mcp.tool()
@@ -324,7 +354,6 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         """
         validate_identifier(activity_sys_id)
         check_table_access("wf_activity")
-        check_table_access("wf_element_definition")
         check_table_access("sys_variable_value")
 
         variables_query = (
@@ -332,45 +361,39 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         )
         vars_safety = enforce_query_safety("sys_variable_value", variables_query, 50, settings)
 
+        warnings: list[str] = []
+
         async with ServiceNowClient(settings, auth_provider) as client:
             # Phase 1: raw activity to extract the activity_definition sys_id
             raw_activity = await client.get_record("wf_activity", activity_sys_id, display_values=False)
-            definition_sys_id = raw_activity.get("activity_definition", "")
+            definition_sys_id = resolve_ref_value(raw_activity.get("activity_definition", ""))
 
-            # Phase 2: parallel fetch of display activity, definition (if linked), and variables
-            if not definition_sys_id:
-                display_activity, variables_result = await asyncio.gather(
-                    client.get_record("wf_activity", activity_sys_id, display_values=True),
-                    client.query_records(
-                        "sys_variable_value",
-                        variables_query,
-                        fields=["sys_id", "variable", "value", "document_key"],
-                        limit=vars_safety["limit"],
-                        display_values=True,
-                    ),
-                )
-                definition_record = None
-            else:
-                validate_identifier(definition_sys_id)
-                (
-                    display_activity,
-                    definition_record,
-                    variables_result,
-                ) = await asyncio.gather(
-                    client.get_record("wf_activity", activity_sys_id, display_values=True),
-                    client.get_record(
+            # Phase 2: critical fetches (display activity + variables)
+            display_activity, variables_result = await asyncio.gather(
+                client.get_record("wf_activity", activity_sys_id, display_values=True),
+                client.query_records(
+                    "sys_variable_value",
+                    variables_query,
+                    fields=["sys_id", "variable", "value", "document_key"],
+                    limit=vars_safety["limit"],
+                    display_values=True,
+                ),
+            )
+
+            # Non-critical: element definition (may be inaccessible on some instances)
+            definition_record = None
+            if definition_sys_id:
+                try:
+                    validate_identifier(definition_sys_id)
+                    check_table_access("wf_element_definition")
+                    definition_record = await client.get_record(
                         "wf_element_definition",
                         definition_sys_id,
                         display_values=True,
-                    ),
-                    client.query_records(
-                        "sys_variable_value",
-                        variables_query,
-                        fields=["sys_id", "variable", "value", "document_key"],
-                        limit=vars_safety["limit"],
-                        display_values=True,
-                    ),
-                )
+                    )
+                except Exception as exc:
+                    logger.warning("Could not fetch element definition %s: %s", definition_sys_id, exc)
+                    warnings.append(f"Could not fetch activity definition from wf_element_definition: {exc}")
 
         return format_response(
             data={
@@ -379,6 +402,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                 "variables": [mask_sensitive_fields(v) for v in variables_result["records"]],
             },
             correlation_id=correlation_id,
+            warnings=warnings if warnings else None,
         )
 
     @mcp.tool()

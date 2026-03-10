@@ -61,6 +61,32 @@ _ALLOWED_OPERATORS: frozenset[str] = frozenset(
 )
 
 
+def resolve_ref_value(val: Any) -> str:
+    """Coerce a ServiceNow field value to a plain string.
+
+    ServiceNow may return reference fields as dicts (e.g.
+    ``{"display_value": "...", "link": "https://..."}``) instead of plain
+    strings when ``display_value=true`` is used.  This helper normalises
+    any such value to a string so that downstream code can safely use it
+    as a dict key, pass it to ``validate_identifier()``, or call string
+    methods on it.
+
+    Args:
+        val: The raw field value - may be ``str``, ``dict``, ``None``, or
+            another primitive.
+
+    Returns:
+        A plain string representation of the value.
+    """
+    if isinstance(val, str):
+        return val
+    if isinstance(val, dict):
+        return str(val.get("display_value") or val.get("value") or "")
+    if val is None:
+        return ""
+    return str(val)
+
+
 def validate_identifier(name: str) -> None:
     """Raise ValueError if *name* is not a valid ServiceNow identifier.
 
@@ -69,6 +95,8 @@ def validate_identifier(name: str) -> None:
     ``change_request.number`` or ``child.sys_id`` are also accepted
     (one or more segments separated by a single dot).
     """
+    if not isinstance(name, str):
+        name = resolve_ref_value(name)
     if not _IDENTIFIER_RE.match(name):
         raise ValueError(
             f"Invalid identifier: {name!r}. "
@@ -82,6 +110,8 @@ def sanitize_query_value(value: str) -> str:
     ServiceNow uses ``^`` as the condition separator in encoded queries.
     A literal caret inside a *value* is represented as ``^^``.
     """
+    if not isinstance(value, str):
+        value = resolve_ref_value(value)
     return value.replace("^", "^^")
 
 

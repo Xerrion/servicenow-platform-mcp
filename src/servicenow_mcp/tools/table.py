@@ -425,6 +425,10 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             )
             docs = {d["element"]: d for d in docs_result.get("records", []) if d.get("element")}
 
+            doc_warnings: list[str] = []
+            if len(docs_result.get("records", [])) >= 500:
+                doc_warnings.append("Documentation records may be truncated at 500 entries")
+
         fields = _build_field_list(metadata)
 
         return format_response(
@@ -435,6 +439,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                 "documentation": docs,
             },
             correlation_id=correlation_id,
+            warnings=doc_warnings or None,
         )
 
     @mcp.tool()

@@ -11,6 +11,7 @@ from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.policy import (
+    INTERNAL_QUERY_LIMIT,
     check_table_access,
     enforce_query_safety,
     mask_sensitive_fields,
@@ -44,6 +45,8 @@ def _process_gather_results(
     warnings: list[str] = []
     for result, label in zip(results, labels, strict=True):
         if isinstance(result, BaseException):
+            if isinstance(result, asyncio.CancelledError):
+                raise result
             warnings.append(f"Could not fetch {label}: {result}")
             unwrapped.append(None)
         else:
@@ -71,7 +74,7 @@ async def _fetch_and_attach_variables(
         vars_query = (
             ServiceNowQuery().equals("document", "wf_activity").in_list("document_key", activity_sys_ids).build()
         )
-        vars_safety = enforce_query_safety("sys_variable_value", vars_query, 500, settings)
+        vars_safety = enforce_query_safety("sys_variable_value", vars_query, INTERNAL_QUERY_LIMIT, settings)
         vars_result = await client.query_records(
             "sys_variable_value",
             vars_query,
@@ -79,6 +82,8 @@ async def _fetch_and_attach_variables(
             limit=vars_safety["limit"],
             display_values=False,
         )
+        if len(vars_result["records"]) >= vars_safety["limit"]:
+            warnings.append(f"Activity variables may be truncated at {vars_safety['limit']} records")
         for v in vars_result["records"]:
             key = resolve_ref_value(v.get("document_key", ""))
             vars_by_activity.setdefault(key, []).append(mask_sensitive_fields(v))
@@ -307,6 +312,11 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
 
             transition_result: dict[str, Any] = unwrapped[2] or {"records": [], "count": 0}
 
+            if len(activity_result["records"]) >= act_safety["limit"]:
+                warnings.append(f"Activities may be truncated at {act_safety['limit']} records")
+            if len(transition_result["records"]) >= trans_safety["limit"]:
+                warnings.append(f"Transitions may be truncated at {trans_safety['limit']} records")
+
             activity_records = activity_result["records"]
             vars_by_activity, var_warnings = await _fetch_and_attach_variables(client, activity_records, settings)
             warnings.extend(var_warnings)
@@ -446,6 +456,8 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                     display_values=True,
                 ),
             )
+            if len(variables_result["records"]) >= vars_safety["limit"]:
+                warnings.append(f"Activity variables may be truncated at {vars_safety['limit']} records")
 
             # Non-critical: element definition (may be inaccessible on some instances)
             definition_record, def_warnings = await _fetch_activity_definition(client, definition_sys_id)

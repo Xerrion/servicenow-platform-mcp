@@ -97,7 +97,7 @@ async def _lookup_single_reference(
                     "sample_records": masked_records,
                 }
         except Exception:
-            pass
+            logger.debug("Reference lookup failed for %s.%s -> %s", ref_table, ref_field, sys_id, exc_info=True)
     return None
 
 
@@ -166,7 +166,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         fields: str = "",
         display_values: bool = False,
         *,
-        correlation_id: str,
+        correlation_id: str = "",
     ) -> str:
         """Fetch a single record by sys_id with optional field selection.
 
@@ -190,7 +190,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
 
     @mcp.tool()
     @tool_handler
-    async def rel_references_to(table: str, sys_id: str, *, correlation_id: str) -> str:
+    async def rel_references_to(table: str, sys_id: str, *, correlation_id: str = "") -> str:
         """Find records in other tables that reference a given record.
 
         Args:
@@ -222,7 +222,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
 
     @mcp.tool()
     @tool_handler
-    async def rel_references_from(table: str, sys_id: str, *, correlation_id: str) -> str:
+    async def rel_references_from(table: str, sys_id: str, *, correlation_id: str = "") -> str:
         """Find what a record references by inspecting its reference fields.
 
         Args:

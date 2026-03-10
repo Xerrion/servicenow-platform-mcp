@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _IDENTIFIER_RE = re.compile(r"^[a-z0-9_]+(\.[a-z0-9_]+)*$")
+_SYS_ID_RE: re.Pattern[str] = re.compile(r"^[0-9a-f]{32}$")
 
 # Operators recognised by ``or_condition()``.
 _ALLOWED_OPERATORS: frozenset[str] = frozenset(
@@ -87,7 +88,7 @@ def resolve_ref_value(val: Any) -> str:
     return str(val)
 
 
-def validate_identifier(name: str) -> None:
+def validate_identifier(name: str | dict[str, Any] | None) -> None:
     """Raise ValueError if *name* is not a valid ServiceNow identifier.
 
     ServiceNow field names consist of lowercase alphanumerics and
@@ -104,7 +105,15 @@ def validate_identifier(name: str) -> None:
         )
 
 
-def sanitize_query_value(value: str) -> str:
+def validate_sys_id(value: str) -> None:
+    """Raise ValueError if *value* is not a valid ServiceNow sys_id (32-char hex)."""
+    if not isinstance(value, str):
+        value = resolve_ref_value(value)
+    if not _SYS_ID_RE.match(value):
+        raise ValueError(f"Invalid sys_id: {value!r}. Expected a 32-character lowercase hexadecimal string.")
+
+
+def sanitize_query_value(value: str | dict[str, Any] | None) -> str:
     """Escape special encoded-query delimiters in a user-supplied value.
 
     ServiceNow uses ``^`` as the condition separator in encoded queries.

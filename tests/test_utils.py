@@ -14,6 +14,7 @@ from servicenow_mcp.utils import (
     sanitize_query_value,
     serialize,
     validate_identifier,
+    validate_sys_id,
 )
 from tests.helpers import decode_response
 
@@ -1065,18 +1066,18 @@ class TestValidateIdentifierDictCoercion:
         """Dict containing a valid identifier in display_value is accepted."""
         ref = {"display_value": "sys_user", "link": "https://instance.service-now.com/api/..."}
         # Should not raise
-        validate_identifier(ref)  # type: ignore[arg-type]  # NOSONAR
+        validate_identifier(ref)
 
     def test_dict_with_invalid_display_value_raises(self) -> None:
         """Dict containing an invalid identifier still raises ValueError."""
         ref = {"display_value": "INVALID IDENTIFIER!", "link": "https://instance.service-now.com/api/..."}
         with pytest.raises(ValueError, match="Invalid identifier"):
-            validate_identifier(ref)  # type: ignore[arg-type]  # NOSONAR
+            validate_identifier(ref)
 
     def test_none_raises(self) -> None:
         """None is coerced to empty string which fails validation."""
         with pytest.raises(ValueError, match="Invalid identifier"):
-            validate_identifier(None)  # type: ignore[arg-type]  # NOSONAR
+            validate_identifier(None)
 
 
 # ---------------------------------------------------------------------------
@@ -1090,16 +1091,46 @@ class TestSanitizeQueryValueDictCoercion:
     def test_dict_with_display_value(self) -> None:
         """Dict containing a display_value is resolved before sanitizing."""
         ref = {"display_value": "some^value", "link": "https://instance.service-now.com/api/..."}
-        result = sanitize_query_value(ref)  # type: ignore[arg-type]  # NOSONAR
+        result = sanitize_query_value(ref)
         assert result == "some^^value"
 
     def test_dict_without_caret(self) -> None:
         """Dict resolved to a value without carets passes through."""
         ref = {"display_value": "clean_value"}
-        result = sanitize_query_value(ref)  # type: ignore[arg-type]  # NOSONAR
+        result = sanitize_query_value(ref)
         assert result == "clean_value"
 
     def test_none_returns_empty(self) -> None:
         """None is coerced to empty string."""
-        result = sanitize_query_value(None)  # type: ignore[arg-type]  # NOSONAR
+        result = sanitize_query_value(None)
         assert result == ""
+
+
+# ---------------------------------------------------------------------------
+# validate_sys_id
+# ---------------------------------------------------------------------------
+
+
+class TestValidateSysId:
+    """Tests for validate_sys_id (32-char hex sys_id validation)."""
+
+    def test_valid_sys_id(self) -> None:
+        # Should not raise
+        validate_sys_id("a" * 32)
+        validate_sys_id("0123456789abcdef" * 2)
+
+    def test_invalid_sys_id_too_short(self) -> None:
+        with pytest.raises(ValueError, match="Invalid sys_id"):
+            validate_sys_id("abc123")
+
+    def test_invalid_sys_id_uppercase(self) -> None:
+        with pytest.raises(ValueError, match="Invalid sys_id"):
+            validate_sys_id("A" * 32)
+
+    def test_invalid_sys_id_with_special_chars(self) -> None:
+        with pytest.raises(ValueError, match="Invalid sys_id"):
+            validate_sys_id("a" * 31 + "!")
+
+    def test_empty_string(self) -> None:
+        with pytest.raises(ValueError, match="Invalid sys_id"):
+            validate_sys_id("")

@@ -477,7 +477,7 @@ async def _fetch_topology(
     workflow_version_sys_id: str,
     client: ServiceNowClient,
     settings: Settings,
-) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
+) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]], list[str]]:
     """Fetch the workflow version record, activities, and transitions from ServiceNow.
 
     Validates table access and enforces query safety before issuing the three
@@ -489,7 +489,7 @@ async def _fetch_topology(
         settings: Server settings for query safety limits.
 
     Returns:
-        A tuple of (version_record, activities, transitions).
+        A tuple of (version_record, activities, transitions, warnings).
     """
     check_table_access("wf_workflow_version")
     check_table_access("wf_activity")
@@ -536,7 +536,13 @@ async def _fetch_topology(
         ),
     )
 
-    return version_record, activity_result["records"], transition_result["records"]
+    warnings: list[str] = []
+    if len(activity_result["records"]) >= act_safety["limit"]:
+        warnings.append(f"Activities may be truncated at {act_safety['limit']} records")
+    if len(transition_result["records"]) >= trans_safety["limit"]:
+        warnings.append(f"Transitions may be truncated at {trans_safety['limit']} records")
+
+    return version_record, activity_result["records"], transition_result["records"], warnings
 
 
 def _detect_cycles(
@@ -614,7 +620,7 @@ async def _extract_activity_scripts(
     activities: list[dict[str, Any]],
     client: ServiceNowClient,
     settings: Settings,
-) -> tuple[dict[str, list[dict[str, Any]]], list[dict[str, str]]]:
+) -> tuple[dict[str, list[dict[str, Any]]], list[dict[str, str]], list[str]]:
     """Fetch activity variables and extract embedded script bodies.
 
     Combines the variable fetch from sys_variable_value with script body
@@ -627,15 +633,15 @@ async def _extract_activity_scripts(
         settings: Server settings for query safety limits.
 
     Returns:
-        A tuple of (vars_by_activity, extracted_scripts) where vars_by_activity
-        groups variable records by activity sys_id, and extracted_scripts contains
-        script bodies found in those variables.
+        A tuple of (vars_by_activity, extracted_scripts, warnings) where vars_by_activity
+        groups variable records by activity sys_id, extracted_scripts contains
+        script bodies found in those variables, and warnings lists any truncation notices.
     """
     check_table_access("sys_variable_value")
 
     vars_by_activity: dict[str, list[dict[str, Any]]] = {}
     if not activity_sys_ids:
-        return vars_by_activity, []
+        return vars_by_activity, [], []
 
     vars_query = ServiceNowQuery().equals("document", "wf_activity").in_list("document_key", activity_sys_ids).build()
     vars_safety = enforce_query_safety("sys_variable_value", vars_query, INTERNAL_QUERY_LIMIT, settings)
@@ -646,6 +652,9 @@ async def _extract_activity_scripts(
         limit=vars_safety["limit"],
         display_values=False,
     )
+    warnings: list[str] = []
+    if len(vars_result["records"]) >= vars_safety["limit"]:
+        warnings.append(f"Activity variables may be truncated at {vars_safety['limit']} records")
     for v in vars_result["records"]:
         key = resolve_ref_value(v.get("document_key", ""))
         vars_by_activity.setdefault(key, []).append(mask_sensitive_fields(v))
@@ -668,7 +677,7 @@ async def _extract_activity_scripts(
                     )
                 )
 
-    return vars_by_activity, extracted_scripts
+    return vars_by_activity, extracted_scripts, warnings
 
 
 def _assemble_migration_response(
@@ -830,7 +839,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         active_only: bool = True,
         limit: int = 20,
         *,
-        correlation_id: str,
+        correlation_id: str = "",
     ) -> str:
         """List Flow Designer flows and subflows with optional filters.
 
@@ -886,7 +895,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
     async def flow_get(
         flow_sys_id: str,
         *,
-        correlation_id: str,
+        correlation_id: str = "",
     ) -> str:
         """Fetch a Flow Designer flow definition with its input and output variables.
 
@@ -931,7 +940,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
     async def flow_map(
         flow_sys_id: str,
         *,
-        correlation_id: str,
+        correlation_id: str = "",
     ) -> str:
         """Map the structure of a Flow Designer flow: action instances and logic blocks.
 
@@ -993,7 +1002,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
     async def flow_action_detail(
         action_instance_sys_id: str,
         *,
-        correlation_id: str,
+        correlation_id: str = "",
     ) -> str:
         """Fetch detailed information about a flow action instance, its type definition, and steps.
 
@@ -1073,7 +1082,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         state: str = "",
         limit: int = 20,
         *,
-        correlation_id: str,
+        correlation_id: str = "",
     ) -> str:
         """List Flow Designer execution contexts with optional filters.
 
@@ -1137,7 +1146,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
     async def flow_execution_detail(
         context_id: str,
         *,
-        correlation_id: str,
+        correlation_id: str = "",
     ) -> str:
         """Fetch detailed execution information for a Flow Designer context including ordered log entries.
 
@@ -1194,7 +1203,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         flow_sys_id: str,
         limit: int = 20,
         *,
-        correlation_id: str,
+        correlation_id: str = "",
     ) -> str:
         """List published snapshots (versions) for a Flow Designer flow.
 
@@ -1237,7 +1246,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
     async def workflow_migration_analysis(
         workflow_version_sys_id: str,
         *,
-        correlation_id: str,
+        correlation_id: str = "",
     ) -> str:
         """Analyze a legacy workflow version for Flow Designer migration readiness.
 
@@ -1251,15 +1260,23 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         validate_identifier(workflow_version_sys_id)
 
         async with ServiceNowClient(settings, auth_provider) as client:
-            version_record, activities, transitions = await _fetch_topology(workflow_version_sys_id, client, settings)
+            version_record, activities, transitions, topo_warnings = await _fetch_topology(
+                workflow_version_sys_id, client, settings
+            )
             cycles, activity_name_lookup = _detect_cycles(activities, transitions)
             activity_sys_ids = [resolve_ref_value(a["sys_id"]) for a in activities if a.get("sys_id")]
-            vars_by_activity, extracted_scripts = await _extract_activity_scripts(
+            vars_by_activity, extracted_scripts, vars_warnings = await _extract_activity_scripts(
                 activity_sys_ids, activities, client, settings
             )
+
+        all_warnings = topo_warnings + vars_warnings
 
         result = _assemble_migration_response(
             activities, transitions, cycles, activity_name_lookup, vars_by_activity, extracted_scripts, version_record
         )
 
-        return format_response(data=result, correlation_id=correlation_id)
+        return format_response(
+            data=result,
+            correlation_id=correlation_id,
+            warnings=all_warnings or None,
+        )

@@ -18,7 +18,7 @@ from servicenow_mcp.policy import (
     write_gate,
 )
 from servicenow_mcp.state import PreviewTokenStore
-from servicenow_mcp.utils import format_response, validate_identifier
+from servicenow_mcp.utils import format_response, validate_identifier, validate_sys_id
 
 
 logger = logging.getLogger(__name__)
@@ -156,6 +156,13 @@ TOOL_NAMES: list[str] = [
 ]
 
 
+def _validate_write_request(table: str, settings: Settings, correlation_id: str) -> str | None:
+    """Validate table access and write permissions, returning an error envelope if blocked."""
+    validate_identifier(table)
+    check_table_access(table)
+    return write_gate(table, settings, correlation_id)
+
+
 def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthProvider) -> None:
     """Register record write operation tools on the MCP server."""
 
@@ -168,17 +175,14 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
 
     @mcp.tool()
     @tool_handler
-    async def record_create(table: str, data: str, *, correlation_id: str) -> str:
+    async def record_create(table: str, data: str, *, correlation_id: str = "") -> str:
         """Create a new record in a ServiceNow table.
 
         Args:
             table: The table to create the record in (e.g. 'incident').
             data: A JSON string of field-value pairs for the new record.
         """
-        validate_identifier(table)
-        check_table_access(table)
-
-        blocked = write_gate(table, settings, correlation_id)
+        blocked = _validate_write_request(table, settings, correlation_id)
         if blocked:
             return blocked
 
@@ -201,17 +205,14 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
 
     @mcp.tool()
     @tool_handler
-    async def record_preview_create(table: str, data: str, *, correlation_id: str) -> str:
+    async def record_preview_create(table: str, data: str, *, correlation_id: str = "") -> str:
         """Preview a record creation without executing it. Returns a token to apply later.
 
         Args:
             table: The table to create the record in (e.g. 'incident').
             data: A JSON string of field-value pairs for the new record.
         """
-        validate_identifier(table)
-        check_table_access(table)
-
-        blocked = write_gate(table, settings, correlation_id)
+        blocked = _validate_write_request(table, settings, correlation_id)
         if blocked:
             return blocked
 
@@ -243,7 +244,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
 
     @mcp.tool()
     @tool_handler
-    async def record_update(table: str, sys_id: str, changes: str, *, correlation_id: str) -> str:
+    async def record_update(table: str, sys_id: str, changes: str, *, correlation_id: str = "") -> str:
         """Update an existing record in a ServiceNow table.
 
         Args:
@@ -251,13 +252,11 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             sys_id: The sys_id of the record to update.
             changes: A JSON string of field-value pairs to update.
         """
-        validate_identifier(table)
-        validate_identifier(sys_id)
-        check_table_access(table)
-
-        blocked = write_gate(table, settings, correlation_id)
+        blocked = _validate_write_request(table, settings, correlation_id)
         if blocked:
             return blocked
+
+        validate_sys_id(sys_id)
 
         changes_dict = json.loads(changes)
 
@@ -275,7 +274,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
 
     @mcp.tool()
     @tool_handler
-    async def record_preview_update(table: str, sys_id: str, changes: str, *, correlation_id: str) -> str:
+    async def record_preview_update(table: str, sys_id: str, changes: str, *, correlation_id: str = "") -> str:
         """Preview an update to a record: shows field-level diff and returns a token to apply.
 
         Args:
@@ -283,13 +282,11 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             sys_id: The sys_id of the record to update.
             changes: A JSON string of field-value pairs to change.
         """
-        validate_identifier(table)
-        validate_identifier(sys_id)
-        check_table_access(table)
-
-        blocked = write_gate(table, settings, correlation_id)
+        blocked = _validate_write_request(table, settings, correlation_id)
         if blocked:
             return blocked
+
+        validate_sys_id(sys_id)
 
         changes_dict = json.loads(changes)
 
@@ -320,20 +317,18 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
 
     @mcp.tool()
     @tool_handler
-    async def record_delete(table: str, sys_id: str, *, correlation_id: str) -> str:
+    async def record_delete(table: str, sys_id: str, *, correlation_id: str = "") -> str:
         """Delete a record from a ServiceNow table.
 
         Args:
             table: The table containing the record (e.g. 'incident').
             sys_id: The sys_id of the record to delete.
         """
-        validate_identifier(table)
-        validate_identifier(sys_id)
-        check_table_access(table)
-
-        blocked = write_gate(table, settings, correlation_id)
+        blocked = _validate_write_request(table, settings, correlation_id)
         if blocked:
             return blocked
+
+        validate_sys_id(sys_id)
 
         async with ServiceNowClient(settings, auth_provider) as client:
             await client.delete_record(table, sys_id)
@@ -349,20 +344,18 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
 
     @mcp.tool()
     @tool_handler
-    async def record_preview_delete(table: str, sys_id: str, *, correlation_id: str) -> str:
+    async def record_preview_delete(table: str, sys_id: str, *, correlation_id: str = "") -> str:
         """Preview a record deletion: shows the record that will be deleted and returns a token to confirm.
 
         Args:
             table: The table containing the record (e.g. 'incident').
             sys_id: The sys_id of the record to delete.
         """
-        validate_identifier(table)
-        validate_identifier(sys_id)
-        check_table_access(table)
-
-        blocked = write_gate(table, settings, correlation_id)
+        blocked = _validate_write_request(table, settings, correlation_id)
         if blocked:
             return blocked
+
+        validate_sys_id(sys_id)
 
         async with ServiceNowClient(settings, auth_provider) as client:
             record = await client.get_record(table, sys_id)
@@ -389,7 +382,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
 
     @mcp.tool()
     @tool_handler
-    async def record_apply(preview_token: str, *, correlation_id: str) -> str:
+    async def record_apply(preview_token: str, *, correlation_id: str = "") -> str:
         """Apply a previously previewed action (create, update, or delete) using the preview token.
 
         Args:

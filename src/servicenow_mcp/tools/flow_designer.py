@@ -50,6 +50,7 @@ _SCRIPT_OBJECT_PATTERN: re.Pattern[str] = re.compile(
 )
 _SCRIPT_KEYWORD_PATTERN: re.Pattern[str] = re.compile(
     r"\b(?:function|var|let|const|if|else|for|while|try|catch|return)\b",
+    re.IGNORECASE,
 )
 
 

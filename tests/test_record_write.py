@@ -1,4 +1,4 @@
-"""Tests for record CRUD tools (record_create, record_update, record_delete + preview/apply)."""
+"""Tests for record-level write tools (record_create, record_update, record_delete, previews, record_apply)."""
 
 import json
 from typing import Any
@@ -23,10 +23,10 @@ def auth_provider(settings: Settings) -> BasicAuthProvider:
 
 
 def _register_and_get_tools(settings: Settings, auth_provider: BasicAuthProvider) -> dict[str, Any]:
-    """Helper: register developer tools on a fresh MCP server and return tool map."""
+    """Helper: register record_write tools on a fresh MCP server and return tool map."""
     from mcp.server.fastmcp import FastMCP
 
-    from servicenow_mcp.tools.developer import register_tools
+    from servicenow_mcp.tools.record_write import register_tools
 
     mcp = FastMCP("test")
     register_tools(mcp, settings, auth_provider)
@@ -136,7 +136,7 @@ class TestRecordCreate:
 
         tools = _register_and_get_tools(settings, auth_provider)
         with patch(
-            "servicenow_mcp.tools.developer.ServiceNowClient.__aenter__",
+            "servicenow_mcp.tools.record_write.ServiceNowClient.__aenter__",
             new_callable=AsyncMock,
             side_effect=RuntimeError("connection failed"),
         ):

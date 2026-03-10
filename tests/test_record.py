@@ -1,4 +1,4 @@
-"""Tests for relationship tools (rel_references_to, rel_references_from)."""
+"""Tests for record-level read tools (record_get, rel_references_to, rel_references_from)."""
 
 import asyncio
 from typing import Any, override
@@ -24,14 +24,151 @@ def auth_provider(settings: Settings) -> BasicAuthProvider:
 
 
 def _register_and_get_tools(settings: Settings, auth_provider: BasicAuthProvider) -> dict[str, Any]:
-    """Helper: register relationship tools on a fresh MCP server and return tool map."""
+    """Helper: register record tools on a fresh MCP server and return tool map."""
     from mcp.server.fastmcp import FastMCP
 
-    from servicenow_mcp.tools.relationships import register_tools
+    from servicenow_mcp.tools.record import register_tools
 
     mcp = FastMCP("test")
     register_tools(mcp, settings, auth_provider)
     return get_tool_functions(mcp)
+
+
+# ── record_get tests ─────────────────────────────────────────────────────
+
+
+class TestRecordGet:
+    """Tests for the record_get tool."""
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_returns_single_record(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        """Fetches and returns a single record by sys_id."""
+        respx.get(f"{BASE_URL}/api/now/table/incident/abc123").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "result": {
+                        "sys_id": "abc123",
+                        "number": "INC0001",
+                        "state": "1",
+                    }
+                },
+            )
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["record_get"](table="incident", sys_id="abc123")
+        result = decode_response(raw)
+
+        assert result["status"] == "success"
+        assert result["data"]["sys_id"] == "abc123"
+        assert result["data"]["number"] == "INC0001"
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_masks_sensitive_fields(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        """Sensitive fields like password are masked in the response."""
+        respx.get(f"{BASE_URL}/api/now/table/sys_user/user1").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "result": {
+                        "sys_id": "user1",
+                        "user_name": "admin",
+                        "password": "supersecret",
+                        "api_key": "key123",
+                    }
+                },
+            )
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["record_get"](table="sys_user", sys_id="user1")
+        result = decode_response(raw)
+
+        assert result["status"] == "success"
+        assert result["data"]["user_name"] == "admin"
+        assert result["data"]["password"] == "***MASKED***"
+        assert result["data"]["api_key"] == "***MASKED***"
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_not_found_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        """404 from ServiceNow produces an error response."""
+        respx.get(f"{BASE_URL}/api/now/table/incident/missing").mock(
+            return_value=httpx.Response(404, json={"error": {"message": "Not found"}})
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["record_get"](table="incident", sys_id="missing")
+        result = decode_response(raw)
+
+        assert result["status"] == "error"
+
+    @pytest.mark.asyncio()
+    async def test_denied_table_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        """Denied table returns error without making HTTP call."""
+        denied = next(iter(DENIED_TABLES))
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["record_get"](table=denied, sys_id="abc")
+        result = decode_response(raw)
+
+        assert result["status"] == "error"
+        assert "denied" in result["error"]["message"].lower()
+
+
+# ── record_get error propagation tests ───────────────────────────────────
+
+
+class TestRecordErrorPropagation:
+    """Verify that ServiceNowMCPError subclasses raised by the client are caught
+    by the tool layer and returned inside a format_response error envelope."""
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_auth_error_returns_error_envelope(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """AuthError (401) from client is caught and returned in error envelope."""
+        respx.get(f"{BASE_URL}/api/now/table/incident/abc123").mock(
+            return_value=httpx.Response(
+                401,
+                json={"error": {"message": "User not authenticated"}},
+            )
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["record_get"](table="incident", sys_id="abc123")
+        result = decode_response(raw)
+
+        assert result["status"] == "error"
+        assert "not authenticated" in result["error"]["message"].lower()
+        assert "correlation_id" in result
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_not_found_error_returns_error_envelope(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """NotFoundError (404) from client is caught and returned in error envelope."""
+        respx.get(f"{BASE_URL}/api/now/table/incident/missing").mock(
+            return_value=httpx.Response(
+                404,
+                json={"error": {"message": "Record not found"}},
+            )
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["record_get"](table="incident", sys_id="missing")
+        result = decode_response(raw)
+
+        assert result["status"] == "error"
+        assert "not found" in result["error"]["message"].lower()
+        assert "correlation_id" in result
+
+
+# ── rel_references_to tests ──────────────────────────────────────────────
 
 
 class TestRelReferencesTo:
@@ -256,6 +393,9 @@ class TestRelReferencesTo:
         assert len(refs) == 1
         assert refs[0]["table"] == "incident"
         assert refs[0]["field"] == "caller_id"
+
+
+# ── rel_references_from tests ────────────────────────────────────────────
 
 
 class TestRelReferencesFrom:
@@ -505,6 +645,9 @@ class TestRelReferencesFrom:
         assert "denied" in result["error"]["message"].lower()
 
 
+# ── Concurrency tests ────────────────────────────────────────────────────
+
+
 class TestRelReferencesToBoundedConcurrency:
     """Tests that rel_references_to limits concurrency via asyncio.Semaphore."""
 
@@ -559,7 +702,7 @@ class TestRelReferencesToBoundedConcurrency:
                 await super().__aenter__()
 
         with patch(
-            "servicenow_mcp.tools.relationships.asyncio.Semaphore",
+            "servicenow_mcp.tools.record.asyncio.Semaphore",
             TrackingSemaphore,
         ):
             tools = _register_and_get_tools(settings, auth_provider)

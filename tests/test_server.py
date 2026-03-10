@@ -40,22 +40,22 @@ class TestCreateMcpServer:
         tool_names = get_tool_names(mcp_server)
         assert "list_tool_packages" in tool_names
 
-    def test_server_loads_introspection_tools(self) -> None:
-        """When using introspection_only package, introspection tools are registered."""
+    def test_server_loads_core_readonly_tools(self) -> None:
+        """When using core_readonly package, core read-only tools are registered."""
         from servicenow_mcp.server import create_mcp_server
 
         env = {
             "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
             "SERVICENOW_USERNAME": "admin",
             "SERVICENOW_PASSWORD": "s3cret",
-            "MCP_TOOL_PACKAGE": "introspection_only",
+            "MCP_TOOL_PACKAGE": "core_readonly",
         }
         with patch.dict("os.environ", env, clear=True):
             mcp_server = create_mcp_server()
 
         tool_names = get_tool_names(mcp_server)
         assert "table_describe" in tool_names
-        assert "table_get" in tool_names
+        assert "record_get" in tool_names
         assert "table_query" in tool_names
 
     def test_none_package_has_only_list_packages(self) -> None:

@@ -33,8 +33,8 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         file_name: str,
         content_base64: str,
         content_type: str = "application/octet-stream",
-        encryption_context: str = "",
-        creation_time: str = "",
+        encryption_context: str | None = None,
+        creation_time: str | None = None,
         *,
         correlation_id: str = "",
     ) -> str:

@@ -52,7 +52,7 @@ async def _get_attachment_metadata_by_name_checked(
     table_name: str,
     table_sys_id: str,
     file_name: str,
-) -> tuple[dict[str, Any], list[str] | None]:
+) -> tuple[dict[str, Any], str, list[str] | None]:
     """Resolve attachment metadata by logical identity before downloading content."""
     query = _build_attachment_query(table_name, table_sys_id, file_name)
     result = await client.query_records(
@@ -68,12 +68,12 @@ async def _get_attachment_metadata_by_name_checked(
         )
 
     metadata = records[0]
-    get_attachment_sys_id(metadata)
+    attachment_sys_id = get_attachment_sys_id(metadata)
     check_table_access(get_attachment_table_name(metadata))
 
     if len(records) == 1:
-        return metadata, None
-    return metadata, ["Multiple attachments matched; returned the earliest created attachment"]
+        return metadata, attachment_sys_id, None
+    return metadata, attachment_sys_id, ["Multiple attachments matched; returned the earliest created attachment"]
 
 
 def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthProvider) -> None:
@@ -185,15 +185,16 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         """
         validate_identifier(table_name)
         validate_sys_id(table_sys_id)
+        check_table_access(table_name)
 
         async with ServiceNowClient(settings, auth_provider) as client:
-            metadata, warnings = await _get_attachment_metadata_by_name_checked(
+            metadata, attachment_sys_id, warnings = await _get_attachment_metadata_by_name_checked(
                 client,
                 table_name,
                 table_sys_id,
                 file_name,
             )
-            content: bytes = await client.download_attachment(get_attachment_sys_id(metadata))
+            content: bytes = await client.download_attachment(attachment_sys_id)
 
         ensure_attachment_size_within_limit(content, operation="download")
         return format_response(

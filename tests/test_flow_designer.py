@@ -354,11 +354,41 @@ class TestFlowGet:
 class TestFlowMap:
     """Tests for the flow_map tool."""
 
+    def _mock_parent_flow_lookup(
+        self,
+        flow_sys_id: str,
+        *,
+        latest_snapshot: str = "",
+        master_snapshot: str = "",
+    ) -> None:
+        """Mock the raw parent flow lookup used to resolve child linkage."""
+        respx.get(f"{BASE_URL}/api/now/table/sys_hub_flow/{flow_sys_id}").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "result": {
+                        "sys_id": flow_sys_id,
+                        "latest_snapshot": latest_snapshot,
+                        "master_snapshot": master_snapshot,
+                    }
+                },
+            )
+        )
+
+    @staticmethod
+    def _get_query_target(route: respx.Route) -> str:
+        """Extract the flow target from the most recent query."""
+        assert route.calls.last is not None
+        last_request = route.calls.last.request
+        query_str = parse_qs(urlparse(str(last_request.url)).query)["sysparm_query"][0]
+        return query_str.split("^")[0].removeprefix("flow=")
+
     @pytest.mark.asyncio()
     @respx.mock
     async def test_flow_map_success(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """Returns both action instances and logic blocks."""
-        respx.get(f"{BASE_URL}/api/now/table/sys_hub_action_instance").mock(
+        """Uses latest_snapshot when child records are linked to the newest snapshot."""
+        self._mock_parent_flow_lookup("flow001", latest_snapshot="snap_latest")
+        action_route = respx.get(f"{BASE_URL}/api/now/table/sys_hub_action_instance").mock(
             return_value=httpx.Response(
                 200,
                 json={
@@ -384,7 +414,7 @@ class TestFlowMap:
                 headers={"X-Total-Count": "2"},
             )
         )
-        respx.get(f"{BASE_URL}/api/now/table/sys_hub_flow_logic").mock(
+        logic_route = respx.get(f"{BASE_URL}/api/now/table/sys_hub_flow_logic").mock(
             return_value=httpx.Response(
                 200,
                 json={
@@ -412,12 +442,15 @@ class TestFlowMap:
         assert len(result["data"]["logic_blocks"]) == 1
         assert result["data"]["actions"][0]["name"] == "Create Task"
         assert result["data"]["logic_blocks"][0]["name"] == "If Priority 1"
+        assert self._get_query_target(action_route) == "snap_latest"
+        assert self._get_query_target(logic_route) == "snap_latest"
 
     @pytest.mark.asyncio()
     @respx.mock
     async def test_flow_map_only_actions(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """Flow with actions but no logic blocks."""
-        respx.get(f"{BASE_URL}/api/now/table/sys_hub_action_instance").mock(
+        """Falls back to master_snapshot when latest_snapshot is missing."""
+        self._mock_parent_flow_lookup("flow_acts", master_snapshot="snap_master")
+        action_route = respx.get(f"{BASE_URL}/api/now/table/sys_hub_action_instance").mock(
             return_value=httpx.Response(
                 200,
                 json={
@@ -435,7 +468,7 @@ class TestFlowMap:
                 headers={"X-Total-Count": "1"},
             )
         )
-        respx.get(f"{BASE_URL}/api/now/table/sys_hub_flow_logic").mock(
+        logic_route = respx.get(f"{BASE_URL}/api/now/table/sys_hub_flow_logic").mock(
             return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
         )
 
@@ -446,11 +479,14 @@ class TestFlowMap:
         assert result["status"] == "success"
         assert len(result["data"]["actions"]) == 1
         assert result["data"]["logic_blocks"] == []
+        assert self._get_query_target(action_route) == "snap_master"
+        assert self._get_query_target(logic_route) == "snap_master"
 
     @pytest.mark.asyncio()
     @respx.mock
     async def test_flow_map_only_logic(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Flow with logic blocks but no actions."""
+        self._mock_parent_flow_lookup("flow_logic", latest_snapshot="snap_logic")
         respx.get(f"{BASE_URL}/api/now/table/sys_hub_action_instance").mock(
             return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
         )
@@ -484,11 +520,12 @@ class TestFlowMap:
     @pytest.mark.asyncio()
     @respx.mock
     async def test_flow_map_empty(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """Flow with neither actions nor logic blocks."""
-        respx.get(f"{BASE_URL}/api/now/table/sys_hub_action_instance").mock(
+        """Falls back to the original flow sys_id when no snapshot references exist."""
+        self._mock_parent_flow_lookup("flow_empty")
+        action_route = respx.get(f"{BASE_URL}/api/now/table/sys_hub_action_instance").mock(
             return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
         )
-        respx.get(f"{BASE_URL}/api/now/table/sys_hub_flow_logic").mock(
+        logic_route = respx.get(f"{BASE_URL}/api/now/table/sys_hub_flow_logic").mock(
             return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
         )
 
@@ -499,6 +536,8 @@ class TestFlowMap:
         assert result["status"] == "success"
         assert result["data"]["actions"] == []
         assert result["data"]["logic_blocks"] == []
+        assert self._get_query_target(action_route) == "flow_empty"
+        assert self._get_query_target(logic_route) == "flow_empty"
 
 
 # ---------------------------------------------------------------------------

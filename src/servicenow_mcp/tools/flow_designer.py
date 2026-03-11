@@ -815,6 +815,19 @@ def _assemble_migration_response(
     }
 
 
+def _resolve_flow_map_target(flow_record: dict[str, Any], original_flow_sys_id: str) -> str:
+    """Resolve the child-link target used by Flow Designer map tables."""
+    latest_snapshot_sys_id = resolve_ref_value(flow_record.get("latest_snapshot", ""))
+    if latest_snapshot_sys_id:
+        return latest_snapshot_sys_id
+
+    master_snapshot_sys_id = resolve_ref_value(flow_record.get("master_snapshot", ""))
+    if master_snapshot_sys_id:
+        return master_snapshot_sys_id
+
+    return original_flow_sys_id
+
+
 TOOL_NAMES: list[str] = [
     "flow_list",
     "flow_get",
@@ -948,16 +961,21 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             flow_sys_id: The sys_id of the sys_hub_flow record.
         """
         validate_identifier(flow_sys_id)
+        check_table_access("sys_hub_flow")
         check_table_access("sys_hub_action_instance")
         check_table_access("sys_hub_flow_logic")
 
-        action_query = ServiceNowQuery().equals("flow", flow_sys_id).order_by("position").build()
-        logic_query = ServiceNowQuery().equals("flow", flow_sys_id).order_by("position").build()
-
-        action_safety = enforce_query_safety("sys_hub_action_instance", action_query, 100, settings)
-        logic_safety = enforce_query_safety("sys_hub_flow_logic", logic_query, 100, settings)
-
         async with ServiceNowClient(settings, auth_provider) as client:
+            # display_values=False is intentional so latest_snapshot/master_snapshot stay raw sys_ids.
+            flow_record = await client.get_record("sys_hub_flow", flow_sys_id, display_values=False)
+            flow_map_target = _resolve_flow_map_target(flow_record, flow_sys_id)
+
+            action_query = ServiceNowQuery().equals("flow", flow_map_target).order_by("position").build()
+            logic_query = ServiceNowQuery().equals("flow", flow_map_target).order_by("position").build()
+
+            action_safety = enforce_query_safety("sys_hub_action_instance", action_query, 100, settings)
+            logic_safety = enforce_query_safety("sys_hub_flow_logic", logic_query, 100, settings)
+
             action_result, logic_result = await asyncio.gather(
                 client.query_records(
                     "sys_hub_action_instance",

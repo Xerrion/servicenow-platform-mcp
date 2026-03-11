@@ -2,7 +2,7 @@
 
 ## 📋 Project Overview
 
-- Python 3.12+ async MCP server for ServiceNow schema access, record inspection, debugging, and change intelligence.
+- Python 3.12+ async MCP server for ServiceNow schema access, record inspection, attachment operations, debugging, and change intelligence.
 - Package manager: **uv** (not pip/poetry). Build system: hatchling.
 - Source layout: `src/servicenow_mcp/` (src-layout). Entry point: `servicenow_mcp.server:main`.
 - Config via `pydantic-settings` loading env vars from `.env` / `.env.local`.
@@ -204,6 +204,13 @@ Error response example:
 return format_response(data=None, correlation_id=correlation_id, status="error", error="Something failed")
 ```
 
+### Attachment Payloads
+
+- Attachment tool set: `attachment_list`, `attachment_get`, `attachment_download`, `attachment_download_by_name`, `attachment_upload`, `attachment_delete`.
+- `attachment_upload` accepts `content_base64` and decodes it before upload.
+- `attachment_download` and `attachment_download_by_name` return attachment metadata plus `content_base64`.
+- Attachment transfers are limited by `MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024`.
+
 ## 🛡 Policy Layer
 
 ### Table Access
@@ -385,7 +392,7 @@ async def explain(client, element_id) -> dict:
 - `_ensure_client() -> httpx.AsyncClient` - raises `RuntimeError` if not initialized (not assert).
 - Timeout: 30s.
 - Uses `validate_identifier()` for table/field names.
-- 30+ API methods covering: records, metadata, aggregation, CRUD, CMDB, email, import sets, reports, code search, service catalog, ATF.
+- 30+ API methods covering: records, attachments, metadata, aggregation, CRUD, CMDB, email, import sets, reports, code search, service catalog, ATF.
 
 ## ⚙️ Configuration (Settings)
 
@@ -412,30 +419,32 @@ async def explain(client, element_id) -> dict:
 
 ## 📦 Packages & Tool Groups
 
-14 named packages with 17 tool groups total (18 registered modules, but `testing` is disabled in `full`).
+14 named packages with 19 tool groups total (20 registered modules, but `testing` is disabled in `full`).
 
 ### Preset Packages
 
 | Package              | Groups | Description                                     |
 | -------------------- | ------ | ----------------------------------------------- |
-| `full`                 | 17     | Default - all standard tool groups              |
-| `core_readonly`        | 3      | Read-only core tools (table, record, metadata)  |
+| `full`                 | 19     | Default - all standard tool groups              |
+| `core_readonly`        | 4      | Read-only core tools (table, record, attachment, metadata) |
 | `none`                 | 0      | No tools loaded                                 |
-| `itil`                 | 14     | ITIL process tools                              |
-| `developer`            | 10     | Development-focused tools                       |
-| `readonly`             | 9      | Read-only operations                            |
-| `analyst`              | 7      | Analysis and reporting                          |
-| `incident_management`  | 7      | Incident lifecycle tools                        |
-| `change_management`    | 6      | Change request tools                            |
-| `cmdb`                 | 4      | CMDB management tools                           |
-| `problem_management`   | 7      | Problem lifecycle tools                         |
-| `request_management`   | 6      | Request/RITM tools                              |
-| `knowledge_management` | 4      | Knowledge base tools                            |
-| `service_catalog`      | 4      | Service catalog tools                           |
+| `itil`                 | 15     | ITIL process tools                              |
+| `developer`            | 12     | Development-focused tools                       |
+| `readonly`             | 10     | Read-only operations                            |
+| `analyst`              | 8      | Analysis and reporting                          |
+| `incident_management`  | 9      | Incident lifecycle tools                        |
+| `change_management`    | 8      | Change request tools                            |
+| `cmdb`                 | 6      | CMDB management tools                           |
+| `problem_management`   | 9      | Problem lifecycle tools                         |
+| `request_management`   | 8      | Request/RITM tools                              |
+| `knowledge_management` | 6      | Knowledge base tools                            |
+| `service_catalog`      | 6      | Service catalog tools                           |
 
 ### Custom Packages
 
 Comma-separated group names are supported as a custom package value. Validated to ensure no collisions with preset package names.
+
+Readonly-style packages include only `attachment`. Write-capable packages include both `attachment` and `attachment_write`.
 
 ## 🔀 Async Patterns
 

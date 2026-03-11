@@ -3,7 +3,9 @@
 _TOOL_GROUP_MODULES: dict[str, str] = {
     "table": "servicenow_mcp.tools.table",
     "record": "servicenow_mcp.tools.record",
+    "attachment": "servicenow_mcp.tools.attachment",
     "record_write": "servicenow_mcp.tools.record_write",
+    "attachment_write": "servicenow_mcp.tools.attachment_write",
     "testing": "servicenow_mcp.tools.testing",
     "metadata": "servicenow_mcp.tools.metadata",
     "changes": "servicenow_mcp.tools.changes",
@@ -27,12 +29,15 @@ PACKAGE_REGISTRY: dict[str, list[str]] = {
     "core_readonly": [
         "table",
         "record",
+        "attachment",
         "metadata",
     ],
     "full": [
         "table",
         "record",
+        "attachment",
         "record_write",
+        "attachment_write",
         # "testing",  # ATF - disabled
         "metadata",
         "changes",
@@ -53,7 +58,9 @@ PACKAGE_REGISTRY: dict[str, list[str]] = {
     "itil": [
         "table",
         "record",
+        "attachment",
         "record_write",
+        "attachment_write",
         "metadata",
         "changes",
         "debug",
@@ -68,7 +75,9 @@ PACKAGE_REGISTRY: dict[str, list[str]] = {
     "developer": [
         "table",
         "record",
+        "attachment",
         "record_write",
+        "attachment_write",
         "metadata",
         "changes",
         "debug",
@@ -80,6 +89,7 @@ PACKAGE_REGISTRY: dict[str, list[str]] = {
     "readonly": [
         "table",
         "record",
+        "attachment",
         "metadata",
         "changes",
         "debug",
@@ -91,6 +101,7 @@ PACKAGE_REGISTRY: dict[str, list[str]] = {
     "analyst": [
         "table",
         "record",
+        "attachment",
         "metadata",
         "investigations",
         "documentation",
@@ -100,7 +111,9 @@ PACKAGE_REGISTRY: dict[str, list[str]] = {
     "incident_management": [
         "table",
         "record",
+        "attachment",
         "record_write",
+        "attachment_write",
         "domain_incident",
         "debug",
         "workflow",
@@ -109,7 +122,9 @@ PACKAGE_REGISTRY: dict[str, list[str]] = {
     "change_management": [
         "table",
         "record",
+        "attachment",
         "record_write",
+        "attachment_write",
         "domain_change",
         "changes",
         "flow_designer",
@@ -117,13 +132,17 @@ PACKAGE_REGISTRY: dict[str, list[str]] = {
     "cmdb": [
         "table",
         "record",
+        "attachment",
         "record_write",
+        "attachment_write",
         "domain_cmdb",
     ],
     "problem_management": [
         "table",
         "record",
+        "attachment",
         "record_write",
+        "attachment_write",
         "domain_problem",
         "debug",
         "workflow",
@@ -132,7 +151,9 @@ PACKAGE_REGISTRY: dict[str, list[str]] = {
     "request_management": [
         "table",
         "record",
+        "attachment",
         "record_write",
+        "attachment_write",
         "domain_request",
         "workflow",
         "flow_designer",
@@ -140,13 +161,17 @@ PACKAGE_REGISTRY: dict[str, list[str]] = {
     "knowledge_management": [
         "table",
         "record",
+        "attachment",
         "record_write",
+        "attachment_write",
         "domain_knowledge",
     ],
     "service_catalog": [
         "table",
         "record",
+        "attachment",
         "record_write",
+        "attachment_write",
         "domain_service_catalog",
     ],
 }

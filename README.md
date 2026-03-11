@@ -6,7 +6,7 @@
   <a href="https://pypi.org/project/servicenow-devtools-mcp/"><img src="https://img.shields.io/pypi/v/servicenow-devtools-mcp?color=00c9a7&style=flat-square" alt="PyPI version"></a>
   <a href="https://pypi.org/project/servicenow-devtools-mcp/"><img src="https://img.shields.io/pypi/pyversions/servicenow-devtools-mcp?style=flat-square" alt="Python versions"></a>
   <a href="https://github.com/xerrion/servicenow-devtools-mcp/blob/main/LICENSE"><img src="https://img.shields.io/github/license/xerrion/servicenow-devtools-mcp?style=flat-square" alt="License"></a>
-  <img src="https://img.shields.io/badge/tools-92-00d4ff?style=flat-square" alt="Tool count">
+  <img src="https://img.shields.io/badge/tools-98-00d4ff?style=flat-square" alt="Tool count">
 </p>
 
 # servicenow-devtools-mcp
@@ -17,6 +17,7 @@ A developer & debug-focused [Model Context Protocol (MCP)](https://modelcontextp
 
 - :mag: **Table & Schema Access** -- describe tables with enriched metadata (sys_db_object + sys_documentation), query records, compute aggregates, build structured queries
 - :link: **Record Access** -- fetch individual records, find incoming and outgoing references for any record
+- :paperclip: **Attachment Access** -- list metadata, inspect details, download content as `content_base64`, upload via `content_base64`, and delete attachments
 - :package: **Change Intelligence** -- inspect update sets, diff artifact versions, audit trails, generate release notes
 - :bug: **Debug & Trace** -- trace record timelines, flow executions, email chains, integration errors, import set runs, field mutations
 - :test_tube: **Record Write** -- create, update, delete records with direct or preview-then-apply patterns
@@ -138,7 +139,7 @@ uvx servicenow-devtools-mcp
 ## ServiceNow MCP Server Setup
 
 You have access to a ServiceNow MCP server (`servicenow-devtools-mcp`) that provides
-92 tools for interacting with a ServiceNow instance.
+98 tools for interacting with a ServiceNow instance.
 
 ### Installation
 
@@ -176,13 +177,19 @@ uvx servicenow-devtools-mcp
 }
 ```
 
-### Available Tools (100 total)
+### Available Tools (98 total)
 
 **Table (4):** table_describe, table_query, table_aggregate, build_query
   - Describe table schema with enriched metadata (sys_db_object + sys_documentation), query with encoded queries, compute stats, build structured queries
 
 **Record (3):** record_get, rel_references_to, rel_references_from
   - Fetch records by sys_id, find what references a record, find what a record references
+
+**Attachment (4):** attachment_list, attachment_get, attachment_download, attachment_download_by_name
+  - List attachment metadata, fetch a single attachment record, and download content as `content_base64`
+
+**Attachment Write (2):** attachment_upload, attachment_delete
+  - Upload attachments with `content_base64` and delete attachments by sys_id
 
 **Metadata (4):** meta_list_artifacts, meta_get_artifact, meta_find_references, meta_what_writes
   - List/inspect platform artifacts (business rules, script includes, etc.), find cross-references, find writers to a table
@@ -239,6 +246,7 @@ uvx servicenow-devtools-mcp
 - Row limits: User-supplied limit parameters capped at MAX_ROW_LIMIT (default 100)
 - Large tables: syslog, sys_audit, etc. require date-bounded filters
 - Write gating: All write operations blocked when SERVICENOW_ENV contains "prod" or "production"
+- Attachments: uploads accept `content_base64`; download tools return `content_base64`
 - Mandatory field validation: record creation validates all required fields are present before submission
 - Standardized responses: Tools return TOON-serialized envelopes with correlation_id, status, data, and optionally pagination and warnings
 ````
@@ -287,6 +295,26 @@ The `build_query` tool returns a reusable `query_token` that can be passed to `t
 | `record_get` | Fetch a single record by sys_id | `table`, `sys_id`, `fields?`, `display_values?` |
 | `rel_references_to` | Find records in other tables that reference a given record | `table`, `sys_id` |
 | `rel_references_from` | Find what a record references via its reference fields | `table`, `sys_id` |
+
+### :paperclip: Attachment
+
+| Tool | Description | Key Parameters |
+|---|---|---|
+| `attachment_list` | List attachment metadata with optional table, record, and file filters | `table_name?`, `table_sys_id?`, `file_name?`, `limit?`, `offset?`, `order_by?` |
+| `attachment_get` | Fetch attachment metadata by attachment sys_id | `sys_id` |
+| `attachment_download` | Download attachment content by attachment sys_id | `sys_id` |
+| `attachment_download_by_name` | Download attachment content by source record and file name | `table_name`, `table_sys_id`, `file_name` |
+
+Download tools return attachment metadata plus `content_base64`.
+
+### :paperclip: Attachment Write
+
+| Tool | Description | Key Parameters |
+|---|---|---|
+| `attachment_upload` | Upload a new attachment using base64-encoded content | `table_name`, `table_sys_id`, `file_name`, `content_base64`, `content_type?`, `encryption_context?`, `creation_time?` |
+| `attachment_delete` | Delete an attachment by attachment sys_id | `sys_id` |
+
+Uploads accept `content_base64` and follow the same write gating rules as other mutation tools.
 
 ### :package: Metadata
 
@@ -469,19 +497,19 @@ Control which tools are loaded using the `MCP_TOOL_PACKAGE` environment variable
 
 | Package | Groups | Description |
 |---|---|---|
-| `full` (default) | 17 | All tool groups -- 100 tools total |
-| `itil` | 14 | ITIL process tools (incidents, changes, problems, requests + platform tools) |
-| `developer` | 10 | Development-focused (table, record, debug, investigations, workflows) |
-| `readonly` | 9 | Read-only operations (no record writes) |
-| `analyst` | 7 | Analysis and reporting (table, record, investigations, docs, workflows) |
-| `incident_management` | 7 | Incident lifecycle with supporting tools |
-| `problem_management` | 7 | Problem lifecycle with supporting tools |
-| `change_management` | 6 | Change request management with change intelligence |
-| `request_management` | 6 | Request and RITM management |
-| `cmdb` | 4 | CMDB management with relationships |
-| `knowledge_management` | 4 | Knowledge base tools |
-| `service_catalog` | 4 | Service catalog tools |
-| `core_readonly` | 3 | Read-only core tools (table, record, metadata) |
+| `full` (default) | 19 | All tool groups -- 98 tools total |
+| `itil` | 15 | ITIL process tools (incidents, changes, problems, requests + platform tools) |
+| `developer` | 12 | Development-focused (table, record, attachments, debug, investigations, workflows) |
+| `readonly` | 10 | Read-only operations, including attachment read tools |
+| `analyst` | 8 | Analysis and reporting (table, record, attachments, investigations, docs, workflows) |
+| `incident_management` | 9 | Incident lifecycle with supporting tools and attachment writes |
+| `problem_management` | 9 | Problem lifecycle with supporting tools and attachment writes |
+| `change_management` | 8 | Change request management with change intelligence and attachment writes |
+| `request_management` | 8 | Request and RITM management with attachment writes |
+| `cmdb` | 6 | CMDB management with relationships and attachment writes |
+| `knowledge_management` | 6 | Knowledge base tools with attachment writes |
+| `service_catalog` | 6 | Service catalog tools with attachment writes |
+| `core_readonly` | 4 | Read-only core tools (table, record, attachment, metadata) |
 | `none` | 0 | Only `list_tool_packages` -- minimal/testing |
 
 ### Custom Packages
@@ -492,7 +520,9 @@ You can also specify a comma-separated list of tool group names to create a cust
 MCP_TOOL_PACKAGE="table,record,debug,domain_incident"
 ```
 
-Available tool groups: `table`, `record`, `record_write`, `metadata`, `changes`, `debug`, `investigations`, `documentation`, `workflow`, `flow_designer`, `testing`, `domain_incident`, `domain_change`, `domain_problem`, `domain_cmdb`, `domain_request`, `domain_knowledge`, `domain_service_catalog`.
+Readonly-style packages include only `attachment`. Write-capable packages include both `attachment` and `attachment_write`.
+
+Available tool groups: `table`, `record`, `attachment`, `record_write`, `attachment_write`, `metadata`, `changes`, `debug`, `investigations`, `documentation`, `workflow`, `flow_designer`, `testing`, `domain_incident`, `domain_change`, `domain_problem`, `domain_cmdb`, `domain_request`, `domain_knowledge`, `domain_service_catalog`.
 
 ---
 

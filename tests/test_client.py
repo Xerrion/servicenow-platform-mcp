@@ -1,5 +1,7 @@
 """Tests for ServiceNow REST client."""
 
+from typing import Any
+
 import httpx
 import pytest
 import respx
@@ -265,6 +267,130 @@ class TestServiceNowClientQueryRecords:
 
         assert route.calls.last is not None
         assert "sysparm_display_value" not in str(route.calls.last.request.url)
+
+
+class TestServiceNowClientAttachmentMethods:
+    """Test attachment-specific client helpers."""
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_list_attachments_with_query_offset_and_order_by(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """Builds attachment list params with filters, offset, and ordering."""
+        from servicenow_mcp.client import ServiceNowClient
+
+        route = respx.get(f"{BASE_URL}/api/now/attachment").mock(
+            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "invalid"})
+        )
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            client_any: Any = client
+            result = await client_any.list_attachments(
+                query="table_name=incident", limit=10, offset=5, order_by="sys_id"
+            )
+
+        assert result == {"records": [], "count": 0}
+        assert route.calls.last is not None
+        params = route.calls.last.request.url.params
+        assert params["sysparm_limit"] == "10"
+        assert params["sysparm_offset"] == "5"
+        assert params["sysparm_query"] == "table_name=incident^ORDERBYsys_id"
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_list_attachments_with_order_by_only(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """Builds attachment ordering query even without a base filter."""
+        from servicenow_mcp.client import ServiceNowClient
+
+        route = respx.get(f"{BASE_URL}/api/now/attachment").mock(
+            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        )
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            client_any: Any = client
+            await client_any.list_attachments(query="", order_by="sys_created_on")
+
+        assert route.calls.last is not None
+        params = route.calls.last.request.url.params
+        assert "sysparm_offset" not in params
+        assert params["sysparm_query"] == "ORDERBYsys_created_on"
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_upload_attachment_omits_optional_params_when_none(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """Leaves optional upload params out when callers pass None."""
+        from servicenow_mcp.client import ServiceNowClient
+
+        route = respx.post(f"{BASE_URL}/api/now/attachment/file").mock(
+            return_value=httpx.Response(201, json={"result": {"sys_id": "abc"}})
+        )
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            client_any: Any = client
+            await client_any.upload_attachment(
+                table_name="incident",
+                table_sys_id="b" * 32,
+                file_name="hello.txt",
+                content=b"hello",
+                encryption_context=None,
+                creation_time=None,
+            )
+
+        assert route.calls.last is not None
+        params = route.calls.last.request.url.params
+        assert "encryption_context" not in params
+        assert "creation_time" not in params
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_upload_attachment_includes_optional_params_when_present(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """Passes optional upload params through when callers provide them."""
+        from servicenow_mcp.client import ServiceNowClient
+
+        route = respx.post(f"{BASE_URL}/api/now/attachment/file").mock(
+            return_value=httpx.Response(201, json={"result": {"sys_id": "abc"}})
+        )
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            client_any: Any = client
+            await client_any.upload_attachment(
+                table_name="incident",
+                table_sys_id="b" * 32,
+                file_name="hello.txt",
+                content=b"hello",
+                encryption_context="ctx",
+                creation_time="2026-03-11 10:00:00",
+            )
+
+        assert route.calls.last is not None
+        params = route.calls.last.request.url.params
+        assert params["encryption_context"] == "ctx"
+        assert params["creation_time"] == "2026-03-11 10:00:00"
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_download_attachment_by_name_success(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """Downloads attachment content by record sys_id and file name."""
+        from servicenow_mcp.client import ServiceNowClient
+
+        route = respx.get(f"{BASE_URL}/api/now/attachment/{'b' * 32}/hello%20world.txt/file").mock(
+            return_value=httpx.Response(200, content=b"hello")
+        )
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            content = await client.download_attachment_by_name("b" * 32, "hello world.txt")
+
+        assert content == b"hello"
+        assert route.called
 
 
 class TestServiceNowClientGetMetadata:
@@ -1157,6 +1283,24 @@ class TestUrlBuilderValidation:
         client = ServiceNowClient(settings, auth_provider)
         url = client._table_url("incident")
         assert "incident" in url
+
+    def test_attachment_url_rejects_invalid_sys_id(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        """_attachment_url raises ValueError for invalid attachment sys_id."""
+        from servicenow_mcp.client import ServiceNowClient
+
+        client = ServiceNowClient(settings, auth_provider)
+        with pytest.raises(ValueError, match="Invalid sys_id"):
+            client._attachment_url("invalid-sys-id")
+
+    def test_attachment_by_name_url_rejects_invalid_table_sys_id(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """_attachment_file_by_name_url raises ValueError for invalid table_sys_id."""
+        from servicenow_mcp.client import ServiceNowClient
+
+        client = ServiceNowClient(settings, auth_provider)
+        with pytest.raises(ValueError, match="Invalid sys_id"):
+            client._attachment_file_by_name_url("bad-id", "hello.txt")
 
 
 class TestATFCloudRunner404:

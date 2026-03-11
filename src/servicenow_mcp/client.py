@@ -2,6 +2,7 @@
 
 import uuid
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -15,7 +16,7 @@ from servicenow_mcp.errors import (
     ServiceNowMCPError,
 )
 from servicenow_mcp.policy import INTERNAL_QUERY_LIMIT
-from servicenow_mcp.utils import ServiceNowQuery, validate_identifier
+from servicenow_mcp.utils import ServiceNowQuery, validate_identifier, validate_sys_id
 
 
 _ATF_PLUGIN_ERROR = "ATF Cloud Runner plugin (sn_atf_tg) may not be installed"
@@ -67,11 +68,38 @@ class ServiceNowClient:
         validate_identifier(table)
         return f"{self._settings.servicenow_instance_url}/api/now/stats/{table}"
 
+    def _attachment_url(self, sys_id: str | None = None) -> str:
+        """Build the Attachment API URL."""
+        base = f"{self._settings.servicenow_instance_url}/api/now/attachment"
+        if sys_id is None:
+            return base
+        validate_sys_id(sys_id)
+        return f"{base}/{sys_id}"
+
+    def _attachment_file_url(self, sys_id: str | None = None) -> str:
+        """Build the Attachment content/upload URL."""
+        if sys_id is None:
+            return f"{self._attachment_url()}/file"
+        return f"{self._attachment_url(sys_id)}/file"
+
+    def _attachment_file_by_name_url(self, table_sys_id: str, file_name: str) -> str:
+        """Build the Attachment by-name download URL."""
+        validate_sys_id(table_sys_id)
+        return f"{self._attachment_url()}/{table_sys_id}/{quote(file_name, safe='')}/file"
+
     async def _headers(self) -> dict[str, str]:
         """Build request headers including auth and correlation ID."""
         headers = await self._auth_provider.get_headers()
         headers["X-Correlation-ID"] = str(uuid.uuid4())
         return headers
+
+    @staticmethod
+    def _parse_total_count(response: httpx.Response) -> int:
+        """Parse X-Total-Count header, defaulting to 0 when absent or invalid."""
+        try:
+            return int(response.headers.get("X-Total-Count", "0"))
+        except (TypeError, ValueError):
+            return 0
 
     def _raise_for_status(self, response: httpx.Response) -> None:
         """Map HTTP status codes to custom exceptions."""
@@ -155,13 +183,115 @@ class ServiceNowClient:
             params=params,
         )
         self._raise_for_status(response)
-
-        try:
-            total_count = int(response.headers.get("X-Total-Count", "0"))
-        except (ValueError, TypeError):
-            total_count = 0
         records = self._extract_result(response.json())
-        return {"records": records, "count": total_count}
+        return {"records": records, "count": self._parse_total_count(response)}
+
+    async def list_attachments(
+        self,
+        query: str = "",
+        limit: int = 100,
+        offset: int = 0,
+        order_by: str | None = None,
+    ) -> dict[str, Any]:
+        """List attachment metadata using the Attachment API."""
+        http = self._ensure_client()
+        params: dict[str, str] = {
+            "sysparm_limit": str(limit),
+        }
+        if query:
+            params["sysparm_query"] = query
+        if offset:
+            params["sysparm_offset"] = str(offset)
+        if order_by:
+            params["sysparm_query"] = (
+                f"{query}^{ServiceNowQuery().order_by(order_by).build()}"
+                if query
+                else ServiceNowQuery().order_by(order_by).build()
+            )
+
+        response = await http.get(
+            self._attachment_url(),
+            headers=await self._headers(),
+            params=params,
+        )
+        self._raise_for_status(response)
+        records = self._extract_result(response.json())
+        return {"records": records, "count": self._parse_total_count(response)}
+
+    async def get_attachment(self, sys_id: str) -> dict[str, Any]:
+        """Fetch a single attachment metadata record."""
+        http = self._ensure_client()
+        response = await http.get(
+            self._attachment_url(sys_id),
+            headers=await self._headers(),
+        )
+        self._raise_for_status(response)
+        return self._extract_result(response.json())
+
+    async def upload_attachment(
+        self,
+        table_name: str,
+        table_sys_id: str,
+        file_name: str,
+        content: bytes,
+        content_type: str = "application/octet-stream",
+        encryption_context: str | None = None,
+        creation_time: str | None = None,
+    ) -> dict[str, Any]:
+        """Upload binary content as an attachment."""
+        http = self._ensure_client()
+        validate_identifier(table_name)
+        validate_sys_id(table_sys_id)
+        params: dict[str, str] = {
+            "table_name": table_name,
+            "table_sys_id": table_sys_id,
+            "file_name": file_name,
+        }
+        if encryption_context:
+            params["encryption_context"] = encryption_context
+        if creation_time:
+            params["creation_time"] = creation_time
+
+        headers = await self._headers()
+        headers["Content-Type"] = content_type
+        response = await http.post(
+            self._attachment_file_url(),
+            headers=headers,
+            params=params,
+            content=content,
+        )
+        self._raise_for_status(response)
+        return self._extract_result(response.json())
+
+    async def download_attachment(self, sys_id: str) -> bytes:
+        """Download attachment content by attachment sys_id."""
+        http = self._ensure_client()
+        response = await http.get(
+            self._attachment_file_url(sys_id),
+            headers=await self._headers(),
+        )
+        self._raise_for_status(response)
+        return response.content
+
+    async def download_attachment_by_name(self, table_sys_id: str, file_name: str) -> bytes:
+        """Download attachment content by record sys_id and file name."""
+        http = self._ensure_client()
+        response = await http.get(
+            self._attachment_file_by_name_url(table_sys_id, file_name),
+            headers=await self._headers(),
+        )
+        self._raise_for_status(response)
+        return response.content
+
+    async def delete_attachment(self, sys_id: str) -> bool:
+        """Delete an attachment by sys_id."""
+        http = self._ensure_client()
+        response = await http.delete(
+            self._attachment_url(sys_id),
+            headers=await self._headers(),
+        )
+        self._raise_for_status(response)
+        return True
 
     async def get_metadata(self, table: str) -> list[dict[str, Any]]:
         """Fetch dictionary metadata for a table from sys_dictionary."""
@@ -461,13 +591,8 @@ class ServiceNowClient:
             params=params,
         )
         self._raise_for_status(response)
-
-        try:
-            total_count = int(response.headers.get("X-Total-Count", "0"))
-        except (ValueError, TypeError):
-            total_count = 0
         records = self._extract_result(response.json())
-        return {"records": records, "count": total_count}
+        return {"records": records, "count": self._parse_total_count(response)}
 
     async def cmdb_get_instance(
         self,

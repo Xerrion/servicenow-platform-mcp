@@ -15,20 +15,20 @@ pytestmark = pytest.mark.integration
 # Expected tool counts per package (verified in Wave FINAL F3).
 # +1 for the always-registered list_tool_packages tool.
 EXPECTED_TOOL_COUNTS: dict[str, int] = {
-    "full": 92,
-    "core_readonly": 12,
+    "full": 98,
+    "core_readonly": 16,
     "none": 1,
-    "itil": 68,
-    "developer": 48,
-    "readonly": 41,
-    "analyst": 31,
-    "incident_management": 40,
-    "change_management": 33,
-    "cmdb": 20,
-    "problem_management": 39,
-    "request_management": 33,
-    "knowledge_management": 20,
-    "service_catalog": 27,
+    "itil": 74,
+    "developer": 54,
+    "readonly": 45,
+    "analyst": 35,
+    "incident_management": 46,
+    "change_management": 39,
+    "cmdb": 26,
+    "problem_management": 45,
+    "request_management": 39,
+    "knowledge_management": 26,
+    "service_catalog": 33,
 }
 
 

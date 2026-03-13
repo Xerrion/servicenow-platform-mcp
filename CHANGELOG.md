@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.8.0](https://github.com/Xerrion/servicenow-devtools-mcp/compare/v0.7.1...v0.8.0) (2026-03-11)
+
+
+### Features
+
+* add attachment MCP tools ([#64](https://github.com/Xerrion/servicenow-devtools-mcp/issues/64)) ([aadfc20](https://github.com/Xerrion/servicenow-devtools-mcp/commit/aadfc2099a0c5c5c7df79111dd187990cbf819c0))
+
+
+### Bug Fixes
+
+* resolve flow map snapshot linkage ([8e5ce9f](https://github.com/Xerrion/servicenow-devtools-mcp/commit/8e5ce9f8bfd7c4c367f120f2179921414b35e898))
+
 ## [0.7.1](https://github.com/Xerrion/servicenow-devtools-mcp/compare/v0.7.0...v0.7.1) (2026-03-06)
 
 

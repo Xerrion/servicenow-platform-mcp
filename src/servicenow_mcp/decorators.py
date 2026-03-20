@@ -5,6 +5,7 @@ import inspect
 from collections.abc import Callable, Coroutine
 from typing import Any, cast
 
+from servicenow_mcp.sentry import set_sentry_context, set_sentry_tag
 from servicenow_mcp.types import SignatureMutableCallable
 from servicenow_mcp.utils import generate_correlation_id, safe_tool_call
 
@@ -30,6 +31,18 @@ def tool_handler(
     @functools.wraps(fn)
     async def wrapper(*args: Any, **kwargs: Any) -> str:
         correlation_id = generate_correlation_id()
+
+        set_sentry_tag("tool.name", fn.__name__)
+        set_sentry_tag("tool.correlation_id", correlation_id)
+
+        set_sentry_context(
+            "tool",
+            {
+                "name": fn.__name__,
+                "correlation_id": correlation_id,
+                "args": {k: v for k, v in kwargs.items() if k != "correlation_id"},
+            },
+        )
 
         async def _run() -> str:
             return await fn(*args, correlation_id=correlation_id, **kwargs)

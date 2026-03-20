@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     max_row_limit: int = 100
     large_table_names_csv: str = _DEFAULT_LARGE_TABLES
 
+    sentry_dsn: str = ""
+    sentry_environment: str = ""
+
     model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(
         env_file=[".env", ".env.local"],
         env_file_encoding="utf-8",

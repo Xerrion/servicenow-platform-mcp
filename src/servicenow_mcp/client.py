@@ -1,5 +1,6 @@
 """Async ServiceNow REST API client."""
 
+import logging
 import uuid
 from typing import Any
 from urllib.parse import quote
@@ -16,7 +17,11 @@ from servicenow_mcp.errors import (
     ServiceNowMCPError,
 )
 from servicenow_mcp.policy import INTERNAL_QUERY_LIMIT
+from servicenow_mcp.sentry import set_sentry_context
 from servicenow_mcp.utils import ServiceNowQuery, validate_identifier, validate_sys_id
+
+
+logger = logging.getLogger(__name__)
 
 
 _ATF_PLUGIN_ERROR = "ATF Cloud Runner plugin (sn_atf_tg) may not be installed"
@@ -41,6 +46,8 @@ class ServiceNowClient:
         if self._http_client:
             await self._http_client.aclose()
             self._http_client = None
+
+    # ── Client helpers ─────────────────────────────────────────────────
 
     def _ensure_client(self) -> httpx.AsyncClient:
         """Return the HTTP client, raising RuntimeError if not initialized."""
@@ -103,6 +110,23 @@ class ServiceNowClient:
 
     def _raise_for_status(self, response: httpx.Response) -> None:
         """Map HTTP status codes to custom exceptions."""
+        if response.status_code < 400:
+            return
+
+        url = str(response.request.url)
+        # Strip query parameters for privacy
+        if "?" in url:
+            url = url.split("?", 1)[0]
+
+        set_sentry_context(
+            "http",
+            {
+                "status_code": response.status_code,
+                "method": response.request.method,
+                "url": url,
+            },
+        )
+
         if response.status_code == 401:
             msg = self._extract_error_message(response, "Authentication failed")
             raise AuthError(msg)

@@ -29,6 +29,7 @@ dependencies = [
     "uvicorn>=0.30.0",
     "starlette>=0.38.0",
     "toon-format",
+    "sentry-sdk>=2.55.0",
 ]
 
 [project.urls]

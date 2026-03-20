@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, override
 from toon_format import encode as toon_encode
 
 from servicenow_mcp.errors import ForbiddenError
+from servicenow_mcp.sentry import capture_exception as sentry_capture
 
 
 if TYPE_CHECKING:
@@ -136,8 +137,9 @@ def serialize(data: Any) -> str:
     """
     try:
         return toon_encode(data)
-    except Exception:
+    except Exception as e:
         logger.warning("TOON encoding failed, falling back to JSON", exc_info=True)
+        sentry_capture(e)
         return json.dumps(data, indent=2)
 
 
@@ -164,6 +166,7 @@ def format_response(
         response["pagination"] = pagination
     if warnings is not None:
         response["warnings"] = warnings
+
     return serialize(response)
 
 
@@ -752,6 +755,7 @@ async def safe_tool_call(
     try:
         return await fn()
     except ForbiddenError as e:
+        sentry_capture(e)
         return format_response(
             data=None,
             correlation_id=correlation_id,
@@ -759,6 +763,7 @@ async def safe_tool_call(
             error=f"Access denied by ServiceNow ACL: {e}",
         )
     except Exception as e:
+        sentry_capture(e)
         return format_response(
             data=None,
             correlation_id=correlation_id,

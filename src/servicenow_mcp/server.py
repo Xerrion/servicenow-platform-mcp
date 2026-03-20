@@ -9,11 +9,9 @@ from servicenow_mcp.auth import create_auth
 from servicenow_mcp.choices import ChoiceRegistry
 from servicenow_mcp.config import Settings
 from servicenow_mcp.mcp_state import attach_servicenow_state
-from servicenow_mcp.packages import (
-    _TOOL_GROUP_MODULES,
-    get_package,
-    list_packages,
-)
+from servicenow_mcp.packages import _TOOL_GROUP_MODULES, get_package, list_packages
+from servicenow_mcp.sentry import capture_exception as sentry_capture
+from servicenow_mcp.sentry import set_sentry_context, setup_sentry, shutdown_sentry
 from servicenow_mcp.state import QueryTokenStore
 from servicenow_mcp.utils import serialize
 
@@ -25,6 +23,16 @@ def create_mcp_server() -> FastMCP:
     """Create and configure the MCP server with tools based on the active package."""
     settings = Settings()
     auth_provider = create_auth(settings)
+    setup_sentry(settings)
+    set_sentry_context(
+        "server",
+        {
+            "instance_url": settings.servicenow_instance_url.split("/")[2],  # hostname only
+            "environment": settings.servicenow_env,
+            "is_production": settings.is_production,
+            "tool_package": settings.mcp_tool_package,
+        },
+    )
 
     mcp = FastMCP("servicenow-dev-debug")
 
@@ -55,6 +63,7 @@ def create_mcp_server() -> FastMCP:
                     logger.info("Loaded tool group: %s", group_name)
             except ImportError as e:
                 logger.warning("Could not load tool group '%s': %s", group_name, e)
+                sentry_capture(e)
 
     return mcp
 
@@ -62,7 +71,10 @@ def create_mcp_server() -> FastMCP:
 def main() -> None:
     """Run the MCP server with stdio transport."""
     mcp = create_mcp_server()
-    mcp.run(transport="stdio")
+    try:
+        mcp.run(transport="stdio")
+    finally:
+        shutdown_sentry()
 
 
 if __name__ == "__main__":

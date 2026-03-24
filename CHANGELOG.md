@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.9.0](https://github.com/Xerrion/servicenow-devtools-mcp/compare/v0.8.0...v0.9.0) (2026-03-24)
+
+
+### Features
+
+* add artifact_create and artifact_update tools with script_path support ([#69](https://github.com/Xerrion/servicenow-devtools-mcp/issues/69)) ([58327a8](https://github.com/Xerrion/servicenow-devtools-mcp/commit/58327a8f5ea8940103757de6ea752eb3900952a3))
+
+
+### Documentation
+
+* update README for artifact_write tools, remove OTel section, refresh counts ([#71](https://github.com/Xerrion/servicenow-devtools-mcp/issues/71)) ([7980d38](https://github.com/Xerrion/servicenow-devtools-mcp/commit/7980d38d518b6dbc62b7598b44a9153f3c78afea))
+
 ## [0.8.0](https://github.com/Xerrion/servicenow-devtools-mcp/compare/v0.7.1...v0.8.0) (2026-03-11)
 
 

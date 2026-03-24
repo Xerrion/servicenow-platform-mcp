@@ -313,6 +313,51 @@ if gate:
     return gate  # Pre-formatted error envelope
 ```
 
+## ✏️ Artifact Write Tools
+
+Located in `tools/artifact_write.py`. Provides `artifact_create` and `artifact_update` tools with local script file support.
+
+### WRITABLE_ARTIFACT_TABLES (17 types)
+
+Superset of `metadata.py:ARTIFACT_TABLES` (7 types). All 17 artifact types:
+
+| Artifact Type | ServiceNow Table |
+|---|---|
+| `business_rule` | `sys_script` |
+| `script_include` | `sys_script_include` |
+| `ui_policy` | `sys_ui_policy` |
+| `ui_action` | `sys_ui_action` |
+| `client_script` | `sys_script_client` |
+| `scheduled_job` | `sysauto_script` |
+| `fix_script` | `sys_script_fix` |
+| `scripted_rest_resource` | `sys_ws_operation` |
+| `ui_script` | `sys_ui_script` |
+| `processor` | `sys_processor` |
+| `widget` | `sp_widget` |
+| `ui_page` | `sys_ui_page` |
+| `ui_macro` | `sys_ui_macro` |
+| `script_action` | `sysevent_script_action` |
+| `mid_script_include` | `ecc_agent_script_include` |
+| `scripted_rest_api` | `sys_web_service` |
+| `notification_script` | `sysevent_email_action` |
+
+### script_path Pattern
+
+Both tools accept an optional `script_path` parameter:
+
+- Must be an absolute file path
+- File is read synchronously as UTF-8
+- Maximum size: 1 MB (`MAX_SCRIPT_FILE_BYTES = 1_048_576`)
+- Content is written to the `script` field (`DEFAULT_SCRIPT_FIELD = "script"`)
+- If the `script` field already exists in the data/changes JSON, a warning is emitted but the file content wins
+
+### Key Differences from record_write
+
+- No preview/apply token flow - direct create/update only
+- Uses `_resolve_writable_artifact_table()` instead of raw table names
+- Standard tool registration signature (not domain)
+- Package membership: `full`, `developer`, `itil`
+
 ## 🔄 ChoiceRegistry
 
 - `ChoiceRegistry(settings, auth_provider)` - lazy-loaded from `sys_choice` table.
@@ -432,17 +477,17 @@ Note: `otel_exporter_endpoint` uses `validation_alias="otel_exporter_otlp_endpoi
 
 ## 📦 Packages & Tool Groups
 
-14 named packages with 19 tool groups total (20 registered modules, but `testing` is disabled in `full`).
+14 named packages with 20 tool groups total (21 registered modules, but `testing` is disabled in `full`).
 
 ### Preset Packages
 
 | Package              | Groups | Description                                     |
 | -------------------- | ------ | ----------------------------------------------- |
-| `full`                 | 19     | Default - all standard tool groups              |
+| `full`                 | 20     | Default - all standard tool groups              |
 | `core_readonly`        | 4      | Read-only core tools (table, record, attachment, metadata) |
 | `none`                 | 0      | No tools loaded                                 |
-| `itil`                 | 15     | ITIL process tools                              |
-| `developer`            | 12     | Development-focused tools                       |
+| `itil`                 | 16     | ITIL process tools                              |
+| `developer`            | 13     | Development-focused tools                       |
 | `readonly`             | 10     | Read-only operations                            |
 | `analyst`              | 8      | Analysis and reporting                          |
 | `incident_management`  | 9      | Incident lifecycle tools                        |

@@ -120,6 +120,7 @@ class TestPackageRegistry:
             "record_write",
             "attachment_write",
             "metadata",
+            "artifact_write",
             "changes",
             "debug",
             "documentation",
@@ -131,7 +132,7 @@ class TestPackageRegistry:
             "domain_request",
         ]
         assert groups == expected
-        assert len(groups) == 15
+        assert len(groups) == 16
 
     def test_get_package_developer(self) -> None:
         """get_package returns correct groups for developer preset."""
@@ -145,6 +146,7 @@ class TestPackageRegistry:
             "record_write",
             "attachment_write",
             "metadata",
+            "artifact_write",
             "changes",
             "debug",
             "investigations",
@@ -153,7 +155,7 @@ class TestPackageRegistry:
             "flow_designer",
         ]
         assert groups == expected
-        assert len(groups) == 12
+        assert len(groups) == 13
 
     def test_get_package_readonly(self) -> None:
         """get_package returns correct groups for readonly preset."""
@@ -238,8 +240,9 @@ class TestPackageRegistry:
         assert "documentation" in groups
         assert "workflow" in groups
         assert "flow_designer" in groups
+        assert "artifact_write" in groups
         assert "testing" not in groups
-        assert len(groups) == 19
+        assert len(groups) == 20
 
 
 class TestCommaSeparatedGroups:
@@ -498,25 +501,25 @@ class TestDomainPackages:
         assert groups == ["domain_incident", "domain_change", "record"]
 
     def test_backward_compatibility_full_package_count(self) -> None:
-        """full package has 19 total groups including attachment support."""
+        """full package has 20 total groups including attachment support."""
         from servicenow_mcp.packages import get_package
 
         groups = get_package("full")
-        assert len(groups) == 19
+        assert len(groups) == 20
 
     def test_backward_compatibility_itil_package_count(self) -> None:
-        """itil package has 15 total groups including attachment support."""
+        """itil package has 16 total groups including attachment support."""
         from servicenow_mcp.packages import get_package
 
         groups = get_package("itil")
-        assert len(groups) == 15
+        assert len(groups) == 16
 
     def test_developer_package_unchanged(self) -> None:
-        """developer package has 12 groups and no domain groups."""
+        """developer package has 13 groups and no domain groups."""
         from servicenow_mcp.packages import get_package
 
         groups = get_package("developer")
-        assert len(groups) == 12
+        assert len(groups) == 13
         domain_groups = [g for g in groups if g.startswith("domain_")]
         assert len(domain_groups) == 0
 

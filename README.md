@@ -269,7 +269,7 @@ uvx servicenow-devtools-mcp
 | `SERVICENOW_ENV` | Environment label (`dev`, `test`, `staging`, `prod`) | `dev` | No |
 | `MAX_ROW_LIMIT` | Maximum rows returned per query (range: 1-10000) | `100` | No |
 | `LARGE_TABLE_NAMES_CSV` | Comma-separated tables requiring date filters | `syslog,sys_audit,sys_log_transaction,sys_email_log` | No |
-| `SCRIPT_ALLOWED_ROOT` | Root directory for `script_path` in artifact write tools | `""` (disabled) | No |
+| `SCRIPT_ALLOWED_ROOT` | Root directory for `script_path` in artifact write tools | `""` (disabled) | Yes (when using `script_path`) |
 | `SENTRY_DSN` | Sentry DSN for error reporting (enables Sentry when set) | `""` | No |
 | `SENTRY_ENVIRONMENT` | Sentry environment label | Falls back to `SERVICENOW_ENV` | No |
 
@@ -314,7 +314,7 @@ SENTRY_ENVIRONMENT=production
 - With package installed but no `SENTRY_DSN` set: no client initialized
 - With package installed and `SENTRY_DSN` set: full error capture active
 
-Performance monitoring is intentionally disabled in Sentry (`traces_sample_rate=None`) - it is not needed for stdio-based MCP servers.
+Performance monitoring is enabled in Sentry with `traces_sample_rate=1.0` (100% sampling) to capture full performance telemetry for this MCP server.
 
 ---
 
@@ -415,7 +415,7 @@ Uploads accept `content_base64` and follow the same write gating rules as other 
 
 Supports 17 artifact types: `business_rule`, `script_include`, `ui_policy`, `ui_action`, `client_script`, `scheduled_job`, `fix_script`, `scripted_rest_resource`, `ui_script`, `processor`, `widget`, `ui_page`, `ui_macro`, `script_action`, `mid_script_include`, `scripted_rest_api`, `notification_script`.
 
-When `script_path` is provided, the file content is read and set as the artifact's script field. Requires `SCRIPT_ALLOWED_ROOT` to be configured. The script field varies by artifact type (e.g. `script` for business rules, `operation_script` for scripted REST resources, `html` for UI pages).
+When `script_path` is provided, it must be an absolute filesystem path; relative paths are rejected. The file content is read and set as the artifact's script field. Requires `SCRIPT_ALLOWED_ROOT` to be configured. The script field varies by artifact type (e.g. `script` for business rules, `operation_script` for scripted REST resources, `html` for UI pages).
 
 ### :mag_right: Investigations
 

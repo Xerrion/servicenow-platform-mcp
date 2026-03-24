@@ -67,15 +67,17 @@ def _resolve_writable_artifact_table(artifact_type: str) -> str:
     return table
 
 
-def _read_script_file(script_path: str, allowed_root: str = "") -> str:
+def _read_script_file(script_path: str, allowed_root: str) -> str:
     """Read a local script file and return its contents as a string.
 
     Args:
         script_path: Path to the script file.
-        allowed_root: When non-empty, the resolved script path must be under this root directory.
+        allowed_root: The resolved script path must be under this root directory.
+            Must be non-empty - callers must configure ``script_allowed_root`` before using ``script_path``.
 
     Raises:
-        ValueError: If the path is not absolute, file exceeds MAX_SCRIPT_FILE_BYTES, or allowed root is inaccessible.
+        ValueError: If the path is not absolute, allowed_root is empty or inaccessible,
+            or the file exceeds MAX_SCRIPT_FILE_BYTES.
         PermissionError: If the resolved path is outside the allowed root.
         FileNotFoundError: If the file does not exist or is not a regular file.
         UnicodeDecodeError: If the file is not valid UTF-8.
@@ -83,18 +85,20 @@ def _read_script_file(script_path: str, allowed_root: str = "") -> str:
     if not Path(script_path).is_absolute():
         raise ValueError(f"script_path must be an absolute path, got: {script_path!r}")
 
+    if not allowed_root:
+        raise ValueError("script_allowed_root must be configured when using script_path")
+
     try:
         resolved = Path(script_path).resolve(strict=True)
     except (OSError, ValueError) as exc:
         raise FileNotFoundError(f"Script file not found or not accessible: {script_path!r}") from exc
 
-    if allowed_root:
-        try:
-            root = Path(allowed_root).resolve(strict=True)
-        except (OSError, ValueError) as exc:
-            raise ValueError(f"Configured script_allowed_root is not accessible: {allowed_root!r}") from exc
-        if not resolved.is_relative_to(root):
-            raise PermissionError(f"Script path {str(resolved)!r} is outside the allowed root {str(root)!r}")
+    try:
+        root = Path(allowed_root).resolve(strict=True)
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"Configured script_allowed_root is not accessible: {allowed_root!r}") from exc
+    if not resolved.is_relative_to(root):
+        raise PermissionError(f"Script path {str(resolved)!r} is outside the allowed root {str(root)!r}")
 
     if not resolved.is_file():
         raise FileNotFoundError(f"Script path is not a regular file: {script_path!r}")

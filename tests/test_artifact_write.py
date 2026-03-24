@@ -2,6 +2,7 @@
 
 import json
 from typing import Any
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -32,6 +33,27 @@ SYS_ID_ART001 = "a" * 32  # aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 def auth_provider(settings: Settings) -> BasicAuthProvider:
     """Create a BasicAuthProvider from test settings."""
     return BasicAuthProvider(settings)
+
+
+@pytest.fixture()
+def script_settings(tmp_path: Any) -> Settings:
+    """Create test settings with script_allowed_root set to tmp_path."""
+    env = {
+        "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
+        "SERVICENOW_USERNAME": "admin",
+        "SERVICENOW_PASSWORD": "s3cret",
+        "SERVICENOW_ENV": "dev",
+        "MCP_TOOL_PACKAGE": "full",
+        "SCRIPT_ALLOWED_ROOT": str(tmp_path),
+    }
+    with patch.dict("os.environ", env, clear=True):
+        return Settings(_env_file=None)
+
+
+@pytest.fixture()
+def script_auth_provider(script_settings: Settings) -> BasicAuthProvider:
+    """Create a BasicAuthProvider from script_settings."""
+    return BasicAuthProvider(script_settings)
 
 
 def _register_and_get_tools(settings: Settings, auth_provider: BasicAuthProvider) -> dict[str, Any]:
@@ -88,19 +110,27 @@ class TestReadScriptFile:
         script = tmp_path / "test_script.js"
         script.write_text("var x = 1;", encoding="utf-8")
 
-        result = _read_script_file(str(script))
+        result = _read_script_file(str(script), allowed_root=str(tmp_path))
         assert result == "var x = 1;"
 
     def test_rejects_relative_path(self) -> None:
         """Raises ValueError when given a relative path."""
         with pytest.raises(ValueError, match="absolute path"):
-            _read_script_file("relative/path/script.js")
+            _read_script_file("relative/path/script.js", allowed_root="/tmp")
+
+    def test_rejects_empty_allowed_root(self, tmp_path: Any) -> None:
+        """Raises ValueError when allowed_root is empty."""
+        script = tmp_path / "script.js"
+        script.write_text("var x = 1;", encoding="utf-8")
+
+        with pytest.raises(ValueError, match="script_allowed_root must be configured"):
+            _read_script_file(str(script), allowed_root="")
 
     def test_file_not_found(self, tmp_path: Any) -> None:
         """Raises FileNotFoundError for a non-existent file."""
         nonexistent = tmp_path / "does_not_exist.js"
         with pytest.raises(FileNotFoundError):
-            _read_script_file(str(nonexistent))
+            _read_script_file(str(nonexistent), allowed_root=str(tmp_path))
 
     def test_file_too_large(self, tmp_path: Any) -> None:
         """Raises ValueError when file exceeds MAX_SCRIPT_FILE_BYTES."""
@@ -108,7 +138,7 @@ class TestReadScriptFile:
         large_file.write_bytes(b"x" * (MAX_SCRIPT_FILE_BYTES + 1))
 
         with pytest.raises(ValueError, match="too large"):
-            _read_script_file(str(large_file))
+            _read_script_file(str(large_file), allowed_root=str(tmp_path))
 
     def test_non_utf8_raises(self, tmp_path: Any) -> None:
         """Raises UnicodeDecodeError for a file with invalid UTF-8 bytes."""
@@ -116,7 +146,7 @@ class TestReadScriptFile:
         bad_file.write_bytes(b"\xff\xfe\x80\x81")
 
         with pytest.raises(UnicodeDecodeError):
-            _read_script_file(str(bad_file))
+            _read_script_file(str(bad_file), allowed_root=str(tmp_path))
 
     def test_path_outside_allowed_root(self, tmp_path: Any) -> None:
         """Raises PermissionError when the resolved path is outside allowed_root."""
@@ -168,7 +198,7 @@ class TestReadScriptFile:
         a_dir.mkdir()
 
         with pytest.raises(FileNotFoundError, match="not a regular file"):
-            _read_script_file(str(a_dir))
+            _read_script_file(str(a_dir), allowed_root=str(tmp_path))
 
 
 # -- _parse_and_validate_payload -----------------------------------------------
@@ -200,7 +230,7 @@ class TestParseAndValidatePayload:
         script = tmp_path / "inject.xml"
         script.write_text("<hello/>", encoding="utf-8")
 
-        result = _parse_and_validate_payload('{"name": "M"}', "data", "ui_macro", str(script), "", "corr-1")
+        result = _parse_and_validate_payload('{"name": "M"}', "data", "ui_macro", str(script), str(tmp_path), "corr-1")
         assert isinstance(result, tuple)
         payload, warnings = result
         assert payload["xml"] == "<hello/>"
@@ -212,7 +242,7 @@ class TestParseAndValidatePayload:
         script.write_text("new", encoding="utf-8")
 
         result = _parse_and_validate_payload(
-            '{"script": "old"}', "changes", "script_include", str(script), "", "corr-1"
+            '{"script": "old"}', "changes", "script_include", str(script), str(tmp_path), "corr-1"
         )
         assert isinstance(result, tuple)
         payload, warnings = result
@@ -262,7 +292,7 @@ class TestArtifactCreate:
     @pytest.mark.asyncio()
     @respx.mock
     async def test_creates_artifact_with_script_path(
-        self, settings: Settings, auth_provider: BasicAuthProvider, tmp_path: Any
+        self, script_settings: Settings, script_auth_provider: BasicAuthProvider, tmp_path: Any
     ) -> None:
         """Reads script content from a local file and sets it as the script field."""
         script_file = tmp_path / "my_script.js"
@@ -281,7 +311,7 @@ class TestArtifactCreate:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools = _register_and_get_tools(script_settings, script_auth_provider)
         raw = await tools["artifact_create"](
             artifact_type="script_include",
             data=json.dumps({"name": "FileScript"}),
@@ -301,7 +331,7 @@ class TestArtifactCreate:
     @pytest.mark.asyncio()
     @respx.mock
     async def test_script_path_warns_on_override(
-        self, settings: Settings, auth_provider: BasicAuthProvider, tmp_path: Any
+        self, script_settings: Settings, script_auth_provider: BasicAuthProvider, tmp_path: Any
     ) -> None:
         """Warns when script_path overrides an existing 'script' key in data."""
         script_file = tmp_path / "override.js"
@@ -320,7 +350,7 @@ class TestArtifactCreate:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools = _register_and_get_tools(script_settings, script_auth_provider)
         raw = await tools["artifact_create"](
             artifact_type="script_include",
             data=json.dumps({"name": "Override", "script": "old content"}),
@@ -435,7 +465,7 @@ class TestArtifactUpdate:
     @pytest.mark.asyncio()
     @respx.mock
     async def test_updates_artifact_with_script_path(
-        self, settings: Settings, auth_provider: BasicAuthProvider, tmp_path: Any
+        self, script_settings: Settings, script_auth_provider: BasicAuthProvider, tmp_path: Any
     ) -> None:
         """Reads script content from a local file when updating."""
         script_file = tmp_path / "update_script.js"
@@ -454,7 +484,7 @@ class TestArtifactUpdate:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools = _register_and_get_tools(script_settings, script_auth_provider)
         raw = await tools["artifact_update"](
             artifact_type="script_include",
             sys_id=SYS_ID_ART001,
@@ -475,7 +505,7 @@ class TestArtifactUpdate:
     @pytest.mark.asyncio()
     @respx.mock
     async def test_script_path_warns_on_override(
-        self, settings: Settings, auth_provider: BasicAuthProvider, tmp_path: Any
+        self, script_settings: Settings, script_auth_provider: BasicAuthProvider, tmp_path: Any
     ) -> None:
         """Warns when script_path overrides an existing 'script' key in changes."""
         script_file = tmp_path / "override_update.js"
@@ -493,7 +523,7 @@ class TestArtifactUpdate:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools = _register_and_get_tools(script_settings, script_auth_provider)
         raw = await tools["artifact_update"](
             artifact_type="script_include",
             sys_id=SYS_ID_ART001,
@@ -585,7 +615,7 @@ class TestScriptFieldMap:
     @pytest.mark.asyncio()
     @respx.mock
     async def test_ui_macro_writes_to_xml_field(
-        self, settings: Settings, auth_provider: BasicAuthProvider, tmp_path: Any
+        self, script_settings: Settings, script_auth_provider: BasicAuthProvider, tmp_path: Any
     ) -> None:
         """script_path content for ui_macro is written to the 'xml' field."""
         script_file = tmp_path / "macro.xml"
@@ -598,7 +628,7 @@ class TestScriptFieldMap:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools = _register_and_get_tools(script_settings, script_auth_provider)
         raw = await tools["artifact_create"](
             artifact_type="ui_macro",
             data=json.dumps({"name": "TestMacro"}),
@@ -615,7 +645,7 @@ class TestScriptFieldMap:
     @pytest.mark.asyncio()
     @respx.mock
     async def test_ui_page_writes_to_html_field(
-        self, settings: Settings, auth_provider: BasicAuthProvider, tmp_path: Any
+        self, script_settings: Settings, script_auth_provider: BasicAuthProvider, tmp_path: Any
     ) -> None:
         """script_path content for ui_page is written to the 'html' field."""
         script_file = tmp_path / "page.html"
@@ -628,7 +658,7 @@ class TestScriptFieldMap:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools = _register_and_get_tools(script_settings, script_auth_provider)
         raw = await tools["artifact_create"](
             artifact_type="ui_page",
             data=json.dumps({"name": "TestPage"}),
@@ -645,7 +675,7 @@ class TestScriptFieldMap:
     @pytest.mark.asyncio()
     @respx.mock
     async def test_update_with_field_map(
-        self, settings: Settings, auth_provider: BasicAuthProvider, tmp_path: Any
+        self, script_settings: Settings, script_auth_provider: BasicAuthProvider, tmp_path: Any
     ) -> None:
         """artifact_update also uses SCRIPT_FIELD_MAP for the correct field."""
         script_file = tmp_path / "macro_update.xml"
@@ -658,7 +688,7 @@ class TestScriptFieldMap:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools = _register_and_get_tools(script_settings, script_auth_provider)
         raw = await tools["artifact_update"](
             artifact_type="ui_macro",
             sys_id=SYS_ID_ART001,
@@ -676,7 +706,7 @@ class TestScriptFieldMap:
     @pytest.mark.asyncio()
     @respx.mock
     async def test_ui_policy_writes_to_script_true_field(
-        self, settings: Settings, auth_provider: BasicAuthProvider, tmp_path: Any
+        self, script_settings: Settings, script_auth_provider: BasicAuthProvider, tmp_path: Any
     ) -> None:
         """script_path content for ui_policy is written to the 'script_true' field."""
         script_file = tmp_path / "policy.js"
@@ -695,7 +725,7 @@ class TestScriptFieldMap:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools = _register_and_get_tools(script_settings, script_auth_provider)
         raw = await tools["artifact_create"](
             artifact_type="ui_policy",
             data=json.dumps({"name": "TestPolicy"}),
@@ -712,7 +742,7 @@ class TestScriptFieldMap:
     @pytest.mark.asyncio()
     @respx.mock
     async def test_widget_writes_to_client_script_field(
-        self, settings: Settings, auth_provider: BasicAuthProvider, tmp_path: Any
+        self, script_settings: Settings, script_auth_provider: BasicAuthProvider, tmp_path: Any
     ) -> None:
         """script_path content for widget is written to the 'client_script' field."""
         script_file = tmp_path / "widget.js"
@@ -725,7 +755,7 @@ class TestScriptFieldMap:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools = _register_and_get_tools(script_settings, script_auth_provider)
         raw = await tools["artifact_create"](
             artifact_type="widget",
             data=json.dumps({"name": "TestWidget"}),
@@ -742,7 +772,7 @@ class TestScriptFieldMap:
     @pytest.mark.asyncio()
     @respx.mock
     async def test_scripted_rest_resource_writes_to_operation_script_field(
-        self, settings: Settings, auth_provider: BasicAuthProvider, tmp_path: Any
+        self, script_settings: Settings, script_auth_provider: BasicAuthProvider, tmp_path: Any
     ) -> None:
         """script_path content for scripted_rest_resource is written to the 'operation_script' field."""
         script_file = tmp_path / "rest_op.js"
@@ -755,7 +785,7 @@ class TestScriptFieldMap:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools = _register_and_get_tools(script_settings, script_auth_provider)
         raw = await tools["artifact_create"](
             artifact_type="scripted_rest_resource",
             data=json.dumps({"name": "TestRestOp"}),
@@ -772,7 +802,7 @@ class TestScriptFieldMap:
     @pytest.mark.asyncio()
     @respx.mock
     async def test_notification_script_writes_to_advanced_condition_field(
-        self, settings: Settings, auth_provider: BasicAuthProvider, tmp_path: Any
+        self, script_settings: Settings, script_auth_provider: BasicAuthProvider, tmp_path: Any
     ) -> None:
         """script_path content for notification_script is written to the 'advanced_condition' field."""
         script_file = tmp_path / "notif.js"
@@ -785,7 +815,7 @@ class TestScriptFieldMap:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        tools = _register_and_get_tools(script_settings, script_auth_provider)
         raw = await tools["artifact_update"](
             artifact_type="notification_script",
             sys_id=SYS_ID_ART001,

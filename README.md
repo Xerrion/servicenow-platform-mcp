@@ -6,7 +6,7 @@
   <a href="https://pypi.org/project/servicenow-devtools-mcp/"><img src="https://img.shields.io/pypi/v/servicenow-devtools-mcp?color=00c9a7&style=flat-square" alt="PyPI version"></a>
   <a href="https://pypi.org/project/servicenow-devtools-mcp/"><img src="https://img.shields.io/pypi/pyversions/servicenow-devtools-mcp?style=flat-square" alt="Python versions"></a>
   <a href="https://github.com/xerrion/servicenow-devtools-mcp/blob/main/LICENSE"><img src="https://img.shields.io/github/license/xerrion/servicenow-devtools-mcp?style=flat-square" alt="License"></a>
-  <img src="https://img.shields.io/badge/tools-98-00d4ff?style=flat-square" alt="Tool count">
+  <img src="https://img.shields.io/badge/tools-100-00d4ff?style=flat-square" alt="Tool count">
 </p>
 
 # servicenow-devtools-mcp
@@ -21,6 +21,7 @@ A developer & debug-focused [Model Context Protocol (MCP)](https://modelcontextp
 - :package: **Change Intelligence** -- inspect update sets, diff artifact versions, audit trails, generate release notes
 - :bug: **Debug & Trace** -- trace record timelines, flow executions, email chains, integration errors, import set runs, field mutations
 - :test_tube: **Record Write** -- create, update, delete records with direct or preview-then-apply patterns
+- :wrench: **Artifact Write** -- create and update platform artifacts (business rules, script includes, etc.) with optional local script file injection
 - :mag_right: **Investigations** -- 7 built-in analysis modules (stale automations, deprecated APIs, table health, ACL conflicts, error analysis, slow transactions, performance bottlenecks)
 - :page_facing_up: **Documentation** -- generate logic maps, artifact summaries, test scenarios, code review notes
 - :gear: **Workflow Analysis** -- list workflow versions, inspect contexts, map activity structures, trace execution status
@@ -139,7 +140,7 @@ uvx servicenow-devtools-mcp
 ## ServiceNow MCP Server Setup
 
 You have access to a ServiceNow MCP server (`servicenow-devtools-mcp`) that provides
-98 tools for interacting with a ServiceNow instance.
+100 tools for interacting with a ServiceNow instance.
 
 ### Installation
 
@@ -160,6 +161,7 @@ uvx servicenow-devtools-mcp
 - SERVICENOW_ENV -- Environment label: "dev" (default), "test", "staging", "prod". Write operations are blocked when set to "prod" or "production".
 - MAX_ROW_LIMIT -- Max records per query (default: 100, max: 10000)
 - LARGE_TABLE_NAMES_CSV -- Tables requiring date-bounded queries (default: syslog,sys_audit,sys_log_transaction,sys_email_log)
+- SCRIPT_ALLOWED_ROOT -- When using artifact_write with script_path, constrains file reads to this directory tree (required for script_path). The file must be an existing regular UTF-8 file of <= 1 MB.
 
 ### MCP Client Configuration (stdio transport)
 
@@ -177,7 +179,7 @@ uvx servicenow-devtools-mcp
 }
 ```
 
-### Available Tools (98 total)
+### Available Tools (100 total)
 
 **Table (4):** table_describe, table_query, table_aggregate, build_query
   - Describe table schema with enriched metadata (sys_db_object + sys_documentation), query with encoded queries, compute stats, build structured queries
@@ -202,6 +204,9 @@ uvx servicenow-devtools-mcp
 
 **Record Write (7):** record_create, record_preview_create, record_update, record_preview_update, record_delete, record_preview_delete, record_apply
   - Create, update, delete records directly or via preview-then-apply confirmation pattern
+
+**Artifact Write (2):** artifact_create, artifact_update
+  - Create and update platform artifacts (business rules, script includes, client scripts, etc.) with optional local script file injection via script_path
 
 **Investigations (2 dispatchers, 7 modules):** investigate_run, investigate_explain
   - Modules: stale_automations, deprecated_apis, table_health, acl_conflicts, error_analysis, slow_transactions, performance_bottlenecks
@@ -264,51 +269,11 @@ uvx servicenow-devtools-mcp
 | `SERVICENOW_ENV` | Environment label (`dev`, `test`, `staging`, `prod`) | `dev` | No |
 | `MAX_ROW_LIMIT` | Maximum rows returned per query (range: 1-10000) | `100` | No |
 | `LARGE_TABLE_NAMES_CSV` | Comma-separated tables requiring date filters | `syslog,sys_audit,sys_log_transaction,sys_email_log` | No |
-| `OTEL_ENABLED` | Enable OpenTelemetry tracing | `false` | No |
-| `OTEL_SERVICE_NAME` | Service name for traces | `servicenow-mcp` | No |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP exporter endpoint | `http://localhost:4318` | No |
-| `OTEL_EXPORTER_CONSOLE` | Enable console span exporter | `false` | No |
+| `SCRIPT_ALLOWED_ROOT` | Root directory for `script_path` in artifact write tools | `""` (disabled) | Yes (when using `script_path`) |
 | `SENTRY_DSN` | Sentry DSN for error reporting (enables Sentry when set) | `""` | No |
 | `SENTRY_ENVIRONMENT` | Sentry environment label | Falls back to `SERVICENOW_ENV` | No |
 
 The server reads from `.env` and `.env.local` files automatically (`.env.local` takes precedence).
-
----
-
-## OpenTelemetry
-
-Opt-in distributed tracing with zero impact when disabled.
-
-### Install with tracing support
-
-```bash
-uv pip install "servicenow-devtools-mcp[otel]"
-```
-
-### Enable tracing
-
-```bash
-# Required - turns on instrumentation
-OTEL_ENABLED=true
-
-# Optional - customize
-OTEL_SERVICE_NAME=servicenow-mcp
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
-OTEL_EXPORTER_CONSOLE=false
-```
-
-### What gets traced
-
-- **Tool spans** - every MCP tool invocation with name, correlation ID, and status
-- **HTTP spans** - all ServiceNow API calls with method, URL, and status code
-- **W3C propagation** - `traceparent` header forwarded to ServiceNow
-- **Response enrichment** - `trace_id` and `span_id` included in tool response envelopes when active
-
-### Graceful degradation
-
-- Without `opentelemetry` packages installed: zero overhead, no-op stubs used
-- With packages installed but `OTEL_ENABLED=false` (default): no tracer initialized
-- With packages installed and `OTEL_ENABLED=true`: full instrumentation active
 
 ---
 
@@ -349,7 +314,7 @@ SENTRY_ENVIRONMENT=production
 - With package installed but no `SENTRY_DSN` set: no client initialized
 - With package installed and `SENTRY_DSN` set: full error capture active
 
-Performance monitoring is intentionally disabled in Sentry (`traces_sample_rate=None`) - OpenTelemetry handles distributed tracing.
+Performance monitoring is enabled in Sentry with `traces_sample_rate=1.0` (100% sampling) to capture full performance telemetry for this MCP server. Since MCP servers are single-user stdio processes, this is unlikely to cause ingest overhead. For high-throughput deployments, consider reducing the sample rate in code.
 
 ---
 
@@ -440,6 +405,17 @@ Uploads accept `content_base64` and follow the same write gating rules as other 
 | `record_delete` | Delete a record | `table`, `sys_id` |
 | `record_preview_delete` | Preview a deletion showing the record to be removed | `table`, `sys_id` |
 | `record_apply` | Apply a previously previewed action (create, update, or delete) | `preview_token` |
+
+### :wrench: Artifact Write
+
+| Tool | Description | Key Parameters |
+|---|---|---|
+| `artifact_create` | Create a new platform artifact in ServiceNow | `artifact_type`, `data` (JSON string), `script_path?` |
+| `artifact_update` | Update an existing platform artifact in ServiceNow | `artifact_type`, `sys_id`, `changes` (JSON string), `script_path?` |
+
+Supports 17 artifact types: `business_rule`, `script_include`, `ui_policy`, `ui_action`, `client_script`, `scheduled_job`, `fix_script`, `scripted_rest_resource`, `ui_script`, `processor`, `widget`, `ui_page`, `ui_macro`, `script_action`, `mid_script_include`, `scripted_rest_api`, `notification_script`.
+
+When `script_path` is provided, it must be an absolute filesystem path; relative paths are rejected. Requires `SCRIPT_ALLOWED_ROOT` to be configured. The path must resolve to an existing regular UTF-8 file under that root, and file size must be <= 1 MB. The file content is read and set as the artifact's script field. The script field varies by artifact type (e.g. `script` for business rules, `operation_script` for scripted REST resources, `html` for UI pages).
 
 ### :mag_right: Investigations
 
@@ -581,9 +557,9 @@ Control which tools are loaded using the `MCP_TOOL_PACKAGE` environment variable
 
 | Package | Groups | Description |
 |---|---|---|
-| `full` (default) | 19 | All tool groups -- 98 tools total |
-| `itil` | 15 | ITIL process tools (incidents, changes, problems, requests + platform tools) |
-| `developer` | 12 | Development-focused (table, record, attachments, debug, investigations, workflows) |
+| `full` (default) | 20 | All standard tool groups (excludes `testing`) -- 100 tools total |
+| `itil` | 16 | ITIL process tools (incidents, changes, problems, requests + platform tools) |
+| `developer` | 13 | Development-focused (table, record, attachments, debug, investigations, workflows) |
 | `readonly` | 10 | Read-only operations, including attachment read tools |
 | `analyst` | 8 | Analysis and reporting (table, record, attachments, investigations, docs, workflows) |
 | `incident_management` | 9 | Incident lifecycle with supporting tools and attachment writes |
@@ -606,7 +582,7 @@ MCP_TOOL_PACKAGE="table,record,debug,domain_incident"
 
 Readonly-style packages include only `attachment`. Write-capable packages include both `attachment` and `attachment_write`.
 
-Available tool groups: `table`, `record`, `attachment`, `record_write`, `attachment_write`, `metadata`, `changes`, `debug`, `investigations`, `documentation`, `workflow`, `flow_designer`, `testing`, `domain_incident`, `domain_change`, `domain_problem`, `domain_cmdb`, `domain_request`, `domain_knowledge`, `domain_service_catalog`.
+Available tool groups: `table`, `record`, `attachment`, `record_write`, `attachment_write`, `metadata`, `artifact_write`, `changes`, `debug`, `investigations`, `documentation`, `workflow`, `flow_designer`, `testing`, `domain_incident`, `domain_change`, `domain_problem`, `domain_cmdb`, `domain_request`, `domain_knowledge`, `domain_service_catalog`.
 
 ---
 
@@ -664,7 +640,7 @@ cd servicenow-devtools-mcp
 # Install dependencies (including dev tools)
 uv sync --group dev
 
-# Run unit tests (~940 tests)
+# Run unit tests (~1165 tests)
 uv run pytest
 
 # Run integration tests (requires .env.local with real credentials)

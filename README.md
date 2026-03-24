@@ -161,7 +161,7 @@ uvx servicenow-devtools-mcp
 - SERVICENOW_ENV -- Environment label: "dev" (default), "test", "staging", "prod". Write operations are blocked when set to "prod" or "production".
 - MAX_ROW_LIMIT -- Max records per query (default: 100, max: 10000)
 - LARGE_TABLE_NAMES_CSV -- Tables requiring date-bounded queries (default: syslog,sys_audit,sys_log_transaction,sys_email_log)
-- SCRIPT_ALLOWED_ROOT -- When using artifact_write with script_path, constrains file reads to this directory tree (required for script_path)
+- SCRIPT_ALLOWED_ROOT -- When using artifact_write with script_path, constrains file reads to this directory tree (required for script_path). The file must be an existing regular UTF-8 file of <= 1 MB.
 
 ### MCP Client Configuration (stdio transport)
 
@@ -415,7 +415,7 @@ Uploads accept `content_base64` and follow the same write gating rules as other 
 
 Supports 17 artifact types: `business_rule`, `script_include`, `ui_policy`, `ui_action`, `client_script`, `scheduled_job`, `fix_script`, `scripted_rest_resource`, `ui_script`, `processor`, `widget`, `ui_page`, `ui_macro`, `script_action`, `mid_script_include`, `scripted_rest_api`, `notification_script`.
 
-When `script_path` is provided, it must be an absolute filesystem path; relative paths are rejected. The file content is read and set as the artifact's script field. Requires `SCRIPT_ALLOWED_ROOT` to be configured. The script field varies by artifact type (e.g. `script` for business rules, `operation_script` for scripted REST resources, `html` for UI pages).
+When `script_path` is provided, it must be an absolute filesystem path; relative paths are rejected. Requires `SCRIPT_ALLOWED_ROOT` to be configured. The path must resolve to an existing regular UTF-8 file under that root, and file size must be <= 1 MB. The file content is read and set as the artifact's script field. The script field varies by artifact type (e.g. `script` for business rules, `operation_script` for scripted REST resources, `html` for UI pages).
 
 ### :mag_right: Investigations
 
@@ -557,7 +557,7 @@ Control which tools are loaded using the `MCP_TOOL_PACKAGE` environment variable
 
 | Package | Groups | Description |
 |---|---|---|
-| `full` (default) | 20 | All tool groups -- 100 tools total |
+| `full` (default) | 20 | All standard tool groups (excludes `testing`) -- 100 tools total |
 | `itil` | 16 | ITIL process tools (incidents, changes, problems, requests + platform tools) |
 | `developer` | 13 | Development-focused (table, record, attachments, debug, investigations, workflows) |
 | `readonly` | 10 | Read-only operations, including attachment read tools |

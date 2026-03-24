@@ -3,6 +3,7 @@
 import json
 import logging
 from pathlib import Path
+from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
@@ -74,11 +75,14 @@ def _read_script_file(script_path: str, allowed_root: str = "") -> str:
         allowed_root: When non-empty, the resolved script path must be under this root directory.
 
     Raises:
+        ValueError: If the path is not absolute, file exceeds MAX_SCRIPT_FILE_BYTES, or allowed root is inaccessible.
         PermissionError: If the resolved path is outside the allowed root.
-        ValueError: If the file exceeds MAX_SCRIPT_FILE_BYTES or the allowed root is inaccessible.
         FileNotFoundError: If the file does not exist or is not a regular file.
         UnicodeDecodeError: If the file is not valid UTF-8.
     """
+    if not Path(script_path).is_absolute():
+        raise ValueError(f"script_path must be an absolute path, got: {script_path!r}")
+
     try:
         resolved = Path(script_path).resolve(strict=True)
     except (OSError, ValueError) as exc:
@@ -114,7 +118,7 @@ def _parse_and_validate_payload(
     script_path: str,
     allowed_root: str,
     correlation_id: str,
-) -> tuple[dict[str, str | int | bool | None], list[str]] | str:
+) -> tuple[dict[str, Any], list[str]] | str:
     """Parse, validate, and enrich a JSON payload for artifact write operations.
 
     Returns a ``(data_dict, warnings)`` tuple on success, or a formatted error
@@ -136,7 +140,7 @@ def _parse_and_validate_payload(
             status="error",
             error=f"'{param_name}' must be a JSON object, not " + type(parsed).__name__,
         )
-    payload: dict[str, str | int | bool | None] = parsed
+    payload: dict[str, Any] = parsed
 
     for key in payload:
         validate_identifier(key)

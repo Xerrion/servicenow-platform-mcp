@@ -91,9 +91,9 @@ class TestReadScriptFile:
         result = _read_script_file(str(script))
         assert result == "var x = 1;"
 
-    def test_rejects_nonexistent_path(self) -> None:
-        """Raises FileNotFoundError when given a non-existent path."""
-        with pytest.raises(FileNotFoundError):
+    def test_rejects_relative_path(self) -> None:
+        """Raises ValueError when given a relative path."""
+        with pytest.raises(ValueError, match="absolute path"):
             _read_script_file("relative/path/script.js")
 
     def test_file_not_found(self, tmp_path: Any) -> None:
@@ -671,6 +671,133 @@ class TestScriptFieldMap:
         assert route.called
         request_body = json.loads(route.calls[0].request.content)
         assert request_body["xml"] == "<updated/>"
+        assert "script" not in request_body
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_ui_policy_writes_to_script_true_field(
+        self, settings: Settings, auth_provider: BasicAuthProvider, tmp_path: Any
+    ) -> None:
+        """script_path content for ui_policy is written to the 'script_true' field."""
+        script_file = tmp_path / "policy.js"
+        script_file.write_text("g_form.setVisible('field', true);", encoding="utf-8")
+
+        route = respx.post(f"{BASE_URL}/api/now/table/sys_ui_policy").mock(
+            return_value=httpx.Response(
+                201,
+                json={
+                    "result": {
+                        "sys_id": "pol001",
+                        "name": "TestPolicy",
+                        "script_true": "g_form.setVisible('field', true);",
+                    }
+                },
+            )
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["artifact_create"](
+            artifact_type="ui_policy",
+            data=json.dumps({"name": "TestPolicy"}),
+            script_path=str(script_file),
+        )
+        result = decode_response(raw)
+
+        assert result["status"] == "success"
+        assert route.called
+        request_body = json.loads(route.calls[0].request.content)
+        assert request_body["script_true"] == "g_form.setVisible('field', true);"
+        assert "script" not in request_body
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_widget_writes_to_client_script_field(
+        self, settings: Settings, auth_provider: BasicAuthProvider, tmp_path: Any
+    ) -> None:
+        """script_path content for widget is written to the 'client_script' field."""
+        script_file = tmp_path / "widget.js"
+        script_file.write_text("function($scope) { $scope.data.ready = true; }", encoding="utf-8")
+
+        route = respx.post(f"{BASE_URL}/api/now/table/sp_widget").mock(
+            return_value=httpx.Response(
+                201,
+                json={"result": {"sys_id": "wid001", "name": "TestWidget"}},
+            )
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["artifact_create"](
+            artifact_type="widget",
+            data=json.dumps({"name": "TestWidget"}),
+            script_path=str(script_file),
+        )
+        result = decode_response(raw)
+
+        assert result["status"] == "success"
+        assert route.called
+        request_body = json.loads(route.calls[0].request.content)
+        assert request_body["client_script"] == "function($scope) { $scope.data.ready = true; }"
+        assert "script" not in request_body
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_scripted_rest_resource_writes_to_operation_script_field(
+        self, settings: Settings, auth_provider: BasicAuthProvider, tmp_path: Any
+    ) -> None:
+        """script_path content for scripted_rest_resource is written to the 'operation_script' field."""
+        script_file = tmp_path / "rest_op.js"
+        script_file.write_text("(function process(request, response) {})(request, response);", encoding="utf-8")
+
+        route = respx.post(f"{BASE_URL}/api/now/table/sys_ws_operation").mock(
+            return_value=httpx.Response(
+                201,
+                json={"result": {"sys_id": "rest001", "name": "TestRestOp"}},
+            )
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["artifact_create"](
+            artifact_type="scripted_rest_resource",
+            data=json.dumps({"name": "TestRestOp"}),
+            script_path=str(script_file),
+        )
+        result = decode_response(raw)
+
+        assert result["status"] == "success"
+        assert route.called
+        request_body = json.loads(route.calls[0].request.content)
+        assert request_body["operation_script"] == "(function process(request, response) {})(request, response);"
+        assert "script" not in request_body
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_notification_script_writes_to_advanced_condition_field(
+        self, settings: Settings, auth_provider: BasicAuthProvider, tmp_path: Any
+    ) -> None:
+        """script_path content for notification_script is written to the 'advanced_condition' field."""
+        script_file = tmp_path / "notif.js"
+        script_file.write_text("current.priority == 1", encoding="utf-8")
+
+        route = respx.patch(f"{BASE_URL}/api/now/table/sysevent_email_action/{SYS_ID_ART001}").mock(
+            return_value=httpx.Response(
+                200,
+                json={"result": {"sys_id": SYS_ID_ART001, "name": "TestNotif"}},
+            )
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["artifact_update"](
+            artifact_type="notification_script",
+            sys_id=SYS_ID_ART001,
+            changes=json.dumps({"name": "TestNotif"}),
+            script_path=str(script_file),
+        )
+        result = decode_response(raw)
+
+        assert result["status"] == "success"
+        assert route.called
+        request_body = json.loads(route.calls[0].request.content)
+        assert request_body["advanced_condition"] == "current.priority == 1"
         assert "script" not in request_body
 
 

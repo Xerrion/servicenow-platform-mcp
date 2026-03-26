@@ -6,7 +6,7 @@
 - Package manager: **uv** (not pip/poetry). Build system: hatchling.
 - Source layout: `src/servicenow_mcp/` (src-layout). Entry point: `servicenow_mcp.server:main`.
 - Config via `pydantic-settings` loading env vars from `.env` / `.env.local`.
-- Version: 0.6.0. Supported Python: 3.12, 3.13, 3.14.
+- Version: 0.9.0. Supported Python: 3.12, 3.13, 3.14.
 
 ### Dependencies
 
@@ -14,9 +14,8 @@
 | ------------- | -------------------------------------------------------------------------- |
 | Core          | `mcp`, `httpx`, `pydantic`, `pydantic-settings`, `python-dotenv`, `uvicorn`, `starlette` |
 | Serialization | `toon-format` (external git dep from `github.com/toon-format/toon-python.git`) |
-| OTel (optional) | `opentelemetry-api`, `opentelemetry-sdk`, `opentelemetry-exporter-otlp-proto-http` (all >=1.20.0) |
-| Sentry (optional) | `sentry-sdk>=2.0.0`                                                              |
-| Dev           | `pytest`, `pytest-asyncio`, `respx`, `ruff`, `mypy`, `pytest-cov`                      |
+| Sentry        | `sentry-sdk>=2.55.0`                                                              |
+| Dev           | `pytest`, `pytest-asyncio`, `respx`, `ruff`, `mypy`, `basedpyright`, `pytest-cov`          |
 
 ## 🚀 Setup
 
@@ -31,7 +30,7 @@ No build step needed for development. `uv build` creates the distribution wheel.
 
 | Command                      | Purpose                                                                 |
 | ---------------------------- | ----------------------------------------------------------------------- |
-| `uv run ruff check .`          | Lint (rules: E, F, W, I, UP, B, SIM, RUF; E501 ignored)                 |
+| `uv run ruff check .`          | Lint (rules: E, F, W, I, UP, B, SIM, RUF, C4, DTZ, T20, PTH, TC, RET, PLW, PT, A, COM, PIE, ISC, G, INP, TID, ERA; E501/COM812/ISC001/TC001-3/RET504-5 ignored) |
 | `uv run ruff check --fix .`    | Auto-fix lint issues                                                    |
 | `uv run ruff format .`         | Format code                                                             |
 | `uv run ruff format --check .` | Verify formatting without changes                                       |
@@ -57,7 +56,7 @@ mypy override: `servicenow_mcp.server` has `call-arg` error code disabled.
 ## 📐 Code Style & Formatting
 
 - Formatter: **Ruff**, line length **120**, **double quotes**, target Python 3.12.
-- Lint rules: E (pycodestyle errors), F (pyflakes), W (pycodestyle warnings), I (isort), UP (pyupgrade), B (flake8-bugbear), SIM (flake8-simplify), RUF (ruff-specific).
+- Lint rules: E, F, W, I, UP, B, SIM, RUF, C4, DTZ, T20, PTH, TC, RET, PLW, PT, A, COM, PIE, ISC, G, INP, TID, ERA. Ignored: E501, COM812, ISC001, TC001-TC003, RET504, RET505.
 - E501 (line-too-long) is ignored - the formatter handles wrapping at 120 chars.
 - Trailing commas in multi-line constructs (lists, dicts, function args).
 - All files end with a single trailing newline.
@@ -144,7 +143,7 @@ reason = write_blocked_reason("incident", settings)
 
 **Tool functions never raise to MCP.** The `@tool_handler` decorator combined with `safe_tool_call()` catches all exceptions and returns serialized error envelopes automatically. Manual try/except blocks are NOT needed in tool functions.
 
-When OTel is active, `safe_tool_call()` also calls `_record_span_exception()` to record exceptions on the current span before returning the error envelope.
+When Sentry is active, `safe_tool_call()` also calls `sentry_capture(e)` to capture exceptions before returning the error envelope.
 
 ## 🎯 @tool_handler Decorator - THE CENTRAL PATTERN
 
@@ -164,7 +163,7 @@ What `@tool_handler` does:
 1. Auto-generates `correlation_id` via `generate_correlation_id()` (UUID4).
 2. Wraps the function call in `safe_tool_call()` which catches `ForbiddenError` and `Exception`, returning serialized error envelopes.
 3. Hides `correlation_id` from the FastMCP tool schema by overriding `__signature__` and deleting `__wrapped__`.
-4. Tool functions do **NOT** need manual try/except blocks.
+4. Sets Sentry tags (`tool.name`, `tool.correlation_id`) and context with tool name, correlation_id, and args.
 
 ## 📄 TOON Serialization
 
@@ -220,7 +219,7 @@ return format_response(data=None, correlation_id=correlation_id, status="error",
 ### Table Access
 
 - `check_table_access(table)` - raises `PolicyError` for denied tables.
-- 8 denied tables: `sys_user_has_role`, `sys_user_grmember`, `sys_user_group`, `sys_user_role`, `sys_security_acl`, `sys_security_acl_role`, `sys_glide_object`, `sys_db_object`.
+- 8 denied tables: `sys_user_has_password`, `oauth_credential`, `oauth_entity`, `sys_certificate`, `sys_ssh_key`, `sys_credentials`, `discovery_credentials`, `sys_user_token`.
 
 ### Field Sensitivity
 
@@ -300,7 +299,7 @@ def register_tools(
         # Use ServiceNowQuery fluent builder
         query = ServiceNowQuery()
         if state:
-            query.field("state").equals(state)
+            query.equals("state", state)
         ...
 ```
 
@@ -397,7 +396,7 @@ Per-artifact field override for `script_path` content. Types not listed default 
 
 ```python
 await choices.resolve("incident", "state", "open")  # Returns mapped value or passthrough
-choices.get_choices("incident", "state")             # Returns dict of all choices
+await choices.get_choices("incident", "state")       # Returns dict of all choices
 ```
 
 ## 🔍 Investigation Modules
@@ -442,16 +441,12 @@ async def explain(client, element_id) -> dict:
 `create_mcp_server()` performs the following:
 
 1. Creates `Settings` and auth via `create_auth()`.
-2. Calls `setup_telemetry(settings)` - initializes OTel tracer provider when enabled.
+2. Calls `setup_sentry(settings)` and sets Sentry context with instance URL, environment, and tool package.
 3. Creates `FastMCP('servicenow-dev-debug')`.
-4. Attaches shared state to the FastMCP instance:
-   - `mcp._sn_settings` - Settings instance
-   - `mcp._sn_auth` - Auth provider
-   - `mcp._sn_query_store` - `QueryTokenStore` instance
-   - `mcp._sn_choices` - `ChoiceRegistry` instance
+4. Calls `attach_servicenow_state(mcp, settings, auth_provider, query_store, choices)` to attach shared state.
 5. Always registers the `list_tool_packages` tool.
 6. Loads tool groups via `importlib`; `domain_` prefix modules get `choices=choices` kwarg.
-7. `main()` runs with stdio transport; `mcp.run()` is wrapped in `try/finally` with `shutdown_telemetry()` in the finally block.
+7. `main()` runs with stdio transport; `mcp.run()` is wrapped in `try/finally` with `shutdown_sentry()` in the finally block.
 
 ## 🌐 Client
 
@@ -473,19 +468,13 @@ async def explain(client, element_id) -> dict:
 | `max_row_limit`           | `int`       | `100` (range 1-10000)                                  | `MAX_ROW_LIMIT`           |
 | `large_table_names_csv`   | `str`       | `"syslog,sys_audit,sys_log_transaction,sys_email_log"` | `LARGE_TABLE_NAMES_CSV`   |
 | `script_allowed_root`     | `str`       | `""`                                                     | `SCRIPT_ALLOWED_ROOT`     |
-| `otel_enabled`            | `bool`      | `False`                                                | `OTEL_ENABLED`            |
-| `otel_service_name`       | `str`       | `"servicenow-mcp"`                                     | `OTEL_SERVICE_NAME`       |
-| `otel_exporter_endpoint`  | `str`       | `"http://localhost:4318"`                               | `OTEL_EXPORTER_OTLP_ENDPOINT` |
-| `otel_exporter_console`   | `bool`      | `False`                                                | `OTEL_EXPORTER_CONSOLE`   |
 | `sentry_dsn`              | `str`       | `""`                                                     | `SENTRY_DSN`              |
 | `sentry_environment`      | `str`       | `""`                                                     | `SENTRY_ENVIRONMENT`      |
-
-Note: `otel_exporter_endpoint` uses `validation_alias="otel_exporter_otlp_endpoint"` to map the standard env var name.
 
 ### Computed Properties
 
 - `large_table_names` - `@cached_property`, returns `frozenset` from CSV
-- `is_production` - `@property`, checks if `servicenow_env` contains `'prod'` or `'production'`
+- `is_production` - `@property`, checks if `servicenow_env` equals `'prod'` or `'production'` (case-insensitive)
 
 ### Validators
 
@@ -495,13 +484,13 @@ Note: `otel_exporter_endpoint` uses `validation_alias="otel_exporter_otlp_endpoi
 
 ## 📦 Packages & Tool Groups
 
-14 named packages with 20 tool groups total (21 registered modules, but `testing` is disabled in `full`).
+14 named packages with 19 tool groups total (21 registered modules, but `testing` is disabled in `full`).
 
 ### Preset Packages
 
 | Package              | Groups | Description                                     |
 | -------------------- | ------ | ----------------------------------------------- |
-| `full`                 | 20     | Default - all standard tool groups              |
+| `full`                 | 19     | Default - all standard tool groups              |
 | `core_readonly`        | 4      | Read-only core tools (table, record, attachment, metadata) |
 | `none`                 | 0      | No tools loaded                                 |
 | `itil`                 | 16     | ITIL process tools                              |
@@ -529,48 +518,9 @@ Readonly-style packages include only `attachment`. Write-capable packages includ
 - Auth `get_headers()` is async for extensibility.
 - Tests use `@pytest.mark.asyncio` decorator (`asyncio_mode` is auto).
 
-## 📡 Telemetry Module
-
-Located in `telemetry.py`. Opt-in OpenTelemetry integration with graceful no-op when packages aren't installed.
-
-### Import Guard
-
-```python
-try:
-    from opentelemetry import trace
-    # ... other OTel imports
-    HAS_OTEL = True
-except ImportError:
-    HAS_OTEL = False
-```
-
-When `HAS_OTEL` is False, `_NoOpSpan` and `_NoOpTracer` stubs are used - zero overhead.
-
-### Key Functions
-
-| Function | Purpose |
-|---|---|
-| `setup_telemetry(settings)` | Initializes tracer provider with OTLP and/or Console exporters |
-| `get_tracer(name)` | Returns real or no-op tracer based on initialization state |
-| `get_current_trace_context()` | Returns `{"trace_id": ..., "span_id": ...}` or empty dict |
-| `inject_trace_headers(headers)` | Adds W3C `traceparent` to header dict |
-| `shutdown_telemetry()` | Flushes and shuts down tracer provider |
-
-### Instrumentation Points
-
-- **`@tool_handler` (decorators.py)** - creates SERVER spans for every tool invocation with `tool.name` and `tool.correlation_id` attributes
-- **`format_response()` (utils.py)** - merges `trace_id`/`span_id` into response envelope when active
-- **`safe_tool_call()` (utils.py)** - calls `_record_span_exception()` to record exceptions on active span
-- **`ServiceNowClient.__aenter__` (client.py)** - attaches httpx event hooks for CLIENT spans with `http.method`, `http.url`, `http.status_code`
-- **`ServiceNowClient._headers()` (client.py)** - uses trace_id for `X-Correlation-ID` when available, injects W3C `traceparent`
-
-### Gating
-
-Even with OTel packages installed, tracing is inactive unless `OTEL_ENABLED=true`. The `setup_telemetry()` function checks this setting and short-circuits if disabled.
-
 ## 🔒 Sentry Module
 
-Located in `sentry.py`. Opt-in error tracking with graceful no-op when `sentry-sdk` is not installed. Mirrors the OTel integration pattern.
+Located in `sentry.py`. Opt-in error tracking with graceful no-op when `sentry-sdk` is not installed.
 
 MCP servers run as child processes of AI agents via stdio - the user never sees stdout/stderr. Sentry is the primary way to get error visibility.
 
@@ -598,7 +548,7 @@ When `HAS_SENTRY` is False, all public functions no-op immediately - zero overhe
 
 ### Integration Points
 
-- **`server.py` (bootstrap)** - calls `setup_sentry(settings)` at startup, `shutdown_sentry()` in finally block; sets `"servicenow"` context with `instance_url`, `environment`, `is_production`, `tool_package`
+- **`server.py` (bootstrap)** - calls `setup_sentry(settings)` at startup, `shutdown_sentry()` in finally block; sets `"server"` context with `instance_url`, `environment`, `is_production`, `tool_package`
 - **`decorators.py` (`@tool_handler`)** - sets `tool.name` and `tool.correlation_id` tags; sets `"tool"` context with name, correlation_id, and args
 - **`utils.py` (`safe_tool_call()`)** - calls `sentry_capture(e)` in both `ForbiddenError` and generic `Exception` catch blocks
 - **`utils.py` (`serialize()`)** - captures TOON encoding failures
@@ -610,10 +560,16 @@ When `HAS_SENTRY` is False, all public functions no-op immediately - zero overhe
 
 Sentry activation requires two conditions:
 
-1. `sentry-sdk` package is installed (optional extra: `pip install "servicenow-devtools-mcp[sentry]"`)
+1. `sentry-sdk` package is installed (core dependency, always available)
 2. `SENTRY_DSN` environment variable is non-empty
 
-There is no separate `SENTRY_ENABLED` flag - the DSN presence is the gate. Performance monitoring is disabled (`traces_sample_rate=None`, `enable_tracing=False`) because OpenTelemetry handles tracing.
+There is no separate `SENTRY_ENABLED` flag - the DSN presence is the gate. Performance monitoring is enabled (`traces_sample_rate=1.0`). Profiling is disabled (`profiles_sample_rate=None`).
+
+### SDK Configuration
+
+- Conditionally loads `MCPIntegration` from `sentry_sdk.integrations.mcp` if available
+- `send_default_pii=True` is set
+- Release version is dynamically determined from `importlib.metadata`
 
 ### Config Fields
 

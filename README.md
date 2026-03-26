@@ -120,7 +120,14 @@ The server reads from `.env` and `.env.local` files automatically.
 
 ## AI Agent Setup
 
-Setting up this server with an AI agent? See the [AI Installation Guide](INSTALL.md) for a copy-paste block that helps AI agents understand and configure this server.
+Copy and paste this prompt to your AI agent (Claude Code, Cursor, OpenCode, etc.):
+
+```
+Install and configure servicenow-devtools-mcp by following the instructions here:
+https://raw.githubusercontent.com/Xerrion/servicenow-devtools-mcp/refs/heads/main/INSTALL.md
+```
+
+Or read the [Installation Guide](INSTALL.md) directly.
 
 ## Key Features
 

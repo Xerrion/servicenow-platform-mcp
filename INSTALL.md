@@ -1,5 +1,7 @@
 # ServiceNow MCP Server - AI Installation Guide
 
+> **For AI Agents:** If you're an AI agent helping set up this MCP server, follow the instructions below to configure the server for your user. You'll need the ServiceNow instance URL, username, and password from your user.
+
 This is a developer and debug-focused MCP server for ServiceNow platform introspection, change intelligence, debugging, investigations, and documentation generation. It provides a comprehensive suite of tools organized into multiple tool groups covering schema exploration, record management, ITIL processes, CMDB, service catalog, and more.
 
 ---

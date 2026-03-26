@@ -1,0 +1,77 @@
+name: Tool Request
+description: Request a new MCP tool
+title: "[Tool]: "
+labels: ["tool-request", "enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Want a new MCP tool added to the server? Describe the tool and how it would be used.
+  - type: input
+    id: tool-name
+    attributes:
+      label: Suggested Tool Name
+      description: "Following the naming convention (e.g., `debug_email_trace`, `incident_list`)"
+      placeholder: "e.g., cmdb_dependency_map"
+    validations:
+      required: true
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Use Case
+      description: What would an AI agent use this tool for? Describe the workflow.
+      placeholder: "When debugging a CI outage, the agent needs to..."
+    validations:
+      required: true
+  - type: textarea
+    id: servicenow-api
+    attributes:
+      label: ServiceNow API
+      description: Which ServiceNow REST API(s) or tables would this tool use?
+      placeholder: |
+        - Table API: /api/now/table/cmdb_rel_ci
+        - Or a specific REST endpoint
+  - type: textarea
+    id: parameters
+    attributes:
+      label: Suggested Parameters
+      description: What parameters should this tool accept?
+      placeholder: |
+        - ci_sys_id (required): The CI to map dependencies for
+        - depth (optional, default 2): How many levels deep
+  - type: textarea
+    id: output
+    attributes:
+      label: Expected Output
+      description: What should the tool return?
+  - type: dropdown
+    id: tool-group
+    attributes:
+      label: Tool Group
+      description: Which existing tool group would this belong to?
+      options:
+        - table
+        - record
+        - attachment
+        - metadata
+        - changes (Change Intelligence)
+        - debug (Debug & Trace)
+        - investigations
+        - documentation
+        - workflow
+        - flow_designer
+        - domain_incident
+        - domain_change
+        - domain_problem
+        - domain_cmdb
+        - domain_request
+        - domain_knowledge
+        - domain_service_catalog
+        - New group needed
+    validations:
+      required: true
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Any other context, ServiceNow documentation links, or examples

@@ -167,6 +167,8 @@ You can also create custom packages with comma-separated group names (e.g. `MCP_
 - **Write gating** - all write operations blocked when `SERVICENOW_ENV` is set to `prod` or `production`
 - **Row limits and large table protection** - prevents runaway queries with configurable caps and mandatory date filters
 
+These guardrails reduce risk but are not a guarantee - always validate in a sub-production environment.
+
 See the [Safety & Policy](https://github.com/Xerrion/servicenow-devtools-mcp/wiki) wiki page for complete details.
 
 ## Development

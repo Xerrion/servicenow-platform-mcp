@@ -224,6 +224,8 @@ Custom packages are also supported via comma-separated group names, e.g. `MCP_TO
 - **Mandatory field validation** - Record creation validates all required fields before submission.
 - **Standardized responses** - Tools return TOON-serialized envelopes with `correlation_id`, `status`, `data`, and optionally `pagination` and `warnings`.
 
+These guardrails operate on a best-effort basis and do not guarantee complete prevention of unintended actions. Always validate behavior in your specific environment and follow your organization's security policies.
+
 ---
 
 ## Response Format

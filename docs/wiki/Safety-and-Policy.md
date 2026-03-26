@@ -4,6 +4,8 @@ The server enforces multiple layers of safety guardrails to prevent accidental d
 
 For the complete list of tools affected by these policies, see [[Tool-Reference]]. For environment variable configuration, see [[Configuration]].
 
+> **Important:** While this server employs multiple layers of protection, no security mechanism is perfect. These guardrails significantly reduce risk but do not guarantee complete prevention of unintended actions. Always test in a sub-production environment first, review tool outputs carefully, and follow your organization's security policies.
+
 ---
 
 ## Overview
@@ -257,3 +259,14 @@ Attachment transfers are limited to prevent excessive memory usage and transfer 
 - [[Tool-Reference]] - Complete tool reference with write/read classification
 - [[Tool-Packages]] - Read-only packages for safe production exploration
 - [[Architecture]] - Server internals and error handling flow
+
+---
+
+## Limitations
+
+While the safety guardrails described above cover a wide range of scenarios, users should be aware of the following limitations:
+
+- **Best-effort protection** - Guardrails operate on a best-effort basis and may not catch every possible edge case or misconfiguration.
+- **API coverage gaps** - New ServiceNow APIs, custom table configurations, or non-standard platform customizations may not be covered by existing policy checks.
+- **Environment responsibility** - Users are responsible for validating the server's behavior in their specific ServiceNow environment before relying on it for sensitive operations.
+- **Production write blocking depends on correct configuration** - Write gating only activates when `SERVICENOW_ENV` is set to `"prod"` or `"production"`. If this variable is misconfigured or left at the default (`"dev"`), write operations will be permitted regardless of the actual target environment.

@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.1](https://github.com/Xerrion/servicenow-devtools-mcp/compare/v0.9.0...v0.9.1) (2026-03-26)
+
+
+### Documentation
+
+* add safety disclaimer, AI install playbook, and raw URL fetch pattern ([#74](https://github.com/Xerrion/servicenow-devtools-mcp/issues/74)) ([592008b](https://github.com/Xerrion/servicenow-devtools-mcp/commit/592008be8bbbd1fbc6cca14349c2dcbd59de4867))
+* complete documentation overhaul ([#72](https://github.com/Xerrion/servicenow-devtools-mcp/issues/72)) ([5f385d9](https://github.com/Xerrion/servicenow-devtools-mcp/commit/5f385d933d697539dd387daeb06360ea325a581b))
+
 ## [0.9.0](https://github.com/Xerrion/servicenow-devtools-mcp/compare/v0.8.0...v0.9.0) (2026-03-24)
 
 

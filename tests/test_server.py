@@ -26,7 +26,7 @@ class TestCreateMcpServer:
         with patch.dict("os.environ", env, clear=True):
             mcp_server = create_mcp_server()
 
-        assert mcp_server.name == "servicenow-dev-debug"
+        assert mcp_server.name == "servicenow-platform-mcp"
 
     def test_server_has_list_tool_packages_tool(self) -> None:
         """Server always registers the list_tool_packages tool."""

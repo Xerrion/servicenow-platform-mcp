@@ -1,6 +1,6 @@
 # Architecture
 
-Deep technical architecture of the `servicenow-devtools-mcp` server - an async Python MCP server for ServiceNow platform introspection, change intelligence, debugging, investigations, and documentation generation.
+Deep technical architecture of the `servicenow-platform-mcp` server - an async Python MCP server for ServiceNow platform introspection, change intelligence, debugging, investigations, and documentation generation.
 
 ## Overview
 
@@ -28,7 +28,7 @@ This function performs a strict initialization sequence:
 2. **Create auth provider** - `create_auth(settings)` returns a `BasicAuthProvider` for ServiceNow API authentication
 3. **Initialize Sentry** - `setup_sentry(settings)` activates error tracking when a DSN is configured
 4. **Set server context** - Attaches instance hostname, environment, production flag, and tool package to Sentry scope
-5. **Create FastMCP instance** - `FastMCP("servicenow-dev-debug")`
+5. **Create FastMCP instance** - `FastMCP("servicenow-platform-mcp")`
 6. **Create shared state** - `QueryTokenStore()` for query token management, `ChoiceRegistry(settings, auth_provider)` for choice label resolution
 7. **Attach state to FastMCP** - `attach_servicenow_state()` stores all shared objects on the FastMCP instance via typed helpers in `mcp_state.py`
 8. **Register `list_tool_packages`** - Always-on tool that returns all available tool packages

@@ -22,9 +22,9 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 try:
-    _RELEASE = f"servicenow-devtools-mcp@{pkg_version('servicenow-devtools-mcp')}"
+    _RELEASE = f"servicenow-platform-mcp@{pkg_version('servicenow-platform-mcp')}"
 except Exception:
-    _RELEASE = "servicenow-devtools-mcp@unknown"
+    _RELEASE = "servicenow-platform-mcp@unknown"
 
 # ---------------------------------------------------------------------------
 # Try-import sentry-sdk

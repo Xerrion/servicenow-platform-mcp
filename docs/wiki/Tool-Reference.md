@@ -1,6 +1,6 @@
 # Tool Reference
 
-Complete reference for all tools provided by the ServiceNow DevTools MCP server. Tools are organized into groups that can be selectively loaded via [[Tool-Packages]].
+Complete reference for all tools provided by the ServiceNow Platform MCP server. Tools are organized into groups that can be selectively loaded via [[Tool-Packages]].
 
 All tools return responses in TOON format (not JSON) with a standardized envelope containing `correlation_id`, `status`, `data`, and optionally `pagination` and `warnings`. See [[Architecture]] for details on the response format.
 

@@ -1,16 +1,16 @@
 <p align="center">
-  <img src="assets/banner.svg" alt="servicenow-devtools-mcp banner" width="900" />
+  <img src="assets/banner.svg" alt="servicenow-platform-mcp banner" width="900" />
 </p>
 
 <p align="center">
-  <a href="https://pypi.org/project/servicenow-devtools-mcp/"><img src="https://img.shields.io/pypi/v/servicenow-devtools-mcp" alt="PyPI version"></a>
-  <a href="https://pypi.org/project/servicenow-devtools-mcp/"><img src="https://img.shields.io/pypi/pyversions/servicenow-devtools-mcp" alt="Python versions"></a>
-  <a href="https://github.com/Xerrion/servicenow-devtools-mcp/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Xerrion/servicenow-devtools-mcp" alt="License"></a>
+  <a href="https://pypi.org/project/servicenow-platform-mcp/"><img src="https://img.shields.io/pypi/v/servicenow-platform-mcp" alt="PyPI version"></a>
+  <a href="https://pypi.org/project/servicenow-platform-mcp/"><img src="https://img.shields.io/pypi/pyversions/servicenow-platform-mcp" alt="Python versions"></a>
+  <a href="https://github.com/Xerrion/servicenow-platform-mcp/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Xerrion/servicenow-platform-mcp" alt="License"></a>
 </p>
 
-# servicenow-devtools-mcp
+# servicenow-platform-mcp
 
-A developer and debug-focused [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for ServiceNow. Provides a comprehensive suite of tools across 20 tool groups for platform introspection, change intelligence, debugging, record management, ITSM workflows, CMDB operations, service catalog, automated investigations, documentation generation, and Flow Designer analysis.
+A comprehensive [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for ServiceNow. Provides a comprehensive suite of tools across 20 tool groups for platform introspection, change intelligence, debugging, record management, ITSM workflows, CMDB operations, service catalog, automated investigations, documentation generation, and Flow Designer analysis.
 
 ## Quick Start
 
@@ -25,7 +25,7 @@ export SERVICENOW_PASSWORD=your-password
 **2. Run the server:**
 
 ```bash
-uvx servicenow-devtools-mcp
+uvx servicenow-platform-mcp
 ```
 
 **3. Connect your MCP client** (see [Configuration](#configuration) below).
@@ -41,7 +41,7 @@ Add to `~/.config/opencode/opencode.json`:
   "mcp": {
     "servicenow": {
       "type": "local",
-      "command": ["uvx", "servicenow-devtools-mcp"],
+      "command": ["uvx", "servicenow-platform-mcp"],
       "environment": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_USERNAME": "admin",
@@ -61,7 +61,7 @@ Add to `claude_desktop_config.json`:
   "mcpServers": {
     "servicenow": {
       "command": "uvx",
-      "args": ["servicenow-devtools-mcp"],
+      "args": ["servicenow-platform-mcp"],
       "env": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_USERNAME": "admin",
@@ -81,7 +81,7 @@ Add to `.vscode/mcp.json`:
   "servers": {
     "servicenow": {
       "command": "uvx",
-      "args": ["servicenow-devtools-mcp"],
+      "args": ["servicenow-platform-mcp"],
       "env": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_USERNAME": "admin",
@@ -98,7 +98,7 @@ Add to `.vscode/mcp.json`:
 SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com \
 SERVICENOW_USERNAME=admin \
 SERVICENOW_PASSWORD=your-password \
-uvx servicenow-devtools-mcp
+uvx servicenow-platform-mcp
 ```
 
 ## Environment Variables
@@ -123,8 +123,8 @@ The server reads from `.env` and `.env.local` files automatically.
 Copy and paste this prompt to your AI agent (Claude Code, Cursor, OpenCode, etc.):
 
 ```
-Install and configure servicenow-devtools-mcp by following the instructions here:
-https://raw.githubusercontent.com/Xerrion/servicenow-devtools-mcp/refs/heads/main/INSTALL.md
+Install and configure servicenow-platform-mcp by following the instructions here:
+https://raw.githubusercontent.com/Xerrion/servicenow-platform-mcp/refs/heads/main/INSTALL.md
 ```
 
 Or read the [Installation Guide](INSTALL.md) directly.
@@ -165,7 +165,7 @@ Control which tools are loaded with `MCP_TOOL_PACKAGE`. There are 14 preset pack
 | `knowledge_management` | 6 | Knowledge base tools |
 | `service_catalog` | 6 | Service catalog tools |
 
-You can also create custom packages with comma-separated group names (e.g. `MCP_TOOL_PACKAGE="table,record,debug"`). See the [Wiki](https://github.com/Xerrion/servicenow-devtools-mcp/wiki) for full package and tool group details.
+You can also create custom packages with comma-separated group names (e.g. `MCP_TOOL_PACKAGE="table,record,debug"`). See the [Wiki](https://github.com/Xerrion/servicenow-platform-mcp/wiki) for full package and tool group details.
 
 ## Safety
 
@@ -176,13 +176,13 @@ You can also create custom packages with comma-separated group names (e.g. `MCP_
 
 These guardrails reduce risk but are not a guarantee - always validate in a sub-production environment.
 
-See the [Safety & Policy](https://github.com/Xerrion/servicenow-devtools-mcp/wiki) wiki page for complete details.
+See the [Safety & Policy](https://github.com/Xerrion/servicenow-platform-mcp/wiki) wiki page for complete details.
 
 ## Development
 
 ```bash
-git clone https://github.com/Xerrion/servicenow-devtools-mcp.git
-cd servicenow-devtools-mcp
+git clone https://github.com/Xerrion/servicenow-platform-mcp.git
+cd servicenow-platform-mcp
 uv sync --group dev
 uv run pytest                  # Run tests
 uv run ruff check .            # Lint

@@ -34,7 +34,7 @@ def create_mcp_server() -> FastMCP:
         },
     )
 
-    mcp = FastMCP("servicenow-dev-debug")
+    mcp = FastMCP("servicenow-platform-mcp")
 
     query_store = QueryTokenStore()
     choices = ChoiceRegistry(settings, auth_provider)

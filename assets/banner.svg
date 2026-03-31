@@ -64,12 +64,12 @@
 
   <!-- Title -->
   <text x="130" y="75" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="36" font-weight="700" fill="#ffffff" letter-spacing="-0.5">
-    servicenow-devtools-mcp
+    servicenow-platform-mcp
   </text>
 
   <!-- Tagline -->
   <text x="130" y="128" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="18" fill="#94a3b8" font-weight="400">
-    Developer &amp; Debug MCP Server for ServiceNow
+    Comprehensive MCP Server for ServiceNow
   </text>
 
   <!-- Tool count pill -->

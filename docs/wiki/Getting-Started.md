@@ -1,6 +1,6 @@
 # Getting Started
 
-This guide walks you through installing and configuring the ServiceNow DevTools MCP server for use with your AI client.
+This guide walks you through installing and configuring the ServiceNow Platform MCP server for use with your AI client.
 
 ---
 
@@ -18,7 +18,7 @@ This guide walks you through installing and configuring the ServiceNow DevTools 
 ### Recommended: Run with uvx (no install required)
 
 ```bash
-uvx servicenow-devtools-mcp
+uvx servicenow-platform-mcp
 ```
 
 This downloads and runs the server in an isolated environment. No permanent installation needed.
@@ -26,11 +26,11 @@ This downloads and runs the server in an isolated environment. No permanent inst
 ### Alternative: Install with pip or uv
 
 ```bash
-pip install servicenow-devtools-mcp
+pip install servicenow-platform-mcp
 ```
 
 ```bash
-uv add servicenow-devtools-mcp
+uv add servicenow-platform-mcp
 ```
 
 > **Note:** The server communicates via stdio transport - it is launched by your MCP client as a subprocess, not run as a standalone service. You do not need to start it manually.
@@ -68,7 +68,7 @@ File: `~/.config/opencode/opencode.json`
   "mcp": {
     "servicenow": {
       "type": "local",
-      "command": ["uvx", "servicenow-devtools-mcp"],
+      "command": ["uvx", "servicenow-platform-mcp"],
       "environment": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_USERNAME": "admin",
@@ -88,7 +88,7 @@ File: `claude_desktop_config.json`
   "mcpServers": {
     "servicenow": {
       "command": "uvx",
-      "args": ["servicenow-devtools-mcp"],
+      "args": ["servicenow-platform-mcp"],
       "env": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_USERNAME": "admin",
@@ -108,7 +108,7 @@ File: `.vscode/mcp.json`
   "servers": {
     "servicenow": {
       "command": "uvx",
-      "args": ["servicenow-devtools-mcp"],
+      "args": ["servicenow-platform-mcp"],
       "env": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_USERNAME": "admin",
@@ -127,7 +127,7 @@ For any client that supports stdio transport, launch the server with inline envi
 SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com \
 SERVICENOW_USERNAME=admin \
 SERVICENOW_PASSWORD=your-password \
-uvx servicenow-devtools-mcp
+uvx servicenow-platform-mcp
 ```
 
 ---
@@ -147,7 +147,7 @@ Once configured, try these example prompts with your AI agent:
 
 ## AI Agent Setup
 
-For copy-paste installation instructions optimized for AI agents, see [INSTALL.md](https://github.com/Xerrion/servicenow-devtools-mcp/blob/main/INSTALL.md) in the repository root. This file is designed to be fed directly to an AI agent for self-configuration.
+For copy-paste installation instructions optimized for AI agents, see [INSTALL.md](https://github.com/Xerrion/servicenow-platform-mcp/blob/main/INSTALL.md) in the repository root. This file is designed to be fed directly to an AI agent for self-configuration.
 
 ---
 
@@ -180,7 +180,7 @@ For copy-paste installation instructions optimized for AI agents, see [INSTALL.m
 ### Server not starting
 
 - Ensure Python 3.12 or later is installed: `python --version`
-- Try running directly: `uvx servicenow-devtools-mcp` to see error output
+- Try running directly: `uvx servicenow-platform-mcp` to see error output
 - Check that `uvx` is installed: `uv --version` (install from [astral.sh/uv](https://astral.sh/uv))
 
 ---

@@ -1,4 +1,4 @@
-# AGENTS.md - servicenow-devtools-mcp
+# AGENTS.md - servicenow-platform-mcp
 
 ## 📋 Project Overview
 
@@ -442,7 +442,7 @@ async def explain(client, element_id) -> dict:
 
 1. Creates `Settings` and auth via `create_auth()`.
 2. Calls `setup_sentry(settings)` and sets Sentry context with instance URL, environment, and tool package.
-3. Creates `FastMCP('servicenow-dev-debug')`.
+3. Creates `FastMCP('servicenow-platform-mcp')`.
 4. Calls `attach_servicenow_state(mcp, settings, auth_provider, query_store, choices)` to attach shared state.
 5. Always registers the `list_tool_packages` tool.
 6. Loads tool groups via `importlib`; `domain_` prefix modules get `choices=choices` kwarg.

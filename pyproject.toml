@@ -1,14 +1,14 @@
 [project]
-name = "servicenow-devtools-mcp"
+name = "servicenow-platform-mcp"
 version = "0.9.1"
-description = "A developer & debug-focused MCP server for ServiceNow — platform introspection, change intelligence, debugging, investigations, and documentation generation."
+description = "A comprehensive MCP server for ServiceNow - platform introspection, ITSM workflows, CMDB operations, change intelligence, debugging, investigations, and documentation generation."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"
 authors = [
     { name = "Lasse Nielsen", email = "lasse@xerrion.dk" },
 ]
-keywords = ["servicenow", "mcp", "model-context-protocol", "devtools", "debugging"]
+keywords = ["servicenow", "mcp", "model-context-protocol", "platform", "itsm", "cmdb", "debugging"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -17,7 +17,7 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
-    "Topic :: Software Development :: Debuggers",
+    "Topic :: System :: Systems Administration",
     "Topic :: Software Development :: Libraries :: Application Frameworks",
 ]
 dependencies = [
@@ -33,13 +33,13 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Xerrion/servicenow-devtools-mcp"
-Repository = "https://github.com/Xerrion/servicenow-devtools-mcp"
-Issues = "https://github.com/Xerrion/servicenow-devtools-mcp/issues"
-Documentation = "https://github.com/Xerrion/servicenow-devtools-mcp/wiki"
+Homepage = "https://github.com/Xerrion/servicenow-platform-mcp"
+Repository = "https://github.com/Xerrion/servicenow-platform-mcp"
+Issues = "https://github.com/Xerrion/servicenow-platform-mcp/issues"
+Documentation = "https://github.com/Xerrion/servicenow-platform-mcp/wiki"
 
 [project.scripts]
-servicenow-devtools-mcp = "servicenow_mcp.server:main"
+servicenow-platform-mcp = "servicenow_mcp.server:main"
 
 [build-system]
 requires = ["hatchling"]

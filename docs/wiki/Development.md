@@ -1,6 +1,6 @@
 # Development
 
-Comprehensive development guide for contributing to `servicenow-devtools-mcp`.
+Comprehensive development guide for contributing to `servicenow-platform-mcp`.
 
 See also: [[Architecture]] for technical internals, [[Telemetry]] for observability.
 
@@ -15,8 +15,8 @@ See also: [[Architecture]] for technical internals, [[Telemetry]] for observabil
 ### Setup
 
 ```bash
-git clone https://github.com/Xerrion/servicenow-devtools-mcp.git
-cd servicenow-devtools-mcp
+git clone https://github.com/Xerrion/servicenow-platform-mcp.git
+cd servicenow-platform-mcp
 uv sync --group dev
 cp .env.example .env.local  # Fill in ServiceNow credentials
 ```
@@ -29,7 +29,7 @@ SERVICENOW_USERNAME=admin
 SERVICENOW_PASSWORD=your-password
 ```
 
-No build step is required for development. The server runs directly from source via `uv run servicenow-devtools-mcp`.
+No build step is required for development. The server runs directly from source via `uv run servicenow-platform-mcp`.
 
 ## Development Commands
 
@@ -313,4 +313,4 @@ Release-please uses conventional commits to determine version bumps:
 
 - **Build backend**: hatchling
 - **Wheel packages**: `src/servicenow_mcp` (src-layout)
-- **Entry point**: `servicenow-devtools-mcp = servicenow_mcp.server:main`
+- **Entry point**: `servicenow-platform-mcp = servicenow_mcp.server:main`

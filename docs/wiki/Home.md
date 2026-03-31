@@ -1,12 +1,12 @@
-# ServiceNow DevTools MCP Server
+# ServiceNow Platform MCP Server
 
-A developer and debug-focused MCP server for ServiceNow - platform introspection, change intelligence, debugging, investigations, and documentation generation.
+A comprehensive MCP server for ServiceNow - platform introspection, change intelligence, debugging, investigations, and documentation generation.
 
 ---
 
 ## What is this?
 
-**servicenow-devtools-mcp** is a [Model Context Protocol](https://modelcontextprotocol.io/) server that gives AI agents direct access to your ServiceNow instance. It exposes a comprehensive suite of tools covering schema exploration, record management, debugging, change intelligence, ITSM processes, and more - all through a standardized MCP interface.
+**servicenow-platform-mcp** is a [Model Context Protocol](https://modelcontextprotocol.io/) server that gives AI agents direct access to your ServiceNow instance. It exposes a comprehensive suite of tools covering schema exploration, record management, debugging, change intelligence, ITSM processes, and more - all through a standardized MCP interface.
 
 The server runs locally via stdio transport and is launched by your MCP-compatible AI client (OpenCode, Claude Desktop, VS Code Copilot, Cursor, etc.). Your AI agent gains the ability to query tables, inspect records, trace debug logs, generate documentation, manage incidents, and much more - without you needing to navigate the ServiceNow UI.
 
@@ -47,7 +47,7 @@ The server runs locally via stdio transport and is launched by your MCP-compatib
 **1. Run the server**
 
 ```bash
-uvx servicenow-devtools-mcp
+uvx servicenow-platform-mcp
 ```
 
 **2. Set environment variables**
@@ -66,7 +66,7 @@ See [[Getting-Started]] for full setup instructions with configuration examples 
 
 ## Links
 
-- [PyPI](https://pypi.org/project/servicenow-devtools-mcp/)
-- [GitHub Repository](https://github.com/Xerrion/servicenow-devtools-mcp)
-- [Issues](https://github.com/Xerrion/servicenow-devtools-mcp/issues)
-- [License (MIT)](https://github.com/Xerrion/servicenow-devtools-mcp/blob/main/LICENSE)
+- [PyPI](https://pypi.org/project/servicenow-platform-mcp/)
+- [GitHub Repository](https://github.com/Xerrion/servicenow-platform-mcp)
+- [Issues](https://github.com/Xerrion/servicenow-platform-mcp/issues)
+- [License (MIT)](https://github.com/Xerrion/servicenow-platform-mcp/blob/main/LICENSE)

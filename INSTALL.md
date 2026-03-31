@@ -1,6 +1,6 @@
-# ServiceNow DevTools MCP Server - Installation Guide
+# ServiceNow Platform MCP Server - Installation Guide
 
-> **For AI Agents:** You are helping your user install and configure the ServiceNow DevTools MCP server.
+> **For AI Agents:** You are helping your user install and configure the ServiceNow Platform MCP server.
 > Follow each step below in order. Ask the user questions where indicated, then generate the appropriate configuration.
 
 ## Step 0: Gather Credentials
@@ -48,7 +48,7 @@ Write to `~/.config/opencode/opencode.json`:
   "mcp": {
     "servicenow": {
       "type": "local",
-      "command": ["uvx", "servicenow-devtools-mcp"],
+      "command": ["uvx", "servicenow-platform-mcp"],
       "environment": {
         "SERVICENOW_INSTANCE_URL": "<instance_url>",
         "SERVICENOW_USERNAME": "<username>",
@@ -70,7 +70,7 @@ Add to `claude_desktop_config.json`:
   "mcpServers": {
     "servicenow": {
       "command": "uvx",
-      "args": ["servicenow-devtools-mcp"],
+      "args": ["servicenow-platform-mcp"],
       "env": {
         "SERVICENOW_INSTANCE_URL": "<instance_url>",
         "SERVICENOW_USERNAME": "<username>",
@@ -92,7 +92,7 @@ Write to `.vscode/mcp.json` in the workspace:
   "servers": {
     "servicenow": {
       "command": "uvx",
-      "args": ["servicenow-devtools-mcp"],
+      "args": ["servicenow-platform-mcp"],
       "env": {
         "SERVICENOW_INSTANCE_URL": "<instance_url>",
         "SERVICENOW_USERNAME": "<username>",
@@ -115,7 +115,7 @@ SERVICENOW_USERNAME=<username> \
 SERVICENOW_PASSWORD=<password> \
 MCP_TOOL_PACKAGE=<package> \
 SERVICENOW_ENV=<env> \
-uvx servicenow-devtools-mcp
+uvx servicenow-platform-mcp
 ```
 
 **Important:** Replace all `<placeholder>` values with the user's actual answers from Steps 0-1 before writing the config.

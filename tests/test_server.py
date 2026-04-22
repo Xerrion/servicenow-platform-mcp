@@ -5,9 +5,25 @@ from types import ModuleType
 from typing import Any
 from unittest.mock import patch
 
+import pytest
 from toon_format import decode as toon_decode
 
 from tests.helpers import get_tool_functions, get_tool_names
+
+
+@pytest.fixture(autouse=True)
+def _reset_dangerous_bypass_lock() -> None:
+    """Reset the one-shot dangerous-bypass sentinel between tests.
+
+    ``set_dangerous_bypass`` is bootstrap-only by design (see policy.py).
+    Each test here calls ``create_mcp_server()`` which invokes the setter,
+    so we reset the module-level lock/state before each test to simulate
+    a fresh process.
+    """
+    from servicenow_mcp import policy
+
+    policy._bypass_locked = False
+    policy._dangerous_bypass_enabled = False
 
 
 class TestCreateMcpServer:

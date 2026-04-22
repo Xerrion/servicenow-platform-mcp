@@ -46,6 +46,44 @@ class TestDenyList:
         with pytest.raises(PolicyError, match="denied"):
             check_table_access("Oauth_Credential")
 
+    @pytest.mark.parametrize(
+        "table",
+        [
+            # Baseline denied tables
+            "sys_user_has_password",
+            "oauth_credential",
+            "oauth_entity",
+            "sys_certificate",
+            "sys_ssh_key",
+            "sys_credentials",
+            "discovery_credentials",
+            "sys_user_token",
+            # Phase 4 additions - broadened to cover identity, configuration,
+            # ACL, auth, data-source, workflow-variable, scripted-email, and
+            # MID agent tables that can disclose secrets or sensitive posture.
+            "sys_user",
+            "sys_properties",
+            "sys_security_acl",
+            "sys_auth_profile",
+            "sys_data_source",
+            "sys_variable_value",
+            "sys_script_email",
+            "ecc_agent",
+            "ecc_queue",
+        ],
+    )
+    def test_every_denied_table_is_gated(self, table: str) -> None:
+        """Each DENIED_TABLES entry is present and rejected by check_table_access.
+
+        This is the single source of truth for the deny list - any future
+        removal must be an explicit decision, not a silent regression.
+        """
+        from servicenow_mcp.policy import DENIED_TABLES, check_table_access
+
+        assert table in DENIED_TABLES
+        with pytest.raises(PolicyError, match="denied"):
+            check_table_access(table)
+
 
 class TestSensitiveFieldMasking:
     """Test sensitive field masking."""

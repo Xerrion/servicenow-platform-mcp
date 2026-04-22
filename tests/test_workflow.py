@@ -642,12 +642,12 @@ class TestWorkflowStatus:
     @respx.mock
     async def test_empty_executing_all_completed(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns empty executing list when all activities have finished."""
-        respx.get(f"{BASE_URL}/api/now/table/wf_context/ctx_done").mock(
+        respx.get(f"{BASE_URL}/api/now/table/wf_context/c7d0e000000000000000000000000001").mock(
             return_value=httpx.Response(
                 200,
                 json={
                     "result": {
-                        "sys_id": "ctx_done",
+                        "sys_id": "c7d0e000000000000000000000000001",
                         "name": "Completed WF",
                         "state": "Finished",
                         "started": "2026-02-20 08:00:00",
@@ -682,7 +682,7 @@ class TestWorkflowStatus:
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["workflow_status"](context_sys_id="ctx_done")
+        raw = await tools["workflow_status"](context_sys_id="c7d0e000000000000000000000000001")
         result = decode_response(raw)
 
         assert result["status"] == "success"
@@ -693,12 +693,12 @@ class TestWorkflowStatus:
     @respx.mock
     async def test_multiple_executing_activities(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns multiple currently-executing activities."""
-        respx.get(f"{BASE_URL}/api/now/table/wf_context/ctx_multi").mock(
+        respx.get(f"{BASE_URL}/api/now/table/wf_context/c7d0e000000000000000000000000002").mock(
             return_value=httpx.Response(
                 200,
                 json={
                     "result": {
-                        "sys_id": "ctx_multi",
+                        "sys_id": "c7d0e000000000000000000000000002",
                         "name": "Parallel WF",
                         "state": "Executing",
                     }
@@ -744,7 +744,7 @@ class TestWorkflowStatus:
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["workflow_status"](context_sys_id="ctx_multi")
+        raw = await tools["workflow_status"](context_sys_id="c7d0e000000000000000000000000002")
         result = decode_response(raw)
 
         assert result["status"] == "success"
@@ -754,12 +754,12 @@ class TestWorkflowStatus:
     @respx.mock
     async def test_history_with_faults(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns history entries with populated fault_description."""
-        respx.get(f"{BASE_URL}/api/now/table/wf_context/ctx_fault").mock(
+        respx.get(f"{BASE_URL}/api/now/table/wf_context/c7d0e000000000000000000000000003").mock(
             return_value=httpx.Response(
                 200,
                 json={
                     "result": {
-                        "sys_id": "ctx_fault",
+                        "sys_id": "c7d0e000000000000000000000000003",
                         "name": "Faulted WF",
                         "state": "Finished",
                     }
@@ -803,7 +803,7 @@ class TestWorkflowStatus:
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["workflow_status"](context_sys_id="ctx_fault")
+        raw = await tools["workflow_status"](context_sys_id="c7d0e000000000000000000000000003")
         result = decode_response(raw)
 
         assert result["status"] == "success"
@@ -906,7 +906,14 @@ class TestWorkflowActivityDetail:
         assert result["data"]["definition"]["name"] == "Approval - User"
         assert result["data"]["definition"]["category"] == "Approvals"
         assert len(result["data"]["variables"]) == 1
-        assert result["data"]["variables"][0]["value"] == "current.state = 2;"
+        # Script-body masking is on by default; this assertion covers the
+        # unmasked round-trip path exposed by ``include_script_body=True``.
+        raw_with_body = await tools["workflow_activity_detail"](
+            activity_sys_id="a37b4556fc38ce6b2a3fd1521b1291bc",
+            include_script_body=True,
+        )
+        result_with_body = decode_response(raw_with_body)
+        assert result_with_body["data"]["variables"][0]["value"] == "current.state = 2;"
 
     @pytest.mark.asyncio()
     @respx.mock
@@ -1016,7 +1023,10 @@ class TestWorkflowActivityDetail:
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["workflow_activity_detail"](activity_sys_id="20de94ee488dbd2b7154c3afbf85cd22")
+        raw = await tools["workflow_activity_detail"](
+            activity_sys_id="20de94ee488dbd2b7154c3afbf85cd22",
+            include_script_body=True,
+        )
         result = decode_response(raw)
 
         assert result["status"] == "success"
@@ -1269,7 +1279,7 @@ class TestWorkflowDictReferenceFields:
         self, settings: Settings, auth_provider: BasicAuthProvider
     ) -> None:
         """workflow_activity_detail handles activity_definition returned as a dict."""
-        dict_definition = {"display_value": "act_def_001", "link": "https://test.service-now.com/api/..."}
+        dict_definition = {"display_value": "ac7de000000000000000000000000001", "link": "https://test.service-now.com/api/..."}
 
         # Phase 1: raw activity with dict reference
         respx.get(f"{BASE_URL}/api/now/table/wf_activity/2eac3cfb70af19b72304086d2d97c52d").mock(
@@ -1301,10 +1311,10 @@ class TestWorkflowDictReferenceFields:
         respx.get(f"{BASE_URL}/api/now/table/sys_variable_value").mock(
             return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
         )
-        respx.get(f"{BASE_URL}/api/now/table/wf_element_definition/act_def_001").mock(
+        respx.get(f"{BASE_URL}/api/now/table/wf_element_definition/ac7de000000000000000000000000001").mock(
             return_value=httpx.Response(
                 200,
-                json={"result": {"sys_id": "act_def_001", "name": "Run Script Definition"}},
+                json={"result": {"sys_id": "ac7de000000000000000000000000001", "name": "Run Script Definition"}},
             )
         )
 

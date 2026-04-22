@@ -131,6 +131,31 @@ class TestServiceNowClientGetRecord:
             with pytest.raises(AuthError):
                 await client.get_record("incident", "6367c48dd193d56ea7b0baad25b19455")
 
+    @pytest.mark.asyncio()
+    async def test_get_record_rejects_non_hex_sys_id(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """_table_url invokes validate_sys_id; non-hex sys_ids are rejected before any HTTP call.
+
+        This is the chokepoint that blocks path-traversal-style sys_id inputs
+        (e.g. '../foo', URL-encoded junk) from ever reaching the network.
+        """
+        from servicenow_mcp.client import ServiceNowClient
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            # Path traversal attempt
+            with pytest.raises(ValueError, match="Invalid sys_id"):
+                await client.get_record("incident", "../secrets/admin")
+            # URL-encoded junk
+            with pytest.raises(ValueError, match="Invalid sys_id"):
+                await client.get_record("incident", "%2E%2E%2Fadmin")
+            # Uppercase hex (valid length, invalid casing)
+            with pytest.raises(ValueError, match="Invalid sys_id"):
+                await client.get_record("incident", "A" * 32)
+            # 33-char hex (one over)
+            with pytest.raises(ValueError, match="Invalid sys_id"):
+                await client.get_record("incident", "a" * 33)
+
 
 class TestServiceNowClientQueryRecords:
     """Test query_records method."""
@@ -268,6 +293,133 @@ class TestServiceNowClientQueryRecords:
 
         assert route.calls.last is not None
         assert "sysparm_display_value" not in str(route.calls.last.request.url)
+
+
+class TestGetRecordsPrivileged:
+    """Test get_records_privileged - the allowlist-gated bypass for DENIED_TABLES.
+
+    This path is only meant for investigation modules that own the decision
+    to read a hardened table (e.g. acl_conflicts -> sys_security_acl). The
+    caller-declared allowlist is the gate: any table outside it - including
+    tables that are NOT on DENIED_TABLES - is rejected so mistakes fail closed.
+    """
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_allowed_table_returns_masked_records(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """Allowed table returns records with sensitive fields masked."""
+        from servicenow_mcp.client import ServiceNowClient
+        from servicenow_mcp.policy import MASK_VALUE
+
+        respx.get(f"{BASE_URL}/api/now/table/sys_security_acl").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "result": [
+                        {
+                            "sys_id": "a" * 32,
+                            "name": "incident",
+                            "operation": "read",
+                            "password": "hunter2",
+                        },
+                    ]
+                },
+                headers={"X-Total-Count": "1"},
+            )
+        )
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            result = await client.get_records_privileged(
+                "sys_security_acl",
+                allowed_tables=frozenset({"sys_security_acl"}),
+                query="name=incident",
+                fields="sys_id,name,operation,password",
+                limit=10,
+            )
+
+        assert len(result["records"]) == 1
+        record = result["records"][0]
+        assert record["name"] == "incident"
+        assert record["password"] == MASK_VALUE
+
+    @pytest.mark.asyncio()
+    async def test_denied_table_outside_allowlist_raises(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """A DENIED_TABLES entry not in the allowlist is rejected."""
+        from servicenow_mcp.client import ServiceNowClient
+        from servicenow_mcp.errors import PolicyError
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            # sys_credentials is on DENIED_TABLES but not in the caller's allowlist.
+            with pytest.raises(PolicyError, match="not in the caller's"):
+                await client.get_records_privileged(
+                    "sys_credentials",
+                    allowed_tables=frozenset({"sys_security_acl"}),
+                    query="",
+                    limit=1,
+                )
+
+    @pytest.mark.asyncio()
+    async def test_non_denied_table_outside_allowlist_raises(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """Even a benign (non-denied) table is rejected if not in the allowlist.
+
+        The allowlist is the gate - not DENIED_TABLES membership - so a typo
+        or accidental call path cannot silently succeed.
+        """
+        from servicenow_mcp.client import ServiceNowClient
+        from servicenow_mcp.errors import PolicyError
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            with pytest.raises(PolicyError, match="not in the caller's"):
+                await client.get_records_privileged(
+                    "incident",
+                    allowed_tables=frozenset({"sys_security_acl"}),
+                    query="",
+                    limit=1,
+                )
+
+    @pytest.mark.asyncio()
+    async def test_invalid_identifier_raises(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """Malformed table names are rejected by validate_identifier via _table_url."""
+        from servicenow_mcp.client import ServiceNowClient
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            with pytest.raises(ValueError, match="Invalid identifier"):
+                await client.get_records_privileged(
+                    "sys_security_acl; DROP TABLE users",
+                    allowed_tables=frozenset({"sys_security_acl; DROP TABLE users"}),
+                    query="",
+                    limit=1,
+                )
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_display_values_flag_propagates(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """display_values=True adds sysparm_display_value=true to the request."""
+        from servicenow_mcp.client import ServiceNowClient
+
+        route = respx.get(f"{BASE_URL}/api/now/table/sys_security_acl").mock(
+            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        )
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            await client.get_records_privileged(
+                "sys_security_acl",
+                allowed_tables=frozenset({"sys_security_acl"}),
+                display_values=True,
+            )
+
+        assert route.calls.last is not None
+        assert "sysparm_display_value=true" in str(route.calls.last.request.url)
 
 
 class TestServiceNowClientAttachmentMethods:

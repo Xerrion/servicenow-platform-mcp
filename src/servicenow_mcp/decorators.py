@@ -5,6 +5,7 @@ import inspect
 from collections.abc import Callable, Coroutine
 from typing import Any, cast
 
+from servicenow_mcp.policy import is_dangerous_bypass_enabled
 from servicenow_mcp.sentry import set_sentry_context, set_sentry_tag
 from servicenow_mcp.types import SignatureMutableCallable
 from servicenow_mcp.utils import generate_correlation_id, safe_tool_call
@@ -34,13 +35,15 @@ def tool_handler(
 
         set_sentry_tag("tool.name", fn.__name__)
         set_sentry_tag("tool.correlation_id", correlation_id)
+        if is_dangerous_bypass_enabled():
+            set_sentry_tag("servicenow.dangerous_bypass", "true")
 
         set_sentry_context(
             "tool",
             {
                 "name": fn.__name__,
                 "correlation_id": correlation_id,
-                "args": {k: v for k, v in kwargs.items() if k != "correlation_id"},
+                "arg_keys": sorted(k for k in kwargs if k != "correlation_id"),
             },
         )
 

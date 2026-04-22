@@ -276,7 +276,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         default_fields = "sys_id,name,description,active,sys_updated_on,test_origin"
         field_list = fields or default_fields
 
-        query_str = resolve_query_token(query_token, query_store, correlation_id)
+        query_str = resolve_query_token(query_token, query_store, "sys_atf_test", correlation_id)
 
         async with ServiceNowClient(settings, auth_provider) as client:
             result = await client.query_records(
@@ -363,7 +363,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         check_table_access("sys_atf_test_suite")
         check_table_access("sys_atf_test_suite_test")
 
-        query = resolve_query_token(query_token, query_store, correlation_id)
+        query = resolve_query_token(query_token, query_store, "sys_atf_test_suite", correlation_id)
 
         async with ServiceNowClient(settings, auth_provider) as client:
             result = await client.query_records(

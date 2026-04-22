@@ -42,7 +42,15 @@ def _resolve_artifact_table(artifact_type: str, correlation_id: str) -> tuple[st
 
 
 async def _fetch_artifact_script(client: ServiceNowClient, table: str, sys_id: str) -> tuple[dict[str, Any], str]:
-    """Fetch an artifact record and return (masked_record, script_body)."""
+    """Fetch an artifact record and return (raw_record, script_body).
+
+    The record is returned with credential fields masked but script/markup
+    bodies intact so callers can perform internal analysis (dependency
+    extraction, anti-pattern scanning, scenario generation). Callers that
+    forward the record to tool output MUST re-mask via
+    ``mask_sensitive_fields(record, table=table, include_script_body=...)``
+    to honor the caller's opt-in preference.
+    """
     record = mask_sensitive_fields(await client.get_record(table, sys_id))
     script = record.get("script", "") or ""
     return record, script
@@ -217,7 +225,13 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
 
     @mcp.tool()
     @tool_handler
-    async def docs_artifact_summary(artifact_type: str, sys_id: str, *, correlation_id: str) -> str:
+    async def docs_artifact_summary(
+        artifact_type: str,
+        sys_id: str,
+        include_script_body: bool = False,
+        *,
+        correlation_id: str,
+    ) -> str:
         """Generate a summary for a platform artifact including dependencies.
 
         Parses the artifact's script for referenced GlideRecord tables and uses
@@ -226,6 +240,10 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         Args:
             artifact_type: The artifact type (e.g. business_rule, script_include).
             sys_id: The sys_id of the artifact.
+            include_script_body: If True, include the raw script/markup body
+                on the returned artifact record. Script/markup bodies are
+                masked by default. Set True only when you need to inspect the
+                code itself; script bodies may contain hardcoded secrets.
         """
         table, err = _resolve_artifact_table(artifact_type, correlation_id)
         if err:
@@ -249,9 +267,14 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                 except Exception:
                     pass
 
+        # Re-mask the artifact dict before returning so script body masking
+        # honors the caller's opt-in (the inner parsing above used the raw
+        # script, which we deliberately do not expose unless asked).
+        artifact = mask_sensitive_fields(record, table=table, include_script_body=include_script_body)
+
         return format_response(
             data={
-                "artifact": record,
+                "artifact": artifact,
                 "referenced_tables": referenced_tables,
                 "referenced_by": referenced_by,
                 "summary": (
@@ -264,7 +287,12 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
 
     @mcp.tool()
     @tool_handler
-    async def docs_test_scenarios(artifact_type: str, sys_id: str, *, correlation_id: str) -> str:
+    async def docs_test_scenarios(
+        artifact_type: str,
+        sys_id: str,
+        *,
+        correlation_id: str,
+    ) -> str:
         """Analyze an artifact's script and suggest test scenarios.
 
         Detects patterns like operation checks, conditional branches, role checks,
@@ -300,7 +328,12 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
 
     @mcp.tool()
     @tool_handler
-    async def docs_review_notes(artifact_type: str, sys_id: str, *, correlation_id: str) -> str:
+    async def docs_review_notes(
+        artifact_type: str,
+        sys_id: str,
+        *,
+        correlation_id: str,
+    ) -> str:
         """Scan an artifact's script for anti-patterns and generate review notes.
 
         Detects: GlideRecord in loop, hardcoded sys_ids, unbounded queries,

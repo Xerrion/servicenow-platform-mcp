@@ -10,8 +10,9 @@ from servicenow_mcp.choices import ChoiceRegistry
 from servicenow_mcp.config import Settings
 from servicenow_mcp.mcp_state import attach_servicenow_state
 from servicenow_mcp.packages import _TOOL_GROUP_MODULES, get_package, list_packages
+from servicenow_mcp.policy import set_dangerous_bypass
 from servicenow_mcp.sentry import capture_exception as sentry_capture
-from servicenow_mcp.sentry import set_sentry_context, setup_sentry, shutdown_sentry
+from servicenow_mcp.sentry import capture_message, set_sentry_context, set_sentry_tag, setup_sentry, shutdown_sentry
 from servicenow_mcp.state import QueryTokenStore
 from servicenow_mcp.utils import serialize
 
@@ -33,6 +34,24 @@ def create_mcp_server() -> FastMCP:
             "tool_package": settings.mcp_tool_package,
         },
     )
+
+    if settings.servicenow_allow_dangerous_bypass and settings.is_production:
+        raise RuntimeError(
+            "SERVICENOW_ALLOW_DANGEROUS_BYPASS is not permitted in production. Unset the flag or change SERVICENOW_ENV."
+        )
+
+    set_dangerous_bypass(settings.servicenow_allow_dangerous_bypass)
+    if settings.servicenow_allow_dangerous_bypass:
+        set_sentry_context(
+            "dangerous_bypass",
+            {
+                "dangerous_bypass": True,
+                "is_production": settings.is_production,
+            },
+        )
+        set_sentry_tag("servicenow.dangerous_bypass", "true")
+        logger.warning("DANGEROUS_BYPASS enabled - policy checks disabled (env=%s)", settings.servicenow_env)
+        capture_message("DANGEROUS_BYPASS enabled", level="warning")
 
     mcp = FastMCP("servicenow-platform-mcp")
 

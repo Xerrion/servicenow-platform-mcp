@@ -8,7 +8,7 @@ when the package is missing or no DSN is configured.
 
 import logging
 from importlib.metadata import version as pkg_version
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 
 if TYPE_CHECKING:
@@ -94,9 +94,9 @@ def setup_sentry(settings: "Settings") -> None:
         dsn=dsn,
         environment=environment,
         release=_RELEASE,
-        send_default_pii=True,
+        send_default_pii=settings.sentry_send_pii,
         integrations=integrations,
-        traces_sample_rate=1.0,
+        traces_sample_rate=settings.sentry_traces_sample_rate,
         profiles_sample_rate=None,
     )
 
@@ -117,6 +117,24 @@ def capture_exception(exc: BaseException | None = None) -> None:
     if not HAS_SENTRY or not _initialized:
         return
     sentry_sdk.capture_exception(exc)
+
+
+def capture_message(
+    message: str,
+    level: Literal["fatal", "critical", "error", "warning", "info", "debug"] = "warning",
+) -> None:
+    """Capture a message event and send it to Sentry.
+
+    No-ops when sentry-sdk is not installed or Sentry has not been
+    initialized (no DSN configured).
+
+    Args:
+        message: The message text to capture.
+        level: Severity level (e.g. ``"info"``, ``"warning"``, ``"error"``).
+    """
+    if not HAS_SENTRY or not _initialized:
+        return
+    sentry_sdk.capture_message(message, level=level)
 
 
 def set_sentry_tag(key: str, value: str) -> None:

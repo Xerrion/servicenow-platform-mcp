@@ -12,9 +12,14 @@ from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.policy import (
     INTERNAL_QUERY_LIMIT,
+    SCRIPT_BODY_MASK,
     check_table_access,
     enforce_query_safety,
     mask_sensitive_fields,
+)
+from servicenow_mcp.tools.flow_designer import (
+    CODE_AWARE_SCRIPT_VARIABLE_NAMES,
+    STRICT_SCRIPT_VARIABLE_NAMES,
 )
 from servicenow_mcp.utils import (
     ServiceNowQuery,
@@ -25,6 +30,25 @@ from servicenow_mcp.utils import (
 
 
 logger = logging.getLogger(__name__)
+
+
+# Derived union of Flow Designer's two script-variable sets. Single source of
+# truth lives in ``flow_designer``; any field added there (strict or
+# code-aware) propagates here automatically, so legacy workflow activity
+# variables stay aligned with flow action variables without manual edits.
+SCRIPT_VARIABLE_NAMES: frozenset[str] = STRICT_SCRIPT_VARIABLE_NAMES | CODE_AWARE_SCRIPT_VARIABLE_NAMES
+
+
+def _mask_variable_value(variable: dict[str, Any], *, include_script_body: bool) -> dict[str, Any]:
+    """Return the variable dict with its ``value`` masked when it names a script body."""
+    masked = mask_sensitive_fields(variable)
+    if include_script_body:
+        return masked
+    name = str(masked.get("variable", "")).lower()
+    is_script_slot = name in SCRIPT_VARIABLE_NAMES or name.endswith("_script")
+    if is_script_slot and "value" in masked:
+        masked["value"] = SCRIPT_BODY_MASK
+    return masked
 
 
 # ------------------------------------------------------------------
@@ -58,6 +82,8 @@ async def _fetch_and_attach_variables(
     client: ServiceNowClient,
     activity_records: list[dict[str, Any]],
     settings: Settings,
+    *,
+    include_script_body: bool = False,
 ) -> tuple[dict[str, list[dict[str, Any]]], list[str]]:
     """Bulk-fetch activity variables and group them by activity sys_id.
 
@@ -86,7 +112,9 @@ async def _fetch_and_attach_variables(
             warnings.append(f"Activity variables may be truncated at {vars_safety['limit']} records")
         for v in vars_result["records"]:
             key = resolve_ref_value(v.get("document_key", ""))
-            vars_by_activity.setdefault(key, []).append(mask_sensitive_fields(v))
+            vars_by_activity.setdefault(key, []).append(
+                _mask_variable_value(v, include_script_body=include_script_body)
+            )
     except Exception as exc:
         warnings.append(f"Could not fetch activity variables: {exc}")
 
@@ -223,6 +251,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
     @tool_handler
     async def workflow_map(
         workflow_version_sys_id: str,
+        include_script_body: bool = False,
         *,
         correlation_id: str,
     ) -> str:
@@ -233,6 +262,10 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
 
         Args:
             workflow_version_sys_id: The sys_id of the wf_workflow_version record.
+            include_script_body: If True, return activity variable values that
+                carry script/condition bodies verbatim. Script/markup bodies
+                are masked by default. Set True only when you need to inspect
+                the code itself; script bodies may contain hardcoded secrets.
         """
         validate_identifier(workflow_version_sys_id)
         check_table_access("wf_workflow_version")
@@ -318,7 +351,12 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                 warnings.append(f"Transitions may be truncated at {trans_safety['limit']} records")
 
             activity_records = activity_result["records"]
-            vars_by_activity, var_warnings = await _fetch_and_attach_variables(client, activity_records, settings)
+            vars_by_activity, var_warnings = await _fetch_and_attach_variables(
+                client,
+                activity_records,
+                settings,
+                include_script_body=include_script_body,
+            )
             warnings.extend(var_warnings)
 
         # Attach variables to each activity
@@ -328,11 +366,20 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             masked["variables"] = vars_by_activity.get(resolve_ref_value(a["sys_id"]), [])
             activities.append(masked)
 
+        # wf_transition.condition carries scriptable condition bodies; mask
+        # them when the caller has not opted in.
+        masked_transitions: list[dict[str, Any]] = []
+        for t in transition_result["records"]:
+            t_masked = mask_sensitive_fields(t)
+            if not include_script_body and "condition" in t_masked and t_masked["condition"]:
+                t_masked["condition"] = SCRIPT_BODY_MASK
+            masked_transitions.append(t_masked)
+
         return format_response(
             data={
                 "version": mask_sensitive_fields(version_record),
                 "activities": activities,
-                "transitions": [mask_sensitive_fields(t) for t in transition_result["records"]],
+                "transitions": masked_transitions,
             },
             correlation_id=correlation_id,
             warnings=warnings if warnings else None,
@@ -419,6 +466,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
     @tool_handler
     async def workflow_activity_detail(
         activity_sys_id: str,
+        include_script_body: bool = False,
         *,
         correlation_id: str,
     ) -> str:
@@ -428,6 +476,10 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
 
         Args:
             activity_sys_id: The sys_id of the wf_activity record.
+            include_script_body: If True, return activity variable values that
+                carry script/condition bodies verbatim. Script/markup bodies
+                are masked by default. Set True only when you need to inspect
+                the code itself; script bodies may contain hardcoded secrets.
         """
         validate_identifier(activity_sys_id)
         check_table_access("wf_activity")
@@ -467,7 +519,10 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             data={
                 "activity": mask_sensitive_fields(display_activity),
                 "definition": mask_sensitive_fields(definition_record) if definition_record else None,
-                "variables": [mask_sensitive_fields(v) for v in variables_result["records"]],
+                "variables": [
+                    _mask_variable_value(v, include_script_body=include_script_body)
+                    for v in variables_result["records"]
+                ],
             },
             correlation_id=correlation_id,
             warnings=warnings if warnings else None,

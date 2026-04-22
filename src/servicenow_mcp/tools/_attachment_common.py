@@ -9,6 +9,14 @@ from servicenow_mcp.utils import resolve_ref_value, validate_identifier, validat
 
 MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
 
+# Base64 encodes 3 input bytes into 4 output characters (padding rounds up).
+# A valid payload of MAX_ATTACHMENT_BYTES decoded bytes is at most:
+#     ((MAX_ATTACHMENT_BYTES + 2) // 3) * 4 base64 characters
+# We allow a small slack for incidental whitespace / padding variance so that
+# a caller-side byte-accurate payload is not rejected by this pre-check.
+_BASE64_WHITESPACE_SLACK = 16
+MAX_BASE64_LENGTH = ((MAX_ATTACHMENT_BYTES + 2) // 3) * 4 + _BASE64_WHITESPACE_SLACK
+
 
 def ensure_attachment_size_value_within_limit(size_bytes: int, *, operation: str) -> None:
     """Raise ValueError when an attachment size exceeds the supported MCP transfer limit."""
@@ -23,6 +31,22 @@ def ensure_attachment_size_value_within_limit(size_bytes: int, *, operation: str
 def ensure_attachment_size_within_limit(content: bytes, *, operation: str) -> None:
     """Raise ValueError when attachment bytes exceed the supported MCP transfer limit."""
     ensure_attachment_size_value_within_limit(len(content), operation=operation)
+
+
+def ensure_base64_size_within_limit(content_base64: str, *, operation: str = "upload") -> None:
+    """Pre-decode guard: reject oversized base64 payloads before allocating the decoded buffer.
+
+    A base64 string that decodes to more than ``MAX_ATTACHMENT_BYTES`` bytes
+    must necessarily be longer than ``MAX_BASE64_LENGTH`` characters. Checking
+    the string length first avoids allocating a large decoded bytes object for
+    a payload that would be rejected by the post-decode size check anyway.
+    """
+    if len(content_base64) <= MAX_BASE64_LENGTH:
+        return
+    raise ValueError(
+        f"Attachment {operation} base64 payload of {len(content_base64)} characters exceeds the "
+        f"maximum supported size of {MAX_ATTACHMENT_BYTES} bytes (after decoding)"
+    )
 
 
 def decode_content_base64(content_base64: str) -> bytes:

@@ -8,13 +8,18 @@ from servicenow_mcp.investigation_helpers import build_investigation_result
 from servicenow_mcp.policy import (
     INTERNAL_QUERY_LIMIT,
     check_table_access,
-    mask_sensitive_fields,
 )
 from servicenow_mcp.utils import ServiceNowQuery, validate_identifier
 
 
+# ``sys_security_acl`` is on ``DENIED_TABLES`` because it discloses security
+# posture. This investigation legitimately needs to read it; we do so via the
+# client's privileged-read path with an explicit, single-entry allowlist.
+_PRIVILEGED_ACL_TABLES: frozenset[str] = frozenset({"sys_security_acl"})
+
+
 async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any]:
-    """Find ACL conflicts for a table — multiple ACLs with the same name.
+    """Find ACL conflicts for a table - multiple ACLs with the same name.
 
     Two or more ACLs with the same name and operation but different conditions
     can cause unpredictable access control behavior.
@@ -30,20 +35,15 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
 
     # Query ACLs for the table name and field-level ACLs
     query = ServiceNowQuery().equals("name", table).or_starts_with("name", f"{table}.").build()
-    acl_result = await client.query_records(
+    acl_result = await client.get_records_privileged(
         "sys_security_acl",
-        query,
-        fields=[
-            "sys_id",
-            "name",
-            "operation",
-            "condition",
-            "script",
-            "active",
-        ],
+        allowed_tables=_PRIVILEGED_ACL_TABLES,
+        query=query,
+        fields="sys_id,name,operation,condition,script,active",
         limit=INTERNAL_QUERY_LIMIT,
     )
-    acls = [mask_sensitive_fields(a) for a in acl_result["records"]]
+    # ``get_records_privileged`` already applies table-aware masking.
+    acls = list(acl_result["records"])
 
     # Group by (name, operation) to find true duplicates
     groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -93,8 +93,19 @@ async def explain(client: ServiceNowClient, element_id: str) -> dict[str, Any]:
     except ValueError as e:
         return {"error": str(e)}
 
-    check_table_access("sys_security_acl")
-    record = mask_sensitive_fields(await client.get_record("sys_security_acl", element_id))
+    # ``sys_security_acl`` is denied for tool callers; this investigation
+    # fetches the single matching row through the privileged-read path.
+    acl_result = await client.get_records_privileged(
+        "sys_security_acl",
+        allowed_tables=_PRIVILEGED_ACL_TABLES,
+        query=ServiceNowQuery().equals("sys_id", element_id).build(),
+        fields="sys_id,name,operation,condition,script,active",
+        limit=1,
+    )
+    records = acl_result["records"]
+    if not records:
+        return {"error": f"ACL with sys_id '{element_id}' not found"}
+    record = records[0]
 
     explanation_parts = [
         f"ACL '{record.get('name', '')}' controls {record.get('operation', '')} access.",

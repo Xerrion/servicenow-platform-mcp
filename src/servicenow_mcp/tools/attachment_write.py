@@ -12,6 +12,7 @@ from servicenow_mcp.policy import check_table_access, write_gate
 from servicenow_mcp.tools._attachment_common import (
     decode_content_base64,
     ensure_attachment_size_within_limit,
+    ensure_base64_size_within_limit,
     get_attachment_table_name,
 )
 from servicenow_mcp.utils import format_response, validate_identifier, validate_sys_id
@@ -61,6 +62,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         if blocked:
             return blocked
 
+        ensure_base64_size_within_limit(content_base64, operation="upload")
         content = decode_content_base64(content_base64)
         ensure_attachment_size_within_limit(content, operation="upload")
 

@@ -1,6 +1,7 @@
 """Change intelligence tools for inspecting update sets, diffs, and audit trails."""
 
 import difflib
+import re
 from collections import defaultdict
 from typing import Any
 
@@ -12,6 +13,7 @@ from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.policy import (
     INTERNAL_QUERY_LIMIT,
+    SCRIPT_BODY_MASK,
     check_table_access,
     mask_audit_entry,
     mask_sensitive_fields,
@@ -151,6 +153,20 @@ def _build_release_notes_markdown(
     return us_name, "\n".join(lines)
 
 
+# Regex that matches a <script>...</script> block in an update-set payload
+# XML. Used to strip script bodies before diffing when the caller has not
+# opted in to seeing raw script contents.
+_PAYLOAD_SCRIPT_RE: re.Pattern[str] = re.compile(
+    r"(<script[^>]*>)(.*?)(</script>)",
+    re.DOTALL,
+)
+
+
+def _strip_payload_script_bodies(payload: str) -> str:
+    """Replace ``<script>...</script>`` bodies with the script-mask sentinel."""
+    return _PAYLOAD_SCRIPT_RE.sub(rf"\1{SCRIPT_BODY_MASK}\3", payload)
+
+
 # ---------------------------------------------------------------------------
 # Tool registration
 # ---------------------------------------------------------------------------
@@ -198,7 +214,13 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
 
     @mcp.tool()
     @tool_handler
-    async def changes_diff_artifact(table: str, sys_id: str, *, correlation_id: str) -> str:
+    async def changes_diff_artifact(
+        table: str,
+        sys_id: str,
+        include_script_body: bool = False,
+        *,
+        correlation_id: str,
+    ) -> str:
         """Show a text diff between the two most recent versions of an artifact.
 
         Queries sys_update_version for the artifact's version history and produces
@@ -207,6 +229,12 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         Args:
             table: The artifact table name (e.g., 'sys_script_include').
             sys_id: The sys_id of the artifact record.
+            include_script_body: If True, diff the raw payloads including
+                script/markup bodies. Script/markup bodies are masked by
+                default (both sides of the diff have their ``<script>`` bodies
+                replaced with a sentinel before diffing). Set True only when
+                you need to inspect the code itself; script bodies may
+                contain hardcoded secrets.
         """
         validate_identifier(table)
         check_table_access(table)
@@ -237,6 +265,10 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         new_payload = new_version.get("payload", "")
         old_date = old_version.get("sys_recorded_at", "unknown")
         new_date = new_version.get("sys_recorded_at", "unknown")
+
+        if not include_script_body:
+            old_payload = _strip_payload_script_bodies(old_payload)
+            new_payload = _strip_payload_script_bodies(new_payload)
 
         diff_lines = list(
             difflib.unified_diff(

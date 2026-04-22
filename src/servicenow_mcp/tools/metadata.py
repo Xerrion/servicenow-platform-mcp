@@ -130,6 +130,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         artifact_type: str,
         query_token: str = "",
         limit: int = 100,
+        include_script_body: bool = False,
         *,
         correlation_id: str,
     ) -> str:
@@ -141,12 +142,16 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                 Use build_query to create a query first, then pass the returned query_token here.
                 Leave empty for no additional filter.
             limit: Maximum number of artifacts to return.
+            include_script_body: If True, return script/markup body fields
+                verbatim. Script/markup bodies are masked by default. Set True
+                only when you need to inspect the code itself; script bodies
+                may contain hardcoded secrets.
         """
         table = _resolve_artifact_table(artifact_type)
 
         check_table_access(table)
 
-        query = resolve_query_token(query_token, query_store, correlation_id)
+        query = resolve_query_token(query_token, query_store, table, correlation_id)
         encoded_query = query
         safety = enforce_query_safety(table, encoded_query, limit, settings)
         effective_limit = safety["limit"]
@@ -162,7 +167,10 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             data={
                 "artifact_type": artifact_type,
                 "table": table,
-                "artifacts": [mask_sensitive_fields(r) for r in result["records"]],
+                "artifacts": [
+                    mask_sensitive_fields(r, table=table, include_script_body=include_script_body)
+                    for r in result["records"]
+                ],
                 "total": result["count"],
             },
             correlation_id=correlation_id,
@@ -173,6 +181,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
     async def meta_get_artifact(
         artifact_type: str,
         sys_id: str,
+        include_script_body: bool = False,
         *,
         correlation_id: str,
     ) -> str:
@@ -181,13 +190,21 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         Args:
             artifact_type: The type of artifact (business_rule, script_include, etc.).
             sys_id: The sys_id of the artifact to retrieve.
+            include_script_body: If True, return the artifact's script/markup
+                body verbatim. Script/markup bodies are masked by default. Set
+                True only when you need to inspect the code itself; script
+                bodies may contain hardcoded secrets.
         """
         table = _resolve_artifact_table(artifact_type)
 
         check_table_access(table)
 
         async with ServiceNowClient(settings, auth_provider) as client:
-            record = mask_sensitive_fields(await client.get_record(table, sys_id))
+            record = mask_sensitive_fields(
+                await client.get_record(table, sys_id),
+                table=table,
+                include_script_body=include_script_body,
+            )
 
         return format_response(data=record, correlation_id=correlation_id)
 
@@ -234,6 +251,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
     async def meta_what_writes(
         table: str,
         field: str = "",
+        include_script_body: bool = False,
         *,
         correlation_id: str,
     ) -> str:
@@ -242,6 +260,10 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         Args:
             table: The ServiceNow table to investigate (e.g., 'incident').
             field: Optional field name to narrow results. When provided, only returns writers whose script references this field.
+            include_script_body: If True, return the business rule script
+                bodies verbatim. Script/markup bodies are masked by default.
+                Set True only when you need to inspect the code itself; script
+                bodies may contain hardcoded secrets.
         """
         validate_identifier(table)
         if field:
@@ -263,7 +285,13 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                 # If a field is specified, only include BRs that reference it
                 if field and field not in script:
                     continue
-                writers.append(mask_sensitive_fields(record))
+                writers.append(
+                    mask_sensitive_fields(
+                        record,
+                        table="sys_script",
+                        include_script_body=include_script_body,
+                    )
+                )
 
         return format_response(
             data={

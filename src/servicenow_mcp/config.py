@@ -7,7 +7,9 @@ from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-_DEFAULT_LARGE_TABLES = "syslog,sys_audit,sys_log_transaction,sys_email_log"
+_DEFAULT_LARGE_TABLES = (
+    "syslog,sys_audit,sys_log_transaction,sys_email_log,cmdb_ci,cmdb_rel_ci,cmdb_ci_server,cmdb_ci_service"
+)
 
 
 class Settings(BaseSettings):
@@ -21,9 +23,12 @@ class Settings(BaseSettings):
     max_row_limit: int = 100
     large_table_names_csv: str = _DEFAULT_LARGE_TABLES
     script_allowed_root: str = ""
+    servicenow_allow_dangerous_bypass: bool = False
 
     sentry_dsn: str = ""
     sentry_environment: str = ""
+    sentry_send_pii: bool = False
+    sentry_traces_sample_rate: float = 0.05
 
     model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(
         env_file=[".env", ".env.local"],
@@ -58,6 +63,14 @@ class Settings(BaseSettings):
             get_package(v)
         except ValueError as e:
             raise ValueError(f"Invalid mcp_tool_package: {e}") from e
+        return v
+
+    @field_validator("sentry_traces_sample_rate")
+    @classmethod
+    def validate_sentry_traces_sample_rate(cls, v: float) -> float:
+        """Ensure sentry_traces_sample_rate is between 0.0 and 1.0 inclusive."""
+        if v < 0.0 or v > 1.0:
+            raise ValueError("sentry_traces_sample_rate must be between 0.0 and 1.0")
         return v
 
     @cached_property

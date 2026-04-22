@@ -1,6 +1,7 @@
 """Async ServiceNow REST API client."""
 
 import logging
+import re
 import uuid
 from typing import Any
 from urllib.parse import quote
@@ -13,10 +14,11 @@ from servicenow_mcp.errors import (
     AuthError,
     ForbiddenError,
     NotFoundError,
+    PolicyError,
     ServerError,
     ServiceNowMCPError,
 )
-from servicenow_mcp.policy import INTERNAL_QUERY_LIMIT
+from servicenow_mcp.policy import INTERNAL_QUERY_LIMIT, mask_sensitive_fields
 from servicenow_mcp.sentry import set_sentry_context
 from servicenow_mcp.utils import ServiceNowQuery, validate_identifier, validate_sys_id
 
@@ -25,6 +27,14 @@ logger = logging.getLogger(__name__)
 
 
 _ATF_PLUGIN_ERROR = "ATF Cloud Runner plugin (sn_atf_tg) may not be installed"
+
+# Scrubbing constants for error-message sanitization. Long quoted values are
+# almost always row data (cleartext field values) that would bleed to Sentry
+# via the exception message; short quoted values are field names / identifiers
+# and stay readable for triage.
+_ERROR_MESSAGE_MAX_LEN = 500
+_QUOTED_VALUE_MIN_LEN = 32
+_LONG_QUOTE_RE = re.compile(rf"""(['"])([^'"]{{{_QUOTED_VALUE_MIN_LEN},}})\1""")
 
 
 class ServiceNowClient:
@@ -67,6 +77,7 @@ class ServiceNowClient:
         validate_identifier(table)
         base = f"{self._settings.servicenow_instance_url}/api/now/table/{table}"
         if sys_id:
+            validate_sys_id(sys_id)
             base = f"{base}/{sys_id}"
         return base
 
@@ -145,14 +156,22 @@ class ServiceNowClient:
 
     @staticmethod
     def _extract_error_message(response: httpx.Response, default: str) -> str:
-        """Try to extract error message from ServiceNow JSON response."""
+        """Extract a scrubbed error message from a ServiceNow JSON response.
+
+        Long quoted substrings (likely row data) are redacted in-place and
+        the result is truncated to a bounded length so the message is safe
+        to propagate into exception text that Sentry may capture.
+        """
         try:
             body = response.json()
-            if "error" in body and "message" in body["error"]:
-                return body["error"]["message"]
+            message = body["error"]["message"] if "error" in body and "message" in body["error"] else default
         except Exception:
-            pass
-        return default
+            message = default
+
+        message = _LONG_QUOTE_RE.sub(lambda m: f"{m.group(1)}<redacted>{m.group(1)}", message)
+        if len(message) > _ERROR_MESSAGE_MAX_LEN:
+            message = message[:_ERROR_MESSAGE_MAX_LEN] + "... [truncated]"
+        return message
 
     async def get_record(
         self,
@@ -209,6 +228,71 @@ class ServiceNowClient:
         self._raise_for_status(response)
         records = self._extract_result(response.json())
         return {"records": records, "count": self._parse_total_count(response)}
+
+    async def get_records_privileged(
+        self,
+        table: str,
+        *,
+        allowed_tables: frozenset[str] | set[str],
+        query: str = "",
+        fields: str = "",
+        limit: int = 100,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        """INTERNAL USE ONLY - bypass the DENIED_TABLES gate via an explicit allowlist.
+
+        Callers (currently: select investigation modules that must read
+        ``sys_security_acl`` and similar hardened tables) MUST pre-declare
+        the exact tables they intend to read by passing them in
+        *allowed_tables*. Any table outside that set - even one that is
+        NOT on ``DENIED_TABLES`` - is rejected with ``PolicyError``, so
+        the allowlist is the gate and mistakes fail closed.
+
+        ``validate_identifier(table)`` still runs via ``_table_url``, and
+        the returned records are passed through ``mask_sensitive_fields``
+        (table-aware) so credential fields and script bodies are masked
+        on the way out. This method MUST NOT be exposed to tool-call
+        paths: it is only imported by investigation modules that own the
+        decision about which hardened tables they will read.
+
+        Args:
+            table: The ServiceNow table name.
+            allowed_tables: The exact set of tables the caller has
+                pre-declared it intends to read.
+            query: Optional encoded query string.
+            fields: Comma-separated field list (empty for default).
+            limit: Max rows to return.
+            offset: Row offset for pagination.
+
+        Returns:
+            ``{"records": [...], "count": int}`` with credential fields
+            and script bodies masked.
+        """
+        if table not in allowed_tables:
+            raise PolicyError(
+                f"get_records_privileged(): table {table!r} is not in the caller's "
+                f"declared allowlist (allowed={sorted(allowed_tables)}). "
+                "The allowlist is the gate; this is never relaxed to DENIED_TABLES."
+            )
+
+        http = self._ensure_client()
+        params: dict[str, str] = {
+            "sysparm_query": query,
+            "sysparm_limit": str(limit),
+            "sysparm_offset": str(offset),
+        }
+        if fields:
+            params["sysparm_fields"] = fields
+
+        response = await http.get(
+            self._table_url(table),
+            headers=await self._headers(),
+            params=params,
+        )
+        self._raise_for_status(response)
+        records = self._extract_result(response.json())
+        masked = [mask_sensitive_fields(r, table=table) for r in records]
+        return {"records": masked, "count": self._parse_total_count(response)}
 
     async def list_attachments(
         self,
@@ -417,6 +501,7 @@ class ServiceNowClient:
 
     def _email_url(self, email_id: str) -> str:
         """Build the Email API URL."""
+        validate_sys_id(email_id)
         return f"{self._settings.servicenow_instance_url}/api/now/v1/email/{email_id}"
 
     async def get_email(
@@ -443,6 +528,7 @@ class ServiceNowClient:
     def _import_set_url(self, staging_table: str, sys_id: str) -> str:
         """Build the Import Set API URL."""
         validate_identifier(staging_table)
+        validate_sys_id(sys_id)
         return f"{self._settings.servicenow_instance_url}/api/now/import/{staging_table}/{sys_id}"
 
     async def get_import_set_record(
@@ -585,6 +671,7 @@ class ServiceNowClient:
         validate_identifier(class_name)
         base = f"{self._settings.servicenow_instance_url}/api/now/cmdb/instance/{class_name}"
         if sys_id:
+            validate_sys_id(sys_id)
             base = f"{base}/{sys_id}"
         return base
 

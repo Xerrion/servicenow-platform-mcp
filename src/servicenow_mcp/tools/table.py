@@ -331,14 +331,17 @@ def _apply_condition(
 
 def _build_query_impl(
     conditions_list: list[Any],
+    table: str,
     query_store: QueryTokenStore,
     correlation_id: str,
 ) -> str:
     """Process a parsed conditions list and return a formatted TOON response.
 
     Iterates over each condition dict, applies it to a ``ServiceNowQuery``,
-    stores the built query string in *query_store*, and returns the serialized
-    response.
+    stores the built query string in *query_store* bound to *table*, and
+    returns the serialized response. The ``table`` binding is enforced by
+    ``resolve_query_token`` so tokens cannot be replayed against a
+    different table.
     """
     query = ServiceNowQuery()
     for idx, condition in enumerate(conditions_list):
@@ -354,9 +357,9 @@ def _build_query_impl(
             return err
 
     built = query.build()
-    query_token = query_store.create({"query": built})
+    query_token = query_store.create({"query": built, "table": table})
     return format_response(
-        data={"query": built, "query_token": query_token},
+        data={"query": built, "query_token": query_token, "table": table},
         correlation_id=correlation_id,
     )
 
@@ -452,6 +455,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         offset: int = 0,
         order_by: str = "",
         display_values: bool = False,
+        include_script_body: bool = False,
         *,
         correlation_id: str = "",
     ) -> str:
@@ -467,10 +471,14 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             offset: Number of records to skip for pagination.
             order_by: Field to sort results by (empty for default).
             display_values: If True, return display values instead of raw values.
+            include_script_body: If True, return script/markup body fields
+                verbatim. Script/markup bodies are masked by default. Set True
+                only when you need to inspect the code itself; script bodies
+                may contain hardcoded secrets.
         """
         warnings: list[str] = []
 
-        query = resolve_query_token(query_token, query_store, correlation_id)
+        query = resolve_query_token(query_token, query_store, table, correlation_id)
         validate_identifier(table)
         check_table_access(table)
         safety = enforce_query_safety(table, query, limit, settings)
@@ -496,7 +504,10 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         if table == "sys_audit":
             masked_records = [mask_audit_entry(r) for r in result["records"]]
         else:
-            masked_records = [mask_sensitive_fields(r) for r in result["records"]]
+            masked_records = [
+                mask_sensitive_fields(r, table=table, include_script_body=include_script_body)
+                for r in result["records"]
+            ]
 
         return format_response(
             data=masked_records,
@@ -525,46 +536,60 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         """Compute aggregate statistics for a table (counts, min, max, avg, sum).
 
         Count is always included. For field-specific stats, provide comma-separated
-        field names (e.g. avg_fields="priority,impact").
+        field names (e.g. avg_fields="priority,impact"). Each field name is
+        validated via the shared identifier rules; empty entries between commas
+        are rejected.
 
         Args:
             table: The ServiceNow table name.
             query_token: Token from the build_query tool representing a ServiceNow encoded query.
                 Use build_query to create a query first, then pass the returned query_token here.
                 Leave empty for no filter.
-            group_by: Field to group results by (empty for no grouping).
+            group_by: Comma-separated fields to group results by (empty for no grouping).
             avg_fields: Comma-separated fields to compute average for.
             min_fields: Comma-separated fields to compute minimum for.
             max_fields: Comma-separated fields to compute maximum for.
             sum_fields: Comma-separated fields to compute sum for.
         """
-        query = resolve_query_token(query_token, query_store, correlation_id)
+        query = resolve_query_token(query_token, query_store, table, correlation_id)
         validate_identifier(table)
         check_table_access(table)
         enforce_query_safety(table, query, None, settings)
-        group = group_by or None
 
-        def _split(s: str) -> list[str] | None:
-            parts = [p.strip() for p in s.split(",") if p.strip()]
-            return parts or None
+        def _split_validated(raw: str, label: str) -> list[str] | None:
+            if not raw:
+                return None
+            parts = [p.strip() for p in raw.split(",")]
+            if any(not p for p in parts):
+                raise ValueError(f"{label} contains empty field name")
+            for p in parts:
+                validate_identifier(p)
+            return parts
+
+        group_parts = _split_validated(group_by, "group_by")
+        group = ",".join(group_parts) if group_parts else None
 
         async with ServiceNowClient(settings, auth_provider) as client:
             result = await client.aggregate(
                 table,
                 query,
                 group_by=group,
-                avg_fields=_split(avg_fields),
-                min_fields=_split(min_fields),
-                max_fields=_split(max_fields),
-                sum_fields=_split(sum_fields),
+                avg_fields=_split_validated(avg_fields, "avg_fields"),
+                min_fields=_split_validated(min_fields, "min_fields"),
+                max_fields=_split_validated(max_fields, "max_fields"),
+                sum_fields=_split_validated(sum_fields, "sum_fields"),
             )
 
         return format_response(data=result, correlation_id=correlation_id)
 
     @mcp.tool()
     @tool_handler
-    async def build_query(conditions: str, correlation_id: str = "") -> str:
+    async def build_query(table: str, conditions: str, correlation_id: str = "") -> str:
         """Build a ServiceNow encoded query string from a JSON array of conditions.
+
+        The returned ``query_token`` is bound to *table* - it can only be
+        used with tools that query the same table. Attempting to use it
+        against a different table is rejected by policy.
 
         Each condition is an object with:
           - operator: The query operator (see groups below).
@@ -594,11 +619,15 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
           **Ordering:** order_by (optional ``descending``: boolean)
 
         Args:
+            table: The ServiceNow table name the query will be run against.
+                Binds the returned token to this table.
             conditions: JSON array of condition objects.
 
         Returns a response containing both the built query string and a query_token.
-        The query_token must be passed to other tools that accept query parameters.
+        The query_token must be passed to other tools that accept query parameters
+        and must match *table*.
         """
+        validate_identifier(table)
         try:
             parsed = json.loads(conditions)
         except json.JSONDecodeError as e:
@@ -617,4 +646,4 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                 error="conditions must be a JSON array",
             )
 
-        return _build_query_impl(parsed, query_store, correlation_id)
+        return _build_query_impl(parsed, table, query_store, correlation_id)

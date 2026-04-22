@@ -88,6 +88,27 @@ class QueryTokenStore(_BaseTokenStore):
     Tokens are UUID strings mapped to validated query payloads.
     Unlike PreviewTokenStore, tokens are reusable within their TTL.
     Expired tokens are automatically rejected on get.
+
+    Every payload MUST include a ``table`` key - the ServiceNow table
+    the query was built for. This binding lets ``resolve_query_token``
+    reject a token that is presented against a different table, closing
+    a cross-table token-replay class of bugs.
     """
 
     _store_label: str = "Query token"
+
+    def create(self, payload: dict[str, Any]) -> str:
+        """Store a payload and return a new UUID token.
+
+        Raises:
+            ValueError: if *payload* does not contain a non-empty ``table``
+                key. This is a hard structural requirement; callers that
+                need an unbound token should use ``PreviewTokenStore``.
+        """
+        table = payload.get("table")
+        if not isinstance(table, str) or not table:
+            raise ValueError(
+                "QueryTokenStore payload must include a non-empty 'table' key "
+                "so resolve_query_token can enforce per-table binding."
+            )
+        return super().create(payload)

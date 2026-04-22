@@ -10,7 +10,7 @@ from servicenow_mcp.choices import ChoiceRegistry
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
-from servicenow_mcp.policy import check_table_access, mask_sensitive_fields
+from servicenow_mcp.policy import check_table_access, enforce_query_safety, mask_sensitive_fields
 from servicenow_mcp.utils import ServiceNowQuery, format_response
 
 
@@ -104,6 +104,7 @@ def register_tools(
     async def cmdb_list(
         ci_class: str = "cmdb_ci",
         operational_status: str = "",
+        filter_query: str = "",
         fields: str = "name,sys_class_name,operational_status,sys_id,sys_updated_on",
         limit: int = 20,
         *,
@@ -114,6 +115,9 @@ def register_tools(
         Args:
             ci_class: CMDB table/class to query (default "cmdb_ci")
             operational_status: Filter by operational status (operational=1, non_operational=2, etc.)
+            filter_query: Additional encoded-query string AND'd into the final
+                query (e.g. "sys_updated_on>=javascript:gs.daysAgoStart(30)").
+                Required for large CMDB tables which enforce a date-bounded filter.
             fields: Comma-separated list of fields to return (empty for all)
             limit: Maximum results to return (default 20)
         """
@@ -127,8 +131,12 @@ def register_tools(
                 else operational_status
             )
             q = q.equals("operational_status", status_value)
-        query = q.build()
+        base_query = q.build()
+        query = f"{base_query}^{filter_query}" if base_query and filter_query else (base_query or filter_query)
         field_list = [f.strip() for f in fields.split(",") if f.strip()] if fields else None
+
+        safety = enforce_query_safety(ci_class, query, limit, settings)
+        effective_limit = safety["limit"]
 
         async with ServiceNowClient(settings, auth_provider) as client:
             result = await client.query_records(
@@ -136,7 +144,7 @@ def register_tools(
                 query=query,
                 fields=field_list,
                 display_values=True,
-                limit=limit,
+                limit=effective_limit,
             )
             masked = [mask_sensitive_fields(r) for r in result["records"]]
             return format_response(data=masked, correlation_id=correlation_id)

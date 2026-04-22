@@ -13,6 +13,14 @@ from servicenow_mcp.policy import (
 from servicenow_mcp.utils import ServiceNowQuery, validate_identifier
 
 
+# ``sys_security_acl`` is on ``DENIED_TABLES``; the health investigation
+# reads it through the client's privileged-read path with an explicit,
+# single-entry allowlist. All other tables this investigation hits
+# (``sys_script``, ``sys_script_client``, ``sys_ui_policy``, ``syslog``)
+# go through the normal ``query_records`` path.
+_PRIVILEGED_ACL_TABLES: frozenset[str] = frozenset({"sys_security_acl"})
+
+
 async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any]:
     """Generate a health report for a specific table.
 
@@ -74,10 +82,11 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
             fields=["sys_id", "name", "type"],
             limit=INTERNAL_QUERY_LIMIT,
         ),
-        client.query_records(
+        client.get_records_privileged(
             "sys_security_acl",
-            acl_q.build(),
-            fields=["sys_id", "name", "operation"],
+            allowed_tables=_PRIVILEGED_ACL_TABLES,
+            query=acl_q.build(),
+            fields="sys_id,name,operation",
             limit=INTERNAL_QUERY_LIMIT,
         ),
         client.query_records(

@@ -11,9 +11,9 @@ from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.policy import (
-    DENIED_TABLES,
     INTERNAL_QUERY_LIMIT,
     check_table_access,
+    is_table_denied,
     mask_sensitive_fields,
 )
 from servicenow_mcp.utils import (
@@ -63,7 +63,7 @@ def _filter_reference_fields(records: list[dict[str, Any]]) -> list[tuple[str, s
         ref_field = field.get("element", "")
         if not ref_table or not ref_field:
             continue
-        if ref_table.lower() in DENIED_TABLES:
+        if is_table_denied(ref_table):
             continue
         if ref_table.startswith(("var__m_", "sys_variable_value")):
             continue
@@ -165,6 +165,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         sys_id: str,
         fields: str = "",
         display_values: bool = False,
+        include_script_body: bool = False,
         *,
         correlation_id: str = "",
     ) -> str:
@@ -175,13 +176,17 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             sys_id: The sys_id of the record to fetch.
             fields: Comma-separated list of fields to return (empty for all).
             display_values: If True, return display values instead of raw values.
+            include_script_body: If True, return script/markup body fields
+                verbatim. Script/markup bodies are masked by default. Set True
+                only when you need to inspect the code itself; script bodies
+                may contain hardcoded secrets.
         """
         validate_identifier(table)
         check_table_access(table)
         field_list = [f.strip() for f in fields.split(",") if f.strip()] if fields else None
         async with ServiceNowClient(settings, auth_provider) as client:
             record = await client.get_record(table, sys_id, fields=field_list, display_values=display_values)
-        record = mask_sensitive_fields(record)
+        record = mask_sensitive_fields(record, table=table, include_script_body=include_script_body)
         return format_response(data=record, correlation_id=correlation_id)
 
     # ------------------------------------------------------------------
@@ -222,18 +227,32 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
 
     @mcp.tool()
     @tool_handler
-    async def rel_references_from(table: str, sys_id: str, *, correlation_id: str = "") -> str:
+    async def rel_references_from(
+        table: str,
+        sys_id: str,
+        include_script_body: bool = False,
+        *,
+        correlation_id: str = "",
+    ) -> str:
         """Find what a record references by inspecting its reference fields.
 
         Args:
             table: The table of the source record.
             sys_id: The sys_id of the source record.
+            include_script_body: If True, return script/markup body fields
+                verbatim. Script/markup bodies are masked by default. Set True
+                only when you need to inspect the code itself; script bodies
+                may contain hardcoded secrets.
         """
         validate_identifier(table)
         check_table_access(table)
         async with ServiceNowClient(settings, auth_provider) as client:
             # Get the record
-            record = mask_sensitive_fields(await client.get_record(table, sys_id, display_values=True))
+            record = mask_sensitive_fields(
+                await client.get_record(table, sys_id, display_values=True),
+                table=table,
+                include_script_body=include_script_body,
+            )
 
             # Resolve full table hierarchy (e.g. incident -> task) so we
             # pick up inherited reference fields from parent tables.

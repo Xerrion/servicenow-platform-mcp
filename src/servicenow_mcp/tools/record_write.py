@@ -163,6 +163,32 @@ def _validate_write_request(table: str, settings: Settings, correlation_id: str)
     return write_gate(table, settings, correlation_id)
 
 
+def _parse_write_payload(
+    raw_json: str,
+    param_name: str,
+    correlation_id: str,
+) -> dict[str, Any] | str:
+    """Parse a JSON payload string into a dict of field-value pairs and validate keys.
+
+    Returns the parsed dict on success or a serialized error envelope string
+    when the input is not a JSON object. ``validate_identifier()`` on each
+    key raises ``ValueError`` on invalid field names; the ``@tool_handler``
+    decorator converts that to an error envelope automatically.
+    """
+    parsed = json.loads(raw_json)
+    if not isinstance(parsed, dict):
+        return format_response(
+            data=None,
+            correlation_id=correlation_id,
+            status="error",
+            error=f"'{param_name}' must be a JSON object, not {type(parsed).__name__}",
+        )
+    payload: dict[str, Any] = parsed
+    for key in payload:
+        validate_identifier(key)
+    return payload
+
+
 def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthProvider) -> None:
     """Register record write operation tools on the MCP server."""
 
@@ -186,7 +212,10 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         if blocked:
             return blocked
 
-        record_data = json.loads(data)
+        parsed = _parse_write_payload(data, "data", correlation_id)
+        if isinstance(parsed, str):
+            return parsed
+        record_data = parsed
 
         async with ServiceNowClient(settings, auth_provider) as client:
             err = await _check_mandatory_or_error(client, table, record_data, correlation_id)
@@ -216,7 +245,10 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         if blocked:
             return blocked
 
-        record_data = json.loads(data)
+        parsed = _parse_write_payload(data, "data", correlation_id)
+        if isinstance(parsed, str):
+            return parsed
+        record_data = parsed
 
         async with ServiceNowClient(settings, auth_provider) as client:
             err = await _check_mandatory_or_error(client, table, record_data, correlation_id)
@@ -258,7 +290,10 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
 
         validate_sys_id(sys_id)
 
-        changes_dict = json.loads(changes)
+        parsed = _parse_write_payload(changes, "changes", correlation_id)
+        if isinstance(parsed, str):
+            return parsed
+        changes_dict = parsed
 
         async with ServiceNowClient(settings, auth_provider) as client:
             updated = await client.update_record(table, sys_id, changes_dict)
@@ -288,7 +323,10 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
 
         validate_sys_id(sys_id)
 
-        changes_dict = json.loads(changes)
+        parsed = _parse_write_payload(changes, "changes", correlation_id)
+        if isinstance(parsed, str):
+            return parsed
+        changes_dict = parsed
 
         async with ServiceNowClient(settings, auth_provider) as client:
             current = await client.get_record(table, sys_id)

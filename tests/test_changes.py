@@ -283,7 +283,7 @@ class TestChangesDiffArtifact:
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["changes_diff_artifact"](table="sys_script_include", sys_id="xyz")
+        raw = await tools["changes_diff_artifact"](table="sys_script_include", sys_id="xyz", include_script_body=True)
         result = decode_response(raw)
 
         assert result["status"] == "success"

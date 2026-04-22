@@ -80,9 +80,9 @@ class TestSetupSentry:
         call_kwargs = mock_init.call_args[1]
         assert call_kwargs["dsn"] == "https://key@sentry.io/123"
         assert call_kwargs["environment"] == "staging"
-        assert call_kwargs["send_default_pii"] is True
+        assert call_kwargs["send_default_pii"] is False
         assert call_kwargs["integrations"] == []
-        assert call_kwargs["traces_sample_rate"] == pytest.approx(1.0)
+        assert call_kwargs["traces_sample_rate"] == pytest.approx(0.05)
         assert call_kwargs["profiles_sample_rate"] is None
 
     def test_falls_back_to_servicenow_env(self) -> None:
@@ -377,7 +377,7 @@ class TestSetSentryContextIntegration:
             )
 
     async def test_tool_handler_sets_tool_context(self) -> None:
-        """tool_handler sets tool context with name, correlation_id, and args."""
+        """tool_handler sets tool context with name, correlation_id, and arg_keys (keys only, no values, to avoid PII leakage)."""
         from servicenow_mcp.decorators import tool_handler
 
         @tool_handler
@@ -392,7 +392,8 @@ class TestSetSentryContextIntegration:
             context_data = call_args[0][1]
             assert context_data["name"] == "my_tool"
             assert "correlation_id" in context_data
-            assert context_data["args"] == {"table": "incident"}
+            assert context_data["arg_keys"] == ["table"]
+            assert "args" not in context_data
 
     def test_raise_for_status_sets_http_context(self) -> None:
         """_raise_for_status sets HTTP context before raising."""

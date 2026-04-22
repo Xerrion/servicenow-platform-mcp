@@ -95,8 +95,8 @@ class TestProblemList:
         url_str = str(request.url)
         assert "state%3D2" in url_str
         assert "priority%3D1" in url_str
-        assert "assigned_to%3Duser123" in url_str
-        assert "assignment_group%3Dgroup456" in url_str
+        assert "assigned_to%3D95c946bf622ef93b0a211cd0fd028dfd" in url_str
+        assert "assignment_group%3D948e04007eb5c3b60182c0a3ed3b6e7e" in url_str
 
     @pytest.mark.asyncio()
     @respx.mock

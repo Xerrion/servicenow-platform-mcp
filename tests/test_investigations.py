@@ -1085,19 +1085,26 @@ class TestExplainAclConflicts:
     @pytest.mark.asyncio()
     @respx.mock
     async def test_explain_acl_record(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """explain() returns context for an ACL conflict finding."""
-        respx.get(f"{BASE_URL}/api/now/table/sys_security_acl/9b332a2446a6dbc9d0d8da69a4397e33").mock(
+        """explain() returns context for an ACL conflict finding.
+
+        ``sys_security_acl`` is denied for tool callers, so the investigation
+        uses ``get_records_privileged`` which queries the list endpoint with a
+        ``sys_id`` filter rather than fetching by path.
+        """
+        respx.get(f"{BASE_URL}/api/now/table/sys_security_acl").mock(
             return_value=httpx.Response(
                 200,
                 json={
-                    "result": {
-                        "sys_id": "9b332a2446a6dbc9d0d8da69a4397e33",
-                        "name": "incident.*.read",
-                        "operation": "read",
-                        "condition": "active=true",
-                        "script": "",
-                        "active": "true",
-                    }
+                    "result": [
+                        {
+                            "sys_id": "9b332a2446a6dbc9d0d8da69a4397e33",
+                            "name": "incident.*.read",
+                            "operation": "read",
+                            "condition": "active=true",
+                            "script": "",
+                            "active": "true",
+                        }
+                    ]
                 },
             )
         )

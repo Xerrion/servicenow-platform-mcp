@@ -211,7 +211,7 @@ class TestMetaGetArtifact:
         )
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["meta_get_artifact"](artifact_type="business_rule", sys_id="8baeabad365de895ab58ec0d6dd2c1e2")
+        raw = await tools["meta_get_artifact"](artifact_type="business_rule", sys_id="8baeabad365de895ab58ec0d6dd2c1e2", include_script_body=True)
         result = decode_response(raw)
 
         assert result["status"] == "success"

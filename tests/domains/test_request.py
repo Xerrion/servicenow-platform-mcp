@@ -87,7 +87,7 @@ class TestRequestList:
         await tools["request_list"](requested_for="95c946bf622ef93b0a211cd0fd028dfd")
 
         request = respx.calls.last.request
-        assert "requested_for%3Duser123" in str(request.url)
+        assert "requested_for%3D95c946bf622ef93b0a211cd0fd028dfd" in str(request.url)
 
     @pytest.mark.asyncio()
     @respx.mock
@@ -101,8 +101,8 @@ class TestRequestList:
         request = respx.calls.last.request
         url = str(request.url)
         assert "state%3D1" in url
-        assert "requested_for%3Duser123" in url
-        assert "assignment_group%3Dgroup456" in url
+        assert "requested_for%3D95c946bf622ef93b0a211cd0fd028dfd" in url
+        assert "assignment_group%3D948e04007eb5c3b60182c0a3ed3b6e7e" in url
 
 
 class TestRequestGet:

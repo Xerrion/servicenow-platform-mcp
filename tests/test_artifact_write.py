@@ -1,4 +1,4 @@
-"""Tests for artifact write tools (artifact_create, artifact_update)."""
+"""Tests for artifact write tools (preview/apply flow)."""
 
 import json
 from typing import Any
@@ -10,6 +10,7 @@ import respx
 
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.config import Settings
+from servicenow_mcp.policy import MASK_VALUE
 from servicenow_mcp.tools.artifact_write import (
     MAX_SCRIPT_FILE_BYTES,
     SCRIPT_FIELD_MAP,
@@ -26,7 +27,7 @@ from tests.helpers import decode_response, get_tool_functions
 BASE_URL = "https://test.service-now.com"
 
 # Valid 32-char hex sys_ids for tests (validate_sys_id requires this format)
-SYS_ID_ART001 = "a" * 32  # aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+SYS_ID_ART001 = "a" * 32
 
 
 @pytest.fixture()
@@ -208,12 +209,13 @@ class TestParseAndValidatePayload:
     """Tests for the _parse_and_validate_payload helper."""
 
     def test_valid_json_object(self) -> None:
-        """Returns (dict, warnings) for valid JSON object with no script_path."""
+        """Returns (dict, warnings, script_field) for valid JSON object with no script_path."""
         result = _parse_and_validate_payload('{"name": "Test"}', "data", "script_include", "", "", "corr-1")
         assert isinstance(result, tuple)
-        payload, warnings = result
+        payload, warnings, script_field = result
         assert payload == {"name": "Test"}
         assert warnings == []
+        assert script_field is None
 
     def test_non_dict_returns_error_string(self) -> None:
         """Returns formatted error string for non-dict JSON."""
@@ -232,9 +234,10 @@ class TestParseAndValidatePayload:
 
         result = _parse_and_validate_payload('{"name": "M"}', "data", "ui_macro", str(script), str(tmp_path), "corr-1")
         assert isinstance(result, tuple)
-        payload, warnings = result
+        payload, warnings, script_field = result
         assert payload["xml"] == "<hello/>"
         assert warnings == []
+        assert script_field == "xml"
 
     def test_script_path_warns_on_override(self, tmp_path: Any) -> None:
         """Emits warning when script_path overrides existing field."""
@@ -245,29 +248,282 @@ class TestParseAndValidatePayload:
             '{"script": "old"}', "changes", "script_include", str(script), str(tmp_path), "corr-1"
         )
         assert isinstance(result, tuple)
-        payload, warnings = result
+        payload, warnings, script_field = result
         assert payload["script"] == "new"
         assert len(warnings) == 1
         assert "overridden" in warnings[0].lower()
+        assert script_field == "script"
 
 
-# -- artifact_create -----------------------------------------------------------
+# -- artifact_create_preview ---------------------------------------------------
 
 
-class TestArtifactCreate:
-    """Tests for the artifact_create tool."""
+class TestArtifactCreatePreview:
+    """Tests for artifact_create_preview."""
+
+    @pytest.mark.asyncio()
+    async def test_returns_token_and_summary(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        """Preview validates input and returns a token plus safe summary."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["artifact_create_preview"](
+            artifact_type="script_include",
+            data=json.dumps({"name": "TestInclude", "script": "var x = 1;", "api_key": "leaked"}),
+        )
+        result = decode_response(raw)
+
+        assert result["status"] == "success"
+        data = result["data"]
+        assert data["action"] == "create"
+        assert data["table"] == "sys_script_include"
+        assert data["artifact_type"] == "script_include"
+        assert isinstance(data["token"], str)
+        assert data["token"]
+        assert set(data["fields"]) == {"name", "script", "api_key"}
+        # Script body is summarised, not echoed
+        assert data["summary"]["script"]["size_bytes"] == len("var x = 1;")
+        assert data["summary"]["script"]["head"] == "var x = 1;"
+        # Sensitive field value never appears in the envelope
+        assert data["summary"]["api_key"] == MASK_VALUE
+        assert data["ttl_seconds"] > 0
+
+    @pytest.mark.asyncio()
+    async def test_script_body_head_truncated(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        """Script body 'head' is truncated to the configured character budget."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        long_body = "a" * 500
+        raw = await tools["artifact_create_preview"](
+            artifact_type="script_include",
+            data=json.dumps({"name": "Long", "script": long_body}),
+        )
+        result = decode_response(raw)
+        assert result["status"] == "success"
+        head = result["data"]["summary"]["script"]["head"]
+        assert len(head) <= 80
+        assert result["data"]["summary"]["script"]["size_bytes"] == 500
+
+    @pytest.mark.asyncio()
+    async def test_script_path_size_summarised(
+        self, script_settings: Settings, script_auth_provider: BasicAuthProvider, tmp_path: Any
+    ) -> None:
+        """script_path content is summarised by size, not echoed verbatim."""
+        script_file = tmp_path / "inc.js"
+        script_file.write_text("function test() { return 42; }", encoding="utf-8")
+
+        tools = _register_and_get_tools(script_settings, script_auth_provider)
+        raw = await tools["artifact_create_preview"](
+            artifact_type="script_include",
+            data=json.dumps({"name": "FromFile"}),
+            script_path=str(script_file),
+        )
+        result = decode_response(raw)
+
+        assert result["status"] == "success"
+        data = result["data"]
+        assert data["script_field"] == "script"
+        assert data["summary"]["script"]["size_bytes"] == len("function test() { return 42; }")
+        assert data["summary"]["script"]["head"].startswith("function test()")
+
+    @pytest.mark.asyncio()
+    async def test_script_path_size_limit_enforced_at_preview(
+        self, script_settings: Settings, script_auth_provider: BasicAuthProvider, tmp_path: Any
+    ) -> None:
+        """script_path exceeding 1 MB is rejected before any token is issued."""
+        oversize = tmp_path / "huge.js"
+        oversize.write_bytes(b"x" * (MAX_SCRIPT_FILE_BYTES + 1))
+
+        tools = _register_and_get_tools(script_settings, script_auth_provider)
+        raw = await tools["artifact_create_preview"](
+            artifact_type="script_include",
+            data=json.dumps({"name": "Huge"}),
+            script_path=str(oversize),
+        )
+        result = decode_response(raw)
+        assert result["status"] == "error"
+        assert "too large" in result["error"]["message"].lower()
+
+    @pytest.mark.asyncio()
+    async def test_invalid_key_blocked_at_preview(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        """Invalid payload keys fail at preview time, before any token is issued."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["artifact_create_preview"](
+            artifact_type="script_include",
+            data=json.dumps({"INVALID-KEY!": "value"}),
+        )
+        result = decode_response(raw)
+        assert result["status"] == "error"
+
+    @pytest.mark.asyncio()
+    async def test_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider) -> None:
+        """Preview is blocked in production environments."""
+        tools = _register_and_get_tools(prod_settings, prod_auth_provider)
+        raw = await tools["artifact_create_preview"](
+            artifact_type="script_include",
+            data=json.dumps({"name": "Test"}),
+        )
+        result = decode_response(raw)
+        assert result["status"] == "error"
+        assert "production" in result["error"]["message"].lower()
+
+    @pytest.mark.asyncio()
+    async def test_unknown_artifact_type(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        """Unknown artifact_type fails at preview time."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["artifact_create_preview"](
+            artifact_type="nonexistent_type",
+            data=json.dumps({"name": "Test"}),
+        )
+        result = decode_response(raw)
+        assert result["status"] == "error"
+        assert "unknown" in result["error"]["message"].lower()
+
+
+# -- artifact_update_preview ---------------------------------------------------
+
+
+class TestArtifactUpdatePreview:
+    """Tests for artifact_update_preview."""
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_creates_artifact_success(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """Creates an artifact and returns the masked record."""
-        respx.post(f"{BASE_URL}/api/now/table/sys_script_include").mock(
+    async def test_returns_diff_with_masked_sensitive_fields(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """Update preview fetches current record and masks sensitive fields in the diff."""
+        respx.get(f"{BASE_URL}/api/now/table/sys_script_include/{SYS_ID_ART001}").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "result": {
+                        "sys_id": SYS_ID_ART001,
+                        "name": "OldName",
+                        "script": "var old = 1;",
+                        "api_key": "OLD_SECRET",  # NOSONAR
+                    }
+                },
+            )
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["artifact_update_preview"](
+            artifact_type="script_include",
+            sys_id=SYS_ID_ART001,
+            changes=json.dumps({"name": "NewName", "api_key": "NEW_SECRET", "script": "var n = 2;"}),  # NOSONAR
+        )
+        result = decode_response(raw)
+
+        assert result["status"] == "success"
+        data = result["data"]
+        assert data["action"] == "update"
+        assert data["sys_id"] == SYS_ID_ART001
+        # Non-sensitive, non-script field echoes both sides
+        assert data["diff"]["name"] == {"old": "OldName", "new": "NewName"}
+        # Sensitive field masked on both sides
+        assert data["diff"]["api_key"] == {"old": MASK_VALUE, "new": MASK_VALUE}
+        # Script body summarised on both sides
+        assert data["diff"]["script"]["new"]["size_bytes"] == len("var n = 2;")
+        assert data["diff"]["script"]["old"]["size_bytes"] == len("var old = 1;")
+        # Full current record is also masked for 'before' context
+        assert data["before"]["api_key"] == MASK_VALUE
+        # sys_script_include has 'script' in TABLE_SCRIPT_FIELDS -> masked in before
+        assert data["before"]["script"] != "var old = 1;"
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_script_content_never_echoed(
+        self,
+        script_settings: Settings,
+        script_auth_provider: BasicAuthProvider,
+        tmp_path: Any,
+    ) -> None:
+        """A full script file read via script_path is summarised, not echoed."""
+        respx.get(f"{BASE_URL}/api/now/table/sys_script_include/{SYS_ID_ART001}").mock(
+            return_value=httpx.Response(
+                200,
+                json={"result": {"sys_id": SYS_ID_ART001, "name": "Inc", "script": ""}},
+            )
+        )
+
+        script_file = tmp_path / "body.js"
+        full_body = "function leaked() { return 'super secret body content that must not appear verbatim'; }"
+        script_file.write_text(full_body, encoding="utf-8")
+
+        tools = _register_and_get_tools(script_settings, script_auth_provider)
+        raw = await tools["artifact_update_preview"](
+            artifact_type="script_include",
+            sys_id=SYS_ID_ART001,
+            changes=json.dumps({"name": "Inc"}),
+            script_path=str(script_file),
+        )
+        result = decode_response(raw)
+
+        assert result["status"] == "success"
+        # The full body must not appear anywhere in the serialized envelope
+        assert "super secret body content that must not appear verbatim" not in raw
+        assert result["data"]["diff"]["script"]["new"]["size_bytes"] == len(full_body)
+
+    @pytest.mark.asyncio()
+    async def test_invalid_sys_id_rejected(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        """sys_id validation runs before any current-record fetch."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["artifact_update_preview"](
+            artifact_type="script_include",
+            sys_id="not-a-valid-hex-id",
+            changes=json.dumps({"name": "x"}),
+        )
+        result = decode_response(raw)
+        assert result["status"] == "error"
+
+    @pytest.mark.asyncio()
+    async def test_invalid_key_blocked_at_preview(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        """Invalid change keys are rejected at preview time."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["artifact_update_preview"](
+            artifact_type="script_include",
+            sys_id=SYS_ID_ART001,
+            changes=json.dumps({"INVALID-KEY!": "value"}),
+        )
+        result = decode_response(raw)
+        assert result["status"] == "error"
+
+    @pytest.mark.asyncio()
+    async def test_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider) -> None:
+        """Update preview blocked in production."""
+        tools = _register_and_get_tools(prod_settings, prod_auth_provider)
+        raw = await tools["artifact_update_preview"](
+            artifact_type="script_include",
+            sys_id=SYS_ID_ART001,
+            changes=json.dumps({"name": "x"}),
+        )
+        result = decode_response(raw)
+        assert result["status"] == "error"
+        assert "production" in result["error"]["message"].lower()
+
+
+# -- artifact_apply ------------------------------------------------------------
+
+
+class TestArtifactApply:
+    """Tests for artifact_apply."""
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_apply_create(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        """artifact_apply consumes a create-preview token and writes the record."""
+        tools = _register_and_get_tools(settings, auth_provider)
+
+        preview_raw = await tools["artifact_create_preview"](
+            artifact_type="script_include",
+            data=json.dumps({"name": "TestInc", "script": "var x = 1;"}),
+        )
+        token = decode_response(preview_raw)["data"]["token"]
+
+        route = respx.post(f"{BASE_URL}/api/now/table/sys_script_include").mock(
             return_value=httpx.Response(
                 201,
                 json={
                     "result": {
                         "sys_id": "new001",
-                        "name": "TestScriptInclude",
+                        "name": "TestInc",
                         "script": "var x = 1;",
                         "password": "s3cret",  # NOSONAR
                     }
@@ -275,560 +531,99 @@ class TestArtifactCreate:
             )
         )
 
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["artifact_create"](
-            artifact_type="script_include",
-            data=json.dumps({"name": "TestScriptInclude", "script": "var x = 1;"}),
-        )
+        raw = await tools["artifact_apply"](preview_token=token)
         result = decode_response(raw)
 
         assert result["status"] == "success"
-        assert result["data"]["table"] == "sys_script_include"
-        assert result["data"]["artifact_type"] == "script_include"
+        assert result["data"]["action"] == "create"
         assert result["data"]["sys_id"] == "new001"
-        assert result["data"]["record"]["name"] == "TestScriptInclude"
-        assert result["data"]["record"]["password"] == "***MASKED***"  # NOSONAR
-
-    @pytest.mark.asyncio()
-    @respx.mock
-    async def test_creates_artifact_with_script_path(
-        self, script_settings: Settings, script_auth_provider: BasicAuthProvider, tmp_path: Any
-    ) -> None:
-        """Reads script content from a local file and sets it as the script field."""
-        script_file = tmp_path / "my_script.js"
-        script_file.write_text("function test() { return true; }", encoding="utf-8")
-
-        route = respx.post(f"{BASE_URL}/api/now/table/sys_script_include").mock(
-            return_value=httpx.Response(
-                201,
-                json={
-                    "result": {
-                        "sys_id": "new002",
-                        "name": "FileScript",
-                        "script": "function test() { return true; }",
-                    }
-                },
-            )
-        )
-
-        tools = _register_and_get_tools(script_settings, script_auth_provider)
-        raw = await tools["artifact_create"](
-            artifact_type="script_include",
-            data=json.dumps({"name": "FileScript"}),
-            script_path=str(script_file),
-        )
-        result = decode_response(raw)
-
-        assert result["status"] == "success"
-        assert result["data"]["sys_id"] == "new002"
-
-        # Verify outbound request body contains the script content
+        assert result["data"]["record"]["password"] == MASK_VALUE
         assert route.called
-        request_body = json.loads(route.calls[0].request.content)
-        assert request_body["script"] == "function test() { return true; }"
-        assert request_body["name"] == "FileScript"
+        # Outbound body must carry the full script even though the preview
+        # envelope never did.
+        body = json.loads(route.calls[0].request.content)
+        assert body["script"] == "var x = 1;"
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_script_path_warns_on_override(
-        self, script_settings: Settings, script_auth_provider: BasicAuthProvider, tmp_path: Any
-    ) -> None:
-        """Warns when script_path overrides an existing 'script' key in data."""
-        script_file = tmp_path / "override.js"
-        script_file.write_text("new content", encoding="utf-8")
-
-        respx.post(f"{BASE_URL}/api/now/table/sys_script_include").mock(
-            return_value=httpx.Response(
-                201,
-                json={
-                    "result": {
-                        "sys_id": "new003",
-                        "name": "Override",
-                        "script": "new content",
-                    }
-                },
-            )
-        )
-
-        tools = _register_and_get_tools(script_settings, script_auth_provider)
-        raw = await tools["artifact_create"](
-            artifact_type="script_include",
-            data=json.dumps({"name": "Override", "script": "old content"}),
-            script_path=str(script_file),
-        )
-        result = decode_response(raw)
-
-        assert result["status"] == "success"
-        assert result.get("warnings") is not None
-        assert any("overridden" in w.lower() for w in result["warnings"])
-
-    @pytest.mark.asyncio()
-    async def test_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider) -> None:
-        """Returns error when environment is production."""
-        tools = _register_and_get_tools(prod_settings, prod_auth_provider)
-
-        raw = await tools["artifact_create"](
-            artifact_type="script_include",
-            data=json.dumps({"name": "Test"}),
-        )
-        result = decode_response(raw)
-
-        assert result["status"] == "error"
-        assert "production" in result["error"]["message"].lower()
-
-    @pytest.mark.asyncio()
-    async def test_invalid_json_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """Returns error when data is not valid JSON."""
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["artifact_create"](artifact_type="script_include", data="not valid json")
-        result = decode_response(raw)
-
-        assert result["status"] == "error"
-
-    @pytest.mark.asyncio()
-    async def test_unknown_artifact_type(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """Returns error for an unknown artifact type."""
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["artifact_create"](
-            artifact_type="nonexistent_type",
-            data=json.dumps({"name": "Test"}),
-        )
-        result = decode_response(raw)
-
-        assert result["status"] == "error"
-        assert "unknown" in result["error"]["message"].lower()
-
-    @pytest.mark.asyncio()
-    async def test_non_dict_json_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """Returns error when data is a JSON array instead of object."""
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["artifact_create"](
-            artifact_type="script_include",
-            data=json.dumps(["not", "an", "object"]),
-        )
-        result = decode_response(raw)
-
-        assert result["status"] == "error"
-        assert "object" in result["error"]["message"].lower()
-
-    @pytest.mark.asyncio()
-    async def test_invalid_key_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """Returns error when data contains an invalid field name."""
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["artifact_create"](
-            artifact_type="script_include",
-            data=json.dumps({"INVALID-KEY!": "value"}),
-        )
-        result = decode_response(raw)
-
-        assert result["status"] == "error"
-
-
-# -- artifact_update -----------------------------------------------------------
-
-
-class TestArtifactUpdate:
-    """Tests for the artifact_update tool."""
-
-    @pytest.mark.asyncio()
-    @respx.mock
-    async def test_updates_artifact_success(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """Updates an artifact and returns the masked record."""
-        respx.patch(f"{BASE_URL}/api/now/table/sys_script_include/{SYS_ID_ART001}").mock(
-            return_value=httpx.Response(
-                200,
-                json={
-                    "result": {
-                        "sys_id": SYS_ID_ART001,
-                        "name": "UpdatedScript",
-                        "active": "true",
-                        "password": "s3cret",  # NOSONAR
-                    }
-                },
-            )
+    async def test_apply_update(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        """artifact_apply consumes an update-preview token and patches the record."""
+        respx.get(f"{BASE_URL}/api/now/table/sys_script_include/{SYS_ID_ART001}").mock(
+            return_value=httpx.Response(200, json={"result": {"sys_id": SYS_ID_ART001, "name": "Old"}})
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["artifact_update"](
+        preview_raw = await tools["artifact_update_preview"](
             artifact_type="script_include",
             sys_id=SYS_ID_ART001,
-            changes=json.dumps({"active": "true"}),
+            changes=json.dumps({"name": "New"}),
         )
-        result = decode_response(raw)
-
-        assert result["status"] == "success"
-        assert result["data"]["table"] == "sys_script_include"
-        assert result["data"]["artifact_type"] == "script_include"
-        assert result["data"]["sys_id"] == SYS_ID_ART001
-        assert result["data"]["record"]["password"] == "***MASKED***"  # NOSONAR
-
-    @pytest.mark.asyncio()
-    @respx.mock
-    async def test_updates_artifact_with_script_path(
-        self, script_settings: Settings, script_auth_provider: BasicAuthProvider, tmp_path: Any
-    ) -> None:
-        """Reads script content from a local file when updating."""
-        script_file = tmp_path / "update_script.js"
-        script_file.write_text("var updated = true;", encoding="utf-8")
+        token = decode_response(preview_raw)["data"]["token"]
 
         route = respx.patch(f"{BASE_URL}/api/now/table/sys_script_include/{SYS_ID_ART001}").mock(
             return_value=httpx.Response(
                 200,
-                json={
-                    "result": {
-                        "sys_id": SYS_ID_ART001,
-                        "name": "FileUpdate",
-                        "script": "var updated = true;",
-                    }
-                },
+                json={"result": {"sys_id": SYS_ID_ART001, "name": "New"}},
             )
         )
 
-        tools = _register_and_get_tools(script_settings, script_auth_provider)
-        raw = await tools["artifact_update"](
-            artifact_type="script_include",
-            sys_id=SYS_ID_ART001,
-            changes=json.dumps({"name": "FileUpdate"}),
-            script_path=str(script_file),
-        )
+        raw = await tools["artifact_apply"](preview_token=token)
         result = decode_response(raw)
 
         assert result["status"] == "success"
+        assert result["data"]["action"] == "update"
         assert result["data"]["sys_id"] == SYS_ID_ART001
-
-        # Verify outbound request body contains the script content
         assert route.called
-        request_body = json.loads(route.calls[0].request.content)
-        assert request_body["script"] == "var updated = true;"
-        assert request_body["name"] == "FileUpdate"
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_script_path_warns_on_override(
-        self, script_settings: Settings, script_auth_provider: BasicAuthProvider, tmp_path: Any
-    ) -> None:
-        """Warns when script_path overrides an existing 'script' key in changes."""
-        script_file = tmp_path / "override_update.js"
-        script_file.write_text("new update content", encoding="utf-8")
-
-        respx.patch(f"{BASE_URL}/api/now/table/sys_script_include/{SYS_ID_ART001}").mock(
-            return_value=httpx.Response(
-                200,
-                json={
-                    "result": {
-                        "sys_id": SYS_ID_ART001,
-                        "script": "new update content",
-                    }
-                },
-            )
-        )
-
-        tools = _register_and_get_tools(script_settings, script_auth_provider)
-        raw = await tools["artifact_update"](
+    async def test_token_is_single_use(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        """A preview token cannot be applied twice."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        preview_raw = await tools["artifact_create_preview"](
             artifact_type="script_include",
-            sys_id=SYS_ID_ART001,
-            changes=json.dumps({"script": "old content"}),
-            script_path=str(script_file),
+            data=json.dumps({"name": "Once"}),
         )
-        result = decode_response(raw)
+        token = decode_response(preview_raw)["data"]["token"]
 
-        assert result["status"] == "success"
-        assert result.get("warnings") is not None
-        assert any("overridden" in w.lower() for w in result["warnings"])
+        respx.post(f"{BASE_URL}/api/now/table/sys_script_include").mock(
+            return_value=httpx.Response(201, json={"result": {"sys_id": "n1", "name": "Once"}})
+        )
+
+        first = decode_response(await tools["artifact_apply"](preview_token=token))
+        assert first["status"] == "success"
+
+        second = decode_response(await tools["artifact_apply"](preview_token=token))
+        assert second["status"] == "error"
+        assert "invalid" in second["error"]["message"].lower() or "expired" in second["error"]["message"].lower()
 
     @pytest.mark.asyncio()
-    async def test_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider) -> None:
-        """Returns error when environment is production."""
-        tools = _register_and_get_tools(prod_settings, prod_auth_provider)
-
-        raw = await tools["artifact_update"](
-            artifact_type="script_include",
-            sys_id=SYS_ID_ART001,
-            changes=json.dumps({"active": "false"}),
-        )
+    async def test_invalid_token_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        """An unknown token fails with a clear error envelope."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["artifact_apply"](preview_token="not-a-real-token")
         result = decode_response(raw)
+        assert result["status"] == "error"
 
+    @pytest.mark.asyncio()
+    async def test_write_gate_recheck_on_apply(
+        self, settings: Settings, auth_provider: BasicAuthProvider, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A successful preview still fails at apply time if prod mode flips on in between."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        preview_raw = await tools["artifact_create_preview"](
+            artifact_type="script_include",
+            data=json.dumps({"name": "Block"}),
+        )
+        token = decode_response(preview_raw)["data"]["token"]
+
+        # Flip the production gate between preview and apply - writes must stop.
+        monkeypatch.setattr(type(settings), "is_production", property(lambda _self: True))
+
+        raw = await tools["artifact_apply"](preview_token=token)
+        result = decode_response(raw)
         assert result["status"] == "error"
         assert "production" in result["error"]["message"].lower()
-
-    @pytest.mark.asyncio()
-    async def test_invalid_sys_id(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """Returns error for an invalid sys_id format."""
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["artifact_update"](
-            artifact_type="script_include",
-            sys_id="not-a-valid-hex-id",
-            changes=json.dumps({"active": "false"}),
-        )
-        result = decode_response(raw)
-
-        assert result["status"] == "error"
-
-    @pytest.mark.asyncio()
-    async def test_unknown_artifact_type(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """Returns error for an unknown artifact type."""
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["artifact_update"](
-            artifact_type="nonexistent_type",
-            sys_id=SYS_ID_ART001,
-            changes=json.dumps({"name": "Test"}),
-        )
-        result = decode_response(raw)
-
-        assert result["status"] == "error"
-        assert "unknown" in result["error"]["message"].lower()
-
-    @pytest.mark.asyncio()
-    async def test_non_dict_json_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """Returns error when changes is a JSON array instead of object."""
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["artifact_update"](
-            artifact_type="script_include",
-            sys_id=SYS_ID_ART001,
-            changes=json.dumps(["not", "an", "object"]),
-        )
-        result = decode_response(raw)
-
-        assert result["status"] == "error"
-        assert "object" in result["error"]["message"].lower()
-
-    @pytest.mark.asyncio()
-    async def test_invalid_key_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """Returns error when changes contains an invalid field name."""
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["artifact_update"](
-            artifact_type="script_include",
-            sys_id=SYS_ID_ART001,
-            changes=json.dumps({"INVALID-KEY!": "value"}),
-        )
-        result = decode_response(raw)
-
-        assert result["status"] == "error"
-
-
-# -- SCRIPT_FIELD_MAP ----------------------------------------------------------
-
-
-class TestScriptFieldMap:
-    """Tests for SCRIPT_FIELD_MAP per-artifact script field routing."""
-
-    @pytest.mark.asyncio()
-    @respx.mock
-    async def test_ui_macro_writes_to_xml_field(
-        self, script_settings: Settings, script_auth_provider: BasicAuthProvider, tmp_path: Any
-    ) -> None:
-        """script_path content for ui_macro is written to the 'xml' field."""
-        script_file = tmp_path / "macro.xml"
-        script_file.write_text("<j:jelly><p>Hello</p></j:jelly>", encoding="utf-8")
-
-        route = respx.post(f"{BASE_URL}/api/now/table/sys_ui_macro").mock(
-            return_value=httpx.Response(
-                201,
-                json={"result": {"sys_id": "macro001", "name": "TestMacro", "xml": "<j:jelly><p>Hello</p></j:jelly>"}},
-            )
-        )
-
-        tools = _register_and_get_tools(script_settings, script_auth_provider)
-        raw = await tools["artifact_create"](
-            artifact_type="ui_macro",
-            data=json.dumps({"name": "TestMacro"}),
-            script_path=str(script_file),
-        )
-        result = decode_response(raw)
-
-        assert result["status"] == "success"
-        assert route.called
-        request_body = json.loads(route.calls[0].request.content)
-        assert request_body["xml"] == "<j:jelly><p>Hello</p></j:jelly>"
-        assert "script" not in request_body
-
-    @pytest.mark.asyncio()
-    @respx.mock
-    async def test_ui_page_writes_to_html_field(
-        self, script_settings: Settings, script_auth_provider: BasicAuthProvider, tmp_path: Any
-    ) -> None:
-        """script_path content for ui_page is written to the 'html' field."""
-        script_file = tmp_path / "page.html"
-        script_file.write_text("<div>Hello</div>", encoding="utf-8")
-
-        route = respx.post(f"{BASE_URL}/api/now/table/sys_ui_page").mock(
-            return_value=httpx.Response(
-                201,
-                json={"result": {"sys_id": "page001", "name": "TestPage", "html": "<div>Hello</div>"}},
-            )
-        )
-
-        tools = _register_and_get_tools(script_settings, script_auth_provider)
-        raw = await tools["artifact_create"](
-            artifact_type="ui_page",
-            data=json.dumps({"name": "TestPage"}),
-            script_path=str(script_file),
-        )
-        result = decode_response(raw)
-
-        assert result["status"] == "success"
-        assert route.called
-        request_body = json.loads(route.calls[0].request.content)
-        assert request_body["html"] == "<div>Hello</div>"
-        assert "script" not in request_body
-
-    @pytest.mark.asyncio()
-    @respx.mock
-    async def test_update_with_field_map(
-        self, script_settings: Settings, script_auth_provider: BasicAuthProvider, tmp_path: Any
-    ) -> None:
-        """artifact_update also uses SCRIPT_FIELD_MAP for the correct field."""
-        script_file = tmp_path / "macro_update.xml"
-        script_file.write_text("<updated/>", encoding="utf-8")
-
-        route = respx.patch(f"{BASE_URL}/api/now/table/sys_ui_macro/{SYS_ID_ART001}").mock(
-            return_value=httpx.Response(
-                200,
-                json={"result": {"sys_id": SYS_ID_ART001, "xml": "<updated/>"}},
-            )
-        )
-
-        tools = _register_and_get_tools(script_settings, script_auth_provider)
-        raw = await tools["artifact_update"](
-            artifact_type="ui_macro",
-            sys_id=SYS_ID_ART001,
-            changes=json.dumps({"name": "UpdatedMacro"}),
-            script_path=str(script_file),
-        )
-        result = decode_response(raw)
-
-        assert result["status"] == "success"
-        assert route.called
-        request_body = json.loads(route.calls[0].request.content)
-        assert request_body["xml"] == "<updated/>"
-        assert "script" not in request_body
-
-    @pytest.mark.asyncio()
-    @respx.mock
-    async def test_ui_policy_writes_to_script_true_field(
-        self, script_settings: Settings, script_auth_provider: BasicAuthProvider, tmp_path: Any
-    ) -> None:
-        """script_path content for ui_policy is written to the 'script_true' field."""
-        script_file = tmp_path / "policy.js"
-        script_file.write_text("g_form.setVisible('field', true);", encoding="utf-8")
-
-        route = respx.post(f"{BASE_URL}/api/now/table/sys_ui_policy").mock(
-            return_value=httpx.Response(
-                201,
-                json={
-                    "result": {
-                        "sys_id": "pol001",
-                        "name": "TestPolicy",
-                        "script_true": "g_form.setVisible('field', true);",
-                    }
-                },
-            )
-        )
-
-        tools = _register_and_get_tools(script_settings, script_auth_provider)
-        raw = await tools["artifact_create"](
-            artifact_type="ui_policy",
-            data=json.dumps({"name": "TestPolicy"}),
-            script_path=str(script_file),
-        )
-        result = decode_response(raw)
-
-        assert result["status"] == "success"
-        assert route.called
-        request_body = json.loads(route.calls[0].request.content)
-        assert request_body["script_true"] == "g_form.setVisible('field', true);"
-        assert "script" not in request_body
-
-    @pytest.mark.asyncio()
-    @respx.mock
-    async def test_widget_writes_to_client_script_field(
-        self, script_settings: Settings, script_auth_provider: BasicAuthProvider, tmp_path: Any
-    ) -> None:
-        """script_path content for widget is written to the 'client_script' field."""
-        script_file = tmp_path / "widget.js"
-        script_file.write_text("function($scope) { $scope.data.ready = true; }", encoding="utf-8")
-
-        route = respx.post(f"{BASE_URL}/api/now/table/sp_widget").mock(
-            return_value=httpx.Response(
-                201,
-                json={"result": {"sys_id": "wid001", "name": "TestWidget"}},
-            )
-        )
-
-        tools = _register_and_get_tools(script_settings, script_auth_provider)
-        raw = await tools["artifact_create"](
-            artifact_type="widget",
-            data=json.dumps({"name": "TestWidget"}),
-            script_path=str(script_file),
-        )
-        result = decode_response(raw)
-
-        assert result["status"] == "success"
-        assert route.called
-        request_body = json.loads(route.calls[0].request.content)
-        assert request_body["client_script"] == "function($scope) { $scope.data.ready = true; }"
-        assert "script" not in request_body
-
-    @pytest.mark.asyncio()
-    @respx.mock
-    async def test_scripted_rest_resource_writes_to_operation_script_field(
-        self, script_settings: Settings, script_auth_provider: BasicAuthProvider, tmp_path: Any
-    ) -> None:
-        """script_path content for scripted_rest_resource is written to the 'operation_script' field."""
-        script_file = tmp_path / "rest_op.js"
-        script_file.write_text("(function process(request, response) {})(request, response);", encoding="utf-8")
-
-        route = respx.post(f"{BASE_URL}/api/now/table/sys_ws_operation").mock(
-            return_value=httpx.Response(
-                201,
-                json={"result": {"sys_id": "rest001", "name": "TestRestOp"}},
-            )
-        )
-
-        tools = _register_and_get_tools(script_settings, script_auth_provider)
-        raw = await tools["artifact_create"](
-            artifact_type="scripted_rest_resource",
-            data=json.dumps({"name": "TestRestOp"}),
-            script_path=str(script_file),
-        )
-        result = decode_response(raw)
-
-        assert result["status"] == "success"
-        assert route.called
-        request_body = json.loads(route.calls[0].request.content)
-        assert request_body["operation_script"] == "(function process(request, response) {})(request, response);"
-        assert "script" not in request_body
-
-    @pytest.mark.asyncio()
-    @respx.mock
-    async def test_notification_script_writes_to_advanced_condition_field(
-        self, script_settings: Settings, script_auth_provider: BasicAuthProvider, tmp_path: Any
-    ) -> None:
-        """script_path content for notification_script is written to the 'advanced_condition' field."""
-        script_file = tmp_path / "notif.js"
-        script_file.write_text("current.priority == 1", encoding="utf-8")
-
-        route = respx.patch(f"{BASE_URL}/api/now/table/sysevent_email_action/{SYS_ID_ART001}").mock(
-            return_value=httpx.Response(
-                200,
-                json={"result": {"sys_id": SYS_ID_ART001, "name": "TestNotif"}},
-            )
-        )
-
-        tools = _register_and_get_tools(script_settings, script_auth_provider)
-        raw = await tools["artifact_update"](
-            artifact_type="notification_script",
-            sys_id=SYS_ID_ART001,
-            changes=json.dumps({"name": "TestNotif"}),
-            script_path=str(script_file),
-        )
-        result = decode_response(raw)
-
-        assert result["status"] == "success"
-        assert route.called
-        request_body = json.loads(route.calls[0].request.content)
-        assert request_body["advanced_condition"] == "current.priority == 1"
-        assert "script" not in request_body
 
 
 # -- Tool registration ---------------------------------------------------------
@@ -838,11 +633,23 @@ class TestToolRegistration:
     """Tests for tool registration and TOOL_NAMES constant."""
 
     def test_tool_names_constant(self) -> None:
-        """TOOL_NAMES contains the expected tool names."""
-        assert TOOL_NAMES == ["artifact_create", "artifact_update"]
+        """TOOL_NAMES contains exactly the preview/apply trio - no direct-write names."""
+        assert TOOL_NAMES == [
+            "artifact_create_preview",
+            "artifact_update_preview",
+            "artifact_apply",
+        ]
 
     def test_all_tools_registered(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """All TOOL_NAMES are registered in the MCP tool map."""
         tools = _register_and_get_tools(settings, auth_provider)
         for name in TOOL_NAMES:
             assert name in tools, f"Tool '{name}' not registered"
+
+    def test_legacy_direct_write_tools_not_registered(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """The CRIT-1 direct-write tools must be gone from the registry."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        assert "artifact_create" not in tools
+        assert "artifact_update" not in tools

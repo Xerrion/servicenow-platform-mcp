@@ -1133,6 +1133,37 @@ class TestValidateSysId:
         with pytest.raises(ValueError, match="Invalid sys_id"):
             validate_sys_id("")
 
+    @pytest.mark.parametrize(
+        "attack",
+        [
+            "../../etc/passwd",
+            "%2e%2e%2f",
+            "a" * 31 + "/",
+            "/" + "a" * 31,
+            "a" * 16 + "/" + "a" * 15,
+            "a" * 32 + "/../other",
+            "a" * 32 + "?sysparm_fields=password",
+            "a" * 32 + "#fragment",
+            "a" * 32 + "&admin=true",
+            "a" * 32 + "\x00",
+            "a" * 32 + " ",
+            " " + "a" * 32,
+            "a" * 32 + "\n",
+        ],
+    )
+    def test_rejects_path_traversal_and_smuggling(self, attack: str) -> None:
+        """validate_sys_id must reject any string containing URL/path metacharacters.
+
+        The 32-hex regex is the single chokepoint that guarantees sys_id values
+        can be safely interpolated into REST URL paths. This test asserts the
+        regex anchors (``^...$``) and character class hold against the most
+        common injection shapes: directory traversal, URL-encoded traversal,
+        query-string smuggling, fragment appending, null bytes, and whitespace
+        padding.
+        """
+        with pytest.raises(ValueError, match="Invalid sys_id"):
+            validate_sys_id(attack)
+
 
 # ---------------------------------------------------------------------------
 # resolve_query_token - table binding enforcement

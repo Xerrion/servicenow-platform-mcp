@@ -99,7 +99,7 @@ def validate_identifier(name: str | dict[str, Any] | None) -> None:
     """
     if not isinstance(name, str):
         name = resolve_ref_value(name)
-    if not _IDENTIFIER_RE.match(name):
+    if not _IDENTIFIER_RE.fullmatch(name):
         raise ValueError(
             f"Invalid identifier: {name!r}. "
             "Only lowercase alphanumeric characters, underscores, and dot-walked segments are allowed."
@@ -110,7 +110,7 @@ def validate_sys_id(value: str) -> None:
     """Raise ValueError if *value* is not a valid ServiceNow sys_id (32-char hex)."""
     if not isinstance(value, str):
         value = resolve_ref_value(value)
-    if not _SYS_ID_RE.match(value):
+    if not _SYS_ID_RE.fullmatch(value):
         raise ValueError(f"Invalid sys_id: {value!r}. Expected a 32-character lowercase hexadecimal string.")
 
 

@@ -107,19 +107,19 @@ class TestScCatalogGet:
     @respx.mock
     async def test_get_catalog(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Should fetch a specific catalog by sys_id."""
-        respx.get(f"{SC_BASE}/catalogs/cat123").mock(
+        respx.get(f"{SC_BASE}/catalogs/ca7ca7ca7ca7ca7ca7ca7ca7ca7ca7ca").mock(
             return_value=Response(
                 200,
-                json={"result": {"sys_id": "cat123", "title": "Service Catalog"}},
+                json={"result": {"sys_id": "ca7ca7ca7ca7ca7ca7ca7ca7ca7ca7ca", "title": "Service Catalog"}},
             )
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        result = await tools["sc_catalog_get"](sys_id="cat123")
+        result = await tools["sc_catalog_get"](sys_id="ca7ca7ca7ca7ca7ca7ca7ca7ca7ca7ca")
         data = decode_response(result)
 
         assert data["status"] == "success"
-        assert data["data"]["sys_id"] == "cat123"
+        assert data["data"]["sys_id"] == "ca7ca7ca7ca7ca7ca7ca7ca7ca7ca7ca"
         assert data["data"]["title"] == "Service Catalog"
 
 
@@ -133,7 +133,7 @@ class TestScCategoriesList:
     @respx.mock
     async def test_list_categories(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Should list categories for a catalog."""
-        respx.get(f"{SC_BASE}/catalogs/cat123/categories").mock(
+        respx.get(f"{SC_BASE}/catalogs/ca7ca7ca7ca7ca7ca7ca7ca7ca7ca7ca/categories").mock(
             return_value=Response(
                 200,
                 json={
@@ -146,7 +146,7 @@ class TestScCategoriesList:
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        result = await tools["sc_categories_list"](catalog_sys_id="cat123")
+        result = await tools["sc_categories_list"](catalog_sys_id="ca7ca7ca7ca7ca7ca7ca7ca7ca7ca7ca")
         data = decode_response(result)
 
         assert data["status"] == "success"
@@ -157,10 +157,12 @@ class TestScCategoriesList:
     @respx.mock
     async def test_list_categories_with_pagination(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Should pass limit and offset parameters."""
-        respx.get(f"{SC_BASE}/catalogs/cat123/categories").mock(return_value=Response(200, json={"result": []}))
+        respx.get(f"{SC_BASE}/catalogs/ca7ca7ca7ca7ca7ca7ca7ca7ca7ca7ca/categories").mock(
+            return_value=Response(200, json={"result": []})
+        )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        await tools["sc_categories_list"](catalog_sys_id="cat123", limit=10, offset=5)
+        await tools["sc_categories_list"](catalog_sys_id="ca7ca7ca7ca7ca7ca7ca7ca7ca7ca7ca", limit=10, offset=5)
 
         request = respx.calls.last.request
         url = str(request.url)
@@ -171,10 +173,12 @@ class TestScCategoriesList:
     @respx.mock
     async def test_list_categories_top_level_only(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Should pass top_level_only parameter."""
-        respx.get(f"{SC_BASE}/catalogs/cat123/categories").mock(return_value=Response(200, json={"result": []}))
+        respx.get(f"{SC_BASE}/catalogs/ca7ca7ca7ca7ca7ca7ca7ca7ca7ca7ca/categories").mock(
+            return_value=Response(200, json={"result": []})
+        )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        await tools["sc_categories_list"](catalog_sys_id="cat123", top_level_only=True)
+        await tools["sc_categories_list"](catalog_sys_id="ca7ca7ca7ca7ca7ca7ca7ca7ca7ca7ca", top_level_only=True)
 
         request = respx.calls.last.request
         assert "sysparm_top_level_only=true" in str(request.url)
@@ -190,19 +194,19 @@ class TestScCategoryGet:
     @respx.mock
     async def test_get_category(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Should fetch a specific category by sys_id."""
-        respx.get(f"{SC_BASE}/categories/categ123").mock(
+        respx.get(f"{SC_BASE}/categories/ca7e00ca7e00ca7e00ca7e00ca7e00ca").mock(
             return_value=Response(
                 200,
-                json={"result": {"sys_id": "categ123", "title": "Hardware"}},
+                json={"result": {"sys_id": "ca7e00ca7e00ca7e00ca7e00ca7e00ca", "title": "Hardware"}},
             )
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        result = await tools["sc_category_get"](sys_id="categ123")
+        result = await tools["sc_category_get"](sys_id="ca7e00ca7e00ca7e00ca7e00ca7e00ca")
         data = decode_response(result)
 
         assert data["status"] == "success"
-        assert data["data"]["sys_id"] == "categ123"
+        assert data["data"]["sys_id"] == "ca7e00ca7e00ca7e00ca7e00ca7e00ca"
         assert data["data"]["title"] == "Hardware"
 
 
@@ -245,7 +249,7 @@ class TestScItemsList:
         tools = _register_and_get_tools(settings, auth_provider)
         await tools["sc_items_list"](
             text="laptop",
-            catalog="cat123",
+            catalog="ca7ca7ca7ca7ca7ca7ca7ca7ca7ca7ca",
             category="categ456",
             limit=10,
             offset=5,
@@ -254,7 +258,7 @@ class TestScItemsList:
         request = respx.calls.last.request
         url = str(request.url)
         assert "sysparm_text=laptop" in url
-        assert "sysparm_catalog=cat123" in url
+        assert "sysparm_catalog=ca7ca7ca7ca7ca7ca7ca7ca7ca7ca7ca" in url
         assert "sysparm_category=categ456" in url
         assert "sysparm_limit=10" in url
         assert "sysparm_offset=5" in url
@@ -270,12 +274,12 @@ class TestScItemGet:
     @respx.mock
     async def test_get_item(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Should fetch a specific catalog item by sys_id."""
-        respx.get(f"{SC_BASE}/items/item123").mock(
+        respx.get(f"{SC_BASE}/items/17e417e417e417e417e417e417e417e4").mock(
             return_value=Response(
                 200,
                 json={
                     "result": {
-                        "sys_id": "item123",
+                        "sys_id": "17e417e417e417e417e417e417e417e4",
                         "name": "Laptop",
                         "price": "$1200",
                     }
@@ -284,11 +288,11 @@ class TestScItemGet:
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        result = await tools["sc_item_get"](sys_id="item123")
+        result = await tools["sc_item_get"](sys_id="17e417e417e417e417e417e417e417e4")
         data = decode_response(result)
 
         assert data["status"] == "success"
-        assert data["data"]["sys_id"] == "item123"
+        assert data["data"]["sys_id"] == "17e417e417e417e417e417e417e417e4"
         assert data["data"]["name"] == "Laptop"
 
 
@@ -302,7 +306,7 @@ class TestScItemVariables:
     @respx.mock
     async def test_get_variables(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Should fetch variables for a catalog item."""
-        respx.get(f"{SC_BASE}/items/item123/variables").mock(
+        respx.get(f"{SC_BASE}/items/17e417e417e417e417e417e417e417e4/variables").mock(
             return_value=Response(
                 200,
                 json={
@@ -323,7 +327,7 @@ class TestScItemVariables:
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        result = await tools["sc_item_variables"](sys_id="item123")
+        result = await tools["sc_item_variables"](sys_id="17e417e417e417e417e417e417e417e4")
         data = decode_response(result)
 
         assert data["status"] == "success"
@@ -344,7 +348,7 @@ class TestScOrderNow:
         self, _mock_write_gate: Any, settings: Settings, auth_provider: BasicAuthProvider
     ) -> None:
         """Should order an item without variables."""
-        respx.post(f"{SC_BASE}/items/item123/order_now").mock(
+        respx.post(f"{SC_BASE}/items/17e417e417e417e417e417e417e417e4/order_now").mock(
             return_value=Response(
                 200,
                 json={"result": {"sys_id": "req123", "number": "REQ0010001"}},
@@ -352,7 +356,7 @@ class TestScOrderNow:
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        result = await tools["sc_order_now"](item_sys_id="item123")
+        result = await tools["sc_order_now"](item_sys_id="17e417e417e417e417e417e417e417e4")
         data = decode_response(result)
 
         assert data["status"] == "success"
@@ -365,7 +369,7 @@ class TestScOrderNow:
         self, _mock_write_gate: Any, settings: Settings, auth_provider: BasicAuthProvider
     ) -> None:
         """Should order an item with variables JSON."""
-        respx.post(f"{SC_BASE}/items/item123/order_now").mock(
+        respx.post(f"{SC_BASE}/items/17e417e417e417e417e417e417e417e4/order_now").mock(
             return_value=Response(
                 200,
                 json={"result": {"sys_id": "req123", "number": "REQ0010001"}},
@@ -374,7 +378,7 @@ class TestScOrderNow:
 
         tools = _register_and_get_tools(settings, auth_provider)
         result = await tools["sc_order_now"](
-            item_sys_id="item123",
+            item_sys_id="17e417e417e417e417e417e417e417e4",
             variables='{"urgency": "1"}',
         )
         data = decode_response(result)
@@ -388,7 +392,7 @@ class TestScOrderNow:
     ) -> None:
         """Should block ordering in production."""
         tools = _register_and_get_tools(prod_settings, prod_auth_provider)
-        result = await tools["sc_order_now"](item_sys_id="item123")
+        result = await tools["sc_order_now"](item_sys_id="17e417e417e417e417e417e417e417e4")
         data = decode_response(result)
 
         assert data["status"] == "error"
@@ -408,15 +412,15 @@ class TestScAddToCart:
         self, _mock_write_gate: Any, settings: Settings, auth_provider: BasicAuthProvider
     ) -> None:
         """Should add item to cart without variables."""
-        respx.post(f"{SC_BASE}/items/item123/add_to_cart").mock(
+        respx.post(f"{SC_BASE}/items/17e417e417e417e417e417e417e417e4/add_to_cart").mock(
             return_value=Response(
                 200,
-                json={"result": {"cart_item_id": "ci123", "item_id": "item123"}},
+                json={"result": {"cart_item_id": "ci123", "item_id": "17e417e417e417e417e417e417e417e4"}},
             )
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        result = await tools["sc_add_to_cart"](item_sys_id="item123")
+        result = await tools["sc_add_to_cart"](item_sys_id="17e417e417e417e417e417e417e417e4")
         data = decode_response(result)
 
         assert data["status"] == "success"
@@ -429,16 +433,16 @@ class TestScAddToCart:
         self, _mock_write_gate: Any, settings: Settings, auth_provider: BasicAuthProvider
     ) -> None:
         """Should add item to cart with variables JSON."""
-        respx.post(f"{SC_BASE}/items/item123/add_to_cart").mock(
+        respx.post(f"{SC_BASE}/items/17e417e417e417e417e417e417e417e4/add_to_cart").mock(
             return_value=Response(
                 200,
-                json={"result": {"cart_item_id": "ci123", "item_id": "item123"}},
+                json={"result": {"cart_item_id": "ci123", "item_id": "17e417e417e417e417e417e417e417e4"}},
             )
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
         result = await tools["sc_add_to_cart"](
-            item_sys_id="item123",
+            item_sys_id="17e417e417e417e417e417e417e417e4",
             variables='{"quantity": "2"}',
         )
         data = decode_response(result)
@@ -452,7 +456,7 @@ class TestScAddToCart:
     ) -> None:
         """Should block add-to-cart in production."""
         tools = _register_and_get_tools(prod_settings, prod_auth_provider)
-        result = await tools["sc_add_to_cart"](item_sys_id="item123")
+        result = await tools["sc_add_to_cart"](item_sys_id="17e417e417e417e417e417e417e417e4")
         data = decode_response(result)
 
         assert data["status"] == "error"

@@ -1615,7 +1615,7 @@ class TestATFCloudRunner404:
 
         async with ServiceNowClient(settings, auth_provider) as client:
             with pytest.raises(NotFoundError, match="ATF Cloud Runner"):
-                await client.atf_run("test_sys_id_123")
+                await client.atf_run("a" * 32)
 
     @pytest.mark.asyncio()
     @respx.mock
@@ -1630,7 +1630,7 @@ class TestATFCloudRunner404:
 
         async with ServiceNowClient(settings, auth_provider) as client:
             with pytest.raises(NotFoundError, match="ATF Cloud Runner"):
-                await client.atf_progress("snboq_id_123")
+                await client.atf_progress("b" * 32)
 
     @pytest.mark.asyncio()
     @respx.mock
@@ -1645,4 +1645,141 @@ class TestATFCloudRunner404:
 
         async with ServiceNowClient(settings, auth_provider) as client:
             with pytest.raises(NotFoundError, match="ATF Cloud Runner"):
-                await client.atf_cancel("snboq_id_123")
+                await client.atf_cancel("c" * 32)
+
+
+class TestServiceCatalogSysIdValidation:
+    """Assert sc_* methods reject malformed sys_ids before issuing any HTTP.
+
+    The service_catalog endpoints interpolate sys_id values directly into URL
+    paths (e.g. /api/sn_sc/servicecatalog/items/{sys_id}/order_now). Without
+    ``validate_sys_id`` a caller could inject path segments, query strings,
+    or URL-encoded traversal sequences. Validation must happen before
+    ``_sc_url()`` builds the URL.
+    """
+
+    @pytest.mark.parametrize(
+        "bad_sys_id",
+        [
+            "../../etc/passwd",
+            "%2e%2e%2f",
+            "a" * 31,
+            "a" * 33,
+            "a" * 16 + "/" + "a" * 15,
+            "a" * 32 + "/../other",
+            "a" * 32 + "?sysparm_fields=password",
+            "XYZ" * 11,
+            "",
+        ],
+    )
+    @pytest.mark.asyncio()
+    async def test_sc_get_catalog_rejects_malformed(
+        self,
+        settings: Settings,
+        auth_provider: BasicAuthProvider,
+        bad_sys_id: str,
+    ) -> None:
+        from servicenow_mcp.client import ServiceNowClient
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            with pytest.raises(ValueError, match="Invalid sys_id"):
+                await client.sc_get_catalog(bad_sys_id)
+
+    @pytest.mark.asyncio()
+    async def test_sc_get_catalog_categories_rejects_malformed(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        from servicenow_mcp.client import ServiceNowClient
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            with pytest.raises(ValueError, match="Invalid sys_id"):
+                await client.sc_get_catalog_categories("a" * 32 + "/../other")
+
+    @pytest.mark.asyncio()
+    async def test_sc_get_category_rejects_malformed(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        from servicenow_mcp.client import ServiceNowClient
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            with pytest.raises(ValueError, match="Invalid sys_id"):
+                await client.sc_get_category("../../etc/passwd")
+
+    @pytest.mark.asyncio()
+    async def test_sc_get_item_rejects_malformed(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        from servicenow_mcp.client import ServiceNowClient
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            with pytest.raises(ValueError, match="Invalid sys_id"):
+                await client.sc_get_item("%2e%2e%2f")
+
+    @pytest.mark.asyncio()
+    async def test_sc_get_item_variables_rejects_malformed(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        from servicenow_mcp.client import ServiceNowClient
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            with pytest.raises(ValueError, match="Invalid sys_id"):
+                await client.sc_get_item_variables("a" * 31)
+
+    @pytest.mark.asyncio()
+    async def test_sc_order_now_rejects_malformed(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        from servicenow_mcp.client import ServiceNowClient
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            with pytest.raises(ValueError, match="Invalid sys_id"):
+                await client.sc_order_now("a" * 32 + "?sysparm_fields=password")
+
+    @pytest.mark.asyncio()
+    async def test_sc_add_to_cart_rejects_malformed(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        from servicenow_mcp.client import ServiceNowClient
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            with pytest.raises(ValueError, match="Invalid sys_id"):
+                await client.sc_add_to_cart("XYZ" * 11)
+
+
+class TestATFSysIdValidation:
+    """Assert atf_* methods reject malformed sys_ids before issuing any HTTP.
+
+    ``snboqId`` is a ServiceNow queue-execution sys_id and must conform to
+    the 32-hex contract; accepting arbitrary strings would allow a caller
+    to smuggle arbitrary values into ATF runner query parameters or bodies.
+    """
+
+    @pytest.mark.asyncio()
+    async def test_atf_run_rejects_malformed_test_id(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        from servicenow_mcp.client import ServiceNowClient
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            with pytest.raises(ValueError, match="Invalid sys_id"):
+                await client.atf_run("../../etc/passwd")
+
+    @pytest.mark.asyncio()
+    async def test_atf_run_rejects_malformed_suite_id(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        from servicenow_mcp.client import ServiceNowClient
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            with pytest.raises(ValueError, match="Invalid sys_id"):
+                await client.atf_run("a" * 32 + "/../other", is_suite=True)
+
+    @pytest.mark.asyncio()
+    async def test_atf_progress_rejects_malformed(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        from servicenow_mcp.client import ServiceNowClient
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            with pytest.raises(ValueError, match="Invalid sys_id"):
+                await client.atf_progress("a" * 32 + "?admin=true")
+
+    @pytest.mark.asyncio()
+    async def test_atf_cancel_rejects_malformed(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        from servicenow_mcp.client import ServiceNowClient
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            with pytest.raises(ValueError, match="Invalid sys_id"):
+                await client.atf_cancel("XYZ" * 11)

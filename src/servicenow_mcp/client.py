@@ -816,6 +816,7 @@ class ServiceNowClient:
 
     async def sc_get_catalog(self, sys_id: str) -> Any:
         """Retrieve details of a specific catalog."""
+        validate_sys_id(sys_id)
         http = self._ensure_client()
         response = await http.get(
             self._sc_url("catalogs", sys_id),
@@ -832,6 +833,7 @@ class ServiceNowClient:
         top_level_only: bool = False,
     ) -> Any:
         """Retrieve categories for a specific catalog."""
+        validate_sys_id(catalog_sys_id)
         http = self._ensure_client()
         params: dict[str, str] = {}
         if limit is not None:
@@ -851,6 +853,7 @@ class ServiceNowClient:
 
     async def sc_get_category(self, sys_id: str) -> Any:
         """Retrieve details of a specific category."""
+        validate_sys_id(sys_id)
         http = self._ensure_client()
         response = await http.get(
             self._sc_url("categories", sys_id),
@@ -889,6 +892,7 @@ class ServiceNowClient:
 
     async def sc_get_item(self, sys_id: str) -> Any:
         """Retrieve details of a specific catalog item."""
+        validate_sys_id(sys_id)
         http = self._ensure_client()
         response = await http.get(
             self._sc_url("items", sys_id),
@@ -899,6 +903,7 @@ class ServiceNowClient:
 
     async def sc_get_item_variables(self, sys_id: str) -> Any:
         """Retrieve variables for a specific catalog item."""
+        validate_sys_id(sys_id)
         http = self._ensure_client()
         response = await http.get(
             self._sc_url("items", sys_id, "variables"),
@@ -914,6 +919,7 @@ class ServiceNowClient:
             item_sys_id: The sys_id of the catalog item.
             variables: Variable name-value pairs for the item.
         """
+        validate_sys_id(item_sys_id)
         http = self._ensure_client()
         body: dict[str, Any] = {}
         if variables:
@@ -935,6 +941,7 @@ class ServiceNowClient:
             item_sys_id: The sys_id of the catalog item.
             variables: Variable name-value pairs for the item.
         """
+        validate_sys_id(item_sys_id)
         http = self._ensure_client()
         body: dict[str, Any] = {}
         if variables:
@@ -997,6 +1004,7 @@ class ServiceNowClient:
         Returns:
             Response dict with at minimum a "snboqId" for tracking the execution.
         """
+        validate_sys_id(test_or_suite_id)
         http = self._ensure_client()
         data = {"suiteId" if is_suite else "testId": test_or_suite_id}
 
@@ -1025,6 +1033,7 @@ class ServiceNowClient:
         Returns:
             Progress dict with fields like "progress" and "state".
         """
+        validate_sys_id(snboq_id)
         http = self._ensure_client()
         params: dict[str, str] = {"snboqId": snboq_id}
 
@@ -1053,6 +1062,7 @@ class ServiceNowClient:
         Returns:
             Result dict confirming cancellation.
         """
+        validate_sys_id(snboq_id)
         http = self._ensure_client()
         data = {"snboqId": snboq_id}
 

@@ -534,7 +534,9 @@ class TestDebugFieldMutationStory:
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["debug_field_mutation_story"](table="incident", sys_id="6d55028a7049dbf2f4275991d6fc81cf", field="state")
+        raw = await tools["debug_field_mutation_story"](
+            table="incident", sys_id="6d55028a7049dbf2f4275991d6fc81cf", field="state"
+        )
         result = decode_response(raw)
 
         assert result["status"] == "success"
@@ -552,7 +554,9 @@ class TestDebugFieldMutationStory:
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["debug_field_mutation_story"](table="incident", sys_id="6d55028a7049dbf2f4275991d6fc81cf", field="state")
+        raw = await tools["debug_field_mutation_story"](
+            table="incident", sys_id="6d55028a7049dbf2f4275991d6fc81cf", field="state"
+        )
         result = decode_response(raw)
 
         assert result["status"] == "success"

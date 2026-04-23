@@ -211,7 +211,9 @@ class TestMetaGetArtifact:
         )
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["meta_get_artifact"](artifact_type="business_rule", sys_id="8baeabad365de895ab58ec0d6dd2c1e2", include_script_body=True)
+        raw = await tools["meta_get_artifact"](
+            artifact_type="business_rule", sys_id="8baeabad365de895ab58ec0d6dd2c1e2", include_script_body=True
+        )
         result = decode_response(raw)
 
         assert result["status"] == "success"
@@ -520,7 +522,11 @@ class TestMetadataHelpers:
         cs_result: dict[str, Any] = {
             "search_results": [
                 {"className": "sys_script", "sys_id": "allowed1", "name": "Allowed BR"},
-                {"className": "sys_user_has_password", "sys_id": "40cf839e914805ac5cccdc87f01a5876", "name": "Denied Record"},
+                {
+                    "className": "sys_user_has_password",
+                    "sys_id": "40cf839e914805ac5cccdc87f01a5876",
+                    "name": "Denied Record",
+                },
             ],
         }
 
@@ -545,7 +551,13 @@ class TestMetadataHelpers:
         ) -> dict[str, Any]:
             if table == "sys_script":
                 return {
-                    "records": [{"sys_id": "3ff45714ea4c3069586dde97f40b9527", "name": "Found BR", "sys_class_name": "sys_script"}],
+                    "records": [
+                        {
+                            "sys_id": "3ff45714ea4c3069586dde97f40b9527",
+                            "name": "Found BR",
+                            "sys_class_name": "sys_script",
+                        }
+                    ],
                     "count": 1,
                 }
             raise RuntimeError(f"HTTP error for table {table}")
@@ -564,7 +576,9 @@ class TestMetadataHelpers:
         mock_client = AsyncMock()
         mock_client.query_records = AsyncMock(
             return_value={
-                "records": [{"sys_id": "3ff45714ea4c3069586dde97f40b9527", "name": "Found", "sys_class_name": "sys_script"}],
+                "records": [
+                    {"sys_id": "3ff45714ea4c3069586dde97f40b9527", "name": "Found", "sys_class_name": "sys_script"}
+                ],
                 "count": 1,
             }
         )

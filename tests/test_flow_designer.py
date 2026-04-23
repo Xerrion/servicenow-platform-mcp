@@ -388,7 +388,9 @@ class TestFlowMap:
     @respx.mock
     async def test_flow_map_success(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Uses latest_snapshot when child records are linked to the newest snapshot."""
-        self._mock_parent_flow_lookup("8eecae1b3a5230387ff5f06a91b9fbe9", latest_snapshot="b6069c7ab2fac9d79864075defa6176c")
+        self._mock_parent_flow_lookup(
+            "8eecae1b3a5230387ff5f06a91b9fbe9", latest_snapshot="b6069c7ab2fac9d79864075defa6176c"
+        )
         action_route = respx.get(f"{BASE_URL}/api/now/table/sys_hub_action_instance").mock(
             return_value=httpx.Response(
                 200,
@@ -450,7 +452,9 @@ class TestFlowMap:
     @respx.mock
     async def test_flow_map_only_actions(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Falls back to master_snapshot when latest_snapshot is missing."""
-        self._mock_parent_flow_lookup("06bed3558e7fd1e9359964cedb4dc271", master_snapshot="9b250a88678953224d007032837d3d92")
+        self._mock_parent_flow_lookup(
+            "06bed3558e7fd1e9359964cedb4dc271", master_snapshot="9b250a88678953224d007032837d3d92"
+        )
         action_route = respx.get(f"{BASE_URL}/api/now/table/sys_hub_action_instance").mock(
             return_value=httpx.Response(
                 200,
@@ -487,7 +491,9 @@ class TestFlowMap:
     @respx.mock
     async def test_flow_map_only_logic(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Flow with logic blocks but no actions."""
-        self._mock_parent_flow_lookup("f05a9e989019b2cd934dc2ba0c31a1d2", latest_snapshot="9095d45621112c8881812276e734f504")
+        self._mock_parent_flow_lookup(
+            "f05a9e989019b2cd934dc2ba0c31a1d2", latest_snapshot="9095d45621112c8881812276e734f504"
+        )
         respx.get(f"{BASE_URL}/api/now/table/sys_hub_action_instance").mock(
             return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
         )
@@ -577,7 +583,9 @@ class TestFlowActionDetail:
                 },
             )
 
-        respx.get(f"{BASE_URL}/api/now/table/sys_hub_action_instance/636f282a5dd34466ab9e91c1706b1998").mock(side_effect=_instance_side_effect)
+        respx.get(f"{BASE_URL}/api/now/table/sys_hub_action_instance/636f282a5dd34466ab9e91c1706b1998").mock(
+            side_effect=_instance_side_effect
+        )
         respx.get(f"{BASE_URL}/api/now/table/sys_hub_action_type_definition/8f60c39c7a0b23a9865bf30e8363153f").mock(
             return_value=httpx.Response(
                 200,
@@ -638,7 +646,9 @@ class TestFlowActionDetail:
                 },
             )
 
-        respx.get(f"{BASE_URL}/api/now/table/sys_hub_action_instance/bff4b2197387890d8565ff7bba7374fe").mock(side_effect=_nodef_side_effect)
+        respx.get(f"{BASE_URL}/api/now/table/sys_hub_action_instance/bff4b2197387890d8565ff7bba7374fe").mock(
+            side_effect=_nodef_side_effect
+        )
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["flow_action_detail"](action_instance_sys_id="bff4b2197387890d8565ff7bba7374fe")
@@ -814,7 +824,11 @@ class TestFlowExecutionList:
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["flow_execution_list"](flow_sys_id="8eecae1b3a5230387ff5f06a91b9fbe9", source_record="6d55028a7049dbf2f4275991d6fc81cf", state="COMPLETE")
+        raw = await tools["flow_execution_list"](
+            flow_sys_id="8eecae1b3a5230387ff5f06a91b9fbe9",
+            source_record="6d55028a7049dbf2f4275991d6fc81cf",
+            state="COMPLETE",
+        )
         result = decode_response(raw)
 
         assert result["status"] == "success"
@@ -1086,7 +1100,11 @@ class TestFlowSnapshotList:
 class TestWorkflowMigrationAnalysis:
     """Tests for the workflow_migration_analysis tool."""
 
-    def _mock_version(self, sys_id: str = "e35fec24db6d035c7a6fa33e76847858", name: str = "Incident WF 5a6df720540c20d95d530d3fd6885511") -> None:
+    def _mock_version(
+        self,
+        sys_id: str = "e35fec24db6d035c7a6fa33e76847858",
+        name: str = "Incident WF 5a6df720540c20d95d530d3fd6885511",
+    ) -> None:
         """Mock a wf_workflow_version GET."""
         respx.get(f"{BASE_URL}/api/now/table/wf_workflow_version/{sys_id}").mock(
             return_value=httpx.Response(
@@ -1813,7 +1831,10 @@ class TestFlowDesignerDictReferenceFields:
         self, settings: Settings, auth_provider: BasicAuthProvider
     ) -> None:
         """flow_action_detail handles action_type returned as a dict reference."""
-        dict_action_type = {"display_value": "13619c05f5ecfe7907f8a0677a47a1d2", "link": "https://test.service-now.com/api/..."}
+        dict_action_type = {
+            "display_value": "13619c05f5ecfe7907f8a0677a47a1d2",
+            "link": "https://test.service-now.com/api/...",
+        }
 
         respx.get(f"{BASE_URL}/api/now/table/sys_hub_action_instance/ee62d9d23f50afc16c59cd7bf652888b").mock(
             side_effect=[
@@ -1868,7 +1889,13 @@ class TestFlowDesignerDictReferenceFields:
         respx.get(f"{BASE_URL}/api/now/table/wf_workflow_version/ed05ba708c14a19d2afe245830c0f1e5").mock(
             return_value=httpx.Response(
                 200,
-                json={"result": {"sys_id": "ed05ba708c14a19d2afe245830c0f1e5", "name": "Migration WF", "table": "incident"}},
+                json={
+                    "result": {
+                        "sys_id": "ed05ba708c14a19d2afe245830c0f1e5",
+                        "name": "Migration WF",
+                        "table": "incident",
+                    }
+                },
             )
         )
         respx.get(f"{BASE_URL}/api/now/table/wf_activity").mock(
@@ -1916,9 +1943,15 @@ class TestFlowDesignerDictReferenceFields:
                     "result": [
                         {
                             "sys_id": "a5d23ceaba84465f5cebeb9a4c0c4836",
-                            "from": {"display_value": "f8a6be5668c8de0f81a1b30a4cf8face", "link": "https://test.service-now.com/api/..."},
+                            "from": {
+                                "display_value": "f8a6be5668c8de0f81a1b30a4cf8face",
+                                "link": "https://test.service-now.com/api/...",
+                            },
                             "from.name": "Start",
-                            "to": {"display_value": "27ebb39863c212df73df6e9ce50b58a4", "link": "https://test.service-now.com/api/..."},
+                            "to": {
+                                "display_value": "27ebb39863c212df73df6e9ce50b58a4",
+                                "link": "https://test.service-now.com/api/...",
+                            },
                             "to.name": "End",
                             "condition": "",
                         }
@@ -1936,7 +1969,10 @@ class TestFlowDesignerDictReferenceFields:
                             "sys_id": "var_dict",
                             "variable": "script",
                             "value": "gs.log('test');",
-                            "document_key": {"display_value": "f8a6be5668c8de0f81a1b30a4cf8face", "link": "https://test.service-now.com/api/..."},
+                            "document_key": {
+                                "display_value": "f8a6be5668c8de0f81a1b30a4cf8face",
+                                "link": "https://test.service-now.com/api/...",
+                            },
                         }
                     ]
                 },

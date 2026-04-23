@@ -276,7 +276,9 @@ class TestDocsArtifactSummary:
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["docs_artifact_summary"](artifact_type="business_rule", sys_id="5f94cbf2a18c848c38da0c789d5da01b")
+        raw = await tools["docs_artifact_summary"](
+            artifact_type="business_rule", sys_id="5f94cbf2a18c848c38da0c789d5da01b"
+        )
         result = decode_response(raw)
 
         assert result["status"] == "success"
@@ -294,7 +296,9 @@ class TestDocsArtifactSummary:
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["docs_artifact_summary"](artifact_type="business_rule", sys_id="35a1af58a3b00bde3d8af97f82562ac2")
+        raw = await tools["docs_artifact_summary"](
+            artifact_type="business_rule", sys_id="35a1af58a3b00bde3d8af97f82562ac2"
+        )
         result = decode_response(raw)
 
         assert result["status"] == "error"
@@ -305,7 +309,9 @@ class TestDocsArtifactSummary:
     ) -> None:
         """Unknown artifact_type returns an error with valid types listed."""
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["docs_artifact_summary"](artifact_type="bogus_type", sys_id="6367c48dd193d56ea7b0baad25b19455")
+        raw = await tools["docs_artifact_summary"](
+            artifact_type="bogus_type", sys_id="6367c48dd193d56ea7b0baad25b19455"
+        )
         result = decode_response(raw)
 
         assert result["status"] == "error"
@@ -336,7 +342,9 @@ class TestDocsArtifactSummary:
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["docs_artifact_summary"](artifact_type="business_rule", sys_id="2edaa2dc068427312415c976a18155dd")
+        raw = await tools["docs_artifact_summary"](
+            artifact_type="business_rule", sys_id="2edaa2dc068427312415c976a18155dd"
+        )
         result = decode_response(raw)
 
         assert result["status"] == "success"
@@ -371,7 +379,9 @@ class TestDocsArtifactSummary:
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["docs_artifact_summary"](artifact_type="business_rule", sys_id="a4735c7a88ec47eec3fba55319b9df81", include_script_body=True)
+        raw = await tools["docs_artifact_summary"](
+            artifact_type="business_rule", sys_id="a4735c7a88ec47eec3fba55319b9df81", include_script_body=True
+        )
         result = decode_response(raw)
 
         assert result["status"] == "success"
@@ -410,7 +420,9 @@ class TestDocsTestScenarios:
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["docs_test_scenarios"](artifact_type="business_rule", sys_id="5f94cbf2a18c848c38da0c789d5da01b")
+        raw = await tools["docs_test_scenarios"](
+            artifact_type="business_rule", sys_id="5f94cbf2a18c848c38da0c789d5da01b"
+        )
         result = decode_response(raw)
 
         assert result["status"] == "success"
@@ -438,7 +450,9 @@ class TestDocsTestScenarios:
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["docs_test_scenarios"](artifact_type="business_rule", sys_id="3d89a2d60f9752f52469325512b23c1e")
+        raw = await tools["docs_test_scenarios"](
+            artifact_type="business_rule", sys_id="3d89a2d60f9752f52469325512b23c1e"
+        )
         result = decode_response(raw)
 
         assert result["status"] == "success"
@@ -464,7 +478,9 @@ class TestDocsTestScenarios:
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["docs_test_scenarios"](artifact_type="business_rule", sys_id="1bf9bbae004e659911b334ee1b5bc4b6")
+        raw = await tools["docs_test_scenarios"](
+            artifact_type="business_rule", sys_id="1bf9bbae004e659911b334ee1b5bc4b6"
+        )
         result = decode_response(raw)
 
         assert result["status"] == "success"
@@ -503,7 +519,9 @@ class TestDocsTestScenarios:
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["docs_test_scenarios"](artifact_type="business_rule", sys_id="61bf664b40fbd88d122defa600c69f14")
+        raw = await tools["docs_test_scenarios"](
+            artifact_type="business_rule", sys_id="61bf664b40fbd88d122defa600c69f14"
+        )
         result = decode_response(raw)
 
         assert result["status"] == "success"
@@ -529,7 +547,9 @@ class TestDocsTestScenarios:
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["docs_test_scenarios"](artifact_type="business_rule", sys_id="83839a9c296d5abac37d82d3b4840022")
+        raw = await tools["docs_test_scenarios"](
+            artifact_type="business_rule", sys_id="83839a9c296d5abac37d82d3b4840022"
+        )
         result = decode_response(raw)
 
         assert result["status"] == "success"
@@ -555,7 +575,9 @@ class TestDocsTestScenarios:
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["docs_test_scenarios"](artifact_type="business_rule", sys_id="e70b73e9294b3ae08fa13456ec932bdd")
+        raw = await tools["docs_test_scenarios"](
+            artifact_type="business_rule", sys_id="e70b73e9294b3ae08fa13456ec932bdd"
+        )
         result = decode_response(raw)
 
         assert result["status"] == "success"
@@ -581,7 +603,9 @@ class TestDocsTestScenarios:
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["docs_test_scenarios"](artifact_type="business_rule", sys_id="c00bbddf942d596518d4ccdad89a4bdc")
+        raw = await tools["docs_test_scenarios"](
+            artifact_type="business_rule", sys_id="c00bbddf942d596518d4ccdad89a4bdc"
+        )
         result = decode_response(raw)
 
         assert result["status"] == "success"
@@ -607,7 +631,9 @@ class TestDocsTestScenarios:
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["docs_test_scenarios"](artifact_type="business_rule", sys_id="302dfaa738c5008f7359702d3a68d9bb")
+        raw = await tools["docs_test_scenarios"](
+            artifact_type="business_rule", sys_id="302dfaa738c5008f7359702d3a68d9bb"
+        )
         result = decode_response(raw)
 
         assert result["status"] == "success"
@@ -634,7 +660,9 @@ class TestDocsTestScenarios:
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["docs_test_scenarios"](artifact_type="business_rule", sys_id="3190599a75cb88b0c8873d2695a1eaa2")
+        raw = await tools["docs_test_scenarios"](
+            artifact_type="business_rule", sys_id="3190599a75cb88b0c8873d2695a1eaa2"
+        )
         result = decode_response(raw)
 
         assert result["status"] == "success"
@@ -662,7 +690,9 @@ class TestDocsTestScenarios:
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["docs_test_scenarios"](artifact_type="business_rule", sys_id="a4735c7a88ec47eec3fba55319b9df81")
+        raw = await tools["docs_test_scenarios"](
+            artifact_type="business_rule", sys_id="a4735c7a88ec47eec3fba55319b9df81"
+        )
         result = decode_response(raw)
 
         assert result["status"] == "success"

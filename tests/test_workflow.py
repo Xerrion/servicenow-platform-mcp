@@ -864,7 +864,9 @@ class TestWorkflowActivityDetail:
             )
             return httpx.Response(200, json={"result": result})
 
-        respx.get(f"{BASE_URL}/api/now/table/wf_activity/a37b4556fc38ce6b2a3fd1521b1291bc").mock(side_effect=_act001_side_effect)
+        respx.get(f"{BASE_URL}/api/now/table/wf_activity/a37b4556fc38ce6b2a3fd1521b1291bc").mock(
+            side_effect=_act001_side_effect
+        )
         # Phase 2: element definition with display values
         respx.get(f"{BASE_URL}/api/now/table/wf_element_definition/f45ee39efdcca5805d1e7e2eaa97f27b").mock(
             return_value=httpx.Response(
@@ -935,7 +937,9 @@ class TestWorkflowActivityDetail:
                 },
             )
 
-        respx.get(f"{BASE_URL}/api/now/table/wf_activity/a40bb1d2559337415c49dfd982cf2fe2").mock(side_effect=_nodef_side_effect)
+        respx.get(f"{BASE_URL}/api/now/table/wf_activity/a40bb1d2559337415c49dfd982cf2fe2").mock(
+            side_effect=_nodef_side_effect
+        )
         respx.get(f"{BASE_URL}/api/now/table/sys_variable_value").mock(
             return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
         )
@@ -986,7 +990,9 @@ class TestWorkflowActivityDetail:
                 },
             )
 
-        respx.get(f"{BASE_URL}/api/now/table/wf_activity/20de94ee488dbd2b7154c3afbf85cd22").mock(side_effect=_act_vars_side_effect)
+        respx.get(f"{BASE_URL}/api/now/table/wf_activity/20de94ee488dbd2b7154c3afbf85cd22").mock(
+            side_effect=_act_vars_side_effect
+        )
         respx.get(f"{BASE_URL}/api/now/table/wf_element_definition/def_script").mock(
             return_value=httpx.Response(
                 200,
@@ -1213,11 +1219,19 @@ class TestWorkflowDictReferenceFields:
         activity_definition and document_key are the ones that may come back
         as dicts when display_value query params are used.
         """
-        dict_activity_def = {"display_value": "f45ee39efdcca5805d1e7e2eaa97f27b", "link": "https://test.service-now.com/api/..."}
-        dict_doc_key = {"display_value": "a37b4556fc38ce6b2a3fd1521b1291bc", "link": "https://test.service-now.com/api/..."}
+        dict_activity_def = {
+            "display_value": "f45ee39efdcca5805d1e7e2eaa97f27b",
+            "link": "https://test.service-now.com/api/...",
+        }
+        dict_doc_key = {
+            "display_value": "a37b4556fc38ce6b2a3fd1521b1291bc",
+            "link": "https://test.service-now.com/api/...",
+        }
 
         respx.get(f"{BASE_URL}/api/now/table/wf_workflow_version/789b9a03486e4434d8e435a024103c95").mock(
-            return_value=httpx.Response(200, json={"result": {"sys_id": "789b9a03486e4434d8e435a024103c95", "name": "Test WF"}})
+            return_value=httpx.Response(
+                200, json={"result": {"sys_id": "789b9a03486e4434d8e435a024103c95", "name": "Test WF"}}
+            )
         )
         respx.get(f"{BASE_URL}/api/now/table/wf_activity").mock(
             return_value=httpx.Response(
@@ -1279,7 +1293,10 @@ class TestWorkflowDictReferenceFields:
         self, settings: Settings, auth_provider: BasicAuthProvider
     ) -> None:
         """workflow_activity_detail handles activity_definition returned as a dict."""
-        dict_definition = {"display_value": "ac7de000000000000000000000000001", "link": "https://test.service-now.com/api/..."}
+        dict_definition = {
+            "display_value": "ac7de000000000000000000000000001",
+            "link": "https://test.service-now.com/api/...",
+        }
 
         # Phase 1: raw activity with dict reference
         respx.get(f"{BASE_URL}/api/now/table/wf_activity/2eac3cfb70af19b72304086d2d97c52d").mock(

@@ -87,7 +87,9 @@ class TestCmdbList:
             )
         )
 
-        result = await cmdb_list(ci_class="cmdb_ci_server", filter_query="sys_updated_on>=javascript:gs.daysAgoStart(30)")
+        result = await cmdb_list(
+            ci_class="cmdb_ci_server", filter_query="sys_updated_on>=javascript:gs.daysAgoStart(30)"
+        )
         data = toon_decode(result)
         assert isinstance(data, dict)
 
@@ -120,7 +122,9 @@ class TestCmdbList:
             )
         )
 
-        result = await cmdb_list(operational_status="operational", filter_query="sys_updated_on>=javascript:gs.daysAgoStart(30)")
+        result = await cmdb_list(
+            operational_status="operational", filter_query="sys_updated_on>=javascript:gs.daysAgoStart(30)"
+        )
         data = toon_decode(result)
         assert isinstance(data, dict)
 

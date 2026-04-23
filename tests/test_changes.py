@@ -526,7 +526,9 @@ class TestChangesReleaseNotes:
         self._mock_release_notes_requests("bc89942e2774d75ebcc7362c55807e09")
 
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["changes_release_notes"](update_set_id="bc89942e2774d75ebcc7362c55807e09", format=format_value)
+        raw = await tools["changes_release_notes"](
+            update_set_id="bc89942e2774d75ebcc7362c55807e09", format=format_value
+        )
         result = decode_response(raw)
 
         assert result["status"] == "success"

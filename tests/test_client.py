@@ -384,9 +384,7 @@ class TestGetRecordsPrivileged:
                 )
 
     @pytest.mark.asyncio()
-    async def test_invalid_identifier_raises(
-        self, settings: Settings, auth_provider: BasicAuthProvider
-    ) -> None:
+    async def test_invalid_identifier_raises(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Malformed table names are rejected by validate_identifier via _table_url."""
         from servicenow_mcp.client import ServiceNowClient
 
@@ -401,9 +399,7 @@ class TestGetRecordsPrivileged:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_display_values_flag_propagates(
-        self, settings: Settings, auth_provider: BasicAuthProvider
-    ) -> None:
+    async def test_display_values_flag_propagates(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """display_values=True adds sysparm_display_value=true to the request."""
         from servicenow_mcp.client import ServiceNowClient
 
@@ -745,7 +741,9 @@ class TestServiceNowClientDeleteRecord:
         """Deletes a record via DELETE."""
         from servicenow_mcp.client import ServiceNowClient
 
-        respx.delete(f"{BASE_URL}/api/now/table/incident/6367c48dd193d56ea7b0baad25b19455").mock(return_value=httpx.Response(204))
+        respx.delete(f"{BASE_URL}/api/now/table/incident/6367c48dd193d56ea7b0baad25b19455").mock(
+            return_value=httpx.Response(204)
+        )
 
         async with ServiceNowClient(settings, auth_provider) as client:
             result = await client.delete_record("incident", "6367c48dd193d56ea7b0baad25b19455")
@@ -1159,7 +1157,10 @@ class TestServiceNowClientCMDB:
                 200,
                 json={
                     "result": {
-                        "attributes": {"sys_id": "73767563ce47fbef89395fe3a44f456a", "name": "365c544c62cbe6bb0b789bdb702b190e"},
+                        "attributes": {
+                            "sys_id": "73767563ce47fbef89395fe3a44f456a",
+                            "name": "365c544c62cbe6bb0b789bdb702b190e",
+                        },
                         "inbound_relations": [],
                         "outbound_relations": [],
                     }

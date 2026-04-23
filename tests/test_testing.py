@@ -405,7 +405,9 @@ class TestAtfGetResults:
     async def test_get_results_both_ids_provided(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns error when both test_id and suite_id are provided."""
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["atf_get_results"](test_id="7288edd0fc3ffcbe93a0cf06e3568e28", suite_id="5fbf10a1272bc00c1777003333454539")
+        raw = await tools["atf_get_results"](
+            test_id="7288edd0fc3ffcbe93a0cf06e3568e28", suite_id="5fbf10a1272bc00c1777003333454539"
+        )
         result = decode_response(raw)
 
         assert result["status"] == "error"
@@ -465,7 +467,9 @@ class TestAtfRunTest:
         )
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["atf_run_test"](test_id="a51821834d0fe748cf923a6ee607e647", poll=True, poll_interval=2, max_poll_duration=10)
+        raw = await tools["atf_run_test"](
+            test_id="a51821834d0fe748cf923a6ee607e647", poll=True, poll_interval=2, max_poll_duration=10
+        )
         result = decode_response(raw)
 
         assert result["status"] == "success"
@@ -902,7 +906,9 @@ class TestAtfTestHealth:
     async def test_health_both_ids_provided(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Call with both test_id and suite_id. Assert error."""
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["atf_test_health"](test_id="7288edd0fc3ffcbe93a0cf06e3568e28", suite_id="5fbf10a1272bc00c1777003333454539")
+        raw = await tools["atf_test_health"](
+            test_id="7288edd0fc3ffcbe93a0cf06e3568e28", suite_id="5fbf10a1272bc00c1777003333454539"
+        )
         result = decode_response(raw)
 
         assert result["status"] == "error"

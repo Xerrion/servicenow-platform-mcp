@@ -311,7 +311,14 @@ class TestRelReferencesTo:
         respx.get(f"{BASE_URL}/api/now/table/task").mock(
             return_value=httpx.Response(
                 200,
-                json={"result": [{"sys_id": "d95216b77e0cd834ca43caef2322e8fd", "assigned_to": "95c946bf622ef93b0a211cd0fd028dfd"}]},
+                json={
+                    "result": [
+                        {
+                            "sys_id": "d95216b77e0cd834ca43caef2322e8fd",
+                            "assigned_to": "95c946bf622ef93b0a211cd0fd028dfd",
+                        }
+                    ]
+                },
                 headers={"X-Total-Count": "1"},
             )
         )
@@ -381,7 +388,11 @@ class TestRelReferencesTo:
         respx.get(f"{BASE_URL}/api/now/table/incident").mock(
             return_value=httpx.Response(
                 200,
-                json={"result": [{"sys_id": "bcb08020a40eeb713ee390dded876799", "caller_id": "b3daa77b4c04a9551b8781d03191fe09"}]},
+                json={
+                    "result": [
+                        {"sys_id": "bcb08020a40eeb713ee390dded876799", "caller_id": "b3daa77b4c04a9551b8781d03191fe09"}
+                    ]
+                },
                 headers={"X-Total-Count": "1"},
             )
         )

@@ -96,7 +96,11 @@ class TestRequestList:
         respx.get(f"{BASE_URL}/api/now/table/sc_request").mock(return_value=Response(200, json={"result": []}))
 
         tools = _register_and_get_tools(settings, auth_provider)
-        await tools["request_list"](state="1", requested_for="95c946bf622ef93b0a211cd0fd028dfd", assignment_group="948e04007eb5c3b60182c0a3ed3b6e7e")
+        await tools["request_list"](
+            state="1",
+            requested_for="95c946bf622ef93b0a211cd0fd028dfd",
+            assignment_group="948e04007eb5c3b60182c0a3ed3b6e7e",
+        )
 
         request = respx.calls.last.request
         url = str(request.url)

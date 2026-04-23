@@ -1,4 +1,14 @@
-"""Write operations for ServiceNow platform artifacts."""
+"""Write operations for ServiceNow platform artifacts.
+
+All mutations flow through a preview/apply pair so callers must explicitly
+confirm a destructive change before it reaches ServiceNow. The preview step
+validates, classifies and describes the operation; the apply step consumes
+the preview token (single-use) and performs the write.
+
+The preview envelope never echoes script bodies verbatim and never echoes
+values for fields matched by :func:`policy.is_sensitive_field`. Script
+content is summarised by size and a short head snippet only.
+"""
 
 import json
 import logging
@@ -11,7 +21,15 @@ from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
-from servicenow_mcp.policy import check_table_access, mask_sensitive_fields, write_gate
+from servicenow_mcp.policy import (
+    MASK_VALUE,
+    TABLE_SCRIPT_FIELDS,
+    check_table_access,
+    is_sensitive_field,
+    mask_sensitive_fields,
+    write_gate,
+)
+from servicenow_mcp.state import PreviewTokenStore
 from servicenow_mcp.utils import format_response, validate_identifier, validate_sys_id
 
 
@@ -52,6 +70,16 @@ SCRIPT_FIELD_MAP: dict[str, str] = {
     "ui_macro": "xml",
     "notification_script": "advanced_condition",
 }
+
+# TTL for stored preview payloads; also echoed in the preview envelope so the
+# caller knows how long they have to apply.
+_PREVIEW_TTL_SECONDS: int = 300
+
+# Number of characters of the script body echoed back in the preview. A short
+# snippet helps a human verify they are applying the intended file; the full
+# body is deliberately withheld so leak-by-echo on denied applies cannot
+# reveal production script content.
+_SCRIPT_HEAD_CHARS: int = 80
 
 
 def _resolve_writable_artifact_table(artifact_type: str) -> str:
@@ -112,7 +140,11 @@ def _read_script_file(script_path: str, allowed_root: str) -> str:
     return resolved.read_text(encoding="utf-8")
 
 
-TOOL_NAMES: list[str] = ["artifact_create", "artifact_update"]
+TOOL_NAMES: list[str] = [
+    "artifact_create_preview",
+    "artifact_update_preview",
+    "artifact_apply",
+]
 
 
 def _parse_and_validate_payload(
@@ -122,11 +154,13 @@ def _parse_and_validate_payload(
     script_path: str,
     allowed_root: str,
     correlation_id: str,
-) -> tuple[dict[str, Any], list[str]] | str:
+) -> tuple[dict[str, Any], list[str], str | None] | str:
     """Parse, validate, and enrich a JSON payload for artifact write operations.
 
-    Returns a ``(data_dict, warnings)`` tuple on success, or a formatted error
-    response string when validation fails.
+    Returns a ``(data_dict, warnings, script_field)`` tuple on success, or a
+    formatted error response string when validation fails. ``script_field``
+    is the name of the field that received script-file content, or ``None``
+    when ``script_path`` was empty.
 
     Args:
         raw_json: The raw JSON string from the caller.
@@ -150,6 +184,7 @@ def _parse_and_validate_payload(
         validate_identifier(key)
 
     warnings: list[str] = []
+    script_field: str | None = None
 
     if script_path:
         content = _read_script_file(script_path, allowed_root)
@@ -158,22 +193,155 @@ def _parse_and_validate_payload(
             warnings.append(f"'{script_field}' field in {param_name} was overridden by script_path content.")
         payload[script_field] = content
 
-    return payload, warnings
+    return payload, warnings, script_field
+
+
+def _script_fields_for(table: str, explicit_script_field: str | None) -> frozenset[str]:
+    """Return the set of fields that should be treated as script bodies.
+
+    Combines the per-table registry from ``TABLE_SCRIPT_FIELDS`` with the
+    explicit field that received content from ``script_path`` (if any). The
+    explicit field matters for artifacts whose table is not in the registry.
+    """
+    registered = TABLE_SCRIPT_FIELDS.get(table.lower(), frozenset())
+    if explicit_script_field is None:
+        return registered
+    return registered | {explicit_script_field}
+
+
+def _summarise_field(
+    field_name: str,
+    value: Any,
+    *,
+    script_fields: frozenset[str],
+) -> Any:
+    """Return a preview-safe summary of a single field value.
+
+    Masks sensitive-named fields with ``MASK_VALUE``. Script-body fields are
+    replaced with a ``{"size_bytes", "head"}`` summary so the caller can
+    verify the script without the full body leaking through the envelope.
+    """
+    if is_sensitive_field(field_name):
+        return MASK_VALUE
+
+    if field_name in script_fields:
+        text = value if isinstance(value, str) else "" if value is None else str(value)
+        return {
+            "size_bytes": len(text.encode("utf-8")),
+            "head": text[:_SCRIPT_HEAD_CHARS],
+        }
+
+    return value
+
+
+def _summarise_payload(
+    payload: dict[str, Any],
+    *,
+    script_fields: frozenset[str],
+) -> dict[str, Any]:
+    """Produce a preview-safe view of a full payload dict."""
+    return {key: _summarise_field(key, value, script_fields=script_fields) for key, value in payload.items()}
+
+
+def _build_preview_diff(
+    changes: dict[str, Any],
+    current: dict[str, Any],
+    *,
+    script_fields: frozenset[str],
+) -> dict[str, dict[str, Any]]:
+    """Build an update preview diff that masks credentials and summarises script bodies."""
+    diff: dict[str, dict[str, Any]] = {}
+    for field, new_value in changes.items():
+        old_value = current.get(field, "")
+        if is_sensitive_field(field):
+            diff[field] = {"old": MASK_VALUE, "new": MASK_VALUE}
+            continue
+        if field in script_fields:
+            diff[field] = {
+                "old": _script_summary(old_value) if old_value != "" else None,
+                "new": _script_summary(new_value),
+            }
+            continue
+        diff[field] = {"old": old_value, "new": new_value}
+    return diff
+
+
+def _script_summary(value: Any) -> dict[str, Any]:
+    """Return a ``{"size_bytes", "head"}`` summary for a script-body value."""
+    text = value if isinstance(value, str) else "" if value is None else str(value)
+    return {"size_bytes": len(text.encode("utf-8")), "head": text[:_SCRIPT_HEAD_CHARS]}
+
+
+def _mask_current_for_diff(current: dict[str, Any], table: str) -> dict[str, Any]:
+    """Mask the full current record for the ``before`` side of the diff envelope."""
+    return mask_sensitive_fields(current, table=table)
+
+
+async def _execute_apply(
+    client: ServiceNowClient,
+    payload: dict[str, Any],
+    correlation_id: str,
+) -> str:
+    """Execute the write stored in a preview payload and return the tool response."""
+    action = payload["action"]
+    table = payload["table"]
+    artifact_type = payload["artifact_type"]
+
+    if action == "create":
+        created = await client.create_record(table, payload["data"])
+        return format_response(
+            data={
+                "action": "create",
+                "table": table,
+                "artifact_type": artifact_type,
+                "sys_id": created["sys_id"],
+                "record": mask_sensitive_fields(created, table=table),
+            },
+            correlation_id=correlation_id,
+        )
+
+    if action == "update":
+        sys_id = payload["sys_id"]
+        updated = await client.update_record(table, sys_id, payload["changes"])
+        return format_response(
+            data={
+                "action": "update",
+                "table": table,
+                "artifact_type": artifact_type,
+                "sys_id": sys_id,
+                "record": mask_sensitive_fields(updated, table=table),
+            },
+            correlation_id=correlation_id,
+        )
+
+    return format_response(
+        data=None,
+        correlation_id=correlation_id,
+        status="error",
+        error=f"Unknown preview action: '{action}'",
+    )
 
 
 def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthProvider) -> None:
     """Register artifact write tools on the MCP server."""
 
+    # Closure-local preview store so token scope is bounded by the MCP
+    # instance lifetime. Matches record_write's shape.
+    preview_store = PreviewTokenStore(ttl_seconds=_PREVIEW_TTL_SECONDS)
+
     @mcp.tool()
     @tool_handler
-    async def artifact_create(
+    async def artifact_create_preview(
         artifact_type: str,
         data: str,
         script_path: str = "",
         *,
         correlation_id: str = "",
     ) -> str:
-        """Create a new platform artifact in ServiceNow.
+        """Preview creating a platform artifact. Returns a token for artifact_apply.
+
+        The preview never echoes script bodies or values for sensitive fields.
+        Script content is summarised as ``{size_bytes, head}`` (first 80 chars).
 
         Args:
             artifact_type: The artifact type (e.g. 'business_rule', 'script_include', 'client_script').
@@ -192,17 +360,29 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         )
         if isinstance(result, str):
             return result
-        data_dict, warnings = result
+        data_dict, warnings, script_field = result
 
-        async with ServiceNowClient(settings, auth_provider) as client:
-            created = await client.create_record(table, data_dict)
-
-        return format_response(
-            data={
+        token = preview_store.create(
+            {
+                "action": "create",
                 "table": table,
                 "artifact_type": artifact_type,
-                "sys_id": created["sys_id"],
-                "record": mask_sensitive_fields(created),
+                "data": data_dict,
+            }
+        )
+
+        script_fields = _script_fields_for(table, script_field)
+        summary = _summarise_payload(data_dict, script_fields=script_fields)
+        return format_response(
+            data={
+                "token": token,
+                "action": "create",
+                "table": table,
+                "artifact_type": artifact_type,
+                "fields": sorted(data_dict.keys()),
+                "summary": summary,
+                "script_field": script_field,
+                "ttl_seconds": _PREVIEW_TTL_SECONDS,
             },
             correlation_id=correlation_id,
             warnings=warnings or None,
@@ -210,7 +390,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
 
     @mcp.tool()
     @tool_handler
-    async def artifact_update(
+    async def artifact_update_preview(
         artifact_type: str,
         sys_id: str,
         changes: str,
@@ -218,7 +398,11 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         *,
         correlation_id: str = "",
     ) -> str:
-        """Update an existing platform artifact in ServiceNow.
+        """Preview updating a platform artifact. Returns a token for artifact_apply.
+
+        Fetches the current record and returns a field-level diff that masks
+        sensitive fields on both sides and summarises script-body fields as
+        ``{size_bytes, head}`` rather than echoing their content.
 
         Args:
             artifact_type: The artifact type (e.g. 'business_rule', 'script_include', 'client_script').
@@ -240,18 +424,69 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         )
         if isinstance(result, str):
             return result
-        changes_dict, warnings = result
+        changes_dict, warnings, script_field = result
 
         async with ServiceNowClient(settings, auth_provider) as client:
-            updated = await client.update_record(table, sys_id, changes_dict)
+            current = await client.get_record(table, sys_id)
 
-        return format_response(
-            data={
+        script_fields = _script_fields_for(table, script_field)
+        diff = _build_preview_diff(changes_dict, current, script_fields=script_fields)
+
+        token = preview_store.create(
+            {
+                "action": "update",
                 "table": table,
                 "artifact_type": artifact_type,
                 "sys_id": sys_id,
-                "record": mask_sensitive_fields(updated),
+                "changes": changes_dict,
+            }
+        )
+
+        return format_response(
+            data={
+                "token": token,
+                "action": "update",
+                "table": table,
+                "artifact_type": artifact_type,
+                "sys_id": sys_id,
+                "fields": sorted(changes_dict.keys()),
+                "diff": diff,
+                "before": _mask_current_for_diff(current, table),
+                "script_field": script_field,
+                "ttl_seconds": _PREVIEW_TTL_SECONDS,
             },
             correlation_id=correlation_id,
             warnings=warnings or None,
         )
+
+    @mcp.tool()
+    @tool_handler
+    async def artifact_apply(preview_token: str, *, correlation_id: str = "") -> str:
+        """Apply a previously previewed artifact create/update using its token.
+
+        Re-evaluates :func:`check_table_access` and :func:`write_gate` at
+        apply time so a policy change between preview and apply cannot be
+        ratified by a previously-issued token. Tokens are single-use and
+        expire after the preview TTL.
+
+        Args:
+            preview_token: The single-use token returned by artifact_create_preview or artifact_update_preview.
+        """
+        payload = preview_store.consume(preview_token)
+        if payload is None:
+            return format_response(
+                data=None,
+                correlation_id=correlation_id,
+                status="error",
+                error="Invalid or expired preview token",
+            )
+
+        table = payload["table"]
+        check_table_access(table)
+
+        blocked = write_gate(table, settings, correlation_id)
+        if blocked:
+            return blocked
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            return await _execute_apply(client, payload, correlation_id)

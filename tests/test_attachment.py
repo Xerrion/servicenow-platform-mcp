@@ -134,7 +134,7 @@ class TestAttachmentReadTools:
     async def test_attachment_download_success_with_base64(
         self, settings: Settings, auth_provider: BasicAuthProvider
     ) -> None:
-        """Downloads binary content and returns a base64 payload."""
+        """Downloads binary content and returns a base64 payload when explicitly requested."""
         respx.get(f"{BASE_URL}/api/now/attachment/{ATTACHMENT_SYS_ID}").mock(
             return_value=httpx.Response(200, json={"result": _metadata()})
         )
@@ -143,12 +143,59 @@ class TestAttachmentReadTools:
         )
 
         tools = _register_read_tools(settings, auth_provider)
-        raw = await tools["attachment_download"](sys_id=ATTACHMENT_SYS_ID)
+        raw = await tools["attachment_download"](sys_id=ATTACHMENT_SYS_ID, include_content=True)
         result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["sys_id"] == ATTACHMENT_SYS_ID
         assert result["data"]["content_base64"] == base64.b64encode(b"hello").decode("ascii")
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_attachment_download_defaults_to_metadata_only(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """HIGH-7: attachment_download returns metadata only by default - no bytes transferred."""
+        respx.get(f"{BASE_URL}/api/now/attachment/{ATTACHMENT_SYS_ID}").mock(
+            return_value=httpx.Response(200, json={"result": _metadata()})
+        )
+        download_route = respx.get(f"{BASE_URL}/api/now/attachment/{ATTACHMENT_SYS_ID}/file").mock(
+            return_value=httpx.Response(200, content=b"should-not-be-fetched")
+        )
+
+        tools = _register_read_tools(settings, auth_provider)
+        raw = await tools["attachment_download"](sys_id=ATTACHMENT_SYS_ID)
+        result = decode_response(raw)
+
+        assert result["status"] == "success"
+        assert result["data"]["sys_id"] == ATTACHMENT_SYS_ID
+        assert "content_base64" not in result["data"]
+        assert not download_route.called
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_attachment_download_metadata_only_bypasses_size_cap(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """Oversized attachments can still be inspected as metadata - only content transfer is capped."""
+        respx.get(f"{BASE_URL}/api/now/attachment/{ATTACHMENT_SYS_ID}").mock(
+            return_value=httpx.Response(
+                200,
+                json={"result": _metadata(size_bytes=str(MAX_ATTACHMENT_BYTES + 1))},
+            )
+        )
+        download_route = respx.get(f"{BASE_URL}/api/now/attachment/{ATTACHMENT_SYS_ID}/file").mock(
+            return_value=httpx.Response(200, content=b"x")
+        )
+
+        tools = _register_read_tools(settings, auth_provider)
+        raw = await tools["attachment_download"](sys_id=ATTACHMENT_SYS_ID)
+        result = decode_response(raw)
+
+        assert result["status"] == "success"
+        assert result["data"]["size_bytes"] == MAX_ATTACHMENT_BYTES + 1
+        assert "content_base64" not in result["data"]
+        assert not download_route.called
 
     @pytest.mark.asyncio()
     @respx.mock
@@ -171,6 +218,7 @@ class TestAttachmentReadTools:
             table_name="incident",
             table_sys_id=TABLE_SYS_ID,
             file_name="hello.txt",
+            include_content=True,
         )
         result = decode_response(raw)
 
@@ -181,6 +229,32 @@ class TestAttachmentReadTools:
         assert "ORDERBYsys_created_on" in query_route.calls.last.request.url.params["sysparm_query"]
         assert download_route.called
         assert not by_name_route.called
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_attachment_download_by_name_defaults_to_metadata_only(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """HIGH-7: attachment_download_by_name returns metadata only by default."""
+        respx.get(f"{BASE_URL}/api/now/table/sys_attachment").mock(
+            return_value=httpx.Response(200, json={"result": [_metadata()]}, headers={"X-Total-Count": "1"})
+        )
+        download_route = respx.get(f"{BASE_URL}/api/now/attachment/{ATTACHMENT_SYS_ID}/file").mock(
+            return_value=httpx.Response(200, content=b"should-not-be-fetched")
+        )
+
+        tools = _register_read_tools(settings, auth_provider)
+        raw = await tools["attachment_download_by_name"](
+            table_name="incident",
+            table_sys_id=TABLE_SYS_ID,
+            file_name="hello.txt",
+        )
+        result = decode_response(raw)
+
+        assert result["status"] == "success"
+        assert result["data"]["sys_id"] == ATTACHMENT_SYS_ID
+        assert "content_base64" not in result["data"]
+        assert not download_route.called
 
     @pytest.mark.asyncio()
     @respx.mock
@@ -213,7 +287,7 @@ class TestAttachmentReadTools:
     @pytest.mark.asyncio()
     @respx.mock
     async def test_oversized_download_rejection(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """Rejects downloads larger than the MCP attachment transfer limit before fetch."""
+        """Rejects content downloads larger than the MCP attachment transfer limit before fetch."""
         respx.get(f"{BASE_URL}/api/now/attachment/{ATTACHMENT_SYS_ID}").mock(
             return_value=httpx.Response(
                 200,
@@ -225,7 +299,7 @@ class TestAttachmentReadTools:
         )
 
         tools = _register_read_tools(settings, auth_provider)
-        raw = await tools["attachment_download"](sys_id=ATTACHMENT_SYS_ID)
+        raw = await tools["attachment_download"](sys_id=ATTACHMENT_SYS_ID, include_content=True)
         result = decode_response(raw)
 
         assert result["status"] == "error"

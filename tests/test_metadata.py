@@ -1,4 +1,4 @@
-"""Tests for metadata tools (meta_list_artifacts, meta_get_artifact, meta_find_references, meta_what_writes)."""
+"""Tests for metadata tools (meta_list_artifacts, meta_get_artifact, meta_find_references, meta_business_rules_for_table)."""
 
 from typing import Any
 from unittest.mock import AsyncMock, patch
@@ -412,8 +412,8 @@ class TestMetaFindReferences:
             assert "foo^^^^bar" not in query_str, f"Table '{table}' should not have double-sanitized caret"
 
 
-class TestMetaWhatWrites:
-    """Tests for the meta_what_writes tool."""
+class TestMetaBusinessRulesForTable:
+    """Tests for the meta_business_rules_for_table tool."""
 
     @pytest.mark.asyncio()
     @respx.mock
@@ -442,7 +442,7 @@ class TestMetaWhatWrites:
         )
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["meta_what_writes"](table="incident")
+        raw = await tools["meta_business_rules_for_table"](table="incident")
         result = decode_response(raw)
 
         assert result["status"] == "success"
@@ -483,7 +483,7 @@ class TestMetaWhatWrites:
         )
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["meta_what_writes"](table="incident", field="priority")
+        raw = await tools["meta_business_rules_for_table"](table="incident", field="priority")
         result = decode_response(raw)
 
         assert result["status"] == "success"
@@ -505,7 +505,7 @@ class TestMetaWhatWrites:
         )
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["meta_what_writes"](table="cmdb_ci")
+        raw = await tools["meta_business_rules_for_table"](table="cmdb_ci")
         result = decode_response(raw)
 
         assert result["status"] == "success"

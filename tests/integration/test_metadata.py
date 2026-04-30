@@ -53,8 +53,8 @@ class TestMetadata:
         # There should be at least some BRs referencing "incident"
         assert isinstance(result["records"], list)
 
-    async def test_meta_what_writes(self, live_settings: Settings, live_auth: BasicAuthProvider) -> None:
-        """meta_what_writes: find business rules that write to the incident table."""
+    async def test_meta_business_rules_for_table(self, live_settings: Settings, live_auth: BasicAuthProvider) -> None:
+        """meta_business_rules_for_table: find business rules that write to the incident table."""
         async with ServiceNowClient(live_settings, live_auth) as client:
             result = await client.query_records(
                 "sys_script",

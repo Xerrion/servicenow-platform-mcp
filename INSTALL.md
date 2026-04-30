@@ -170,7 +170,7 @@ The server provides a comprehensive set of tools organized into the following gr
 - Upload (base64) and delete attachments
 
 ### Metadata
-`meta_list_artifacts`, `meta_get_artifact`, `meta_find_references`, `meta_what_writes`
+`meta_list_artifacts`, `meta_get_artifact`, `meta_find_references`, `meta_business_rules_for_table`
 - Inspect platform artifacts (business rules, script includes, etc.), find cross-references
 
 ### Change Intelligence

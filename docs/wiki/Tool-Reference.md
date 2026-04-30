@@ -76,7 +76,7 @@ List and inspect platform artifacts (business rules, script includes, client scr
 | `meta_list_artifacts` | List platform artifacts of a given type with optional query filtering | `artifact_type`, `query_token`, `limit` |
 | `meta_get_artifact` | Fetch a single platform artifact by type and sys_id | `artifact_type`, `sys_id` |
 | `meta_find_references` | Find cross-references to a target across script tables | `target`, `limit` |
-| `meta_what_writes` | Find automations that write to a specific table and field | `table`, `field` |
+| `meta_business_rules_for_table` | List business rules whose `collection` matches a table (optionally filter by field referenced in script) | `table`, `field` |
 
 ---
 

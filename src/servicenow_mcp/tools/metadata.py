@@ -116,7 +116,7 @@ TOOL_NAMES: list[str] = [
     "meta_list_artifacts",
     "meta_get_artifact",
     "meta_find_references",
-    "meta_what_writes",
+    "meta_business_rules_for_table",
 ]
 
 
@@ -237,19 +237,26 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
 
     @mcp.tool()
     @tool_handler
-    async def meta_what_writes(
+    async def meta_business_rules_for_table(
         table: str,
         field: str = "",
         *,
         correlation_id: str,
     ) -> str:
-        """Find business rules and other mechanisms that write to a specific table (and optionally a specific field).
+        """List business rules whose collection equals the target table, optionally filtered by a field reference in the script body.
 
-        Preferred over `table_query` for "what writes to X" investigations - scopes to business rules whose `collection` matches the target table and substring-checks `script` for the optional field, rather than requiring the caller to assemble the same query manually.
+        Preferred over `table_query` for "which business rules write to table X" investigations - scopes to `sys_script`
+        whose `collection` matches the target table and substring-checks `script` for the optional field, rather than
+        requiring the caller to assemble the same query manually.
+
+        Scope is intentionally narrow: this tool only inspects `sys_script` (business rules). It does NOT cover script
+        includes, client scripts, UI actions, scheduled jobs, fix scripts, workflows, or Flow Designer actions. For
+        broader cross-table script searches, use `meta_find_references` instead.
 
         Args:
             table: The ServiceNow table to investigate (e.g., 'incident').
-            field: Optional field name to narrow results. When provided, only returns writers whose script references this field.
+            field: Optional field name to narrow results. When provided, only returns business rules whose `script`
+                field contains this substring.
         """
         validate_identifier(table)
         if field:

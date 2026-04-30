@@ -178,6 +178,8 @@ def register_tools(
     ) -> str:
         """List incidents with optional filters.
 
+        Preferred over `table_query` for the `incident` table - accepts human-readable state labels (e.g. `state="open"`), returns display values, applies sensitivity masking, and uses ITIL-relevant default fields.
+
         Args:
             state: Incident state (open, in_progress, on_hold, resolved, closed, canceled, all)
             priority: Priority level (1-5)
@@ -209,6 +211,8 @@ def register_tools(
     @tool_handler
     async def incident_get(number: str, *, correlation_id: str) -> str:
         """Fetch incident by INC number.
+
+        Preferred over `record_get` / `table_query` when you have an INC number - resolves the number to a sys_id automatically.
 
         Args:
             number: Incident number (must start with INC prefix)

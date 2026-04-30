@@ -266,7 +266,9 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         *,
         correlation_id: str,
     ) -> str:
-        """Show who last touched a record and what they changed, using sys_audit.
+        """Show who last touched a record and what they changed - audit/history/who-modified queries against sys_audit.
+
+        Preferred over `table_query` on `sys_audit` - decodes field-level changes, masks sensitive values, and scopes to a single record in one call.
 
         Args:
             table: The table name of the record.

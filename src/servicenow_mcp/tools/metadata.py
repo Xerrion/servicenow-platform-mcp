@@ -135,6 +135,8 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
     ) -> str:
         """List platform artifacts (business rules, script includes, etc.) filtered by type and optional query.
 
+        Preferred over `table_query` on the artifact tables (`sys_script`, `sys_script_include`, `sys_ui_policy`, `sys_ui_action`, `sys_script_client`, `sysauto_script`, `sys_script_fix` - the values of `metadata.ARTIFACT_TABLES`) - abstracts artifact-type-to-table mapping so you query by intent (e.g. `"business_rule"`) instead of memorizing table names.
+
         Args:
             artifact_type: The type of artifact to list (business_rule, script_include, ui_policy, ui_action, client_script, scheduled_job, fix_script).
             query_token: Token from the build_query tool for additional filtering.
@@ -178,6 +180,8 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
     ) -> str:
         """Get full details of a platform artifact including its script body.
 
+        Preferred over `record_get` / `table_query` when fetching a platform artifact - returns the script body alongside metadata in a single call.
+
         Args:
             artifact_type: The type of artifact (business_rule, script_include, etc.).
             sys_id: The sys_id of the artifact to retrieve.
@@ -200,6 +204,8 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         correlation_id: str,
     ) -> str:
         """Search across all script tables for artifacts that reference a target string (API name, table name, function, etc.).
+
+        Preferred over manually running `table_query` with `scriptCONTAINS` filters across each script table - uses the indexed Code Search API when available, with automatic fallback.
 
         Uses the Code Search API when available (single indexed call), with automatic
         fallback to per-table scriptCONTAINS queries if Code Search is not installed.
@@ -238,6 +244,8 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         correlation_id: str,
     ) -> str:
         """Find business rules and other mechanisms that write to a specific table (and optionally a specific field).
+
+        Preferred over `table_query` for "what writes to X" investigations - scopes to business rules whose `collection` matches the target table and substring-checks `script` for the optional field, rather than requiring the caller to assemble the same query manually.
 
         Args:
             table: The ServiceNow table to investigate (e.g., 'incident').

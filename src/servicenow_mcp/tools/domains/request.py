@@ -108,6 +108,8 @@ def register_tools(
     ) -> str:
         """List requests with optional filters.
 
+        Preferred over `table_query` for the `sc_request` table - resolves state labels, returns display values, and uses request-management default fields.
+
         Args:
             state: Request state filter
             requested_for: sys_id of requested_for user
@@ -139,6 +141,8 @@ def register_tools(
     async def request_get(number: str, *, correlation_id: str) -> str:
         """Fetch request by REQ number.
 
+        Preferred over `record_get` / `table_query` when you have a REQ number - resolves the number to a sys_id automatically.
+
         Args:
             number: Request number (must start with REQ prefix)
         """
@@ -161,6 +165,8 @@ def register_tools(
         correlation_id: str,
     ) -> str:
         """Fetch request items (RITMs) for a request.
+
+        Preferred over `table_query` on the `sc_req_item` table - scopes results to a single REQ and applies sensible defaults.
 
         Args:
             number: Request number (must start with REQ prefix)
@@ -194,6 +200,8 @@ def register_tools(
     @tool_handler
     async def request_item_get(number: str, *, correlation_id: str) -> str:
         """Fetch request item by RITM number.
+
+        Preferred over `record_get` / `table_query` when you have a RITM number - resolves the number to a sys_id automatically.
 
         Args:
             number: Request item number (must start with RITM prefix)

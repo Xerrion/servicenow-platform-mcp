@@ -165,6 +165,8 @@ def register_tools(
     ) -> str:
         """List change requests with optional filters.
 
+        Preferred over `table_query` for the `change_request` table - resolves state/type labels, returns display values, applies sensitivity masking, and uses change-relevant default fields.
+
         Args:
             state: Change state (new, assess, authorize, scheduled, implement, review, closed, canceled)
             type: Change type (standard, normal, emergency)
@@ -196,6 +198,8 @@ def register_tools(
     @tool_handler
     async def change_get(number: str, *, correlation_id: str) -> str:
         """Fetch change request by CHG number.
+
+        Preferred over `record_get` / `table_query` when you have a CHG number - resolves the number to a sys_id automatically.
 
         Args:
             number: Change request number (must start with CHG prefix)
@@ -329,6 +333,8 @@ def register_tools(
         correlation_id: str,
     ) -> str:
         """Get change tasks for a change request.
+
+        Preferred over `table_query` on the `change_task` table - scopes results to a single CHG and applies sensible defaults.
 
         Args:
             number: Change request number (must start with CHG prefix)

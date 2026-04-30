@@ -201,6 +201,66 @@ class TestTableQuery:
         assert any("capped" in w.lower() for w in result.get("warnings", []))
 
     @pytest.mark.asyncio()
+    @respx.mock
+    async def test_steering_warning_for_steered_table(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """Tables with a preferred specialized tool emit a steering warning."""
+        respx.get(f"{BASE_URL}/api/now/table/incident").mock(
+            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        )
+
+        tools, query_store = _register_and_get_tools(settings, auth_provider)
+        token = query_store.create({"query": "active=true"})
+        raw = await tools["table_query"](table="incident", query_token=token)
+        result = decode_response(raw)
+
+        assert result["status"] == "success"
+        warnings = result.get("warnings", [])
+        assert any("Prefer" in w and "incident_list" in w and "table_query" in w for w in warnings), (
+            f"Expected steering warning in warnings={warnings!r}"
+        )
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_no_steering_warning_for_unknown_table(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """Tables with no preferred tool emit no steering warning."""
+        respx.get(f"{BASE_URL}/api/now/table/x_custom_test_table").mock(
+            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        )
+
+        tools, query_store = _register_and_get_tools(settings, auth_provider)
+        token = query_store.create({"query": "active=true"})
+        raw = await tools["table_query"](table="x_custom_test_table", query_token=token)
+        result = decode_response(raw)
+
+        assert result["status"] == "success"
+        warnings = result.get("warnings") or []
+        assert not any("Prefer" in w for w in warnings)
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_steering_warning_coexists_with_limit_cap(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """Steering warning and limit-cap warning are independent and additive."""
+        respx.get(f"{BASE_URL}/api/now/table/incident").mock(
+            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        )
+
+        tools, query_store = _register_and_get_tools(settings, auth_provider)
+        token = query_store.create({"query": "active=true"})
+        raw = await tools["table_query"](table="incident", query_token=token, limit=10000)
+        result = decode_response(raw)
+
+        assert result["status"] == "success"
+        warnings = result.get("warnings", [])
+        assert any("capped" in w.lower() for w in warnings)
+        assert any("Prefer" in w and "incident_list" in w for w in warnings)
+
+    @pytest.mark.asyncio()
     async def test_large_table_without_date_filter_returns_error(
         self, settings: Settings, auth_provider: BasicAuthProvider
     ) -> None:

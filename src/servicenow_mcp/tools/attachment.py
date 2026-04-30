@@ -174,6 +174,8 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
     ) -> str:
         """List attachment metadata records with optional filters.
 
+        Preferred over `table_query` on `sys_attachment` - applies attachment-table-access policy filtering and exposes the standard `(table_name, table_sys_id, file_name)` filter shape.
+
         Args:
             table_name: Optional table name to filter attachments by.
             table_sys_id: Optional source record sys_id to filter attachments by.
@@ -216,6 +218,8 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
     @tool_handler
     async def attachment_get(sys_id: str, *, correlation_id: str = "") -> str:
         """Fetch attachment metadata by attachment sys_id.
+
+        Preferred over `record_get` on `sys_attachment` - applies attachment-table-access policy.
 
         Args:
             sys_id: The sys_id of the attachment.

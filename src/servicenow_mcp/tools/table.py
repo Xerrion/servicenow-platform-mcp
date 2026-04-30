@@ -17,6 +17,7 @@ from servicenow_mcp.policy import (
     mask_audit_entry,
     mask_sensitive_fields,
 )
+from servicenow_mcp.preferred_tools import format_preference_warning, preferred_tool_for
 from servicenow_mcp.state import QueryTokenStore
 from servicenow_mcp.utils import (
     ServiceNowQuery,
@@ -455,7 +456,37 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         *,
         correlation_id: str = "",
     ) -> str:
-        """Query any table with filter conditions, returning matching records.
+        """Generic record query - fallback when no specialized tool fits.
+
+        Prefer a specialized tool first when one exists for the target table.
+        Specialized tools resolve human-readable choice labels (e.g. state="open"),
+        apply sensitivity masking, return display values by default, and use
+        sensible field defaults. ``table_query`` does none of these automatically.
+
+        Decision tree:
+
+        - Need a record by INC / CHG / PRB / REQ / RITM / KB number?
+          Use ``incident_get`` / ``change_get`` / ``problem_get`` / ``request_get``
+          / ``request_item_get`` / ``knowledge_get``.
+        - Listing by common business filters (state, priority, assignment_group)?
+          Use ``incident_list`` / ``change_list`` / ``problem_list`` / ``request_list``
+          / ``cmdb_list`` / ``knowledge_search``.
+        - Audit / history / "who changed what" / timeline?
+          Use ``changes_last_touched`` or ``debug_trace``.
+        - Listing or fetching scripts (business rules, script includes, UI actions, etc.)?
+          Use ``meta_list_artifacts`` / ``meta_get_artifact``.
+        - Attachments?
+          Use ``attachment_list`` / ``attachment_get`` / ``attachment_download``.
+        - Schema / dictionary inspection?
+          Use ``table_describe``.
+        - CMDB relationships?
+          Use ``cmdb_relationships``.
+
+        Use ``table_query`` only when none of the above fits or when you need
+        an exotic filter not exposed by a specialized tool. When you do call
+        ``table_query`` on a table that has a specialized alternative, a
+        steering warning is added to the response so the agent can self-correct
+        on the next call.
 
         Args:
             table: The ServiceNow table name.
@@ -477,6 +508,10 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         effective_limit = safety["limit"]
         if effective_limit < limit:
             warnings.append(f"Limit capped at {effective_limit}")
+
+        preferred = preferred_tool_for(table)
+        if preferred is not None:
+            warnings.append(format_preference_warning(table, preferred))
 
         field_list = [f.strip() for f in fields.split(",") if f.strip()] if fields else None
         order = order_by or None

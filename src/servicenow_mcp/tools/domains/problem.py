@@ -166,6 +166,8 @@ def register_tools(
     ) -> str:
         """List problems with optional filters.
 
+        Preferred over `table_query` for the `problem` table - resolves state labels, returns display values, applies sensitivity masking, and uses problem-management default fields.
+
         Args:
             state: Problem state (new, in_progress, known_error, root_cause_analysis, fix_in_progress, resolved, closed, all)
             priority: Priority level (1-5)
@@ -197,6 +199,8 @@ def register_tools(
     @tool_handler
     async def problem_get(number: str, *, correlation_id: str) -> str:
         """Fetch problem by PRB number.
+
+        Preferred over `record_get` / `table_query` when you have a PRB number - resolves the number to a sys_id automatically.
 
         Args:
             number: Problem number (must start with PRB prefix)

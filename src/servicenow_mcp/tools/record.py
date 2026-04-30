@@ -170,6 +170,8 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
     ) -> str:
         """Fetch a single record by sys_id with optional field selection.
 
+        For incident/change/problem/request/RITM/KB/CI lookups, prefer the typed `*_get` tools (`incident_get`, `change_get`, etc.) which accept the human number (INC0010001, CHG..., PRB..., REQ..., RITM..., KB...) directly. Use `record_get` when you already have a sys_id, or for tables without a typed wrapper.
+
         Args:
             table: The ServiceNow table name.
             sys_id: The sys_id of the record to fetch.

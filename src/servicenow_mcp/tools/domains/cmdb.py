@@ -111,6 +111,8 @@ def register_tools(
     ) -> str:
         """List Configuration Items from CMDB.
 
+        Preferred over `table_query` for `cmdb_ci` and its subclasses - resolves operational_status labels, applies sensitivity masking, and uses CMDB-relevant default fields.
+
         Args:
             ci_class: CMDB table/class to query (default "cmdb_ci")
             operational_status: Filter by operational status (operational=1, non_operational=2, etc.)
@@ -150,6 +152,8 @@ def register_tools(
         correlation_id: str,
     ) -> str:
         """Fetch a Configuration Item by name or sys_id.
+
+        Preferred over `record_get` / `table_query` when looking up a CI - accepts both CI name and sys_id, and resolves the correct CMDB subclass.
 
         Args:
             name_or_sys_id: CI name or sys_id (32-char hex string)
@@ -192,6 +196,8 @@ def register_tools(
         correlation_id: str,
     ) -> str:
         """Fetch CMDB relationships for a Configuration Item.
+
+        Preferred over `table_query` on `cmdb_rel_ci` - decodes the parent/child reference graph for a CI in one call instead of requiring two reference walks.
 
         Args:
             name_or_sys_id: CI name or sys_id (32-char hex string)

@@ -208,7 +208,9 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         *,
         correlation_id: str,
     ) -> str:
-        """Build a merged timeline of events for a record from sys_audit, syslog, and sys_journal_field.
+        """Build a merged timeline of events (audit history, work notes, system logs, who-changed-what) for a record from sys_audit, syslog, and sys_journal_field.
+
+        Preferred over `table_query` across sys_audit/syslog/sys_journal_field individually - merges and orders entries from all three sources in one call.
 
         Args:
             record_sys_id: The sys_id of the record to trace.

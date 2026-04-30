@@ -150,6 +150,8 @@ def register_tools(
     ) -> str:
         """Search knowledge articles with fuzzy text matching.
 
+        Preferred over `table_query` on the `kb_knowledge` table - performs full-text fuzzy matching across `short_description` and `text` rather than exact field comparison.
+
         Args:
             query: Search text to match in short_description or text fields
             workflow_state: Filter by workflow state (default "published")
@@ -190,6 +192,8 @@ def register_tools(
         correlation_id: str,
     ) -> str:
         """Fetch a knowledge article by KB number or sys_id.
+
+        Preferred over `record_get` / `table_query` when you have a KB number - accepts both KB number and sys_id input.
 
         Args:
             number_or_sys_id: KB number (e.g. KB0010001) or sys_id (32-char hex)

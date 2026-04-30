@@ -2,6 +2,7 @@
 
 import importlib
 import logging
+from urllib.parse import urlparse
 
 from mcp.server.fastmcp import FastMCP
 
@@ -27,7 +28,7 @@ def create_mcp_server() -> FastMCP:
     set_sentry_context(
         "server",
         {
-            "instance_url": settings.servicenow_instance_url.split("/")[2],  # hostname only
+            "instance_url": urlparse(settings.servicenow_instance_url).hostname or "unknown",
             "environment": settings.servicenow_env,
             "is_production": settings.is_production,
             "tool_package": settings.mcp_tool_package,

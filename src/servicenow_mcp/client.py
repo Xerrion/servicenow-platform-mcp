@@ -39,7 +39,7 @@ class ServiceNowClient:
         self._http_client: httpx.AsyncClient | None = None
 
     async def __aenter__(self) -> "ServiceNowClient":
-        self._http_client = httpx.AsyncClient(timeout=30.0)
+        self._http_client = httpx.AsyncClient(timeout=self._settings.httpx_timeout_seconds)
         return self
 
     async def __aexit__(self, *exc: object) -> None:
@@ -151,7 +151,7 @@ class ServiceNowClient:
             if "error" in body and "message" in body["error"]:
                 return body["error"]["message"]
         except Exception:
-            pass
+            logger.debug("Could not parse ServiceNow error body", exc_info=True)
         return default
 
     async def get_record(
@@ -222,16 +222,14 @@ class ServiceNowClient:
         params: dict[str, str] = {
             "sysparm_limit": str(limit),
         }
-        if query:
-            params["sysparm_query"] = query
+        effective_query = query
+        if order_by:
+            order_clause = ServiceNowQuery().order_by(order_by).build()
+            effective_query = f"{query}^{order_clause}" if query else order_clause
+        if effective_query:
+            params["sysparm_query"] = effective_query
         if offset:
             params["sysparm_offset"] = str(offset)
-        if order_by:
-            params["sysparm_query"] = (
-                f"{query}^{ServiceNowQuery().order_by(order_by).build()}"
-                if query
-                else ServiceNowQuery().order_by(order_by).build()
-            )
 
         response = await http.get(
             self._attachment_url(),

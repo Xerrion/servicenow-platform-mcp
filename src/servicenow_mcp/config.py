@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     max_row_limit: int = 100
     large_table_names_csv: str = _DEFAULT_LARGE_TABLES
     script_allowed_root: str = ""
+    httpx_timeout_seconds: float = 30.0
 
     sentry_dsn: str = ""
     sentry_environment: str = ""
@@ -46,6 +47,14 @@ class Settings(BaseSettings):
         """Ensure max_row_limit is between 1 and 10000."""
         if v < 1 or v > 10000:
             raise ValueError("max_row_limit must be between 1 and 10000")
+        return v
+
+    @field_validator("httpx_timeout_seconds")
+    @classmethod
+    def validate_httpx_timeout(cls, v: float) -> float:
+        """Ensure httpx_timeout_seconds is between 1.0 and 600.0."""
+        if v < 1.0 or v > 600.0:
+            raise ValueError("httpx_timeout_seconds must be between 1.0 and 600.0")
         return v
 
     @field_validator("mcp_tool_package")

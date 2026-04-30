@@ -95,7 +95,7 @@ class TestFormatResponse:
 
 
 class TestSerialize:
-    """Test serialize function with TOON fallback to JSON."""
+    """Test serialize function with TOON output and error-envelope fallback."""
 
     def test_serialize_returns_toon_by_default(self) -> None:
         """When toon_encode succeeds, serialize returns TOON output."""
@@ -104,26 +104,42 @@ class TestSerialize:
         parsed = decode_response(result)
         assert parsed["key"] == "value"
 
-    def test_serialize_falls_back_to_json_on_toon_failure(self) -> None:
-        """When toon_encode raises, serialize falls back to json.dumps."""
-        with patch(
-            "servicenow_mcp.utils.toon_encode",
-            side_effect=TypeError("unsupported type"),
-        ):
-            result = serialize({"key": "value"})
-        parsed = json.loads(result)
-        assert parsed["key"] == "value"
+    def test_serialize_falls_back_to_error_envelope_on_toon_failure(self) -> None:
+        """When toon_encode raises on the original data, serialize returns a TOON-encoded error envelope.
 
-    def test_serialize_fallback_json_is_indented(self) -> None:
-        """The JSON fallback uses indent=2."""
+        The original payload is intentionally NOT leaked through a JSON fallback;
+        the TOON-only output contract is preserved and the failure is made visible.
+        """
+        original_encode = serialize.__globals__["toon_encode"]
+        call_count = {"n": 0}
+
+        def faulty_encode(data: object) -> str:
+            call_count["n"] += 1
+            # Fail only on the first call (the original data); succeed for the
+            # error envelope so we exercise the TOON-encoded fallback path.
+            if call_count["n"] == 1:
+                raise TypeError("unsupported type")
+            return original_encode(data)
+
+        with patch("servicenow_mcp.utils.toon_encode", side_effect=faulty_encode):
+            result = serialize({"key": "value"})
+
+        parsed = decode_response(result)
+        assert parsed["status"] == "error"
+        assert parsed["error"] == {"message": "Serialization failed"}
+        # Original data must NOT appear in the output.
+        assert "value" not in result
+
+    def test_serialize_falls_back_to_json_envelope_when_toon_fully_unusable(self) -> None:
+        """If TOON fails for both the data AND the error envelope, JSON-encode the envelope."""
         with patch(
             "servicenow_mcp.utils.toon_encode",
             side_effect=RuntimeError("boom"),
         ):
             result = serialize({"a": 1})
-        # indent=2 means the output should have newlines and spaces
-        assert "\n" in result
-        assert "  " in result
+        parsed = json.loads(result)
+        assert parsed["status"] == "error"
+        assert parsed["error"] == {"message": "Serialization failed"}
 
 
 class TestServiceNowQuery:

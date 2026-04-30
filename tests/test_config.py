@@ -252,3 +252,65 @@ class TestSettings:
         first = settings.large_table_names
         second = settings.large_table_names
         assert first is second
+
+    def test_default_httpx_timeout(self) -> None:
+        """httpx_timeout_seconds defaults to 30 seconds."""
+        from servicenow_mcp.config import Settings
+
+        env = self._make_env()
+        with patch.dict("os.environ", env, clear=True):
+            settings = Settings(_env_file=None)
+
+        assert settings.httpx_timeout_seconds == 30.0
+
+    def test_custom_httpx_timeout(self) -> None:
+        """httpx_timeout_seconds can be overridden."""
+        from servicenow_mcp.config import Settings
+
+        env = self._make_env(HTTPX_TIMEOUT_SECONDS="120")
+        with patch.dict("os.environ", env, clear=True):
+            settings = Settings(_env_file=None)
+
+        assert settings.httpx_timeout_seconds == 120.0
+
+    def test_httpx_timeout_too_low_rejected(self) -> None:
+        """httpx_timeout_seconds below 1.0 is rejected."""
+        from servicenow_mcp.config import Settings
+
+        env = self._make_env(HTTPX_TIMEOUT_SECONDS="0.5")
+        with (
+            patch.dict("os.environ", env, clear=True),
+            pytest.raises(ValueError, match=r"between 1\.0 and 600\.0"),
+        ):
+            Settings(_env_file=None)
+
+    def test_httpx_timeout_too_high_rejected(self) -> None:
+        """httpx_timeout_seconds above 600.0 is rejected."""
+        from servicenow_mcp.config import Settings
+
+        env = self._make_env(HTTPX_TIMEOUT_SECONDS="601")
+        with (
+            patch.dict("os.environ", env, clear=True),
+            pytest.raises(ValueError, match=r"between 1\.0 and 600\.0"),
+        ):
+            Settings(_env_file=None)
+
+    def test_httpx_timeout_lower_bound_accepted(self) -> None:
+        """httpx_timeout_seconds at 1.0 is accepted."""
+        from servicenow_mcp.config import Settings
+
+        env = self._make_env(HTTPX_TIMEOUT_SECONDS="1")
+        with patch.dict("os.environ", env, clear=True):
+            settings = Settings(_env_file=None)
+
+        assert settings.httpx_timeout_seconds == 1.0
+
+    def test_httpx_timeout_upper_bound_accepted(self) -> None:
+        """httpx_timeout_seconds at 600.0 is accepted."""
+        from servicenow_mcp.config import Settings
+
+        env = self._make_env(HTTPX_TIMEOUT_SECONDS="600")
+        with patch.dict("os.environ", env, clear=True):
+            settings = Settings(_env_file=None)
+
+        assert settings.httpx_timeout_seconds == 600.0

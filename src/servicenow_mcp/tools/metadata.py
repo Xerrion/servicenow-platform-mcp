@@ -146,7 +146,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
 
         check_table_access(table)
 
-        query = resolve_query_token(query_token, query_store, correlation_id)
+        query = await resolve_query_token(query_token, query_store, correlation_id)
         encoded_query = query
         safety = enforce_query_safety(table, encoded_query, limit, settings)
         effective_limit = safety["limit"]

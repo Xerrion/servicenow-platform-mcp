@@ -133,14 +133,22 @@ def generate_correlation_id() -> str:
 def serialize(data: Any) -> str:
     """Serialize *data* to TOON format for LLM-friendly output.
 
-    Falls back to JSON if TOON encoding fails.
+    On TOON encoding failure, returns a serialized error envelope rather than
+    leaking the original data through a JSON fallback. This preserves the
+    TOON-only output contract expected by clients while making encoding
+    failures visible (logged + reported to Sentry).
     """
     try:
         return toon_encode(data)
     except Exception as e:
-        logger.warning("TOON encoding failed, falling back to JSON", exc_info=True)
+        logger.warning("TOON encoding failed, falling back to error envelope", exc_info=True)
         sentry_capture(e)
-        return json.dumps(data, indent=2)
+        error_envelope = {"status": "error", "error": {"message": "Serialization failed"}}
+        # Last-resort: TOON-encode the envelope; if even that fails, JSON-encode it.
+        try:
+            return toon_encode(error_envelope)
+        except Exception:
+            return json.dumps(error_envelope)
 
 
 def format_response(
@@ -724,7 +732,7 @@ class ServiceNowQuery:
         return self.build()
 
 
-def resolve_query_token(query_token: str, query_store: "QueryTokenStore", correlation_id: str) -> str:
+async def resolve_query_token(query_token: str, query_store: "QueryTokenStore", correlation_id: str) -> str:
     """Resolve a query token to the encoded query string it represents.
 
     Args:
@@ -737,7 +745,7 @@ def resolve_query_token(query_token: str, query_store: "QueryTokenStore", correl
     _ = correlation_id  # Kept for API consistency across tool helpers
     if not query_token:
         return ""
-    payload = query_store.get(query_token)
+    payload = await query_store.get(query_token)
     if payload is None:
         raise ValueError("Invalid or expired query token. Use the build_query tool to create a query first.")
     return payload["query"]

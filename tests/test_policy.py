@@ -410,7 +410,11 @@ class TestMaskRecordDispatch:
         """Non-audit tables route through mask_sensitive_fields."""
         from servicenow_mcp.policy import MASK_VALUE, mask_record
 
-        record = {"sys_id": "1", "password": "secret", "name": "ok"}
+        record = {
+            "sys_id": "1",
+            "password": "secret",  # NOSONAR S2068 - test fixture, not a real credential
+            "name": "ok",
+        }
         masked = mask_record("incident", record)
         assert masked["password"] == MASK_VALUE
         assert masked["name"] == "ok"
@@ -424,7 +428,7 @@ class TestNestedSensitiveFieldMasking:
         """A sensitive key inside a nested dict is masked."""
         from servicenow_mcp.policy import MASK_VALUE, mask_sensitive_fields
 
-        record = {"outer": {"password": "x", "name": "alice"}}
+        record = {"outer": {"password": "x", "name": "alice"}}  # NOSONAR S2068 - test fixture, not a real credential
         masked = mask_sensitive_fields(record)
 
         assert masked["outer"]["password"] == MASK_VALUE
@@ -452,7 +456,7 @@ class TestNestedSensitiveFieldMasking:
         """Nested dict in the input is not mutated."""
         from servicenow_mcp.policy import mask_sensitive_fields
 
-        nested = {"password": "secret"}
+        nested = {"password": "secret"}  # NOSONAR S2068 - test fixture, not a real credential
         record = {"outer": nested}
         mask_sensitive_fields(record)
 
@@ -462,7 +466,7 @@ class TestNestedSensitiveFieldMasking:
         """Sensitive keys inside list[dict] structures are masked."""
         from servicenow_mcp.policy import MASK_VALUE, mask_sensitive_fields
 
-        record = {"items": [{"password": "x"}, {"safe": "y"}]}
+        record = {"items": [{"password": "x"}, {"safe": "y"}]}  # NOSONAR S2068 - test fixture, not a real credential
         masked = mask_sensitive_fields(record)
 
         assert masked["items"][0]["password"] == MASK_VALUE

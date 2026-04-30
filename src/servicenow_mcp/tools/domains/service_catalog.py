@@ -9,7 +9,7 @@ from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.policy import write_gate
 from servicenow_mcp.tools._payload import parse_payload_json
-from servicenow_mcp.utils import format_response
+from servicenow_mcp.utils import format_response, validate_identifier
 
 
 TOOL_NAMES: list[str] = [
@@ -200,6 +200,7 @@ def register_tools(
         blocked = write_gate("sc_req_item", settings, correlation_id)
         if blocked:
             return blocked
+        validate_identifier(item_sys_id)
 
         parsed_vars: dict | None = None
         if variables:
@@ -231,6 +232,7 @@ def register_tools(
         blocked = write_gate("sc_cart_item", settings, correlation_id)
         if blocked:
             return blocked
+        validate_identifier(item_sys_id)
 
         parsed_vars: dict | None = None
         if variables:

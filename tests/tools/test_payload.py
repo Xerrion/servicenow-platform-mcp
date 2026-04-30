@@ -69,6 +69,29 @@ class TestParsePayloadJsonErrors:
         assert "exceeds maximum size" in _error_message(result)
         assert decoded["correlation_id"] == CID
 
+    def test_multibyte_payload_measured_in_utf8_bytes(self) -> None:
+        """Size cap is enforced on UTF-8 byte length, not code-point count.
+
+        A string of 70_000 emoji is only 70_000 code points but ~280_000 bytes,
+        which must exceed a 256 KiB cap and yield an error envelope.
+        """
+        raw = '{"k": "' + ("\U0001f600" * 70_000) + '"}'
+        # Sanity: well under the byte cap by len(), but well over by encode().
+        cap = 256 * 1024
+        assert len(raw) < cap
+        assert len(raw.encode("utf-8")) > cap
+
+        result = parse_payload_json(
+            raw,
+            field_name="data",
+            correlation_id=CID,
+            max_bytes=cap,
+        )
+        assert isinstance(result, str)
+        decoded = _decode_error(result)
+        assert decoded["status"] == "error"
+        assert "exceeds maximum size" in _error_message(result)
+
     def test_invalid_json_returns_error_envelope(self) -> None:
         result = parse_payload_json(
             "{not valid json",

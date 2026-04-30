@@ -37,7 +37,7 @@ def parse_payload_json(
         max_depth: Max nesting depth of the parsed structure.
         validate_keys: If True, every top-level key must satisfy ``validate_identifier``.
     """
-    if len(raw) > max_bytes:
+    if len(raw.encode("utf-8")) > max_bytes:
         return format_response(
             data=None,
             correlation_id=correlation_id,

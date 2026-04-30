@@ -261,7 +261,7 @@ class TestSettings:
         with patch.dict("os.environ", env, clear=True):
             settings = Settings(_env_file=None)
 
-        assert settings.httpx_timeout_seconds == 30.0
+        assert settings.httpx_timeout_seconds == pytest.approx(30.0)
 
     def test_custom_httpx_timeout(self) -> None:
         """httpx_timeout_seconds can be overridden."""
@@ -271,7 +271,7 @@ class TestSettings:
         with patch.dict("os.environ", env, clear=True):
             settings = Settings(_env_file=None)
 
-        assert settings.httpx_timeout_seconds == 120.0
+        assert settings.httpx_timeout_seconds == pytest.approx(120.0)
 
     def test_httpx_timeout_too_low_rejected(self) -> None:
         """httpx_timeout_seconds below 1.0 is rejected."""
@@ -303,7 +303,7 @@ class TestSettings:
         with patch.dict("os.environ", env, clear=True):
             settings = Settings(_env_file=None)
 
-        assert settings.httpx_timeout_seconds == 1.0
+        assert settings.httpx_timeout_seconds == pytest.approx(1.0)
 
     def test_httpx_timeout_upper_bound_accepted(self) -> None:
         """httpx_timeout_seconds at 600.0 is accepted."""
@@ -313,4 +313,37 @@ class TestSettings:
         with patch.dict("os.environ", env, clear=True):
             settings = Settings(_env_file=None)
 
-        assert settings.httpx_timeout_seconds == 600.0
+        assert settings.httpx_timeout_seconds == pytest.approx(600.0)
+
+    def test_httpx_timeout_nan_rejected(self) -> None:
+        """httpx_timeout_seconds set to NaN is rejected."""
+        from servicenow_mcp.config import Settings
+
+        env = self._make_env()
+        with (
+            patch.dict("os.environ", env, clear=True),
+            pytest.raises(ValueError, match=r"between 1\.0 and 600\.0"),
+        ):
+            Settings(_env_file=None, httpx_timeout_seconds=float("nan"))
+
+    def test_httpx_timeout_infinity_rejected(self) -> None:
+        """httpx_timeout_seconds set to +Infinity is rejected."""
+        from servicenow_mcp.config import Settings
+
+        env = self._make_env()
+        with (
+            patch.dict("os.environ", env, clear=True),
+            pytest.raises(ValueError, match=r"between 1\.0 and 600\.0"),
+        ):
+            Settings(_env_file=None, httpx_timeout_seconds=float("inf"))
+
+    def test_httpx_timeout_negative_infinity_rejected(self) -> None:
+        """httpx_timeout_seconds set to -Infinity is rejected."""
+        from servicenow_mcp.config import Settings
+
+        env = self._make_env()
+        with (
+            patch.dict("os.environ", env, clear=True),
+            pytest.raises(ValueError, match=r"between 1\.0 and 600\.0"),
+        ):
+            Settings(_env_file=None, httpx_timeout_seconds=float("-inf"))

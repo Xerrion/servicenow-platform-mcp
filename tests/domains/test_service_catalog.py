@@ -394,6 +394,19 @@ class TestScOrderNow:
         assert data["status"] == "error"
         assert "production" in data["error"]["message"].lower()
 
+    @pytest.mark.asyncio()
+    @patch("servicenow_mcp.policy.write_gate", return_value=None)
+    async def test_order_now_rejects_invalid_item_sys_id(
+        self, _mock_write_gate: Any, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """An item_sys_id with disallowed characters is rejected before any HTTP call."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        result = await tools["sc_order_now"](item_sys_id="not valid; DROP TABLE")
+        data = decode_response(result)
+
+        assert data["status"] == "error"
+        assert "invalid identifier" in data["error"]["message"].lower()
+
 
 # ── Add to Cart ──────────────────────────────────────────────────────────
 
@@ -457,6 +470,19 @@ class TestScAddToCart:
 
         assert data["status"] == "error"
         assert "production" in data["error"]["message"].lower()
+
+    @pytest.mark.asyncio()
+    @patch("servicenow_mcp.policy.write_gate", return_value=None)
+    async def test_add_to_cart_rejects_invalid_item_sys_id(
+        self, _mock_write_gate: Any, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """An item_sys_id with disallowed characters is rejected before any HTTP call."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        result = await tools["sc_add_to_cart"](item_sys_id="not valid; DROP TABLE")
+        data = decode_response(result)
+
+        assert data["status"] == "error"
+        assert "invalid identifier" in data["error"]["message"].lower()
 
 
 # ── Cart Get ─────────────────────────────────────────────────────────────

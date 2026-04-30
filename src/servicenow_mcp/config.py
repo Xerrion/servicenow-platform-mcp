@@ -1,5 +1,6 @@
 """Configuration settings for the ServiceNow MCP server."""
 
+import math
 from functools import cached_property
 from typing import ClassVar
 
@@ -52,8 +53,8 @@ class Settings(BaseSettings):
     @field_validator("httpx_timeout_seconds")
     @classmethod
     def validate_httpx_timeout(cls, v: float) -> float:
-        """Ensure httpx_timeout_seconds is between 1.0 and 600.0."""
-        if v < 1.0 or v > 600.0:
+        """Ensure httpx_timeout_seconds is finite and between 1.0 and 600.0."""
+        if not math.isfinite(v) or v < 1.0 or v > 600.0:
             raise ValueError("httpx_timeout_seconds must be between 1.0 and 600.0")
         return v
 

@@ -3,6 +3,7 @@
 import logging
 
 import pytest
+from toon_format import decode as toon_decode
 
 from servicenow_mcp.config import Settings
 from servicenow_mcp.errors import PolicyError, QuerySafetyError
@@ -342,3 +343,127 @@ class TestWriteGating:
             can_write("incident", prod_settings)
 
         assert any("production environment" in record.message for record in caplog.records)
+
+
+class TestGateWrite:
+    """Test the combined gate_write helper."""
+
+    def test_writable_table_returns_none(self, settings: Settings) -> None:
+        """A normal writable table in dev returns None (allowed)."""
+        from servicenow_mcp.policy import gate_write
+
+        assert gate_write("incident", settings, "cid-1") is None
+
+    def test_denied_table_returns_envelope(self, settings: Settings) -> None:
+        """A deny-listed table returns a serialized error envelope (no raise)."""
+        from servicenow_mcp.policy import gate_write
+
+        result = gate_write("sys_user_has_password", settings, "cid-2")
+        assert isinstance(result, str)
+        decoded = toon_decode(result)
+        assert decoded["status"] == "error"
+        assert "denied" in decoded["error"]["message"]
+        assert decoded["correlation_id"] == "cid-2"
+
+    def test_production_returns_error_envelope(self, prod_settings: Settings) -> None:
+        """Production environment returns a serialized error envelope."""
+        from servicenow_mcp.policy import gate_write
+
+        result = gate_write("incident", prod_settings, "cid-3")
+        assert isinstance(result, str)
+        decoded = toon_decode(result)
+        assert decoded["status"] == "error"
+        # Error strings are serialized via format_response as {"message": "..."}
+        assert "production" in decoded["error"]["message"]
+        assert decoded["correlation_id"] == "cid-3"
+
+    def test_invalid_identifier_returns_envelope(self, settings: Settings) -> None:
+        """Invalid table identifiers return an error envelope rather than raising."""
+        from servicenow_mcp.policy import gate_write
+
+        result = gate_write("bad table name!", settings, "cid-4")
+        assert isinstance(result, str)
+        decoded = toon_decode(result)
+        assert decoded["status"] == "error"
+        assert "Invalid table identifier" in decoded["error"]["message"]
+        assert decoded["correlation_id"] == "cid-4"
+
+
+class TestMaskRecordDispatch:
+    """Test mask_record table-based dispatch."""
+
+    def test_sys_audit_dispatches_to_audit_masker(self) -> None:
+        """sys_audit rows route through mask_audit_entry."""
+        from servicenow_mcp.policy import MASK_VALUE, mask_record
+
+        entry = {
+            "fieldname": "password",
+            "oldvalue": "old",
+            "newvalue": "new",
+        }
+        masked = mask_record("sys_audit", entry)
+        # Audit masker masks oldvalue/newvalue when fieldname is sensitive
+        assert masked["oldvalue"] == MASK_VALUE
+        assert masked["newvalue"] == MASK_VALUE
+
+    def test_other_table_dispatches_to_sensitive_masker(self) -> None:
+        """Non-audit tables route through mask_sensitive_fields."""
+        from servicenow_mcp.policy import MASK_VALUE, mask_record
+
+        record = {"sys_id": "1", "password": "secret", "name": "ok"}
+        masked = mask_record("incident", record)
+        assert masked["password"] == MASK_VALUE
+        assert masked["name"] == "ok"
+        assert masked["sys_id"] == "1"
+
+
+class TestNestedSensitiveFieldMasking:
+    """Test that mask_sensitive_fields recurses into nested dicts."""
+
+    def test_masks_nested_password_key(self) -> None:
+        """A sensitive key inside a nested dict is masked."""
+        from servicenow_mcp.policy import MASK_VALUE, mask_sensitive_fields
+
+        record = {"outer": {"password": "x", "name": "alice"}}
+        masked = mask_sensitive_fields(record)
+
+        assert masked["outer"]["password"] == MASK_VALUE
+        assert masked["outer"]["name"] == "alice"
+
+    def test_masks_deeply_nested_token(self) -> None:
+        """Deeply nested sensitive keys are masked at any depth."""
+        from servicenow_mcp.policy import MASK_VALUE, mask_sensitive_fields
+
+        record = {"a": {"b": {"c": {"api_key": "k"}}}}
+        masked = mask_sensitive_fields(record)
+
+        assert masked["a"]["b"]["c"]["api_key"] == MASK_VALUE
+
+    def test_nested_non_sensitive_unchanged(self) -> None:
+        """Nested non-sensitive structures are preserved."""
+        from servicenow_mcp.policy import mask_sensitive_fields
+
+        record = {"outer": {"inner": {"name": "ok", "id": "123"}}}
+        masked = mask_sensitive_fields(record)
+
+        assert masked == record
+
+    def test_does_not_mutate_nested_input(self) -> None:
+        """Nested dict in the input is not mutated."""
+        from servicenow_mcp.policy import mask_sensitive_fields
+
+        nested = {"password": "secret"}
+        record = {"outer": nested}
+        mask_sensitive_fields(record)
+
+        assert nested["password"] == "secret"
+
+    def test_masks_sensitive_keys_inside_list_of_dicts(self) -> None:
+        """Sensitive keys inside list[dict] structures are masked."""
+        from servicenow_mcp.policy import MASK_VALUE, mask_sensitive_fields
+
+        record = {"items": [{"password": "x"}, {"safe": "y"}]}
+        masked = mask_sensitive_fields(record)
+
+        assert masked["items"][0]["password"] == MASK_VALUE
+        assert masked["items"][1]["safe"] == "y"

@@ -1,6 +1,7 @@
 """Tests for the custom exception hierarchy."""
 
 from servicenow_mcp.errors import (
+    ACLError,
     AuthError,
     ForbiddenError,
     NotFoundError,
@@ -41,6 +42,12 @@ class TestHTTPErrors:
         err = ForbiddenError()
         assert err.status_code == 403
         assert str(err) == "Access forbidden"
+
+    def test_acl_error_defaults(self) -> None:
+        """ACLError has status_code=403 and default ACL message."""
+        err = ACLError()
+        assert err.status_code == 403
+        assert str(err) == "Access denied by ServiceNow ACL"
 
     def test_not_found_error_defaults(self) -> None:
         """NotFoundError has status_code=404 and default message."""
@@ -88,6 +95,14 @@ class TestErrorHierarchy:
         """ForbiddenError is a ServiceNowMCPError."""
         assert isinstance(ForbiddenError(), ServiceNowMCPError)
 
+    def test_acl_error_is_forbidden_error(self) -> None:
+        """ACLError is a ForbiddenError."""
+        assert isinstance(ACLError(), ForbiddenError)
+
+    def test_acl_error_is_servicenow_mcp_error(self) -> None:
+        """ACLError is a ServiceNowMCPError."""
+        assert isinstance(ACLError(), ServiceNowMCPError)
+
     def test_not_found_error_is_servicenow_mcp_error(self) -> None:
         """NotFoundError is a ServiceNowMCPError."""
         assert isinstance(NotFoundError(), ServiceNowMCPError)
@@ -113,6 +128,7 @@ class TestErrorHierarchy:
         for cls in (
             AuthError,
             ForbiddenError,
+            ACLError,
             NotFoundError,
             ServerError,
             PolicyError,
@@ -134,6 +150,12 @@ class TestCustomMessages:
         """ForbiddenError accepts a custom message."""
         err = ForbiddenError("insufficient scope")
         assert str(err) == "insufficient scope"
+        assert err.status_code == 403
+
+    def test_acl_error_custom_message(self) -> None:
+        """ACLError accepts a custom message."""
+        err = ACLError("ACL blocked")
+        assert str(err) == "ACL blocked"
         assert err.status_code == 403
 
     def test_not_found_error_custom_message(self) -> None:

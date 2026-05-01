@@ -14,6 +14,8 @@ from tests.helpers import decode_response, get_tool_functions
 
 
 BASE_URL = "https://test.service-now.com"
+METADATA_URL = f"{BASE_URL}/api/now/table/sys_dictionary"
+NO_MANDATORY_RESPONSE = httpx.Response(200, json={"result": []})
 
 # Valid 32-char hex sys_ids for tests (validate_sys_id requires this format)
 SYS_ID_INC001 = "a" * 32  # aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
@@ -49,6 +51,7 @@ class TestRecordCreate:
         self, settings: Settings, auth_provider: BasicAuthProvider
     ) -> None:
         """Creates a record and returns it with sensitive fields masked."""
+        respx.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
         respx.post(f"{BASE_URL}/api/now/table/incident").mock(
             return_value=httpx.Response(
                 201,
@@ -118,6 +121,7 @@ class TestRecordCreate:
     @respx.mock
     async def test_acl_denied_returns_clear_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns clear error when ServiceNow ACL denies the operation."""
+        respx.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
         respx.post(f"{BASE_URL}/api/now/table/incident").mock(
             return_value=httpx.Response(403, json={"error": {"message": "ACL denied"}})
         )
@@ -513,6 +517,7 @@ class TestRecordApply:
     @respx.mock
     async def test_apply_create(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Applies a previewed create action."""
+        respx.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
         # Phase 1: Preview
         tools = _register_and_get_tools(settings, auth_provider)
         preview_raw = await tools["record_preview_create"](
@@ -623,6 +628,7 @@ class TestRecordApply:
     @respx.mock
     async def test_token_consumed_only_once(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Token is single-use - second apply with same token fails."""
+        respx.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
         # Preview a create
         tools = _register_and_get_tools(settings, auth_provider)
         preview_raw = await tools["record_preview_create"](
@@ -652,6 +658,7 @@ class TestRecordApply:
     @respx.mock
     async def test_apply_masks_sensitive_fields(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Applied create masks sensitive fields in the returned record."""
+        respx.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
         tools = _register_and_get_tools(settings, auth_provider)
         preview_raw = await tools["record_preview_create"](
             table="incident",
@@ -682,6 +689,7 @@ class TestRecordApply:
     @respx.mock
     async def test_apply_acl_denied(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns clear ACL error when ServiceNow denies the apply operation."""
+        respx.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
         tools = _register_and_get_tools(settings, auth_provider)
         preview_raw = await tools["record_preview_create"](
             table="incident",
@@ -701,8 +709,6 @@ class TestRecordApply:
 
 
 # -- mandatory field validation ------------------------------------------------
-
-METADATA_URL = f"{BASE_URL}/api/now/table/sys_dictionary"
 
 METADATA_WITH_TWO_MANDATORY = {
     "result": [
@@ -927,3 +933,97 @@ class TestMandatoryFieldValidation:
 
         assert result["status"] == "success"
         assert result["data"]["sys_id"] == "new003"
+
+
+# -- Payload validation via parse_payload_json --------------------------------
+
+
+class TestPayloadValidation:
+    """Tests covering size, key, and shape validation now provided by parse_payload_json."""
+
+    @pytest.mark.asyncio()
+    async def test_oversize_payload_rejected(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        """Oversize JSON payload returns an error envelope without hitting the network."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        oversized = json.dumps({"short_description": "x" * 300_000})
+        raw = await tools["record_create"](table="incident", data=oversized)
+        result = decode_response(raw)
+
+        assert result["status"] == "error"
+        assert "maximum size" in result["error"]["message"].lower()
+
+    @pytest.mark.asyncio()
+    async def test_invalid_top_level_key_rejected(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        """Top-level key with a space fails validate_identifier and returns an error envelope."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["record_create"](
+            table="incident",
+            data=json.dumps({"FOO BAR": "x"}),
+        )
+        result = decode_response(raw)
+
+        assert result["status"] == "error"
+        assert "invalid key" in result["error"]["message"].lower()
+
+    @pytest.mark.asyncio()
+    async def test_non_object_payload_rejected(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        """JSON array (non-object) payload returns an error envelope."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["record_create"](table="incident", data="[1,2,3]")
+        result = decode_response(raw)
+
+        assert result["status"] == "error"
+        assert "json object" in result["error"]["message"].lower()
+
+    @pytest.mark.asyncio()
+    async def test_update_changes_validates_keys(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        """record_update validates keys in the changes payload."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["record_update"](
+            table="incident",
+            sys_id=SYS_ID_INC001,
+            changes=json.dumps({"BAD KEY": "v"}),
+        )
+        result = decode_response(raw)
+
+        assert result["status"] == "error"
+        assert "invalid key" in result["error"]["message"].lower()
+
+
+# -- _check_mandatory_fields semantics ----------------------------------------
+
+
+class TestCheckMandatoryFieldsSemantics:
+    """Direct unit tests for _check_mandatory_fields helper."""
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_empty_string_treated_as_missing(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        """An empty string for a mandatory field is treated as missing."""
+        from servicenow_mcp.client import ServiceNowClient
+        from servicenow_mcp.tools.record_write import _check_mandatory_fields
+
+        respx.get(METADATA_URL).mock(return_value=httpx.Response(200, json=METADATA_WITH_TWO_MANDATORY))
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            missing = await _check_mandatory_fields(
+                client, "incident", {"short_description": "", "category": "software"}
+            )
+
+        assert missing == ["short_description"]
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_none_value_treated_as_missing(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        """A None value for a mandatory field is treated as missing."""
+        from servicenow_mcp.client import ServiceNowClient
+        from servicenow_mcp.tools.record_write import _check_mandatory_fields
+
+        respx.get(METADATA_URL).mock(return_value=httpx.Response(200, json=METADATA_WITH_TWO_MANDATORY))
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            missing = await _check_mandatory_fields(
+                client, "incident", {"short_description": None, "category": "software"}
+            )
+
+        assert missing == ["short_description"]

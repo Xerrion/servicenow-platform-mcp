@@ -1,6 +1,5 @@
 """Write operations for ServiceNow platform artifacts."""
 
-import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -11,8 +10,9 @@ from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
-from servicenow_mcp.policy import check_table_access, mask_sensitive_fields, write_gate
-from servicenow_mcp.utils import format_response, validate_identifier, validate_sys_id
+from servicenow_mcp.policy import gate_write, mask_sensitive_fields
+from servicenow_mcp.tools._payload import parse_payload_json
+from servicenow_mcp.utils import format_response, validate_sys_id
 
 
 logger = logging.getLogger(__name__)
@@ -125,8 +125,15 @@ def _parse_and_validate_payload(
 ) -> tuple[dict[str, Any], list[str]] | str:
     """Parse, validate, and enrich a JSON payload for artifact write operations.
 
-    Returns a ``(data_dict, warnings)`` tuple on success, or a formatted error
-    response string when validation fails.
+    Returns a ``(payload, warnings)`` tuple on success, or a formatted error
+    response string when validation fails. Delegates JSON parsing, size/depth
+    caps, and identifier validation of top-level keys to ``parse_payload_json``;
+    adds artifact-specific behavior on top:
+
+      * Maps ``script_path`` content into the per-artifact script field via
+        ``SCRIPT_FIELD_MAP`` (defaulting to ``"script"``).
+      * Emits a warning when the script_path content overrides an existing
+        field key in the supplied payload.
 
     Args:
         raw_json: The raw JSON string from the caller.
@@ -136,18 +143,10 @@ def _parse_and_validate_payload(
         allowed_root: When non-empty, constrains script_path resolution.
         correlation_id: Correlation ID for error envelopes.
     """
-    parsed = json.loads(raw_json)
-    if not isinstance(parsed, dict):
-        return format_response(
-            data=None,
-            correlation_id=correlation_id,
-            status="error",
-            error=f"'{param_name}' must be a JSON object, not " + type(parsed).__name__,
-        )
+    parsed = parse_payload_json(raw_json, field_name=param_name, correlation_id=correlation_id)
+    if isinstance(parsed, str):
+        return parsed
     payload: dict[str, Any] = parsed
-
-    for key in payload:
-        validate_identifier(key)
 
     warnings: list[str] = []
 
@@ -181,9 +180,8 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             script_path: Optional absolute path to a local script file. When provided, the file content is read and set as the artifact's script field.
         """
         table = _resolve_writable_artifact_table(artifact_type)
-        check_table_access(table)
 
-        blocked = write_gate(table, settings, correlation_id)
+        blocked = gate_write(table, settings, correlation_id)
         if blocked:
             return blocked
 
@@ -227,9 +225,8 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             script_path: Optional absolute path to a local script file. When provided, the file content is read and set as the artifact's script field.
         """
         table = _resolve_writable_artifact_table(artifact_type)
-        check_table_access(table)
 
-        blocked = write_gate(table, settings, correlation_id)
+        blocked = gate_write(table, settings, correlation_id)
         if blocked:
             return blocked
 

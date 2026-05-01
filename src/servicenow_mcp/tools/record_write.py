@@ -1,24 +1,27 @@
 """Record-level write operations for ServiceNow tables."""
 
-import json
 import logging
 from typing import Any
 
+import httpx
 from mcp.server.fastmcp import FastMCP
 
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
+from servicenow_mcp.errors import ForbiddenError, NotFoundError, ServerError
 from servicenow_mcp.policy import (
     MASK_VALUE,
     check_table_access,
+    gate_write,
     is_sensitive_field,
     mask_sensitive_fields,
     write_gate,
 )
 from servicenow_mcp.state import PreviewTokenStore
-from servicenow_mcp.utils import format_response, validate_identifier, validate_sys_id
+from servicenow_mcp.tools._payload import parse_payload_json
+from servicenow_mcp.utils import format_response, validate_sys_id
 
 
 logger = logging.getLogger(__name__)
@@ -42,16 +45,21 @@ async def _check_mandatory_fields(
     """
     try:
         metadata = await client.get_metadata(table)
-    except Exception:
+    except (NotFoundError, ForbiddenError, ServerError, httpx.HTTPError):
+        # Metadata genuinely unavailable for this table or the instance is
+        # unreachable; defer to ServiceNow's own server-side validation.
+        # AuthError and other ServiceNowMCPError subclasses propagate so
+        # genuine misconfiguration surfaces to the caller.
         logger.warning(
-            "Failed to fetch metadata for mandatory field check on table '%s'",
+            "Metadata not available for table '%s'; skipping mandatory check",
             table,
+            exc_info=True,
         )
         return []
     mandatory_fields = [
         entry["element"] for entry in metadata if entry.get("mandatory") == "true" and entry.get("element")
     ]
-    return [f for f in mandatory_fields if f not in data]
+    return [f for f in mandatory_fields if not data.get(f)]
 
 
 async def _check_mandatory_or_error(
@@ -156,13 +164,6 @@ TOOL_NAMES: list[str] = [
 ]
 
 
-def _validate_write_request(table: str, settings: Settings, correlation_id: str) -> str | None:
-    """Validate table access and write permissions, returning an error envelope if blocked."""
-    validate_identifier(table)
-    check_table_access(table)
-    return write_gate(table, settings, correlation_id)
-
-
 def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthProvider) -> None:
     """Register record write operation tools on the MCP server."""
 
@@ -182,11 +183,14 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             table: The table to create the record in (e.g. 'incident').
             data: A JSON string of field-value pairs for the new record.
         """
-        blocked = _validate_write_request(table, settings, correlation_id)
+        blocked = gate_write(table, settings, correlation_id)
         if blocked:
             return blocked
 
-        record_data = json.loads(data)
+        parsed = parse_payload_json(data, field_name="data", correlation_id=correlation_id)
+        if isinstance(parsed, str):
+            return parsed
+        record_data = parsed
 
         async with ServiceNowClient(settings, auth_provider) as client:
             err = await _check_mandatory_or_error(client, table, record_data, correlation_id)
@@ -212,11 +216,14 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             table: The table to create the record in (e.g. 'incident').
             data: A JSON string of field-value pairs for the new record.
         """
-        blocked = _validate_write_request(table, settings, correlation_id)
+        blocked = gate_write(table, settings, correlation_id)
         if blocked:
             return blocked
 
-        record_data = json.loads(data)
+        parsed = parse_payload_json(data, field_name="data", correlation_id=correlation_id)
+        if isinstance(parsed, str):
+            return parsed
+        record_data = parsed
 
         async with ServiceNowClient(settings, auth_provider) as client:
             err = await _check_mandatory_or_error(client, table, record_data, correlation_id)
@@ -224,7 +231,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                 return err
 
         # Store for later apply - no further HTTP call needed
-        token = preview_store.create(
+        token = await preview_store.create(
             {
                 "action": "create",
                 "table": table,
@@ -252,13 +259,16 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             sys_id: The sys_id of the record to update.
             changes: A JSON string of field-value pairs to update.
         """
-        blocked = _validate_write_request(table, settings, correlation_id)
+        blocked = gate_write(table, settings, correlation_id)
         if blocked:
             return blocked
 
         validate_sys_id(sys_id)
 
-        changes_dict = json.loads(changes)
+        parsed = parse_payload_json(changes, field_name="changes", correlation_id=correlation_id)
+        if isinstance(parsed, str):
+            return parsed
+        changes_dict = parsed
 
         async with ServiceNowClient(settings, auth_provider) as client:
             updated = await client.update_record(table, sys_id, changes_dict)
@@ -282,13 +292,16 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             sys_id: The sys_id of the record to update.
             changes: A JSON string of field-value pairs to change.
         """
-        blocked = _validate_write_request(table, settings, correlation_id)
+        blocked = gate_write(table, settings, correlation_id)
         if blocked:
             return blocked
 
         validate_sys_id(sys_id)
 
-        changes_dict = json.loads(changes)
+        parsed = parse_payload_json(changes, field_name="changes", correlation_id=correlation_id)
+        if isinstance(parsed, str):
+            return parsed
+        changes_dict = parsed
 
         async with ServiceNowClient(settings, auth_provider) as client:
             current = await client.get_record(table, sys_id)
@@ -296,7 +309,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         diff = _build_update_diff(changes_dict, current)
 
         # Store preview for later apply
-        token = preview_store.create(
+        token = await preview_store.create(
             {
                 "action": "update",
                 "table": table,
@@ -324,7 +337,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             table: The table containing the record (e.g. 'incident').
             sys_id: The sys_id of the record to delete.
         """
-        blocked = _validate_write_request(table, settings, correlation_id)
+        blocked = gate_write(table, settings, correlation_id)
         if blocked:
             return blocked
 
@@ -351,7 +364,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             table: The table containing the record (e.g. 'incident').
             sys_id: The sys_id of the record to delete.
         """
-        blocked = _validate_write_request(table, settings, correlation_id)
+        blocked = gate_write(table, settings, correlation_id)
         if blocked:
             return blocked
 
@@ -361,7 +374,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             record = await client.get_record(table, sys_id)
 
         # Store preview for later apply
-        token = preview_store.create(
+        token = await preview_store.create(
             {
                 "action": "delete",
                 "table": table,
@@ -389,7 +402,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             preview_token: The single-use token returned by record_preview_create, record_preview_update, or record_preview_delete.
         """
         # Consume the token (single-use)
-        payload = preview_store.consume(preview_token)
+        payload = await preview_store.consume(preview_token)
         if payload is None:
             return format_response(
                 data=None,

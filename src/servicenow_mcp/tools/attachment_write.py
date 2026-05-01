@@ -8,13 +8,13 @@ from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
-from servicenow_mcp.policy import check_table_access, write_gate
+from servicenow_mcp.policy import gate_write, production_write_blocked
 from servicenow_mcp.tools._attachment_common import (
     decode_content_base64,
     ensure_attachment_size_within_limit,
     get_attachment_table_name,
 )
-from servicenow_mcp.utils import format_response, validate_identifier, validate_sys_id
+from servicenow_mcp.utils import format_response, validate_sys_id
 
 
 logger = logging.getLogger(__name__)
@@ -53,11 +53,10 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             encryption_context: Optional encryption context.
             creation_time: Optional custom attachment creation time.
         """
-        validate_identifier(table_name)
         validate_sys_id(table_sys_id)
-        check_table_access(table_name)
 
-        blocked = write_gate(table_name, settings, correlation_id)
+        # Single consolidated gate: identifier validation + deny-list + env block.
+        blocked = gate_write(table_name, settings, correlation_id)
         if blocked:
             return blocked
 
@@ -87,14 +86,23 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         """
         validate_sys_id(sys_id)
 
+        # Env-level block fires BEFORE the metadata fetch so production never
+        # leaks a network round-trip (or telemetry) for an attachment whose
+        # owning table we cannot know without asking. Table-specific deny-list
+        # checks still happen post-fetch via ``gate_write`` below.
+        blocked = production_write_blocked(settings, correlation_id)
+        if blocked:
+            return blocked
+
         async with ServiceNowClient(settings, auth_provider) as client:
             metadata = await client.get_attachment(sys_id)
             table_name = get_attachment_table_name(metadata)
-            check_table_access(table_name)
 
-            blocked = write_gate(table_name, settings, correlation_id)
-            if blocked:
-                return blocked
+            # Now that the owning table is known, apply the full write gate
+            # (identifier validation + deny-list + env block) before deleting.
+            gate = gate_write(table_name, settings, correlation_id)
+            if gate:
+                return gate
 
             await client.delete_attachment(sys_id)
 

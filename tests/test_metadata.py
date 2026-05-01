@@ -125,7 +125,7 @@ class TestMetaListArtifacts:
         )
 
         tools, query_store = _register_and_get_tools(settings, auth_provider)
-        token = query_store.create({"query": "collection=incident^active=true"})
+        token = await query_store.create({"query": "collection=incident^active=true"})
         raw = await tools["meta_list_artifacts"](artifact_type="business_rule", query_token=token)
         result = decode_response(raw)
 

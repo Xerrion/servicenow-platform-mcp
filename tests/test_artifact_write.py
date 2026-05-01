@@ -220,10 +220,13 @@ class TestParseAndValidatePayload:
         result = _parse_and_validate_payload('["a", "b"]', "data", "script_include", "", "", "corr-1")
         assert isinstance(result, str)
 
-    def test_invalid_key_raises(self) -> None:
-        """Raises ValueError for keys that fail validate_identifier."""
-        with pytest.raises(ValueError, match="Invalid identifier"):
-            _parse_and_validate_payload('{"INVALID-KEY!": "v"}', "data", "script_include", "", "", "corr-1")
+    def test_invalid_key_returns_error_string(self) -> None:
+        """Returns a formatted error envelope for keys that fail validate_identifier."""
+        result = _parse_and_validate_payload('{"INVALID-KEY!": "v"}', "data", "script_include", "", "", "corr-1")
+        assert isinstance(result, str)
+        decoded = decode_response(result)
+        assert decoded["status"] == "error"
+        assert "invalid key" in decoded["error"]["message"].lower()
 
     def test_script_path_injects_content(self, tmp_path: Any) -> None:
         """Injects script file content into payload via SCRIPT_FIELD_MAP."""

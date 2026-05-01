@@ -25,6 +25,13 @@ class ForbiddenError(ServiceNowMCPError):
         super().__init__(message, status_code=403)
 
 
+class ACLError(ForbiddenError):
+    """ServiceNow ACL denial (HTTP 403)."""
+
+    def __init__(self, message: str = "Access denied by ServiceNow ACL") -> None:
+        super().__init__(message)
+
+
 class NotFoundError(ServiceNowMCPError):
     """Resource not found (HTTP 404)."""
 

@@ -14,10 +14,10 @@ from servicenow_mcp.mcp_state import get_query_store
 from servicenow_mcp.policy import (
     check_table_access,
     enforce_query_safety,
-    mask_audit_entry,
-    mask_sensitive_fields,
+    mask_record,
 )
 from servicenow_mcp.state import QueryTokenStore
+from servicenow_mcp.tools._payload import MAX_JSON_PAYLOAD_BYTES
 from servicenow_mcp.utils import (
     ServiceNowQuery,
     format_response,
@@ -329,7 +329,7 @@ def _apply_condition(
     return handler(query, field, operator, condition, correlation_id)
 
 
-def _build_query_impl(
+async def _build_query_impl(
     conditions_list: list[Any],
     query_store: QueryTokenStore,
     correlation_id: str,
@@ -354,7 +354,7 @@ def _build_query_impl(
             return err
 
     built = query.build()
-    query_token = query_store.create({"query": built})
+    query_token = await query_store.create({"query": built})
     return format_response(
         data={"query": built, "query_token": query_token},
         correlation_id=correlation_id,
@@ -470,7 +470,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         """
         warnings: list[str] = []
 
-        query = resolve_query_token(query_token, query_store, correlation_id)
+        query = await resolve_query_token(query_token, query_store, correlation_id)
         validate_identifier(table)
         check_table_access(table)
         safety = enforce_query_safety(table, query, limit, settings)
@@ -493,10 +493,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             )
 
         # Mask sensitive fields in each record
-        if table == "sys_audit":
-            masked_records = [mask_audit_entry(r) for r in result["records"]]
-        else:
-            masked_records = [mask_sensitive_fields(r) for r in result["records"]]
+        masked_records = [mask_record(table, r) for r in result["records"]]
 
         return format_response(
             data=masked_records,
@@ -538,7 +535,7 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             max_fields: Comma-separated fields to compute maximum for.
             sum_fields: Comma-separated fields to compute sum for.
         """
-        query = resolve_query_token(query_token, query_store, correlation_id)
+        query = await resolve_query_token(query_token, query_store, correlation_id)
         validate_identifier(table)
         check_table_access(table)
         enforce_query_safety(table, query, None, settings)
@@ -600,6 +597,13 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         The query_token must be passed to other tools that accept query parameters.
         """
         try:
+            if len(conditions) > MAX_JSON_PAYLOAD_BYTES:
+                return format_response(
+                    data=None,
+                    correlation_id=correlation_id,
+                    status="error",
+                    error=f"conditions exceeds maximum size of {MAX_JSON_PAYLOAD_BYTES} bytes",
+                )
             parsed = json.loads(conditions)
         except json.JSONDecodeError as e:
             return format_response(
@@ -617,4 +621,4 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                 error="conditions must be a JSON array",
             )
 
-        return _build_query_impl(parsed, query_store, correlation_id)
+        return await _build_query_impl(parsed, query_store, correlation_id)

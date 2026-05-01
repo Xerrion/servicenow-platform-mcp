@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, override
 
 from toon_format import encode as toon_encode
 
-from servicenow_mcp.errors import ForbiddenError
+from servicenow_mcp.errors import ACLError, ForbiddenError
 from servicenow_mcp.sentry import capture_exception as sentry_capture
 
 
@@ -133,14 +133,29 @@ def generate_correlation_id() -> str:
 def serialize(data: Any) -> str:
     """Serialize *data* to TOON format for LLM-friendly output.
 
-    Falls back to JSON if TOON encoding fails.
+    On TOON encoding failure, returns a serialized error envelope rather than
+    leaking the original data through a JSON fallback. This preserves the
+    TOON-only output contract expected by clients while making encoding
+    failures visible (logged + reported to Sentry).
     """
     try:
         return toon_encode(data)
     except Exception as e:
-        logger.warning("TOON encoding failed, falling back to JSON", exc_info=True)
+        logger.warning("TOON encoding failed, falling back to error envelope", exc_info=True)
         sentry_capture(e)
-        return json.dumps(data, indent=2)
+        error_envelope: dict[str, Any] = {
+            "status": "error",
+            "error": {"message": "Serialization failed"},
+        }
+        # Preserve correlation_id when the caller passed a response envelope dict,
+        # so the failure remains traceable end-to-end.
+        if isinstance(data, dict) and isinstance(data.get("correlation_id"), str):
+            error_envelope["correlation_id"] = data["correlation_id"]
+        # Last-resort: TOON-encode the envelope; if even that fails, JSON-encode it.
+        try:
+            return toon_encode(error_envelope)
+        except Exception:
+            return json.dumps(error_envelope)
 
 
 def format_response(
@@ -724,7 +739,7 @@ class ServiceNowQuery:
         return self.build()
 
 
-def resolve_query_token(query_token: str, query_store: "QueryTokenStore", correlation_id: str) -> str:
+async def resolve_query_token(query_token: str, query_store: "QueryTokenStore", correlation_id: str) -> str:
     """Resolve a query token to the encoded query string it represents.
 
     Args:
@@ -737,7 +752,7 @@ def resolve_query_token(query_token: str, query_store: "QueryTokenStore", correl
     _ = correlation_id  # Kept for API consistency across tool helpers
     if not query_token:
         return ""
-    payload = query_store.get(query_token)
+    payload = await query_store.get(query_token)
     if payload is None:
         raise ValueError("Invalid or expired query token. Use the build_query tool to create a query first.")
     return payload["query"]
@@ -749,18 +764,26 @@ async def safe_tool_call(
 ) -> str:
     """Wrap an MCP tool body with standard error handling.
 
-    Catches ForbiddenError (ACL denial) and generic exceptions,
-    returning consistent JSON error envelopes via format_response.
+    Catches ServiceNow ACL denials, generic forbidden errors, and generic
+    exceptions, returning consistent JSON error envelopes via format_response.
     """
     try:
         return await fn()
-    except ForbiddenError as e:
+    except ACLError as e:
         sentry_capture(e)
         return format_response(
             data=None,
             correlation_id=correlation_id,
             status="error",
             error=f"Access denied by ServiceNow ACL: {e}",
+        )
+    except ForbiddenError as e:
+        sentry_capture(e)
+        return format_response(
+            data=None,
+            correlation_id=correlation_id,
+            status="error",
+            error=f"Access forbidden by ServiceNow: {e}",
         )
     except Exception as e:
         sentry_capture(e)

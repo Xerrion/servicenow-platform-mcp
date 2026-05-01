@@ -1,6 +1,7 @@
 """Async ServiceNow REST API client."""
 
 import logging
+import re
 import uuid
 from typing import Any
 from urllib.parse import quote
@@ -10,6 +11,7 @@ import httpx
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.errors import (
+    ACLError,
     AuthError,
     ForbiddenError,
     NotFoundError,
@@ -26,6 +28,10 @@ logger = logging.getLogger(__name__)
 
 _ATF_PLUGIN_ERROR = "ATF Cloud Runner plugin (sn_atf_tg) may not be installed"
 
+# Word-boundary matching so unrelated words containing the substring "acl"
+# (e.g. "oracle", "miracle", "barnacle") do not false-positive.
+_ACL_INDICATOR_RE: re.Pattern[str] = re.compile(r"\b(?:acl|access control)\b")
+
 
 class ServiceNowClient:
     """Async HTTP client for the ServiceNow REST API."""
@@ -39,7 +45,7 @@ class ServiceNowClient:
         self._http_client: httpx.AsyncClient | None = None
 
     async def __aenter__(self) -> "ServiceNowClient":
-        self._http_client = httpx.AsyncClient(timeout=30.0)
+        self._http_client = httpx.AsyncClient(timeout=self._settings.httpx_timeout_seconds)
         return self
 
     async def __aexit__(self, *exc: object) -> None:
@@ -132,6 +138,8 @@ class ServiceNowClient:
             raise AuthError(msg)
         if response.status_code == 403:
             msg = self._extract_error_message(response, "Access forbidden")
+            if self._is_acl_error_response(response):
+                raise ACLError(msg)
             raise ForbiddenError(msg)
         if response.status_code == 404:
             msg = self._extract_error_message(response, "Resource not found")
@@ -144,6 +152,31 @@ class ServiceNowClient:
             raise ServiceNowMCPError(msg, status_code=response.status_code)
 
     @staticmethod
+    def _is_acl_error_response(response: httpx.Response) -> bool:
+        """Return True when a ServiceNow 403 response explicitly reports an ACL denial."""
+        try:
+            payload = response.json()
+        except Exception:
+            logger.debug("Could not parse ServiceNow error body for ACL detection", exc_info=True)
+            return False
+
+        values: list[str] = []
+
+        def collect_strings(value: Any) -> None:
+            if isinstance(value, str):
+                values.append(value)
+            elif isinstance(value, dict):
+                for nested in value.values():
+                    collect_strings(nested)
+            elif isinstance(value, list):
+                for nested in value:
+                    collect_strings(nested)
+
+        collect_strings(payload)
+        normalized = "\n".join(values).lower()
+        return bool(_ACL_INDICATOR_RE.search(normalized))
+
+    @staticmethod
     def _extract_error_message(response: httpx.Response, default: str) -> str:
         """Try to extract error message from ServiceNow JSON response."""
         try:
@@ -151,7 +184,7 @@ class ServiceNowClient:
             if "error" in body and "message" in body["error"]:
                 return body["error"]["message"]
         except Exception:
-            pass
+            logger.debug("Could not parse ServiceNow error body", exc_info=True)
         return default
 
     async def get_record(
@@ -222,16 +255,14 @@ class ServiceNowClient:
         params: dict[str, str] = {
             "sysparm_limit": str(limit),
         }
-        if query:
-            params["sysparm_query"] = query
+        effective_query = query
+        if order_by:
+            order_clause = ServiceNowQuery().order_by(order_by).build()
+            effective_query = f"{query}^{order_clause}" if query else order_clause
+        if effective_query:
+            params["sysparm_query"] = effective_query
         if offset:
             params["sysparm_offset"] = str(offset)
-        if order_by:
-            params["sysparm_query"] = (
-                f"{query}^{ServiceNowQuery().order_by(order_by).build()}"
-                if query
-                else ServiceNowQuery().order_by(order_by).build()
-            )
 
         response = await http.get(
             self._attachment_url(),

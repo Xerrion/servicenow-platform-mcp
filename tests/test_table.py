@@ -169,7 +169,7 @@ class TestTableQuery:
         )
 
         tools, query_store = _register_and_get_tools(settings, auth_provider)
-        token = query_store.create({"query": "active=true"})
+        token = await query_store.create({"query": "active=true"})
         raw = await tools["table_query"](table="incident", query_token=token)
         result = decode_response(raw)
 
@@ -190,7 +190,7 @@ class TestTableQuery:
         )
 
         tools, query_store = _register_and_get_tools(settings, auth_provider)
-        token = query_store.create({"query": "active=true"})
+        token = await query_store.create({"query": "active=true"})
         # Default max_row_limit is 100, request 500
         raw = await tools["table_query"](table="incident", query_token=token, limit=500)
         result = decode_response(raw)
@@ -208,7 +208,7 @@ class TestTableQuery:
         # Add syslog to large tables for this test
         settings.large_table_names_csv = "syslog,sys_audit"
         tools, query_store = _register_and_get_tools(settings, auth_provider)
-        token = query_store.create({"query": "level=error"})
+        token = await query_store.create({"query": "level=error"})
         raw = await tools["table_query"](table="syslog", query_token=token)
         result = decode_response(raw)
 
@@ -220,7 +220,7 @@ class TestTableQuery:
         """Denied table returns error."""
         denied = next(iter(DENIED_TABLES))
         tools, query_store = _register_and_get_tools(settings, auth_provider)
-        token = query_store.create({"query": "active=true"})
+        token = await query_store.create({"query": "active=true"})
         raw = await tools["table_query"](table=denied, query_token=token)
         result = decode_response(raw)
 
@@ -248,7 +248,7 @@ class TestTableQuery:
         )
 
         tools, query_store = _register_and_get_tools(settings, auth_provider)
-        token = query_store.create({"query": "active=true"})
+        token = await query_store.create({"query": "active=true"})
         raw = await tools["table_query"](table="incident", query_token=token, display_values=True)
         result = decode_response(raw)
 
@@ -279,7 +279,7 @@ class TestTableAggregate:
         )
 
         tools, query_store = _register_and_get_tools(settings, auth_provider)
-        token = query_store.create({"query": "active=true"})
+        token = await query_store.create({"query": "active=true"})
         raw = await tools["table_aggregate"](table="incident", query_token=token)
         result = decode_response(raw)
 
@@ -291,7 +291,7 @@ class TestTableAggregate:
         """Denied table returns error."""
         denied = next(iter(DENIED_TABLES))
         tools, query_store = _register_and_get_tools(settings, auth_provider)
-        token = query_store.create({"query": "active=true"})
+        token = await query_store.create({"query": "active=true"})
         raw = await tools["table_aggregate"](table=denied, query_token=token)
         result = decode_response(raw)
 
@@ -344,7 +344,7 @@ class TestTableErrorPropagation:
         )
 
         tools, query_store = _register_and_get_tools(settings, auth_provider)
-        token = query_store.create({"query": "active=true"})
+        token = await query_store.create({"query": "active=true"})
         raw = await tools["table_query"](table="incident", query_token=token)
         result = decode_response(raw)
 
@@ -369,7 +369,7 @@ class TestTableErrorPropagation:
         )
 
         tools, query_store = _register_and_get_tools(settings, auth_provider)
-        token = query_store.create({"query": "active=true"})
+        token = await query_store.create({"query": "active=true"})
         raw = await tools["table_aggregate"](table="incident", query_token=token)
         result = decode_response(raw)
 
@@ -752,7 +752,7 @@ class TestBuildQuery:
         result = decode_response(raw)
         token = result["data"]["query_token"]
 
-        payload = query_store.get(token)
+        payload = await query_store.get(token)
         assert payload is not None
         assert payload["query"] == "active=true"
 

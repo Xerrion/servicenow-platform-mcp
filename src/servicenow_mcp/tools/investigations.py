@@ -1,8 +1,5 @@
 """Investigation dispatcher tools — investigate_run and investigate_explain."""
 
-import json
-from typing import Any
-
 from mcp.server.fastmcp import FastMCP
 
 from servicenow_mcp.auth import BasicAuthProvider
@@ -11,6 +8,7 @@ from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.investigations import INVESTIGATION_REGISTRY
 from servicenow_mcp.policy import check_table_access
+from servicenow_mcp.tools._payload import parse_payload_json
 from servicenow_mcp.utils import format_response, validate_identifier
 
 
@@ -50,7 +48,13 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
                 error=f"Unknown investigation '{investigation}'. Available: {available}",
             )
 
-        params_dict: dict[str, Any] = json.loads(params) if params else {}
+        if params:
+            parsed = parse_payload_json(params, field_name="params", correlation_id=correlation_id, validate_keys=False)
+            if isinstance(parsed, str):
+                return parsed
+            params_dict = parsed
+        else:
+            params_dict = {}
 
         table = params_dict.get("table")
         if table:

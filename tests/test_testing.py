@@ -105,7 +105,7 @@ class TestAtfListTests:
         )
 
         tools, query_store = _register_and_get_tools(settings, auth_provider)
-        token = query_store.create({"query": "active=true"})
+        token = await query_store.create({"query": "active=true"})
         raw = await tools["atf_list_tests"](query_token=token)
         result = decode_response(raw)
 

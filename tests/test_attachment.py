@@ -381,14 +381,23 @@ class TestAttachmentWriteTools:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_delete_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider) -> None:
-        """Blocks deletes in production environments after reading attachment metadata."""
+    async def test_attachment_delete_production_blocks_before_fetch(
+        self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider
+    ) -> None:
+        """Production blocks the delete BEFORE the metadata fetch.
+
+        The earlier implementation issued ``GET /attachment/{sys_id}`` to learn
+        the owning table, then ran the write gate. That leaked attachment
+        metadata (and any associated telemetry) for denied tables in prod.
+        The fix runs an env-level gate first; both GET and DELETE must stay
+        un-called when production blocks the write.
+        """
+        get_route = respx.get(f"{prod_settings.servicenow_instance_url}/api/now/attachment/{ATTACHMENT_SYS_ID}").mock(
+            return_value=httpx.Response(200, json={"result": _metadata()})
+        )
         delete_route = respx.delete(
             f"{prod_settings.servicenow_instance_url}/api/now/attachment/{ATTACHMENT_SYS_ID}"
         ).mock(return_value=httpx.Response(204))
-        respx.get(f"{prod_settings.servicenow_instance_url}/api/now/attachment/{ATTACHMENT_SYS_ID}").mock(
-            return_value=httpx.Response(200, json={"result": _metadata()})
-        )
 
         tools = _register_write_tools(prod_settings, prod_auth_provider)
         raw = await tools["attachment_delete"](sys_id=ATTACHMENT_SYS_ID)
@@ -396,7 +405,36 @@ class TestAttachmentWriteTools:
 
         assert result["status"] == "error"
         assert "production" in result["error"]["message"].lower()
-        assert not delete_route.called
+        assert get_route.call_count == 0
+        assert delete_route.call_count == 0
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_attachment_delete_denied_table_after_fetch(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """A denied owning table blocks the DELETE after the metadata fetch.
+
+        Outside production we cannot know the owning table without fetching
+        metadata, so the GET fires - but ``gate_write`` must reject before
+        any DELETE is issued.
+        """
+        denied_table = next(iter(DENIED_TABLES))
+        get_route = respx.get(f"{BASE_URL}/api/now/attachment/{ATTACHMENT_SYS_ID}").mock(
+            return_value=httpx.Response(200, json={"result": _metadata(table_name=denied_table)})
+        )
+        delete_route = respx.delete(f"{BASE_URL}/api/now/attachment/{ATTACHMENT_SYS_ID}").mock(
+            return_value=httpx.Response(204)
+        )
+
+        tools = _register_write_tools(settings, auth_provider)
+        raw = await tools["attachment_delete"](sys_id=ATTACHMENT_SYS_ID)
+        result = decode_response(raw)
+
+        assert result["status"] == "error"
+        assert denied_table in result["error"]["message"]
+        assert get_route.call_count == 1
+        assert delete_route.call_count == 0
 
 
 class TestAttachmentHelperFunctions:

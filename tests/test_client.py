@@ -174,6 +174,38 @@ class TestServiceNowClientGetRecord:
 
         assert str(exc_info.value) == "User Not Authorized"
 
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_get_record_acl_substring_does_not_false_positive(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """A 403 body containing words that merely contain 'acl' as a substring
+        (e.g. 'oracle') must NOT be classified as ACLError."""
+        from servicenow_mcp.client import ServiceNowClient
+        from servicenow_mcp.errors import ACLError, ForbiddenError
+
+        respx.get(f"{BASE_URL}/api/now/table/incident/abc123").mock(
+            return_value=httpx.Response(
+                403,
+                json={
+                    "error": {
+                        "message": "Insufficient role",
+                        "detail": "Oracle database connection refused",
+                    },
+                    "status": "failure",
+                },
+            )
+        )
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            with pytest.raises(ForbiddenError) as exc_info:
+                await client.get_record("incident", "abc123")
+
+        # Must be the generic ForbiddenError, not the more specific ACLError.
+        assert type(exc_info.value) is ForbiddenError
+        assert not isinstance(exc_info.value, ACLError)
+        assert str(exc_info.value) == "Insufficient role"
+
 
 class TestServiceNowClientQueryRecords:
     """Test query_records method."""

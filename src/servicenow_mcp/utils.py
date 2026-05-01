@@ -143,7 +143,14 @@ def serialize(data: Any) -> str:
     except Exception as e:
         logger.warning("TOON encoding failed, falling back to error envelope", exc_info=True)
         sentry_capture(e)
-        error_envelope = {"status": "error", "error": {"message": "Serialization failed"}}
+        error_envelope: dict[str, Any] = {
+            "status": "error",
+            "error": {"message": "Serialization failed"},
+        }
+        # Preserve correlation_id when the caller passed a response envelope dict,
+        # so the failure remains traceable end-to-end.
+        if isinstance(data, dict) and isinstance(data.get("correlation_id"), str):
+            error_envelope["correlation_id"] = data["correlation_id"]
         # Last-resort: TOON-encode the envelope; if even that fails, JSON-encode it.
         try:
             return toon_encode(error_envelope)

@@ -141,6 +141,44 @@ class TestSerialize:
         assert parsed["status"] == "error"
         assert parsed["error"] == {"message": "Serialization failed"}
 
+    def test_serialize_fallback_preserves_correlation_id(self) -> None:
+        """When the input dict carries a correlation_id, the error envelope must
+        retain it so failures stay traceable end-to-end."""
+        original_encode = serialize.__globals__["toon_encode"]
+        call_count = {"n": 0}
+
+        def faulty_encode(data: object) -> str:
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                raise TypeError("unsupported type")
+            return original_encode(data)
+
+        envelope = {"correlation_id": "corr-xyz-123", "status": "success", "data": {"k": "v"}}
+        with patch("servicenow_mcp.utils.toon_encode", side_effect=faulty_encode):
+            result = serialize(envelope)
+
+        parsed = decode_response(result)
+        assert parsed["status"] == "error"
+        assert parsed["correlation_id"] == "corr-xyz-123"
+        assert parsed["error"] == {"message": "Serialization failed"}
+
+    def test_serialize_fallback_omits_correlation_id_when_absent(self) -> None:
+        """When the input has no correlation_id, the envelope must not invent one."""
+        original_encode = serialize.__globals__["toon_encode"]
+        call_count = {"n": 0}
+
+        def faulty_encode(data: object) -> str:
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                raise TypeError("unsupported type")
+            return original_encode(data)
+
+        with patch("servicenow_mcp.utils.toon_encode", side_effect=faulty_encode):
+            result = serialize({"key": "value"})
+
+        parsed = decode_response(result)
+        assert "correlation_id" not in parsed
+
 
 class TestServiceNowQuery:
     """Tests for the ServiceNowQuery fluent builder."""

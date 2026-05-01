@@ -1,6 +1,7 @@
 """Async ServiceNow REST API client."""
 
 import logging
+import re
 import uuid
 from typing import Any
 from urllib.parse import quote
@@ -26,6 +27,10 @@ logger = logging.getLogger(__name__)
 
 
 _ATF_PLUGIN_ERROR = "ATF Cloud Runner plugin (sn_atf_tg) may not be installed"
+
+# Word-boundary matching so unrelated words containing the substring "acl"
+# (e.g. "oracle", "miracle", "barnacle") do not false-positive.
+_ACL_INDICATOR_RE: re.Pattern[str] = re.compile(r"\b(?:acl|access control)\b")
 
 
 class ServiceNowClient:
@@ -169,7 +174,7 @@ class ServiceNowClient:
 
         collect_strings(payload)
         normalized = "\n".join(values).lower()
-        return "acl" in normalized or "access control" in normalized
+        return bool(_ACL_INDICATOR_RE.search(normalized))
 
     @staticmethod
     def _extract_error_message(response: httpx.Response, default: str) -> str:

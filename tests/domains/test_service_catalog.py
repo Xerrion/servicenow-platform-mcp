@@ -395,6 +395,7 @@ class TestScOrderNow:
         assert "production" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio()
+    @respx.mock
     @patch("servicenow_mcp.policy.write_gate", return_value=None)
     async def test_order_now_rejects_invalid_item_sys_id(
         self, _mock_write_gate: Any, settings: Settings, auth_provider: BasicAuthProvider
@@ -406,6 +407,7 @@ class TestScOrderNow:
 
         assert data["status"] == "error"
         assert "invalid identifier" in data["error"]["message"].lower()
+        assert len(respx.calls) == 0
 
 
 # ── Add to Cart ──────────────────────────────────────────────────────────
@@ -472,6 +474,7 @@ class TestScAddToCart:
         assert "production" in data["error"]["message"].lower()
 
     @pytest.mark.asyncio()
+    @respx.mock
     @patch("servicenow_mcp.policy.write_gate", return_value=None)
     async def test_add_to_cart_rejects_invalid_item_sys_id(
         self, _mock_write_gate: Any, settings: Settings, auth_provider: BasicAuthProvider
@@ -483,6 +486,7 @@ class TestScAddToCart:
 
         assert data["status"] == "error"
         assert "invalid identifier" in data["error"]["message"].lower()
+        assert len(respx.calls) == 0
 
 
 # ── Cart Get ─────────────────────────────────────────────────────────────

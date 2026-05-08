@@ -42,7 +42,7 @@ def register_tools(
     mcp: FastMCP,
     settings: Settings,
     auth_provider: BasicAuthProvider,
-    choices: ChoiceRegistry | None = None,  # accepted for unified-loader contract parity; unused here
+    choices: ChoiceRegistry | None = None,
 ) -> None:
     """Register the unified ``describe`` tool on the MCP server.
 
@@ -50,6 +50,7 @@ def register_tools(
     ``unified.*`` modules. ``choices`` is unused by ``describe`` but accepted
     for contract parity.
     """
+    del choices  # unused; signature retained for loader parity
 
     @mcp.tool()
     @tool_handler

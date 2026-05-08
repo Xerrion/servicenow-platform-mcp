@@ -40,7 +40,7 @@ from servicenow_mcp.tools._artifact import (
     _resolve_writable_artifact_table,
 )
 from servicenow_mcp.tools._payload import parse_payload_json
-from servicenow_mcp.tools.record_write import _build_update_diff, _check_mandatory_or_error
+from servicenow_mcp.tools._record_helpers import _build_update_diff, _check_mandatory_or_error
 from servicenow_mcp.utils import format_response, validate_sys_id
 
 
@@ -335,9 +335,10 @@ def register_tools(
     mcp: FastMCP,
     settings: Settings,
     auth_provider: BasicAuthProvider,
-    choices: ChoiceRegistry | None = None,  # accepted for unified-loader contract parity; unused here
+    choices: ChoiceRegistry | None = None,
 ) -> None:
     """Register the unified ``record_write`` and ``record_apply`` tools."""
+    del choices  # unused; signature retained for loader parity
 
     # Closure-scoped preview store (mirrors legacy record_write).
     preview_store = PreviewTokenStore()

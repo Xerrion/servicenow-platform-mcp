@@ -5,14 +5,11 @@ import logging
 import re
 import uuid
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING, Any, override
+from typing import Any, override
 
 from servicenow_mcp.errors import ACLError, ForbiddenError
 from servicenow_mcp.sentry import capture_exception as sentry_capture
 
-
-if TYPE_CHECKING:
-    from servicenow_mcp.state import QueryTokenStore
 
 logger = logging.getLogger(__name__)
 
@@ -720,25 +717,6 @@ class ServiceNowQuery:
     def __str__(self) -> str:
         """Return the built query string."""
         return self.build()
-
-
-async def resolve_query_token(query_token: str, query_store: "QueryTokenStore", correlation_id: str) -> str:
-    """Resolve a query token to the encoded query string it represents.
-
-    Args:
-        query_token: The token from build_query, or empty string for no filter.
-        query_store: The shared QueryTokenStore instance.
-        correlation_id: Request correlation ID for error formatting.
-
-    Returns the encoded query string. Raises ValueError if the token is invalid or expired.
-    """
-    _ = correlation_id  # Kept for API consistency across tool helpers
-    if not query_token:
-        return ""
-    payload = await query_store.get(query_token)
-    if payload is None:
-        raise ValueError("Invalid or expired query token. Use the build_query tool to create a query first.")
-    return payload["query"]
 
 
 async def safe_tool_call(

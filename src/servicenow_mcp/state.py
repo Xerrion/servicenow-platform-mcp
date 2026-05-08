@@ -1,4 +1,4 @@
-"""In-memory state stores for preview tokens and query tokens."""
+"""In-memory state store for preview tokens."""
 
 import asyncio
 import time
@@ -6,7 +6,7 @@ import uuid
 from typing import Any
 
 
-__all__ = ["PreviewTokenStore", "QueryTokenStore"]
+__all__ = ["PreviewTokenStore"]
 
 
 class _BaseTokenStore:
@@ -103,14 +103,3 @@ class PreviewTokenStore(_BaseTokenStore):
             # Atomic pop under the lock; no other coroutine can race us.
             self._store.pop(token, None)
             return entry["payload"]
-
-
-class QueryTokenStore(_BaseTokenStore):
-    """In-memory store for query tokens with TTL.
-
-    Tokens are UUID strings mapped to validated query payloads.
-    Unlike PreviewTokenStore, tokens are reusable within their TTL.
-    Expired tokens are automatically rejected on get.
-    """
-
-    _store_label: str = "Query token"

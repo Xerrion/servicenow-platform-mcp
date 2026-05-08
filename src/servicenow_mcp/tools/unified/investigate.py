@@ -125,6 +125,7 @@ def register_tools(
     uniformly. ``investigate`` does not consume the registry; the parameter is
     accepted only to keep the loader contract consistent.
     """
+    del choices  # unused; signature retained for loader parity
 
     @mcp.tool()
     @tool_handler

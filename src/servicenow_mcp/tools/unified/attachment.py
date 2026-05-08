@@ -310,7 +310,7 @@ def register_tools(
     mcp: FastMCP,
     settings: Settings,
     auth_provider: BasicAuthProvider,
-    choices: ChoiceRegistry | None = None,  # accepted for unified-loader contract parity; unused here
+    choices: ChoiceRegistry | None = None,
 ) -> None:
     """Register the unified ``attachment`` and ``attachment_write`` tools.
 

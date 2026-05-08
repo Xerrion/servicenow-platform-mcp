@@ -176,3 +176,15 @@ class TestCommaSyntax:
         resolves via the comma-syntax path to the single unified tool group of
         the same name. This is a documented semantics change."""
         assert get_package("service_catalog") == ["service_catalog"]
+
+
+def test_domain_groups_not_in_unified_registry() -> None:
+    """Phase 3b: legacy ``domain_*`` groups were removed from ``_TOOL_GROUP_MODULES``.
+
+    Phase 4 then deleted the domain modules from disk. This test pins the
+    new shape so we notice if domain entries accidentally come back.
+    """
+    domain_groups = [g for g in _TOOL_GROUP_MODULES if g.startswith("domain_")]
+    assert domain_groups == [], (
+        f"Legacy domain_* groups should not appear in the unified registry, found: {domain_groups}"
+    )

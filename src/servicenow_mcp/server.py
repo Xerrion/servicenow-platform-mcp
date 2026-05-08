@@ -57,7 +57,14 @@ def create_mcp_server() -> FastMCP:
             try:
                 module = importlib.import_module(module_path)
                 if hasattr(module, "register_tools"):
-                    if group_name.startswith("domain_"):
+                    # Domain modules (``domain_*``) and unified modules
+                    # (``servicenow_mcp.tools.unified.*``) both accept the
+                    # ChoiceRegistry; everything else uses the legacy 3-arg
+                    # signature. Detection by module path keeps the contract
+                    # explicit and lets unified.* tools resolve display labels.
+                    is_domain = group_name.startswith("domain_")
+                    is_unified = module_path.startswith("servicenow_mcp.tools.unified.")
+                    if is_domain or is_unified:
                         module.register_tools(mcp, settings, auth_provider, choices=choices)
                     else:
                         module.register_tools(mcp, settings, auth_provider)

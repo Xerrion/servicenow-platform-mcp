@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.10.0](https://github.com/Xerrion/servicenow-devtools-mcp/compare/v0.9.1...v0.10.0) (2026-05-08)
+
+
+### Breaking Changes
+
+* **tool surface consolidation**: ~50 specialized tools collapsed into 10 unified action-dispatchers: `list_tool_packages`, `query`, `describe`, `record_write`, `record_apply`, `attachment`, `attachment_write`, `investigate`, `resolve_choice`, `service_catalog`. All previous domain-specific tools (`incident_*`, `change_*`, `problem_*`, `cmdb_*`, `sc_req_*`, `knowledge_*`, etc.) and helper tool families (`changes_*`, `debug_*`, `docs_*`, `workflow_*`, `flow_*`, `meta_*`) were removed.
+* **artifact tools folded into `record_write`**: the standalone `artifact_create` and `artifact_update` tools were removed; create/update artifacts (Business Rules, Script Includes, UI Policies, etc.) by calling `record_write` with the `artifact_type` parameter.
+* **encoded queries are now first-class**: `build_query` and the `QueryTokenStore` were removed. Agents pass ServiceNow encoded query strings directly to `query` (e.g. `active=true^priority<=2`).
+* **wire format change**: TOON serialization replaced with JSON. `serialize()` in `utils.py` now returns JSON; `resolve_query_token` was deleted.
+* **package registry collapse**: 14 preset packages reduced to 4: `full`, `readonly`, `core_readonly`, `none`. Custom packages remain supported via comma-syntax (`MCP_TOOL_PACKAGE=query,describe,attachment`). Note that `service_catalog` is now a tool group name rather than a package — `MCP_TOOL_PACKAGE=service_catalog` resolves through the custom-package code path.
+* **ATF removed**: all Automated Test Framework tools and the corresponding `ServiceNowClient` ATF methods were deleted.
+* **Sentry tag values changed**: `tool.name` tag values now reflect the unified tool surface (e.g. `query`, `record_write`) instead of the previous specialized tool names.
+* **loader simplification**: every tool group module now uses the unconditional 4-arg `register_tools(mcp, settings, auth_provider, choices=choices)` signature. The `domain_` prefix branching in `server.py` was removed.
+* **state management**: `QueryTokenStore` was removed; only `PreviewTokenStore` and `_BaseTokenStore` remain in `state.py`.
+
+Migration: see [`docs/agent-recipes.md`](docs/agent-recipes.md) for the canonical migration patterns and 10 worked recipes covering the new 10-tool surface.
+
+
+### Added
+
+* unified action-dispatcher tools: `query`, `describe`, `record_write`, `record_apply`, `attachment`, `attachment_write`, `investigate`, `resolve_choice`, `service_catalog`, `list_tool_packages`.
+* `docs/agent-recipes.md` with 10 worked recipes covering common ServiceNow workflows on the unified tool surface.
+* `artifact_type` parameter on `record_write` covering 17 writable artifact tables (`business_rule`, `script_include`, `ui_policy`, `ui_action`, `client_script`, `scheduled_job`, `fix_script`, `scripted_rest_resource`, `ui_script`, `processor`, `widget`, `ui_page`, `ui_macro`, `script_action`, `mid_script_include`, `scripted_rest_api`, `notification_script`).
+
+
+### Removed
+
+* ~50 specialized domain and helper tools (`incident_*`, `change_*`, `problem_*`, `cmdb_*`, `sc_req_*`, `knowledge_*`, `changes_*`, `debug_*`, `docs_*`, `workflow_*`, `flow_*`, `meta_*`).
+* `artifact_create` and `artifact_update` tools (use `record_write` with `artifact_type`).
+* `build_query` tool and `QueryTokenStore` (pass encoded queries directly to `query`).
+* All ATF tools and `ServiceNowClient` ATF methods.
+* TOON serialization helpers and `resolve_query_token`.
+* 10 preset packages (kept: `full`, `readonly`, `core_readonly`, `none`).
+* `domain_` prefix branching in `server.py` loader.
+
 ## [0.9.1](https://github.com/Xerrion/servicenow-devtools-mcp/compare/v0.9.0...v0.9.1) (2026-03-26)
 
 

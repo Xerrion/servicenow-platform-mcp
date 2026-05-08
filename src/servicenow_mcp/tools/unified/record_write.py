@@ -22,6 +22,7 @@ from typing import Any, Final
 from mcp.server.fastmcp import FastMCP
 
 from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp.choices import ChoiceRegistry
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
@@ -330,7 +331,12 @@ async def _apply_payload(
 # ---------------------------------------------------------------------------
 
 
-def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+def register_tools(
+    mcp: FastMCP,
+    settings: Settings,
+    auth_provider: BasicAuthProvider,
+    choices: ChoiceRegistry | None = None,  # accepted for unified-loader contract parity; unused here
+) -> None:
     """Register the unified ``record_write`` and ``record_apply`` tools."""
 
     # Closure-scoped preview store (mirrors legacy record_write).

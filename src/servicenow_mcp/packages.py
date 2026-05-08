@@ -1,183 +1,75 @@
-"""Tool package registry and loader for the ServiceNow MCP server."""
+"""Tool package registry and loader for the ServiceNow MCP server.
+
+The unified tool surface exposes 7 tool groups across 4 preset packages:
+
+Groups (registered modules under ``servicenow_mcp.tools.unified``):
+    ``query``, ``describe``, ``record_write``, ``attachment``,
+    ``investigate``, ``resolve_choice``, ``service_catalog``.
+
+Note: the ``record_write`` group registers both ``record_write`` and
+``record_apply`` tools; the ``attachment`` group registers both
+``attachment`` (read) and ``attachment_write`` tools. There is no
+separate ``attachment_write`` group - read and write live in one
+module and write paths are gated by ``write_gate``/``can_write``.
+
+Presets:
+    ``full``           - every group (full surface).
+    ``readonly``       - read + investigate + resolve_choice (still loads
+                       attachment which carries write tools; those are
+                       blocked at runtime in production by ``write_gate``).
+    ``core_readonly``  - query + describe + attachment only.
+    ``none``           - no tool groups loaded; only ``list_tool_packages``
+                       is registered by the server bootstrap.
+
+Custom comma-syntax packages (e.g. ``"query,describe"``) are also accepted
+by ``get_package`` and validated against ``_TOOL_GROUP_MODULES``. Note
+that the ``service_catalog`` group name shadows the legacy preset of the
+same name; passing ``MCP_TOOL_PACKAGE=service_catalog`` now resolves to
+the single-group custom package, which loads the unified service catalog
+tool only.
+"""
 
 _TOOL_GROUP_MODULES: dict[str, str] = {
-    "table": "servicenow_mcp.tools.table",
-    "record": "servicenow_mcp.tools.record",
-    "attachment": "servicenow_mcp.tools.attachment",
-    "record_write": "servicenow_mcp.tools.record_write",
-    "attachment_write": "servicenow_mcp.tools.attachment_write",
-    "testing": "servicenow_mcp.tools.testing",
-    "metadata": "servicenow_mcp.tools.metadata",
-    "artifact_write": "servicenow_mcp.tools.artifact_write",
-    "changes": "servicenow_mcp.tools.changes",
-    "debug": "servicenow_mcp.tools.debug",
-    "investigations": "servicenow_mcp.tools.investigations",
-    "documentation": "servicenow_mcp.tools.documentation",
-    "workflow": "servicenow_mcp.tools.workflow",
-    "flow_designer": "servicenow_mcp.tools.flow_designer",
-    "domain_incident": "servicenow_mcp.tools.domains.incident",
-    "domain_change": "servicenow_mcp.tools.domains.change",
-    "domain_cmdb": "servicenow_mcp.tools.domains.cmdb",
-    "domain_problem": "servicenow_mcp.tools.domains.problem",
-    "domain_request": "servicenow_mcp.tools.domains.request",
-    "domain_knowledge": "servicenow_mcp.tools.domains.knowledge",
-    "domain_service_catalog": "servicenow_mcp.tools.domains.service_catalog",
+    "query": "servicenow_mcp.tools.unified.query",
+    "describe": "servicenow_mcp.tools.unified.describe",
+    "record_write": "servicenow_mcp.tools.unified.record_write",
+    "attachment": "servicenow_mcp.tools.unified.attachment",
+    "investigate": "servicenow_mcp.tools.unified.investigate",
+    "resolve_choice": "servicenow_mcp.tools.unified.resolve_choice",
+    "service_catalog": "servicenow_mcp.tools.unified.service_catalog",
 }
 
 # Registry mapping package names to lists of tool group names.
-# Tool groups correspond to modules in servicenow_mcp.tools.
+# Tool groups correspond to modules in servicenow_mcp.tools.unified.
+#
+# Caveat: ``readonly`` and ``core_readonly`` both include the ``attachment``
+# group, which registers both read AND write attachment tools. The write
+# tools are blocked at runtime in production by ``write_gate``. To get a
+# truly read-only attachment surface, the ``attachment`` module would need
+# to be split into separate read / write groups.
 PACKAGE_REGISTRY: dict[str, list[str]] = {
-    "core_readonly": [
-        "table",
-        "record",
-        "attachment",
-        "metadata",
-    ],
     "full": [
-        "table",
-        "record",
-        "attachment",
+        "query",
+        "describe",
         "record_write",
-        "attachment_write",
-        # "testing",  # ATF - disabled
-        "metadata",
-        "artifact_write",
-        "changes",
-        "debug",
-        "investigations",
-        "documentation",
-        "workflow",
-        "flow_designer",
-        "domain_incident",
-        "domain_change",
-        "domain_cmdb",
-        "domain_problem",
-        "domain_request",
-        "domain_knowledge",
-        "domain_service_catalog",
-    ],
-    "none": [],
-    "itil": [
-        "table",
-        "record",
         "attachment",
-        "record_write",
-        "attachment_write",
-        "metadata",
-        "artifact_write",
-        "changes",
-        "debug",
-        "documentation",
-        "workflow",
-        "flow_designer",
-        "domain_incident",
-        "domain_change",
-        "domain_problem",
-        "domain_request",
-    ],
-    "developer": [
-        "table",
-        "record",
-        "attachment",
-        "record_write",
-        "attachment_write",
-        "metadata",
-        "artifact_write",
-        "changes",
-        "debug",
-        "investigations",
-        "documentation",
-        "workflow",
-        "flow_designer",
+        "investigate",
+        "resolve_choice",
+        "service_catalog",
     ],
     "readonly": [
-        "table",
-        "record",
+        "query",
+        "describe",
         "attachment",
-        "metadata",
-        "changes",
-        "debug",
-        "investigations",
-        "documentation",
-        "workflow",
-        "flow_designer",
+        "investigate",
+        "resolve_choice",
     ],
-    "analyst": [
-        "table",
-        "record",
+    "core_readonly": [
+        "query",
+        "describe",
         "attachment",
-        "metadata",
-        "investigations",
-        "documentation",
-        "workflow",
-        "flow_designer",
     ],
-    "incident_management": [
-        "table",
-        "record",
-        "attachment",
-        "record_write",
-        "attachment_write",
-        "domain_incident",
-        "debug",
-        "workflow",
-        "flow_designer",
-    ],
-    "change_management": [
-        "table",
-        "record",
-        "attachment",
-        "record_write",
-        "attachment_write",
-        "domain_change",
-        "changes",
-        "flow_designer",
-    ],
-    "cmdb": [
-        "table",
-        "record",
-        "attachment",
-        "record_write",
-        "attachment_write",
-        "domain_cmdb",
-    ],
-    "problem_management": [
-        "table",
-        "record",
-        "attachment",
-        "record_write",
-        "attachment_write",
-        "domain_problem",
-        "debug",
-        "workflow",
-        "flow_designer",
-    ],
-    "request_management": [
-        "table",
-        "record",
-        "attachment",
-        "record_write",
-        "attachment_write",
-        "domain_request",
-        "workflow",
-        "flow_designer",
-    ],
-    "knowledge_management": [
-        "table",
-        "record",
-        "attachment",
-        "record_write",
-        "attachment_write",
-        "domain_knowledge",
-    ],
-    "service_catalog": [
-        "table",
-        "record",
-        "attachment",
-        "record_write",
-        "attachment_write",
-        "domain_service_catalog",
-    ],
+    "none": [],
 }
 
 

@@ -45,10 +45,9 @@ def _register_and_get_tools(
 class TestTableDescribe:
     """Tests for the table_describe tool."""
 
-    @pytest.mark.asyncio()
-    @respx.mock
-    async def test_returns_field_metadata(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """Returns structured field metadata for a known table."""
+    @staticmethod
+    def _mock_dictionary() -> None:
+        """Default sys_dictionary mock with two fields: number, state."""
         respx.get(f"{BASE_URL}/api/now/table/sys_dictionary").mock(
             return_value=httpx.Response(
                 200,
@@ -59,24 +58,34 @@ class TestTableDescribe:
                             "internal_type": "string",
                             "max_length": "40",
                             "mandatory": "true",
+                            "read_only": "false",
                             "reference": "",
                             "column_label": "Number",
                             "default_value": "",
+                            "sys_id": "noise-1",
+                            "sys_scope": "global",
+                            "attributes": "edge_encryption_enabled=true",
                         },
                         {
                             "element": "state",
                             "internal_type": "integer",
                             "max_length": "40",
                             "mandatory": "false",
+                            "read_only": "false",
                             "reference": "",
                             "column_label": "State",
                             "default_value": "1",
+                            "sys_id": "noise-2",
+                            "sys_scope": "global",
+                            "attributes": "",
                         },
                     ]
                 },
             )
         )
-        # table_describe also queries sys_db_object and sys_documentation
+
+    @staticmethod
+    def _mock_db_object() -> None:
         respx.get(f"{BASE_URL}/api/now/table/sys_db_object").mock(
             return_value=httpx.Response(
                 200,
@@ -95,12 +104,147 @@ class TestTableDescribe:
                 headers={"X-Total-Count": "1"},
             )
         )
+
+    @staticmethod
+    def _mock_choices(records: list[dict[str, Any]] | None = None) -> None:
+        respx.get(f"{BASE_URL}/api/now/table/sys_choice").mock(
+            return_value=httpx.Response(
+                200,
+                json={"result": records or []},
+                headers={"X-Total-Count": str(len(records or []))},
+            )
+        )
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_returns_field_metadata(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        """Returns slim per-field metadata for a known table."""
+        self._mock_dictionary()
+        self._mock_db_object()
+        self._mock_choices()
+
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["table_describe"](table="incident")
+        result = decode_response(raw)
+
+        assert result["status"] == "success"
+        data = result["data"]
+        assert data["field_count"] == 2
+        assert "documentation" not in data
+
+        first, second = data["fields"]
+        assert first == {
+            "name": "number",
+            "label": "Number",
+            "type": "string",
+            "max_length": 40,
+            "mandatory": True,
+            "read_only": False,
+            "reference_table": "",
+            "choice_count": 0,
+        }
+        assert second["name"] == "state"
+        assert second["type"] == "integer"
+        assert second["mandatory"] is False
+        assert second["choice_count"] == 0
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_verbose_returns_full_dictionary_row(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """verbose=True returns full sys_dictionary rows minus the deny-list, plus choice_count."""
+        self._mock_dictionary()
+        self._mock_db_object()
+        self._mock_choices()
+
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["table_describe"](table="incident", verbose=True)
+        result = decode_response(raw)
+
+        assert result["status"] == "success"
+        first = result["data"]["fields"][0]
+        assert first["element"] == "number"
+        assert first["column_label"] == "Number"
+        assert first["internal_type"] == "string"
+        assert first["choice_count"] == 0
+        # Deny-list keys must be stripped
+        assert "sys_id" not in first
+        assert "sys_scope" not in first
+        assert "attributes" not in first
+        assert "default_value" not in first
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_fields_filter_narrows_results(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        """fields= filter restricts the response and warns on unknown names."""
+        self._mock_dictionary()
+        self._mock_db_object()
+        self._mock_choices()
+
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
+
+        raw = await tools["table_describe"](table="incident", fields="state")
+        result = decode_response(raw)
+        assert result["status"] == "success"
+        assert result["data"]["field_count"] == 1
+        assert result["data"]["fields"][0]["name"] == "state"
+
+        raw2 = await tools["table_describe"](table="incident", fields="state, nonexistent")
+        result2 = decode_response(raw2)
+        assert result2["status"] == "success"
+        names = [f["name"] for f in result2["data"]["fields"]]
+        assert names == ["state"]
+        assert any("nonexistent" in w for w in result2.get("warnings", []))
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_include_docs_attaches_documentation(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """include_docs=True triggers a sys_documentation fetch and attaches it."""
+        self._mock_dictionary()
+        self._mock_db_object()
+        self._mock_choices()
         respx.get(f"{BASE_URL}/api/now/table/sys_documentation").mock(
             return_value=httpx.Response(
                 200,
-                json={"result": []},
-                headers={"X-Total-Count": "0"},
+                json={
+                    "result": [
+                        {
+                            "element": "state",
+                            "label": "State",
+                            "help": "Lifecycle state of the incident.",
+                            "hint": "",
+                            "url": "",
+                        }
+                    ]
+                },
+                headers={"X-Total-Count": "1"},
             )
+        )
+
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["table_describe"](table="incident", include_docs=True)
+        result = decode_response(raw)
+
+        assert result["status"] == "success"
+        docs = result["data"]["documentation"]
+        assert "state" in docs
+        assert docs["state"]["help"] == "Lifecycle state of the incident."
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_choice_count_populated(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        """choice_count reflects the batched sys_choice tally per element."""
+        self._mock_dictionary()
+        self._mock_db_object()
+        self._mock_choices(
+            [
+                {"element": "state"},
+                {"element": "state"},
+                {"element": "state"},
+            ]
         )
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
@@ -108,9 +252,30 @@ class TestTableDescribe:
         result = decode_response(raw)
 
         assert result["status"] == "success"
-        assert result["data"]["field_count"] == 2
-        assert result["data"]["fields"][0]["element"] == "number"
-        assert result["data"]["fields"][1]["element"] == "state"
+        by_name = {f["name"]: f for f in result["data"]["fields"]}
+        assert by_name["state"]["choice_count"] == 3
+        assert by_name["number"]["choice_count"] == 0
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_choice_fetch_failure_does_not_break_describe(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """A failing sys_choice query degrades gracefully to choice_count=0 with a warning."""
+        self._mock_dictionary()
+        self._mock_db_object()
+        respx.get(f"{BASE_URL}/api/now/table/sys_choice").mock(
+            return_value=httpx.Response(403, json={"error": {"message": "ACL"}})
+        )
+
+        tools, _query_store = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["table_describe"](table="incident")
+        result = decode_response(raw)
+
+        assert result["status"] == "success"
+        for field in result["data"]["fields"]:
+            assert field["choice_count"] == 0
+        assert any("sys_choice" in w for w in result.get("warnings", []))
 
     @pytest.mark.asyncio()
     async def test_denied_table_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
@@ -133,9 +298,7 @@ class TestTableDescribe:
         respx.get(f"{BASE_URL}/api/now/table/sys_db_object").mock(
             return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
         )
-        respx.get(f"{BASE_URL}/api/now/table/sys_documentation").mock(
-            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
-        )
+        self._mock_choices()
 
         tools, _query_store = _register_and_get_tools(settings, auth_provider)
         raw = await tools["table_describe"](table="incident")

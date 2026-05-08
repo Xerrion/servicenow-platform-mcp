@@ -1,5 +1,6 @@
 """Table introspection and query tools."""
 
+import collections
 import json
 import logging
 from typing import Any
@@ -12,6 +13,7 @@ from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.mcp_state import get_query_store
 from servicenow_mcp.policy import (
+    INTERNAL_QUERY_LIMIT,
     check_table_access,
     enforce_query_safety,
     mask_record,
@@ -379,6 +381,128 @@ def _build_field_list(columns: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
+# table_describe slim payload helpers
+# ---------------------------------------------------------------------------
+
+# Keys stripped from each sys_dictionary row when verbose=True. These are either
+# noisy/system-managed (sys_*), high-volume script bodies (calculation,
+# dynamic_default_value), or rarely-useful flags. The slim default shape never
+# includes them either.
+DESCRIBE_NOISE_FIELDS: frozenset[str] = frozenset(
+    {
+        "calculation",
+        "default_value",
+        "dynamic_default_value",
+        "sys_scope",
+        "sys_package",
+        "sys_update_name",
+        "sys_class_name",
+        "sys_id",
+        "sys_created_on",
+        "sys_created_by",
+        "sys_updated_on",
+        "sys_updated_by",
+        "sys_mod_count",
+        "sys_customer_update",
+        "sys_replace_on_upgrade",
+        "sys_policy",
+        "audit",
+        "active",
+        "function_definition",
+        "function_field",
+        "calculation_type",
+        "use_dynamic_default",
+        "use_reference_qualifier",
+        "reference_qual",
+        "reference_qual_condition",
+        "dynamic_creation",
+        "dynamic_creation_script",
+        "attributes",
+        "element_reference",
+        "primary",
+        "spell_check",
+        "sizeclass",
+    }
+)
+
+
+def _ref_value(raw: Any) -> str:
+    """Extract a ServiceNow reference field value.
+
+    sys_dictionary returns reference-typed fields either as a plain string or as
+    ``{"value": "...", "display_value": "..."}``. Normalize to the bare string.
+    """
+    if isinstance(raw, dict):
+        value = raw.get("value", "")
+        return str(value) if value is not None else ""
+    if raw is None:
+        return ""
+    return str(raw)
+
+
+def _bool_value(raw: Any) -> bool:
+    """ServiceNow booleans arrive as the strings 'true'/'false'. Anything else is False."""
+    if isinstance(raw, bool):
+        return raw
+    return str(raw).strip().lower() == "true"
+
+
+def _int_value(raw: Any) -> int:
+    """Coerce a sys_dictionary length field to int; return 0 when missing or non-numeric."""
+    if raw is None or raw == "":
+        return 0
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _build_slim_field_list(
+    columns: list[dict[str, Any]],
+    choice_counts: dict[str, int],
+) -> list[dict[str, Any]]:
+    """Project sys_dictionary rows into the 8-key slim shape used by table_describe."""
+    fields: list[dict[str, Any]] = []
+    for col in columns:
+        name = str(col.get("element", "") or "")
+        label = str(col.get("column_label", "") or "") or name
+        fields.append(
+            {
+                "name": name,
+                "label": label,
+                "type": _ref_value(col.get("internal_type", "")),
+                "max_length": _int_value(col.get("max_length")),
+                "mandatory": _bool_value(col.get("mandatory")),
+                "read_only": _bool_value(col.get("read_only")),
+                "reference_table": _ref_value(col.get("reference", "")),
+                "choice_count": int(choice_counts.get(name, 0)),
+            }
+        )
+    return fields
+
+
+def _build_verbose_field_list(
+    columns: list[dict[str, Any]],
+    choice_counts: dict[str, int],
+) -> list[dict[str, Any]]:
+    """Return each sys_dictionary row minus the deny-list, with choice_count merged in."""
+    fields: list[dict[str, Any]] = []
+    for col in columns:
+        cleaned = {k: v for k, v in col.items() if k not in DESCRIBE_NOISE_FIELDS}
+        name = str(col.get("element", "") or "")
+        cleaned["choice_count"] = int(choice_counts.get(name, 0))
+        fields.append(cleaned)
+    return fields
+
+
+def _parse_fields_filter(fields: str) -> list[str]:
+    """Split a comma-separated fields argument into a clean list (whitespace-tolerant)."""
+    if not fields:
+        return []
+    return [f.strip() for f in fields.split(",") if f.strip()]
+
+
+# ---------------------------------------------------------------------------
 # Tool registration
 # ---------------------------------------------------------------------------
 
@@ -396,14 +520,35 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
 
     @mcp.tool()
     @tool_handler
-    async def table_describe(table: str, *, correlation_id: str = "") -> str:
-        """Return dictionary metadata for a table: fields, types, references, choices and attributes.
+    async def table_describe(
+        table: str,
+        fields: str = "",
+        verbose: bool = False,
+        include_docs: bool = False,
+        *,
+        correlation_id: str = "",
+    ) -> str:
+        """Return slim field metadata for a table. Default returns 8 keys per field.
 
         Args:
-            table: The ServiceNow table name (e.g., 'incident', 'sys_user').
+            table: ServiceNow table name (e.g. 'incident').
+            fields: Comma-separated field names to include. Empty returns all fields.
+                Use this to focus the response when you only need a few fields.
+            verbose: When True, return the full sys_dictionary row per field minus a
+                fixed deny-list of high-noise keys. Default False keeps responses small.
+            include_docs: When True, attach sys_documentation entries (label, help,
+                hint, url) per field. Default False - help text is the single largest
+                contributor to describe payload size after dictionary noise.
         """
         validate_identifier(table)
         check_table_access(table)
+
+        requested_fields = _parse_fields_filter(fields)
+        for name in requested_fields:
+            validate_identifier(name)
+
+        warnings: list[str] = []
+
         async with ServiceNowClient(settings, auth_provider) as client:
             metadata = await client.get_metadata(table)
 
@@ -416,30 +561,67 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
             )
             table_info = table_meta.get("records", [{}])[0] if table_meta.get("records") else {}
 
-            # Fetch field documentation from sys_documentation
-            docs_result = await client.query_records(
-                "sys_documentation",
-                ServiceNowQuery().equals("name", table).build(),
-                fields=["element", "label", "help", "hint", "url"],
-                limit=500,
-            )
-            docs = {d["element"]: d for d in docs_result.get("records", []) if d.get("element")}
+            # Batched sys_choice fetch keyed by field (element). One HTTP call per
+            # describe; failure (e.g. ACL on sys_choice) is non-fatal so a slim
+            # describe still works in restricted instances.
+            choice_counts: dict[str, int] = {}
+            try:
+                choices_resp = await client.query_records(
+                    "sys_choice",
+                    ServiceNowQuery().equals("name", table).build(),
+                    fields=["element"],
+                    limit=INTERNAL_QUERY_LIMIT,
+                )
+                choice_records = choices_resp.get("records", [])
+                choice_counts = dict(
+                    collections.Counter(c.get("element", "") for c in choice_records if c.get("element"))
+                )
+                if len(choice_records) >= INTERNAL_QUERY_LIMIT:
+                    warnings.append(f"sys_choice records may be truncated at {INTERNAL_QUERY_LIMIT} entries")
+            except Exception:
+                logger.warning("sys_choice fetch failed for table %s; choice_count will be 0", table)
+                warnings.append("Could not fetch sys_choice; choice_count is 0 for all fields")
+                choice_counts = {}
 
-            doc_warnings: list[str] = []
-            if len(docs_result.get("records", [])) >= 500:
-                doc_warnings.append("Documentation records may be truncated at 500 entries")
+            # Optional sys_documentation fetch (off by default; help text is huge).
+            docs: dict[str, dict[str, Any]] = {}
+            if include_docs:
+                docs_result = await client.query_records(
+                    "sys_documentation",
+                    ServiceNowQuery().equals("name", table).build(),
+                    fields=["element", "label", "help", "hint", "url"],
+                    limit=500,
+                )
+                docs = {d["element"]: d for d in docs_result.get("records", []) if d.get("element")}
+                if len(docs_result.get("records", [])) >= 500:
+                    warnings.append("Documentation records may be truncated at 500 entries")
 
-        fields = _build_field_list(metadata)
+        field_list = (
+            _build_verbose_field_list(metadata, choice_counts)
+            if verbose
+            else _build_slim_field_list(metadata, choice_counts)
+        )
+
+        if requested_fields:
+            wanted = set(requested_fields)
+            present = {str(f.get("name") or f.get("element") or "") for f in field_list}
+            unknown = [name for name in requested_fields if name not in present]
+            field_list = [f for f in field_list if str(f.get("name") or f.get("element") or "") in wanted]
+            if unknown:
+                warnings.append(f"Unknown field(s): {','.join(unknown)}")
+
+        data: dict[str, Any] = {
+            "table": table_info,
+            "fields": field_list,
+            "field_count": len(field_list),
+        }
+        if include_docs:
+            data["documentation"] = docs
 
         return format_response(
-            data={
-                "table": table_info,
-                "fields": fields,
-                "field_count": len(fields),
-                "documentation": docs,
-            },
+            data=data,
             correlation_id=correlation_id,
-            warnings=doc_warnings or None,
+            warnings=warnings or None,
         )
 
     @mcp.tool()

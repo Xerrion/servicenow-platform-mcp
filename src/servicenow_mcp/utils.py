@@ -7,8 +7,6 @@ import uuid
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any, override
 
-from toon_format import encode as toon_encode
-
 from servicenow_mcp.errors import ACLError, ForbiddenError
 from servicenow_mcp.sentry import capture_exception as sentry_capture
 
@@ -131,31 +129,16 @@ def generate_correlation_id() -> str:
 
 
 def serialize(data: Any) -> str:
-    """Serialize *data* to TOON format for LLM-friendly output.
-
-    On TOON encoding failure, returns a serialized error envelope rather than
-    leaking the original data through a JSON fallback. This preserves the
-    TOON-only output contract expected by clients while making encoding
-    failures visible (logged + reported to Sentry).
-    """
+    """Serialize *data* to a JSON string suitable for MCP tool output."""
     try:
-        return toon_encode(data)
-    except Exception as e:
-        logger.warning("TOON encoding failed, falling back to error envelope", exc_info=True)
+        return json.dumps(data, default=str, ensure_ascii=False, separators=(",", ":"))
+    except (TypeError, ValueError) as e:
+        logger.warning("JSON serialization failed", exc_info=True)
         sentry_capture(e)
-        error_envelope: dict[str, Any] = {
-            "status": "error",
-            "error": {"message": "Serialization failed"},
-        }
-        # Preserve correlation_id when the caller passed a response envelope dict,
-        # so the failure remains traceable end-to-end.
+        envelope: dict[str, Any] = {"status": "error", "error": {"message": "Serialization failed"}}
         if isinstance(data, dict) and isinstance(data.get("correlation_id"), str):
-            error_envelope["correlation_id"] = data["correlation_id"]
-        # Last-resort: TOON-encode the envelope; if even that fails, JSON-encode it.
-        try:
-            return toon_encode(error_envelope)
-        except Exception:
-            return json.dumps(error_envelope)
+            envelope["correlation_id"] = data["correlation_id"]
+        return json.dumps(envelope)
 
 
 def format_response(

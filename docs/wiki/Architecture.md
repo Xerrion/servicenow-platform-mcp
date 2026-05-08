@@ -9,7 +9,7 @@ The server is built on:
 - **FastMCP** - MCP server framework providing tool registration and transport handling
 - **httpx** - Async HTTP client for ServiceNow REST API communication
 - **pydantic-settings** - Configuration management via environment variables
-- **TOON format** - Serialization format optimized for LLM consumption (not raw JSON)
+- **JSON** - Standard JSON serialization for tool responses
 - **sentry-sdk** - Error tracking for invisible child-process environments
 
 Communication happens over **stdio transport** - the server runs as a child process of an AI agent, meaning the user never sees stdout/stderr directly.
@@ -198,23 +198,26 @@ Key properties:
 | 500+ | `ServerError` |
 | 400+ (other) | `ServiceNowMCPError` |
 
-## TOON Serialization
+## JSON Serialization
 
-All tool output uses **TOON format** - not raw JSON. TOON is an LLM-optimized serialization format.
+All tool output is serialized as JSON.
 
 ### `serialize(data)` in `utils.py`
 
 ```python
 def serialize(data: Any) -> str:
     try:
-        return toon_encode(data)
-    except Exception as e:
-        logger.warning("TOON encoding failed, falling back to JSON", exc_info=True)
+        return json.dumps(data, default=str, ensure_ascii=False, separators=(",", ":"))
+    except (TypeError, ValueError) as e:
+        logger.warning("JSON serialization failed", exc_info=True)
         sentry_capture(e)
-        return json.dumps(data, indent=2)
+        envelope = {"status": "error", "error": {"message": "Serialization failed"}}
+        if isinstance(data, dict) and isinstance(data.get("correlation_id"), str):
+            envelope["correlation_id"] = data["correlation_id"]
+        return json.dumps(envelope)
 ```
 
-Falls back to JSON if TOON encoding fails, capturing the failure to Sentry.
+On serialization failure, returns a JSON error envelope (preserving `correlation_id` when available) and captures the exception to Sentry.
 
 ### `format_response()` Envelope
 
@@ -228,7 +231,7 @@ format_response(
     error=None,             # str | dict | None
     pagination=None,        # dict | None
     warnings=None,          # list | None
-) -> str                    # Returns serialized TOON string
+) -> str                    # Returns serialized JSON string
 ```
 
 The envelope always contains `correlation_id`, `status`, and `data`. Optional fields (`error`, `pagination`, `warnings`) are included only when provided. Error strings are wrapped as `{"message": error}` dicts.
@@ -236,11 +239,6 @@ The envelope always contains `correlation_id`, `status`, and `data`. Optional fi
 ### Parsing Tool Output
 
 ```python
-# CORRECT - use toon_decode
-from toon_format import decode as toon_decode
-result = toon_decode(raw_output)
-
-# WRONG - will fail on TOON-formatted output
 import json
 result = json.loads(raw_output)
 ```

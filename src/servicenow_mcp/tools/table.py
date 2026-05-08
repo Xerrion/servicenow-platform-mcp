@@ -334,7 +334,7 @@ async def _build_query_impl(
     query_store: QueryTokenStore,
     correlation_id: str,
 ) -> str:
-    """Process a parsed conditions list and return a formatted TOON response.
+    """Process a parsed conditions list and return a formatted JSON response.
 
     Iterates over each condition dict, applies it to a ``ServiceNowQuery``,
     stores the built query string in *query_store*, and returns the serialized

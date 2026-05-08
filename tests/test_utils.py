@@ -95,88 +95,80 @@ class TestFormatResponse:
 
 
 class TestSerialize:
-    """Test serialize function with TOON output and error-envelope fallback."""
+    """Test serialize function with JSON output and error-envelope fallback."""
 
-    def test_serialize_returns_toon_by_default(self) -> None:
-        """When toon_encode succeeds, serialize returns TOON output."""
+    def test_serialize_returns_json_by_default(self) -> None:
+        """When json.dumps succeeds, serialize returns parseable JSON output."""
         result = serialize({"key": "value"})
-        # Should be parseable by toon_decode
         parsed = decode_response(result)
         assert parsed["key"] == "value"
 
-    def test_serialize_falls_back_to_error_envelope_on_toon_failure(self) -> None:
-        """When toon_encode raises on the original data, serialize returns a TOON-encoded error envelope.
+    def test_serialize_falls_back_to_error_envelope_on_json_failure(self) -> None:
+        """When json.dumps raises on the original data, serialize returns a JSON-encoded error envelope.
 
-        The original payload is intentionally NOT leaked through a JSON fallback;
-        the TOON-only output contract is preserved and the failure is made visible.
+        The original payload is intentionally NOT leaked through; the failure is
+        made visible via the error envelope (logged + reported to Sentry).
         """
-        original_encode = serialize.__globals__["toon_encode"]
+
+        class Unserializable:
+            pass
+
+        # An arbitrary object that json cannot encode (default=str converts it,
+        # so we patch json.dumps to force a TypeError on the first call only).
+        original_dumps = json.dumps
         call_count = {"n": 0}
 
-        def faulty_encode(data: object) -> str:
+        def faulty_dumps(*args: object, **kwargs: object) -> str:
             call_count["n"] += 1
-            # Fail only on the first call (the original data); succeed for the
-            # error envelope so we exercise the TOON-encoded fallback path.
             if call_count["n"] == 1:
                 raise TypeError("unsupported type")
-            return original_encode(data)
+            return original_dumps(*args, **kwargs)  # type: ignore[arg-type]
 
-        with patch("servicenow_mcp.utils.toon_encode", side_effect=faulty_encode):
+        with patch("servicenow_mcp.utils.json.dumps", side_effect=faulty_dumps):
             result = serialize({"key": "value"})
 
-        parsed = decode_response(result)
+        parsed = json.loads(result)
         assert parsed["status"] == "error"
         assert parsed["error"] == {"message": "Serialization failed"}
         # Original data must NOT appear in the output.
         assert "value" not in result
 
-    def test_serialize_falls_back_to_json_envelope_when_toon_fully_unusable(self) -> None:
-        """If TOON fails for both the data AND the error envelope, JSON-encode the envelope."""
-        with patch(
-            "servicenow_mcp.utils.toon_encode",
-            side_effect=RuntimeError("boom"),
-        ):
-            result = serialize({"a": 1})
-        parsed = json.loads(result)
-        assert parsed["status"] == "error"
-        assert parsed["error"] == {"message": "Serialization failed"}
-
     def test_serialize_fallback_preserves_correlation_id(self) -> None:
         """When the input dict carries a correlation_id, the error envelope must
         retain it so failures stay traceable end-to-end."""
-        original_encode = serialize.__globals__["toon_encode"]
+        original_dumps = json.dumps
         call_count = {"n": 0}
 
-        def faulty_encode(data: object) -> str:
+        def faulty_dumps(*args: object, **kwargs: object) -> str:
             call_count["n"] += 1
             if call_count["n"] == 1:
                 raise TypeError("unsupported type")
-            return original_encode(data)
+            return original_dumps(*args, **kwargs)  # type: ignore[arg-type]
 
         envelope = {"correlation_id": "corr-xyz-123", "status": "success", "data": {"k": "v"}}
-        with patch("servicenow_mcp.utils.toon_encode", side_effect=faulty_encode):
+        with patch("servicenow_mcp.utils.json.dumps", side_effect=faulty_dumps):
             result = serialize(envelope)
 
-        parsed = decode_response(result)
+        parsed = json.loads(result)
         assert parsed["status"] == "error"
         assert parsed["correlation_id"] == "corr-xyz-123"
         assert parsed["error"] == {"message": "Serialization failed"}
 
     def test_serialize_fallback_omits_correlation_id_when_absent(self) -> None:
         """When the input has no correlation_id, the envelope must not invent one."""
-        original_encode = serialize.__globals__["toon_encode"]
+        original_dumps = json.dumps
         call_count = {"n": 0}
 
-        def faulty_encode(data: object) -> str:
+        def faulty_dumps(*args: object, **kwargs: object) -> str:
             call_count["n"] += 1
             if call_count["n"] == 1:
                 raise TypeError("unsupported type")
-            return original_encode(data)
+            return original_dumps(*args, **kwargs)  # type: ignore[arg-type]
 
-        with patch("servicenow_mcp.utils.toon_encode", side_effect=faulty_encode):
+        with patch("servicenow_mcp.utils.json.dumps", side_effect=faulty_dumps):
             result = serialize({"key": "value"})
 
-        parsed = decode_response(result)
+        parsed = json.loads(result)
         assert "correlation_id" not in parsed
 
 

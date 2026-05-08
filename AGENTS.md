@@ -13,7 +13,6 @@
 | Type          | Packages                                                                   |
 | ------------- | -------------------------------------------------------------------------- |
 | Core          | `mcp`, `httpx`, `pydantic`, `pydantic-settings`, `python-dotenv`, `uvicorn`, `starlette` |
-| Serialization | `toon-format` (external git dep from `github.com/toon-format/toon-python.git`) |
 | Sentry        | `sentry-sdk>=2.55.0`                                                              |
 | Dev           | `pytest`, `pytest-asyncio`, `respx`, `ruff`, `mypy`, `basedpyright`, `pytest-cov`          |
 
@@ -165,30 +164,9 @@ What `@tool_handler` does:
 3. Hides `correlation_id` from the FastMCP tool schema by overriding `__signature__` and deleting `__wrapped__`.
 4. Sets Sentry tags (`tool.name`, `tool.correlation_id`) and context with tool name, correlation_id, and args.
 
-## 📄 TOON Serialization
-
-All tool output uses **TOON format**, not raw JSON. This is a critical difference from typical MCP servers.
-
-- `toon-format` is an external dep from git: `github.com/toon-format/toon-python.git`
-- `utils.py:serialize(data)` uses `toon_encode()` with JSON fallback
-- `format_response()` returns a serialized TOON string (not a dict) - it calls `serialize()` internally
-- Error strings are wrapped as `{"message": error}` dicts before serialization
-
-### Parsing Tool Output
-
-```python
-# CORRECT - use toon_decode
-from toon_format import decode as toon_decode
-result = toon_decode(raw_output)
-
-# WRONG - do NOT use json.loads
-import json
-result = json.loads(raw_output)  # This will fail on TOON-formatted output
-```
-
 ## 📊 Response Format
 
-All tools return a serialized TOON string via `format_response()`:
+All tools return a serialized JSON string via `format_response()`:
 
 ```python
 format_response(
@@ -198,7 +176,7 @@ format_response(
     error=None,             # str | dict | None
     pagination=None,        # dict | None
     warnings=None,          # list | None
-) -> str                    # Returns serialized TOON string
+) -> str                    # Returns serialized JSON string
 ```
 
 Error response example:
@@ -551,7 +529,7 @@ When `HAS_SENTRY` is False, all public functions no-op immediately - zero overhe
 - **`server.py` (bootstrap)** - calls `setup_sentry(settings)` at startup, `shutdown_sentry()` in finally block; sets `"server"` context with `instance_url`, `environment`, `is_production`, `tool_package`
 - **`decorators.py` (`@tool_handler`)** - sets `tool.name` and `tool.correlation_id` tags; sets `"tool"` context with name, correlation_id, and args
 - **`utils.py` (`safe_tool_call()`)** - calls `sentry_capture(e)` in both `ForbiddenError` and generic `Exception` catch blocks
-- **`utils.py` (`serialize()`)** - captures TOON encoding failures
+- **`utils.py` (`serialize()`)** - captures JSON serialization failures
 - **`client.py` (`_raise_for_status()`)** - sets `"http"` context with `status_code`, `method`, `url` before raising
 - **`choices.py`** - captures persistent `sys_choice` fetch failures
 - **`server.py` (tool loading)** - captures broken tool group `ImportError` exceptions
@@ -613,15 +591,13 @@ def _register_and_get_tools(settings, auth_provider, choices=None):
 ### Parsing Tool Output in Tests
 
 ```python
-from toon_format import decode as toon_decode
+import json
 
 raw = await tools["my_tool"](param="value")
-result = toon_decode(raw)
+result = json.loads(raw)
 assert result["status"] == "success"
 assert result["data"]["field"] == "expected"
 ```
-
-**Critical:** Use `toon_decode(raw)`, **NOT** `json.loads(raw)`.
 
 ### Integration Tests
 

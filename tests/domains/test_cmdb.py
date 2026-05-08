@@ -1,11 +1,11 @@
 """Tests for CMDB domain tools."""
 
+import json
 from typing import Any
 
 import pytest
 import respx
 from httpx import Response
-from toon_format import decode as toon_decode
 
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.config import Settings
@@ -58,7 +58,7 @@ class TestCmdbList:
         )
 
         result = await cmdb_list()
-        data = toon_decode(result)
+        data = json.loads(result)
         assert isinstance(data, dict)
 
         assert data["status"] == "success"
@@ -88,7 +88,7 @@ class TestCmdbList:
         )
 
         result = await cmdb_list(ci_class="cmdb_ci_server")
-        data = toon_decode(result)
+        data = json.loads(result)
         assert isinstance(data, dict)
 
         assert data["status"] == "success"
@@ -121,7 +121,7 @@ class TestCmdbList:
         )
 
         result = await cmdb_list(operational_status="operational")
-        data = toon_decode(result)
+        data = json.loads(result)
         assert isinstance(data, dict)
 
         assert data["status"] == "success"
@@ -156,7 +156,7 @@ class TestCmdbGet:
         )
 
         result = await cmdb_get(name_or_sys_id=sys_id)
-        data = toon_decode(result)
+        data = json.loads(result)
         assert isinstance(data, dict)
 
         assert data["status"] == "success"
@@ -187,7 +187,7 @@ class TestCmdbGet:
         )
 
         result = await cmdb_get(name_or_sys_id="server-01")
-        data = toon_decode(result)
+        data = json.loads(result)
         assert isinstance(data, dict)
 
         assert data["status"] == "success"
@@ -211,7 +211,7 @@ class TestCmdbGet:
         )
 
         result = await cmdb_get(name_or_sys_id="nonexistent")
-        data = toon_decode(result)
+        data = json.loads(result)
         assert isinstance(data, dict)
 
         assert data["status"] == "error"
@@ -250,7 +250,7 @@ class TestCmdbRelationships:
         )
 
         result = await cmdb_relationships(name_or_sys_id=sys_id, direction="both")
-        data = toon_decode(result)
+        data = json.loads(result)
         assert isinstance(data, dict)
 
         assert data["status"] == "success"
@@ -280,7 +280,7 @@ class TestCmdbRelationships:
         )
 
         result = await cmdb_relationships(name_or_sys_id=sys_id, direction="parent")
-        data = toon_decode(result)
+        data = json.loads(result)
         assert isinstance(data, dict)
 
         assert data["status"] == "success"
@@ -324,7 +324,7 @@ class TestCmdbRelationships:
         )
 
         result = await cmdb_relationships(name_or_sys_id="server-01", direction="parent")
-        data = toon_decode(result)
+        data = json.loads(result)
         assert isinstance(data, dict)
 
         assert data["status"] == "success"
@@ -345,7 +345,7 @@ class TestCmdbRelationships:
         )
 
         result = await cmdb_relationships(name_or_sys_id="nonexistent-ci", direction="both")
-        data = toon_decode(result)
+        data = json.loads(result)
         assert isinstance(data, dict)
 
         assert data["status"] == "error"
@@ -375,7 +375,7 @@ class TestCmdbRelationships:
         )
 
         result = await cmdb_relationships(name_or_sys_id=sys_id, direction="child")
-        data = toon_decode(result)
+        data = json.loads(result)
         assert isinstance(data, dict)
 
         assert data["status"] == "success"
@@ -393,7 +393,7 @@ class TestCmdbRelationships:
 
         sys_id = "c" * 32
         result = await cmdb_relationships(name_or_sys_id=sys_id, direction="sideways")
-        data = toon_decode(result)
+        data = json.loads(result)
         assert isinstance(data, dict)
 
         assert data["status"] == "error"
@@ -429,7 +429,7 @@ class TestCmdbClasses:
         )
 
         result = await cmdb_classes(limit=50)
-        data = toon_decode(result)
+        data = json.loads(result)
         assert isinstance(data, dict)
 
         assert data["status"] == "success"
@@ -458,7 +458,7 @@ class TestCmdbClasses:
         )
 
         result = await cmdb_classes(limit=10)
-        data = toon_decode(result)
+        data = json.loads(result)
         assert isinstance(data, dict)
 
         assert data["status"] == "success"
@@ -497,7 +497,7 @@ class TestCmdbHealth:
         )
 
         result = await cmdb_health()
-        data = toon_decode(result)
+        data = json.loads(result)
         assert isinstance(data, dict)
 
         assert data["status"] == "success"
@@ -526,7 +526,7 @@ class TestCmdbHealth:
         )
 
         result = await cmdb_health(ci_class="cmdb_ci_server")
-        data = toon_decode(result)
+        data = json.loads(result)
         assert isinstance(data, dict)
 
         assert data["status"] == "success"
@@ -547,7 +547,7 @@ class TestErrorHandling:
 
         # Try to access a denied table
         result = await cmdb_list(ci_class="sys_user_has_password")
-        data = toon_decode(result)
+        data = json.loads(result)
         assert isinstance(data, dict)
 
         assert data["status"] == "error"
@@ -568,7 +568,7 @@ class TestErrorHandling:
         )
 
         result = await cmdb_get(name_or_sys_id="test")
-        data = toon_decode(result)
+        data = json.loads(result)
         assert isinstance(data, dict)
 
         assert data["status"] == "error"

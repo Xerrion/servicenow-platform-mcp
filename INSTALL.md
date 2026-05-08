@@ -248,4 +248,4 @@ These guardrails are always active. They reduce risk but are not a guarantee - a
 - **Write gating** - All write operations blocked when `SERVICENOW_ENV` is set to `prod` or `production`
 - **Attachment limits** - 10 MB maximum per attachment transfer
 - **Field validation** - Required fields validated before record creation
-- **Standardized responses** - All tools return TOON-serialized envelopes (not raw JSON) with `correlation_id`, `status`, and `data`
+- **Standardized responses** - All tools return JSON-serialized envelopes with `correlation_id`, `status`, and `data`

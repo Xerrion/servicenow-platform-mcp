@@ -1,9 +1,9 @@
 """Tests for shared domain tool helpers."""
 
+import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from toon_format import decode as toon_decode
 
 from servicenow_mcp.tools.domains._helpers import (
     fetch_record_by_number,
@@ -30,7 +30,7 @@ class TestValidateNumberPrefix:
     def test_invalid_prefix_returns_error(self) -> None:
         raw = validate_number_prefix("PRB001", "INC", "incident", CID)
         assert raw is not None
-        result = toon_decode(raw)
+        result = json.loads(raw)
         assert isinstance(result, dict)
         assert result["status"] == "error"
         assert "Must start with INC prefix" in result["error"]["message"]
@@ -38,7 +38,7 @@ class TestValidateNumberPrefix:
     def test_error_includes_entity_label(self) -> None:
         raw = validate_number_prefix("INC001", "CHG", "change request", CID)
         assert raw is not None
-        result = toon_decode(raw)
+        result = json.loads(raw)
         assert isinstance(result, dict)
         assert "Invalid change request number" in result["error"]["message"]
 
@@ -59,7 +59,7 @@ class TestLookupRecordByNumber:
         sys_id, error = await lookup_record_by_number(client, "incident", "INC001", "Incident", CID)
         assert sys_id == ""
         assert error is not None
-        result = toon_decode(error)
+        result = json.loads(error)
         assert isinstance(result, dict)
         assert result["status"] == "error"
         assert "Incident INC001 not found" in result["error"]["message"]
@@ -79,7 +79,7 @@ class TestFetchRecordByNumber:
         client = AsyncMock()
         client.query_records.return_value = {"records": [{"sys_id": "abc", "short_description": "test"}]}
         raw = await fetch_record_by_number(client, "incident", "INC001", "Incident", CID)
-        result = toon_decode(raw)
+        result = json.loads(raw)
         assert isinstance(result, dict)
         assert result["status"] == "success"
         assert result["data"]["short_description"] == "test"
@@ -89,7 +89,7 @@ class TestFetchRecordByNumber:
         client = AsyncMock()
         client.query_records.return_value = {"records": []}
         raw = await fetch_record_by_number(client, "incident", "INC001", "Incident", CID)
-        result = toon_decode(raw)
+        result = json.loads(raw)
         assert isinstance(result, dict)
         assert result["status"] == "error"
         assert "Incident INC001 not found" in result["error"]["message"]
@@ -116,7 +116,7 @@ class TestValidateIntRange:
     def test_below_min_returns_error(self) -> None:
         raw = validate_int_range(0, "urgency", 1, 4, CID)
         assert raw is not None
-        result = toon_decode(raw)
+        result = json.loads(raw)
         assert isinstance(result, dict)
         assert result["status"] == "error"
         assert "urgency must be between 1 and 4, got 0" in result["error"]["message"]
@@ -124,7 +124,7 @@ class TestValidateIntRange:
     def test_above_max_returns_error(self) -> None:
         raw = validate_int_range(5, "impact", 1, 4, CID)
         assert raw is not None
-        result = toon_decode(raw)
+        result = json.loads(raw)
         assert isinstance(result, dict)
         assert "impact must be between 1 and 4, got 5" in result["error"]["message"]
 
@@ -136,7 +136,7 @@ class TestValidateRequiredString:
     def test_empty_returns_error(self) -> None:
         raw = validate_required_string("", "short_description", CID)
         assert raw is not None
-        result = toon_decode(raw)
+        result = json.loads(raw)
         assert isinstance(result, dict)
         assert result["status"] == "error"
         assert "short_description is required and cannot be empty" in result["error"]["message"]
@@ -144,7 +144,7 @@ class TestValidateRequiredString:
     def test_whitespace_only_returns_error(self) -> None:
         raw = validate_required_string("   ", "close_code", CID)
         assert raw is not None
-        result = toon_decode(raw)
+        result = json.loads(raw)
         assert isinstance(result, dict)
         assert "close_code is required and cannot be empty" in result["error"]["message"]
 
@@ -161,7 +161,7 @@ class TestValidateNoEmptyChanges:
     def test_empty_returns_error(self) -> None:
         raw = validate_no_empty_changes({}, CID)
         assert raw is not None
-        result = toon_decode(raw)
+        result = json.loads(raw)
         assert isinstance(result, dict)
         assert result["status"] == "error"
         assert "No fields to update provided" in result["error"]["message"]

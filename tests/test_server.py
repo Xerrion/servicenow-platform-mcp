@@ -1,11 +1,10 @@
 """Tests for MCP server entry point."""
 
 import importlib
+import json
 from types import ModuleType
 from typing import Any
 from unittest.mock import patch
-
-from toon_format import decode as toon_decode
 
 from tests.helpers import get_tool_functions, get_tool_names
 
@@ -136,7 +135,7 @@ class TestCreateMcpServer:
 
         tools = get_tool_functions(mcp_server)
         raw = tools["list_tool_packages"]()
-        result = toon_decode(raw)
+        result = json.loads(raw)
 
         assert isinstance(result, dict)
         assert "full" in result

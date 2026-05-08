@@ -215,7 +215,7 @@ Both paths capture the exception to Sentry (when configured) for visibility.
 
 ### Error Envelope Format
 
-Error responses use the same TOON-serialized envelope as success responses:
+Error responses use the same JSON-serialized envelope as success responses:
 
 ```
 status: "error"

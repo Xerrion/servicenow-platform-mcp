@@ -10,9 +10,9 @@ The previous specialized helper tools (e.g., `incident_list`, `debug_trace`, `ch
 | :--- | :--- |
 | `query` | Fetch records, aggregates, or single records from any table using encoded queries. |
 | `build_query` | Stateless helper - compiles a JSON array of condition objects into the encoded query string that `query` consumes. `full` package only. |
-| `describe` | Retrieve slim field metadata (8 keys) for a table to understand its structure. Use `action='list_artifact_types'` to enumerate the writable artifact catalog at runtime. |
-| `record_read` | Read a platform artifact by `sys_id` or `name`. Returns the masked record plus the `script_fields` list for the artifact type. |
-| `record_write` | Dispatcher for creating, updating, or deleting records (with script file support and `script_field` targeting for multi-field artifacts). |
+| `describe` | Retrieve slim field metadata (8 keys) for a table to understand its structure. Use `action='list_script_fields'` with a `table` argument to discover the dictionary-driven script-bearing fields and the resolved super_class chain. |
+| `record_read` | Read a record by `sys_id` or `name`. Returns the masked record plus the `script_fields` list resolved from `sys_dictionary` for the table. |
+| `record_write` | Dispatcher for creating, updating, or deleting records (with `script_path` file injection and `script_field` targeting for tables with multiple script-bearing fields). |
 | `record_apply` | Commits a write operation previously staged with `preview=True`. |
 | `attachment` | Dispatcher for reading, listing, and downloading record attachments. |
 | `attachment_write` | Dispatcher for uploading or deleting record attachments. |
@@ -216,12 +216,12 @@ choices = await resolve_choice(table="incident", field="state")
 **New way:**
 ```python
 # Stage the update using a local path.
-# content is read, validated, and placed in the 'script' field.
+# content is read, validated, and placed in the first script-bearing field
+# resolved by DictionaryRegistry (here: sys_script.script).
 preview = await record_write(
     action="update",
     table="sys_script",
     sys_id="<sys_id>",
-    artifact_type="business_rule",
     script_path="/Users/dev/project/br_logic.js",
     preview=True
 )

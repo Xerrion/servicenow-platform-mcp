@@ -80,8 +80,8 @@ When writing platform artifacts (e.g., Business Rules, Widgets, UI Pages, ACLs) 
 - **Root Constraint:** Paths must resolve within the directory defined by `SCRIPT_ALLOWED_ROOT`.
 - **Resolution:** Paths are resolved strictly to prevent symlink or traversal attacks.
 - **Limits:** Files are capped at 1 MB and must be UTF-8 encoded.
-- **Mapping:** Content is automatically routed to the primary script-bearing field for the artifact type (e.g., `script`, `html`, `xml`) based on `SCRIPT_FIELD_MAP`. Artifact types with multiple script fields (e.g. `ui_policy.script_true`/`script_false`, `widget.client_script`/`template`/`css`, `ui_page.html`/`processing_script`) accept an optional `script_field` parameter to override the default target.
-- **XML Validation:** `ui_macro` writes additionally parse the file contents with `xml.etree.ElementTree.fromstring` before any platform call; malformed XML is rejected with a structured error.
+- **Mapping:** Content is automatically routed to the first script-bearing field returned by `DictionaryRegistry.get_script_fields(table)` (resolved at runtime from `sys_dictionary`). Tables with multiple script fields (e.g. `sys_ui_policy.script_true`/`script_false`, `sp_widget.client_script`/`template`/`css`, `sys_ui_page.html`/`processing_script`) accept an optional `script_field` parameter to override the default target.
+- **XML Validation:** When the resolved field has `internal_type == 'xml'` (e.g. `sys_ui_macro.xml`), the file contents are parsed with `xml.etree.ElementTree.fromstring` before any platform call; malformed XML is rejected with a structured error.
 
 ---
 

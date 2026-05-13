@@ -133,7 +133,7 @@ Or read the [Installation Guide](INSTALL.md) directly. For usage examples and pa
 
 - **Platform Introspection** - Describe table schemas with `describe` and query records with `query` using encoded queries.
 - **Record Management** - Unified `record_write` and `record_apply` tools for create, update, and delete with a mandatory preview-then-apply safety pattern.
-- **Artifact Management** - Write 24 artifact types (Business Rules, Script Includes, UI Pages, Widgets, ACLs, etc.) via `record_write` with local script file support and per-field targeting (`script_field`). Read the same surface back via `record_read`, or discover the catalog at runtime with `describe(action='list_artifact_types')`.
+- **Script-Bearing Records** - Write Business Rules, Script Includes, UI Pages, Widgets, UI Macros, ACLs, and any other table whose dictionary fields carry executable script or markup, all via `record_write` with local script file support and per-field targeting (`script_field`). Script fields are discovered at runtime from `sys_dictionary` — no hardcoded artifact catalog. Read the same surface back via `record_read`, or enumerate a table's script fields with `describe(action='list_script_fields', table='<table>')`.
 - **Attachment Operations** - Unified `attachment` for read operations and `attachment_write` for mutations.
 - **Investigations** - Automated analysis of system health, stale automations, performance bottlenecks, and more via `investigate`.
 - **Label Resolution** - Map human-readable choice labels to underlying values automatically with `resolve_choice`.

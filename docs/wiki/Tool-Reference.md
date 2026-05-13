@@ -72,17 +72,17 @@ Stateless helper that compiles a JSON array of condition objects into a ServiceN
   ```
 
 ### `describe`
-Retrieve schema and metadata for a table, or enumerate the artifact catalog.
+Retrieve schema and metadata for a table, or enumerate its script-bearing fields.
 
-- **Purpose:** Understand a table's structure before querying or writing; discover writable artifact types at runtime.
+- **Purpose:** Understand a table's structure before querying or writing; discover dictionary-driven script fields at runtime.
 - **Key Parameters:**
-  - `action`: Optional. `describe_table` (default) or `list_artifact_types`. When `list_artifact_types`, returns one entry per artifact type with its `table`, `script_fields`, and `primary_field` - no `table` argument required.
-  - `table`: Target table name (required for `describe_table`).
+  - `action`: Optional. `describe_table` (default) or `list_script_fields`. When `list_script_fields`, returns the resolved super_class `chain` and the script-bearing fields (`name`, `internal_type`, `inherited_from`, `via_heuristic`) for the supplied `table`.
+  - `table`: Target table name (required for both actions).
   - `verbose`: If `true`, returns all platform metadata (otherwise returns a slim 8-key summary per field).
 - **Example:**
   ```python
   await describe(table="incident")
-  await describe(action="list_artifact_types")
+  await describe(action="list_script_fields", table="sys_script")
   ```
 
 ---
@@ -100,11 +100,10 @@ Unified tool for staging `create`, `update`, or `delete` actions.
   - `table`: Target table name.
   - `sys_id`: Required for `update` and `delete`.
   - `data`: JSON string of field-value pairs for `create`/`update`.
-  - `artifact_type`: Set this to write scripted artifacts (e.g., `business_rule`, `script_include`, `widget`, `ui_page`, `ui_policy`, `acl`). 24 artifact types are supported; call `describe(action='list_artifact_types')` to enumerate.
-  - `script_path`: Local path to a script file (requires `artifact_type`). Resolved strictly under `SCRIPT_ALLOWED_ROOT`; capped at 1 MB; UTF-8.
-  - `script_field`: Optional. Target a specific script-bearing field on artifact types with more than one (e.g. `ui_policy.script_true`/`script_false`, `widget.client_script`/`template`/`css`, `ui_page.html`/`processing_script`). Defaults to the primary field per `SCRIPT_FIELD_MAP`. Setting `script_field` without `artifact_type` is rejected.
+  - `script_path`: Local path to a script file. Allowed on any table that has at least one script-bearing field (resolved via `DictionaryRegistry` from `sys_dictionary`). Resolved strictly under `SCRIPT_ALLOWED_ROOT`; capped at 1 MB; UTF-8.
+  - `script_field`: Optional. Target a specific script-bearing field on tables with more than one (e.g. `sys_ui_policy.script_true`/`script_false`, `sp_widget.client_script`/`template`/`css`, `sys_ui_page.html`/`processing_script`). Defaults to the first field returned by `DictionaryRegistry.get_script_fields(table)`. Setting `script_field` without `script_path` is rejected.
   - `preview`: If `true` (default), stores the change in `PreviewTokenStore` and returns a `preview_token`.
-- **Notes:** `ui_macro` writes validate the rendered XML (`xml.etree.ElementTree.fromstring`) before any platform call; malformed content is rejected with a structured error.
+- **Notes:** When the resolved script field has `internal_type == 'xml'` (e.g. `sys_ui_macro.xml`), `record_write` validates the rendered XML (`xml.etree.ElementTree.fromstring`) before any platform call; malformed content is rejected with a structured error.
 - **Example:**
   ```python
   # Stage a create
@@ -113,17 +112,17 @@ Unified tool for staging `create`, `update`, or `delete` actions.
   ```
 
 ### `record_read`
-Read-only counterpart to `record_write` for platform artifacts.
+Read-only counterpart to `record_write` for any table.
 
-- **Purpose:** Inspect an existing artifact (and learn its script-bearing fields) before composing a multi-field update via `record_write` + `script_field`.
+- **Purpose:** Inspect an existing record (and learn its script-bearing fields) before composing a multi-field update via `record_write` + `script_field`.
 - **Key Parameters:**
-  - `artifact_type`: One of the 24 writable artifact types (`describe(action='list_artifact_types')` enumerates them).
+  - `table`: Target table name.
   - `sys_id` **or** `name`: Exactly one must be supplied. Ambiguous names (more than one match) and missing records return a structured error.
-- **Response:** Masked record fields plus the `script_fields` list for the artifact type.
+- **Response:** Masked record fields plus the `script_fields` list resolved from `sys_dictionary` for the table.
 - **Availability:** Included in both the `full` and `readonly` packages.
 - **Example:**
   ```python
-  await record_read(artifact_type="business_rule", name="Validate priority on insert")
+  await record_read(table="sys_script", name="Validate priority on insert")
   ```
 
 ### `record_apply`

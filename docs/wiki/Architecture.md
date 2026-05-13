@@ -24,7 +24,8 @@ Version 0.10.0 introduced a unified 12-tool surface. Most tools are implemented 
 - **Encoded Queries:** The `query` tool accepts ServiceNow encoded query strings directly. The optional `build_query` helper (in the `full` package) is a stateless transform that compiles a JSON array of condition objects into an encoded query string for callers that prefer structured input.
 - **Two-Stage Writes:** `record_write` (stage) and `record_apply` (commit) implement a mandatory safety flow for all mutations.
 - **Helper Modules:** Shared logic is extracted into specialized helpers:
-  - `_artifact.py`: Handles secure script file reads and `artifact_type` mapping.
+  - `_artifact.py`: Handles secure script file reads (path containment, UTF-8 decode, 1 MB cap) and the `xml` well-formedness check.
+  - `_dictionary.py`: `DictionaryRegistry` — runtime discovery of script-bearing fields per table by walking `sys_db_object.super_class` and filtering `sys_dictionary` rows. Replaces the previous hardcoded artifact catalog.
   - `_describe_helpers.py`: Manages slim vs. verbose schema building.
   - `_record_helpers.py`: Handles mandatory field validation and diff generation.
 

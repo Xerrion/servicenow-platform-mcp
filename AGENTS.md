@@ -250,92 +250,45 @@ def register_tools(
 
 ## ✏️ Platform Artifacts
 
-Artifacts (Business Rules, Script Includes, etc.) are written via the `record_write` tool by setting the `artifact_type` parameter.
+Script-bearing artifacts (Business Rules, Script Includes, UI Macros, etc.) are written via the `record_write` tool using the standard `table` parameter — there is no `artifact_type` enum. The set of script-bearing fields per table is discovered at runtime from `sys_dictionary` rather than encoded in a hardcoded catalog.
 
-### WRITABLE_ARTIFACT_TABLES (24 types)
+### Script-Field Discovery
 
-| Artifact Type | ServiceNow Table |
-|---|---|
-| `business_rule` | `sys_script` |
-| `script_include` | `sys_script_include` |
-| `ui_policy` | `sys_ui_policy` |
-| `ui_action` | `sys_ui_action` |
-| `client_script` | `sys_script_client` |
-| `scheduled_job` | `sysauto_script` |
-| `fix_script` | `sys_script_fix` |
-| `scripted_rest_resource` | `sys_ws_operation` |
-| `ui_script` | `sys_ui_script` |
-| `processor` | `sys_processor` |
-| `widget` | `sp_widget` |
-| `ui_page` | `sys_ui_page` |
-| `ui_macro` | `sys_ui_macro` |
-| `script_action` | `sysevent_script_action` |
-| `mid_script_include` | `ecc_agent_script_include` |
-| `notification_script` | `sysevent_email_action` |
-| `email_script` | `sys_script_email` |
-| `catalog_client_script` | `catalog_script_client` |
-| `catalog_ui_policy` | `catalog_ui_policy` |
-| `transform_map_script` | `sys_transform_script` |
-| `transform_entry_script` | `sys_transform_entry` |
-| `acl` | `sys_security_acl` |
-| `dynamic_filter` | `sys_filter_option_dynamic` |
-| `decision_question` | `sys_decision_question` |
+`DictionaryRegistry` (in `tools/_dictionary.py`) resolves which fields on a table carry executable script or markup content:
 
-Discover the catalog at runtime via `describe(action='list_artifact_types')`, which returns the table, `script_fields` list, and `primary_field` per artifact type.
+1. Walks `sys_db_object.super_class` child-first, bounded at depth 8, with a cycle guard.
+2. Fetches active `sys_dictionary` rows for each table in the chain.
+3. Admits a field when its `internal_type` is in `UNAMBIGUOUS_SCRIPT_TYPES` (`script`, `script_plain`, `script_server`, `script_client`, `email_script`, `html_script`, `html_template`, `css`).
+4. For ambiguous types (`html`, `xml`), admits the field only when `attributes` contains `tinymce_allow_all=true` or `html_sanitize=false`.
+5. Drops anything in `EXCLUDED_ELEMENTS` (`translated_html`, `template_value`, `glide_var`, `json`, `conditions`, `condition_string`, `glide_action_list`, `variable_conditions`, `snapshot_template_value`, `variable_template_value`).
+6. Caches per-table results for the registry lifetime; `flush(table=None)` invalidates everything or a single table.
+
+The `looks_like_template(content)` helper (regex `\${[^}]+}`) is exposed for record-level template detection but is not consulted during dictionary discovery.
+
+Discover the script fields for any table at runtime via `describe(action='list_script_fields', table='<table>')`, which returns the resolved super_class chain and a list of `{name, internal_type, inherited_from, via_heuristic}` entries.
 
 ### script_path Security
 
-When `artifact_type` is set, `record_write` accepts an optional `script_path`:
+`record_write` accepts an optional `script_path` for any table that has at least one script-bearing field:
 
 - Path is resolved via `Path.resolve(strict=True)` to prevent symlink/traversal attacks.
 - The resolved path must be under the directory defined by the `script_allowed_root` setting.
 - File is read as UTF-8; maximum size is 1 MB (`MAX_SCRIPT_FILE_BYTES`).
-- Content is written to the primary script field for the artifact type (`SCRIPT_FIELD_MAP[artifact_type][0]`), unless `script_field` overrides it.
-- For `ui_macro`, the content is validated as well-formed XML (`xml.etree.ElementTree.fromstring`) before any platform call; malformed content yields a structured error.
+- Content is written to the first script-bearing field detected by `DictionaryRegistry` (child-first, sys_dictionary row order), unless `script_field` overrides it.
+- When the resolved field has `internal_type == 'xml'`, the content is validated as well-formed XML (`xml.etree.ElementTree.fromstring`) before any platform call; malformed content yields a structured error.
 - `record_write` uses the `PreviewTokenStore` flow (preview/apply) by default for these operations.
 
 ### script_field parameter
 
-`record_write` accepts an optional `script_field` parameter when `artifact_type` and `script_path` are set. It selects which script-bearing field receives the file contents:
+`record_write` accepts an optional `script_field` parameter when `script_path` is set. It selects which script-bearing field receives the file contents:
 
-- Empty (default): writes to the primary field (`SCRIPT_FIELD_MAP[artifact_type][0]`).
-- Non-empty: must be one of `SCRIPT_FIELD_MAP[artifact_type]`; otherwise the call returns a structured error listing the allowed fields.
-- Setting `script_field` without `artifact_type` is rejected.
-
-### SCRIPT_FIELD_MAP
-
-`SCRIPT_FIELD_MAP` is `dict[str, list[str]]`. Index 0 is the primary field (the default target); subsequent entries are alternate script-bearing fields callable via `script_field`. Every entry in `WRITABLE_ARTIFACT_TABLES` has a corresponding non-empty list; a module-load assertion enforces this.
-
-| Artifact Type | Script Fields (primary first) |
-|---|---|
-| `business_rule` | `script`, `condition` |
-| `script_include` | `script` |
-| `ui_action` | `script`, `condition`, `onclick` |
-| `client_script` | `script` |
-| `scheduled_job` | `script` |
-| `fix_script` | `script` |
-| `ui_script` | `script` |
-| `processor` | `script` |
-| `script_action` | `script` |
-| `mid_script_include` | `script` |
-| `ui_policy` | `script_true`, `script_false` |
-| `widget` | `client_script`, `script`, `template`, `css`, `link` |
-| `ui_page` | `html`, `client_script`, `processing_script` |
-| `scripted_rest_resource` | `operation_script` |
-| `ui_macro` | `xml` |
-| `notification_script` | `advanced_condition` |
-| `email_script` | `script` |
-| `catalog_client_script` | `script` |
-| `catalog_ui_policy` | `script_true`, `script_false` |
-| `transform_map_script` | `script` |
-| `transform_entry_script` | `script` |
-| `acl` | `script` |
-| `dynamic_filter` | `script` |
-| `decision_question` | `condition_script` |
+- Empty (default): writes to the first field returned by `DictionaryRegistry.get_script_fields(table)`.
+- Non-empty: must match a field name returned by the registry for that table; otherwise the call returns a structured error listing the allowed fields.
+- Setting `script_field` without `script_path` is rejected.
 
 ### record_read
 
-Read-only counterpart for the artifact surface. `record_read(artifact_type, sys_id=..., name=...)` returns the masked record plus the `script_fields` list for the artifact type, enabling discovery-driven multi-field edits. Exactly one of `sys_id` or `name` must be supplied; ambiguous names (>1 match) and missing records return structured errors. Included in both `full` and `readonly` packages.
+Read-only counterpart. `record_read(table, sys_id=..., name=...)` returns the masked record plus the `script_fields` list resolved by `DictionaryRegistry` for the table, enabling discovery-driven multi-field edits. Exactly one of `sys_id` or `name` must be supplied; ambiguous names (>1 match) and missing records return structured errors. Included in both `full` and `readonly` packages.
 
 ## 🔄 ChoiceRegistry
 

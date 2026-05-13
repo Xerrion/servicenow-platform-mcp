@@ -25,12 +25,12 @@ from servicenow_mcp.policy import (
     INTERNAL_QUERY_LIMIT,
     check_table_access,
 )
-from servicenow_mcp.tools._artifact import SCRIPT_FIELD_MAP, WRITABLE_ARTIFACT_TABLES
 from servicenow_mcp.tools._describe_helpers import (
     _build_slim_field_list,
     _build_verbose_field_list,
     _parse_fields_filter,
 )
+from servicenow_mcp.tools._dictionary import DictionaryRegistry, ScriptField
 from servicenow_mcp.utils import ServiceNowQuery, format_response, validate_identifier
 
 
@@ -38,14 +38,32 @@ logger = logging.getLogger(__name__)
 
 TOOL_NAMES: list[str] = ["describe"]
 
-_VALID_DESCRIBE_ACTIONS: frozenset[str] = frozenset({"list_artifact_types"})
+_VALID_DESCRIBE_ACTIONS: frozenset[str] = frozenset({"list_script_fields"})
 
 
-def _run_artifact_catalog_action(action: str, correlation_id: str) -> str:
-    """Return the artifact catalog for ``action='list_artifact_types'``.
+def _script_field_summary(fields: list[ScriptField]) -> list[dict[str, object]]:
+    """Project ``ScriptField`` instances into a JSON-friendly list."""
+    return [
+        {
+            "name": f.name,
+            "internal_type": f.internal_type,
+            "inherited_from": f.inherited_from,
+            "via_heuristic": f.via_heuristic,
+        }
+        for f in fields
+    ]
 
-    No platform calls; sorts alphabetically by ``artifact_type`` for stable
-    output. Unknown actions return a structured error.
+
+async def _run_list_script_fields(
+    action: str,
+    table: str,
+    dictionary: DictionaryRegistry,
+    correlation_id: str,
+) -> str:
+    """Resolve script-bearing fields for ``table`` via ``DictionaryRegistry``.
+
+    Returns the resolved super_class chain alongside the script fields so the
+    caller can audit where each field is inherited from.
     """
     if action not in _VALID_DESCRIBE_ACTIONS:
         return format_response(
@@ -55,17 +73,27 @@ def _run_artifact_catalog_action(action: str, correlation_id: str) -> str:
             error=f"Unknown describe action {action!r}. Valid actions: {sorted(_VALID_DESCRIBE_ACTIONS)}.",
         )
 
-    entries = [
-        {
-            "artifact_type": artifact_type,
-            "table": WRITABLE_ARTIFACT_TABLES[artifact_type],
-            "script_fields": list(SCRIPT_FIELD_MAP[artifact_type]),
-            "primary_field": SCRIPT_FIELD_MAP[artifact_type][0],
-        }
-        for artifact_type in sorted(WRITABLE_ARTIFACT_TABLES)
-    ]
+    if not table:
+        return format_response(
+            data=None,
+            correlation_id=correlation_id,
+            status="error",
+            error="table is required when action='list_script_fields'.",
+        )
+
+    validate_identifier(table)
+    check_table_access(table)
+
+    chain = await dictionary.get_chain(table)
+    script_fields = await dictionary.get_script_fields(table)
+
     return format_response(
-        data={"artifact_types": entries, "count": len(entries)},
+        data={
+            "table": table,
+            "chain": chain,
+            "script_fields": _script_field_summary(script_fields),
+            "count": len(script_fields),
+        },
         correlation_id=correlation_id,
     )
 
@@ -75,14 +103,19 @@ def register_tools(
     settings: Settings,
     auth_provider: BasicAuthProvider,
     choices: ChoiceRegistry | None = None,
+    dictionary: DictionaryRegistry | None = None,
 ) -> None:
     """Register the unified ``describe`` tool on the MCP server.
 
     Mirrors the unified-tool registration signature used by ``server.py`` for
-    ``unified.*`` modules. ``choices`` is unused by ``describe`` but accepted
-    for contract parity.
+    ``unified.*`` modules. ``choices`` is unused by ``describe``; ``dictionary``
+    powers ``action='list_script_fields'``.
     """
     del choices  # unused; signature retained for loader parity
+
+    if dictionary is None:
+        dictionary = DictionaryRegistry(settings, auth_provider)
+    dict_registry = dictionary
 
     @mcp.tool()
     @tool_handler
@@ -95,21 +128,24 @@ def register_tools(
         *,
         correlation_id: str = "",
     ) -> str:
-        """Return slim field metadata for a table, or list the artifact catalog.
+        """Return slim field metadata for a table, or list script-bearing fields.
 
         Args:
-            table: ServiceNow table name. Required unless ``action`` is set.
+            table: ServiceNow table name. Required unless ``action`` is set
+                (and even with ``action='list_script_fields'`` ``table`` is
+                still required - it names the table to inspect).
             fields: Comma-separated list of fields to include. Empty = all fields.
             verbose: When True, return the full sys_dictionary row per field
                 minus a fixed deny-list of high-noise keys. Default False.
             include_docs: When True, attach the matching sys_documentation entry
                 (label/help/hint/url) per field. Default False.
-            action: When set to ``'list_artifact_types'``, return the writable
-                artifact catalog (no platform calls, ``table`` ignored). Empty
-                (default) runs the standard table-describe flow.
+            action: When set to ``'list_script_fields'``, return the
+                dictionary-driven script-bearing fields for ``table`` along
+                with the resolved super_class chain. Empty (default) runs the
+                standard table-describe flow.
         """
         if action:
-            return _run_artifact_catalog_action(action, correlation_id)
+            return await _run_list_script_fields(action, table, dict_registry, correlation_id)
 
         if not table:
             return format_response(

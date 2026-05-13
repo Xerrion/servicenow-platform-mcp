@@ -1,4 +1,4 @@
-"""Tests for the unified ``record_write`` and ``record_apply`` tools (Phase 3a)."""
+"""Tests for the unified ``record_write`` and ``record_apply`` tools."""
 
 from __future__ import annotations
 
@@ -13,18 +13,13 @@ import respx
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.policy import DENIED_TABLES
-from servicenow_mcp.tools._artifact import (
-    SCRIPT_FIELD_MAP,
-    WRITABLE_ARTIFACT_TABLES,
-    _resolve_writable_artifact_table,
-    _validate_xml_content,
-    primary_script_field,
-)
+from servicenow_mcp.tools._artifact import validate_ui_macro_xml
 from tests.helpers import decode_response, get_tool_functions
 
 
 BASE_URL = "https://test.service-now.com"
 METADATA_URL = f"{BASE_URL}/api/now/table/sys_dictionary"
+SYS_DB_OBJECT_URL = f"{BASE_URL}/api/now/table/sys_db_object"
 NO_MANDATORY_RESPONSE = httpx.Response(200, json={"result": []})
 
 SYS_ID_INC001 = "a" * 32
@@ -72,6 +67,19 @@ def _register_and_get_tools(settings: Settings, auth_provider: BasicAuthProvider
     mcp = FastMCP("test")
     register_tools(mcp, settings, auth_provider)
     return get_tool_functions(mcp)
+
+
+def _mock_dictionary(table: str, fields: list[dict[str, str]]) -> None:
+    """Mock the sys_db_object + sys_dictionary fetch for ``table`` with ``fields``."""
+    # sys_db_object lookup returns no super_class (root table) - the chain stops here.
+    respx.get(SYS_DB_OBJECT_URL).mock(
+        return_value=httpx.Response(200, json={"result": [{"super_class": ""}]}),
+    )
+    # sys_dictionary returns the supplied fields for the requested table name.
+    respx.get(METADATA_URL).mock(
+        return_value=httpx.Response(200, json={"result": fields}),
+    )
+    del table  # respx routes by URL; table is encoded into the query string
 
 
 # ---------------------------------------------------------------------------
@@ -135,9 +143,7 @@ class TestActionDispatch:
         assert "data must be empty" in result["error"]["message"]
 
     @pytest.mark.asyncio()
-    async def test_missing_table_and_artifact_type_returns_error(
-        self, settings: Settings, auth_provider: BasicAuthProvider
-    ) -> None:
+    async def test_missing_table_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["record_write"](action="create", data=json.dumps({"x": 1}))
         result = decode_response(raw)
@@ -145,28 +151,28 @@ class TestActionDispatch:
         assert "table is required" in result["error"]["message"]
 
     @pytest.mark.asyncio()
-    async def test_script_path_without_artifact_type_returns_error(
+    async def test_script_field_without_script_path_returns_error(
         self, settings: Settings, auth_provider: BasicAuthProvider
     ) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["record_write"](
             action="create",
-            table="incident",
-            data=json.dumps({"x": 1}),
-            script_path="/tmp/foo.js",
+            table="sys_script",
+            data=json.dumps({"name": "BR1"}),
+            script_field="script",
         )
         result = decode_response(raw)
         assert result["status"] == "error"
-        assert "script_path requires artifact_type" in result["error"]["message"]
+        assert "script_field requires script_path" in result["error"]["message"]
 
 
 # ---------------------------------------------------------------------------
-# Standard record write (no artifact_type)
+# Standard record write (no script_path)
 # ---------------------------------------------------------------------------
 
 
 class TestStandardRecordWrite:
-    """Plain record writes without artifact_type."""
+    """Plain record writes against a non-script-bearing table."""
 
     @pytest.mark.asyncio()
     @respx.mock
@@ -292,53 +298,16 @@ class TestStandardRecordWrite:
 
 
 # ---------------------------------------------------------------------------
-# Artifact write (artifact_type set)
+# Script-path writes (dictionary-driven field detection)
 # ---------------------------------------------------------------------------
 
 
-class TestArtifactWrite:
-    """Artifact mode: artifact_type maps to a writable table; SCRIPT_FIELD_MAP applies."""
+class TestScriptPathWrite:
+    """``script_path`` writes a file into the resolved script-bearing field."""
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_artifact_create_resolves_table(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        respx.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
-        respx.post(f"{BASE_URL}/api/now/table/sys_script").mock(
-            return_value=httpx.Response(
-                201,
-                json={"result": {"sys_id": SYS_ID_ART001, "name": "BR1"}},
-            ),
-        )
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_write"](
-            action="create",
-            artifact_type="business_rule",
-            data=json.dumps({"name": "BR1", "script": "// noop"}),
-            preview=False,
-        )
-        result = decode_response(raw)
-        assert result["status"] == "success"
-        assert result["data"]["table"] == "sys_script"
-        assert result["data"]["artifact_type"] == "business_rule"
-        assert result["data"]["sys_id"] == SYS_ID_ART001
-
-    @pytest.mark.asyncio()
-    async def test_artifact_unknown_type_returns_error(
-        self, settings: Settings, auth_provider: BasicAuthProvider
-    ) -> None:
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_write"](
-            action="create",
-            artifact_type="unknown_kind",
-            data=json.dumps({"name": "x"}),
-        )
-        result = decode_response(raw)
-        assert result["status"] == "error"
-        assert "Unknown artifact_type" in result["error"]["message"]
-
-    @pytest.mark.asyncio()
-    @respx.mock
-    async def test_artifact_script_path_injects_into_default_script_field(
+    async def test_script_path_writes_to_first_detected_field(
         self,
         script_settings: Settings,
         script_auth_provider: BasicAuthProvider,
@@ -347,7 +316,10 @@ class TestArtifactWrite:
         script_file = tmp_path / "br.js"
         script_file.write_text("gs.info('hello');\n")
 
-        respx.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
+        _mock_dictionary(
+            "sys_script",
+            [{"element": "script", "internal_type": "script", "attributes": ""}],
+        )
         post_mock = respx.post(f"{BASE_URL}/api/now/table/sys_script").mock(
             return_value=httpx.Response(
                 201,
@@ -357,7 +329,7 @@ class TestArtifactWrite:
         tools = _register_and_get_tools(script_settings, script_auth_provider)
         raw = await tools["record_write"](
             action="create",
-            artifact_type="business_rule",
+            table="sys_script",
             data=json.dumps({"name": "BR1"}),
             script_path=str(script_file),
             preview=False,
@@ -365,43 +337,111 @@ class TestArtifactWrite:
         result = decode_response(raw)
         assert result["status"] == "success"
 
-        # Inspect the request body that was actually sent.
         sent = json.loads(post_mock.calls[0].request.content)
         assert sent["script"] == "gs.info('hello');\n"
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_artifact_script_path_uses_script_field_map_override(
+    async def test_script_path_with_override_writes_to_named_field(
         self,
         script_settings: Settings,
         script_auth_provider: BasicAuthProvider,
         tmp_path: Any,
     ) -> None:
-        # widget -> client_script
-        script_file = tmp_path / "widget.js"
-        script_file.write_text("api.controller = function() {};\n")
+        # sp_widget has multiple script fields - override to 'template'
+        script_file = tmp_path / "widget.html"
+        script_file.write_text("<div>{{c.data.msg}}</div>\n")
 
-        respx.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
+        _mock_dictionary(
+            "sp_widget",
+            [
+                {"element": "client_script", "internal_type": "script_client", "attributes": ""},
+                {"element": "script", "internal_type": "script", "attributes": ""},
+                {
+                    "element": "template",
+                    "internal_type": "html",
+                    "attributes": "tinymce_allow_all=true",
+                },
+            ],
+        )
         post_mock = respx.post(f"{BASE_URL}/api/now/table/sp_widget").mock(
             return_value=httpx.Response(201, json={"result": {"sys_id": SYS_ID_ART001, "name": "W1"}}),
         )
         tools = _register_and_get_tools(script_settings, script_auth_provider)
         raw = await tools["record_write"](
             action="create",
-            artifact_type="widget",
+            table="sp_widget",
             data=json.dumps({"name": "W1"}),
             script_path=str(script_file),
+            script_field="template",
             preview=False,
         )
         assert decode_response(raw)["status"] == "success"
 
         sent = json.loads(post_mock.calls[0].request.content)
-        assert sent["client_script"] == "api.controller = function() {};\n"
-        assert "script" not in sent
+        assert sent["template"] == "<div>{{c.data.msg}}</div>\n"
+        assert "client_script" not in sent
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_artifact_script_path_overrides_data_field_with_warning(
+    async def test_script_path_invalid_field_returns_error(
+        self,
+        script_settings: Settings,
+        script_auth_provider: BasicAuthProvider,
+        tmp_path: Any,
+    ) -> None:
+        script_file = tmp_path / "br.js"
+        script_file.write_text("// noop\n")
+
+        _mock_dictionary(
+            "sys_script",
+            [{"element": "script", "internal_type": "script", "attributes": ""}],
+        )
+        tools = _register_and_get_tools(script_settings, script_auth_provider)
+        raw = await tools["record_write"](
+            action="create",
+            table="sys_script",
+            data=json.dumps({"name": "BR1"}),
+            script_path=str(script_file),
+            script_field="client_script",
+            preview=False,
+        )
+        result = decode_response(raw)
+        assert result["status"] == "error"
+        assert "Invalid script_field" in result["error"]["message"]
+        assert "sys_script" in result["error"]["message"]
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_script_path_no_script_fields_detected_returns_error(
+        self,
+        script_settings: Settings,
+        script_auth_provider: BasicAuthProvider,
+        tmp_path: Any,
+    ) -> None:
+        # Table with no script-bearing fields - file write should fail cleanly.
+        script_file = tmp_path / "x.js"
+        script_file.write_text("// noop\n")
+
+        _mock_dictionary(
+            "incident",
+            [{"element": "short_description", "internal_type": "string", "attributes": ""}],
+        )
+        tools = _register_and_get_tools(script_settings, script_auth_provider)
+        raw = await tools["record_write"](
+            action="create",
+            table="incident",
+            data=json.dumps({"short_description": "x"}),
+            script_path=str(script_file),
+            preview=False,
+        )
+        result = decode_response(raw)
+        assert result["status"] == "error"
+        assert "no script-bearing fields" in result["error"]["message"]
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_script_path_overrides_data_field_with_warning(
         self,
         script_settings: Settings,
         script_auth_provider: BasicAuthProvider,
@@ -410,14 +450,17 @@ class TestArtifactWrite:
         script_file = tmp_path / "br.js"
         script_file.write_text("FILE_WINS\n")
 
-        respx.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
+        _mock_dictionary(
+            "sys_script",
+            [{"element": "script", "internal_type": "script", "attributes": ""}],
+        )
         post_mock = respx.post(f"{BASE_URL}/api/now/table/sys_script").mock(
             return_value=httpx.Response(201, json={"result": {"sys_id": SYS_ID_ART001, "name": "BR1"}}),
         )
         tools = _register_and_get_tools(script_settings, script_auth_provider)
         raw = await tools["record_write"](
             action="create",
-            artifact_type="business_rule",
+            table="sys_script",
             data=json.dumps({"name": "BR1", "script": "DATA_LOSES"}),
             script_path=str(script_file),
             preview=False,
@@ -431,20 +474,25 @@ class TestArtifactWrite:
         assert sent["script"] == "FILE_WINS\n"
 
     @pytest.mark.asyncio()
-    async def test_artifact_script_path_traversal_blocked(
+    @respx.mock
+    async def test_script_path_traversal_blocked(
         self,
         script_settings: Settings,
         script_auth_provider: BasicAuthProvider,
         tmp_path: Any,
     ) -> None:
         # File exists outside script_allowed_root -> PermissionError -> error envelope.
+        _mock_dictionary(
+            "sys_script",
+            [{"element": "script", "internal_type": "script", "attributes": ""}],
+        )
         outside = tmp_path.parent / "outside.js"
         outside.write_text("nope")
         try:
             tools = _register_and_get_tools(script_settings, script_auth_provider)
             raw = await tools["record_write"](
                 action="create",
-                artifact_type="business_rule",
+                table="sys_script",
                 data=json.dumps({"name": "BR1"}),
                 script_path=str(outside),
                 preview=False,
@@ -456,7 +504,8 @@ class TestArtifactWrite:
             outside.unlink(missing_ok=True)
 
     @pytest.mark.asyncio()
-    async def test_artifact_script_path_too_large_returns_error(
+    @respx.mock
+    async def test_script_path_too_large_returns_error(
         self,
         script_settings: Settings,
         script_auth_provider: BasicAuthProvider,
@@ -464,13 +513,17 @@ class TestArtifactWrite:
     ) -> None:
         from servicenow_mcp.tools._artifact import MAX_SCRIPT_FILE_BYTES
 
+        _mock_dictionary(
+            "sys_script",
+            [{"element": "script", "internal_type": "script", "attributes": ""}],
+        )
         big = tmp_path / "big.js"
         big.write_bytes(b"a" * (MAX_SCRIPT_FILE_BYTES + 1))
 
         tools = _register_and_get_tools(script_settings, script_auth_provider)
         raw = await tools["record_write"](
             action="create",
-            artifact_type="business_rule",
+            table="sys_script",
             data=json.dumps({"name": "BR1"}),
             script_path=str(big),
             preview=False,
@@ -531,173 +584,22 @@ class TestPolicyGates:
 
 
 # ---------------------------------------------------------------------------
-# Artifact catalog structural test
-# ---------------------------------------------------------------------------
-
-
-class TestArtifactCatalog:
-    """Structural invariants for ``WRITABLE_ARTIFACT_TABLES`` and ``SCRIPT_FIELD_MAP``.
-
-    Locks the catalog: any entry added to ``WRITABLE_ARTIFACT_TABLES`` must
-    have a non-empty list in ``SCRIPT_FIELD_MAP``, and ``primary_script_field``
-    must return the first entry of that list.
-    """
-
-    @pytest.mark.parametrize("artifact_type", sorted(WRITABLE_ARTIFACT_TABLES))
-    def test_artifact_table_resolves(self, artifact_type: str) -> None:
-        expected = WRITABLE_ARTIFACT_TABLES[artifact_type]
-        assert _resolve_writable_artifact_table(artifact_type) == expected
-
-    @pytest.mark.parametrize("artifact_type", sorted(WRITABLE_ARTIFACT_TABLES))
-    def test_script_field_map_entry_exists_and_is_non_empty(self, artifact_type: str) -> None:
-        fields = SCRIPT_FIELD_MAP[artifact_type]
-        assert isinstance(fields, list)
-        assert fields, f"SCRIPT_FIELD_MAP[{artifact_type!r}] must be non-empty"
-
-    @pytest.mark.parametrize("artifact_type", sorted(WRITABLE_ARTIFACT_TABLES))
-    def test_primary_script_field_returns_index_zero(self, artifact_type: str) -> None:
-        assert primary_script_field(artifact_type) == SCRIPT_FIELD_MAP[artifact_type][0]
-
-    def test_catalog_size_matches_expected(self) -> None:
-        # Lock the count so an accidental drop/duplicate is loud.
-        assert len(WRITABLE_ARTIFACT_TABLES) == 24
-        assert set(WRITABLE_ARTIFACT_TABLES.keys()) == set(SCRIPT_FIELD_MAP.keys())
-
-    def test_dropped_scripted_rest_api_entry_stays_dropped(self) -> None:
-        # sys_web_service has no script field; the children (sys_ws_operation)
-        # are already covered as ``scripted_rest_resource``.
-        assert "scripted_rest_api" not in WRITABLE_ARTIFACT_TABLES
-
-
-# ---------------------------------------------------------------------------
-# script_field parameter
-# ---------------------------------------------------------------------------
-
-
-class TestScriptFieldParameter:
-    """``script_field`` overrides the destination field within the allowed list."""
-
-    @pytest.mark.asyncio()
-    async def test_script_field_without_artifact_type_returns_error(
-        self, settings: Settings, auth_provider: BasicAuthProvider
-    ) -> None:
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_write"](
-            action="create",
-            table="incident",
-            data=json.dumps({"x": 1}),
-            script_field="client_script",
-        )
-        result = decode_response(raw)
-        assert result["status"] == "error"
-        assert "script_field requires artifact_type" in result["error"]["message"]
-
-    @pytest.mark.asyncio()
-    @respx.mock
-    async def test_script_field_invalid_for_artifact_type_returns_error(
-        self,
-        script_settings: Settings,
-        script_auth_provider: BasicAuthProvider,
-        tmp_path: Any,
-    ) -> None:
-        # business_rule allows ["script", "condition"]; "client_script" is not allowed
-        script_file = tmp_path / "br.js"
-        script_file.write_text("// noop\n")
-
-        respx.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
-        tools = _register_and_get_tools(script_settings, script_auth_provider)
-        raw = await tools["record_write"](
-            action="create",
-            artifact_type="business_rule",
-            data=json.dumps({"name": "BR1"}),
-            script_path=str(script_file),
-            script_field="client_script",
-            preview=False,
-        )
-        result = decode_response(raw)
-        assert result["status"] == "error"
-        assert "Invalid script_field" in result["error"]["message"]
-        assert "business_rule" in result["error"]["message"]
-
-    @pytest.mark.asyncio()
-    @respx.mock
-    async def test_script_field_default_writes_to_primary(
-        self,
-        script_settings: Settings,
-        script_auth_provider: BasicAuthProvider,
-        tmp_path: Any,
-    ) -> None:
-        # widget primary field is "client_script"
-        script_file = tmp_path / "widget.js"
-        script_file.write_text("api.controller = function() {};\n")
-
-        respx.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
-        post_mock = respx.post(f"{BASE_URL}/api/now/table/sp_widget").mock(
-            return_value=httpx.Response(201, json={"result": {"sys_id": SYS_ID_ART001, "name": "W1"}}),
-        )
-        tools = _register_and_get_tools(script_settings, script_auth_provider)
-        raw = await tools["record_write"](
-            action="create",
-            artifact_type="widget",
-            data=json.dumps({"name": "W1"}),
-            script_path=str(script_file),
-            preview=False,
-        )
-        assert decode_response(raw)["status"] == "success"
-
-        sent = json.loads(post_mock.calls[0].request.content)
-        assert sent["client_script"] == "api.controller = function() {};\n"
-        assert "template" not in sent
-
-    @pytest.mark.asyncio()
-    @respx.mock
-    async def test_script_field_override_writes_to_secondary(
-        self,
-        script_settings: Settings,
-        script_auth_provider: BasicAuthProvider,
-        tmp_path: Any,
-    ) -> None:
-        # widget alt field "template" (HTML)
-        script_file = tmp_path / "widget.html"
-        script_file.write_text("<div>{{c.data.msg}}</div>\n")
-
-        respx.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
-        post_mock = respx.post(f"{BASE_URL}/api/now/table/sp_widget").mock(
-            return_value=httpx.Response(201, json={"result": {"sys_id": SYS_ID_ART001, "name": "W1"}}),
-        )
-        tools = _register_and_get_tools(script_settings, script_auth_provider)
-        raw = await tools["record_write"](
-            action="create",
-            artifact_type="widget",
-            data=json.dumps({"name": "W1"}),
-            script_path=str(script_file),
-            script_field="template",
-            preview=False,
-        )
-        assert decode_response(raw)["status"] == "success"
-
-        sent = json.loads(post_mock.calls[0].request.content)
-        assert sent["template"] == "<div>{{c.data.msg}}</div>\n"
-        assert "client_script" not in sent
-
-
-# ---------------------------------------------------------------------------
-# ui_macro XML validation
+# ui_macro / XML validation
 # ---------------------------------------------------------------------------
 
 
 class TestUIMacroXMLValidation:
-    """``ui_macro`` content must parse as well-formed XML before write."""
+    """XML validation fires when the detected field has ``internal_type == 'xml'``."""
 
-    def test_validate_xml_content_accepts_jelly_root(self) -> None:
+    def test_validate_ui_macro_xml_accepts_jelly_root(self) -> None:
         jelly = '<j:jelly xmlns:j="jelly:core" xmlns:g="glide" xmlns:g2="null"><g:evaluate>1</g:evaluate></j:jelly>'
-        assert _validate_xml_content(jelly) is None
+        assert validate_ui_macro_xml(jelly) is None
 
-    def test_validate_xml_content_rejects_malformed(self) -> None:
+    def test_validate_ui_macro_xml_rejects_malformed(self) -> None:
         bad = "<unclosed>"
-        error = _validate_xml_content(bad)
+        error = validate_ui_macro_xml(bad)
         assert error is not None
-        assert "ui_macro content is not well-formed XML" in error
+        assert "XML content is not well-formed" in error
 
     @pytest.mark.asyncio()
     @respx.mock
@@ -712,14 +614,23 @@ class TestUIMacroXMLValidation:
             '<j:jelly xmlns:j="jelly:core" xmlns:g="glide" xmlns:g2="null"><g:evaluate>1</g:evaluate></j:jelly>\n'
         )
 
-        respx.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
+        _mock_dictionary(
+            "sys_ui_macro",
+            [
+                {
+                    "element": "xml",
+                    "internal_type": "xml",
+                    "attributes": "tinymce_allow_all=true",
+                }
+            ],
+        )
         post_mock = respx.post(f"{BASE_URL}/api/now/table/sys_ui_macro").mock(
             return_value=httpx.Response(201, json={"result": {"sys_id": SYS_ID_ART001, "name": "M1"}}),
         )
         tools = _register_and_get_tools(script_settings, script_auth_provider)
         raw = await tools["record_write"](
             action="create",
-            artifact_type="ui_macro",
+            table="sys_ui_macro",
             data=json.dumps({"name": "M1"}),
             script_path=str(script_file),
             preview=False,
@@ -729,6 +640,7 @@ class TestUIMacroXMLValidation:
         assert sent["xml"].startswith("<j:jelly")
 
     @pytest.mark.asyncio()
+    @respx.mock
     async def test_ui_macro_write_rejects_malformed_xml(
         self,
         script_settings: Settings,
@@ -738,14 +650,24 @@ class TestUIMacroXMLValidation:
         script_file = tmp_path / "macro.xml"
         script_file.write_text("<not-well-formed>\n")
 
+        _mock_dictionary(
+            "sys_ui_macro",
+            [
+                {
+                    "element": "xml",
+                    "internal_type": "xml",
+                    "attributes": "tinymce_allow_all=true",
+                }
+            ],
+        )
         tools = _register_and_get_tools(script_settings, script_auth_provider)
         raw = await tools["record_write"](
             action="create",
-            artifact_type="ui_macro",
+            table="sys_ui_macro",
             data=json.dumps({"name": "M1"}),
             script_path=str(script_file),
             preview=False,
         )
         result = decode_response(raw)
         assert result["status"] == "error"
-        assert "not well-formed XML" in result["error"]["message"]
+        assert "not well-formed" in result["error"]["message"]

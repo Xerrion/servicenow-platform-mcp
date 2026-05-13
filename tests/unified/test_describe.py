@@ -299,61 +299,61 @@ class TestDescribe:
         assert len(result["correlation_id"]) > 0
 
 
-class TestListArtifactTypes:
-    """``describe(action='list_artifact_types')`` returns the writable artifact catalog."""
+class TestListScriptFields:
+    """``describe(action='list_script_fields')`` returns dictionary-driven script fields."""
 
+    @staticmethod
+    def _mock_super_class(parent: str = "") -> None:
+        """Mock the sys_db_object lookup to return ``parent`` as super_class display value."""
+        respx.get(f"{BASE_URL}/api/now/table/sys_db_object").mock(
+            return_value=httpx.Response(200, json={"result": [{"super_class": parent}]}),
+        )
+
+    @staticmethod
+    def _mock_dictionary_rows(rows: list[dict[str, str]]) -> None:
+        """Mock the sys_dictionary fetch to return ``rows``."""
+        respx.get(f"{BASE_URL}/api/now/table/sys_dictionary").mock(
+            return_value=httpx.Response(200, json={"result": rows}),
+        )
+
+    @respx.mock
     @pytest.mark.asyncio()
-    async def test_returns_all_24_entries_sorted(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    async def test_returns_script_fields_for_table(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        self._mock_super_class("")
+        self._mock_dictionary_rows(
+            [
+                {"element": "script", "internal_type": "script", "attributes": ""},
+                {"element": "condition", "internal_type": "script_plain", "attributes": ""},
+                {"element": "name", "internal_type": "string", "attributes": ""},
+            ]
+        )
+
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["describe"](action="list_artifact_types")
+        raw = await tools["describe"](action="list_script_fields", table="sys_script")
         result = decode_response(raw)
 
         assert result["status"] == "success"
         data = result["data"]
-        assert data["count"] == 24
-        assert len(data["artifact_types"]) == 24
+        assert data["table"] == "sys_script"
+        assert data["chain"] == ["sys_script"]
+        assert data["count"] == 2
+        names = [f["name"] for f in data["script_fields"]]
+        assert names == ["script", "condition"]
+        for entry in data["script_fields"]:
+            assert set(entry.keys()) == {"name", "internal_type", "inherited_from", "via_heuristic"}
+            assert entry["via_heuristic"] is False
+            assert entry["inherited_from"] is None
 
-        names = [entry["artifact_type"] for entry in data["artifact_types"]]
-        assert names == sorted(names), "Entries must be alphabetically sorted"
-
+    @respx.mock
     @pytest.mark.asyncio()
-    async def test_each_entry_has_required_shape(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    async def test_missing_table_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["describe"](action="list_artifact_types")
+        raw = await tools["describe"](action="list_script_fields")
         result = decode_response(raw)
+        assert result["status"] == "error"
+        assert "table is required" in result["error"]["message"]
 
-        for entry in result["data"]["artifact_types"]:
-            assert set(entry.keys()) == {
-                "artifact_type",
-                "table",
-                "script_fields",
-                "primary_field",
-            }
-            assert isinstance(entry["script_fields"], list)
-            assert entry["script_fields"], "script_fields must be non-empty"
-            assert entry["primary_field"] == entry["script_fields"][0]
-
-    @pytest.mark.asyncio()
-    async def test_known_entries_are_present(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["describe"](action="list_artifact_types")
-        result = decode_response(raw)
-        by_name = {e["artifact_type"]: e for e in result["data"]["artifact_types"]}
-
-        assert by_name["business_rule"]["table"] == "sys_script"
-        assert by_name["business_rule"]["script_fields"] == ["script", "condition"]
-        assert by_name["widget"]["primary_field"] == "client_script"
-        assert by_name["acl"]["table"] == "sys_security_acl"
-        assert "scripted_rest_api" not in by_name
-
-    @pytest.mark.asyncio()
-    async def test_table_not_required_when_action_set(
-        self, settings: Settings, auth_provider: BasicAuthProvider
-    ) -> None:
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["describe"](action="list_artifact_types")
-        assert decode_response(raw)["status"] == "success"
-
+    @respx.mock
     @pytest.mark.asyncio()
     async def test_unknown_action_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
@@ -362,6 +362,7 @@ class TestListArtifactTypes:
         assert result["status"] == "error"
         assert "Unknown describe action" in result["error"]["message"]
 
+    @respx.mock
     @pytest.mark.asyncio()
     async def test_missing_table_without_action_returns_error(
         self, settings: Settings, auth_provider: BasicAuthProvider

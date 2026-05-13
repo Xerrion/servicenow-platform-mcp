@@ -5,14 +5,13 @@ Folds together six legacy CRUD tools (``record_create`` / ``record_update`` /
 (``artifact_create`` / ``artifact_update``) into a single action-dispatching
 surface:
 
-* ``record_write(action, ...)`` - dispatches on ``action`` (create/update/delete).
-  When ``artifact_type`` is set, it routes to the artifact's table and applies
-  the SCRIPT_FIELD_MAP rules; otherwise it is a plain record write.
-  ``preview=True`` (default) returns a single-use token; ``preview=False``
-  commits immediately.
+* ``record_write(action, table, ...)`` - dispatches on ``action``
+  (create/update/delete). ``preview=True`` (default) returns a single-use
+  token; ``preview=False`` commits immediately. Script-bearing fields are
+  discovered dynamically via ``DictionaryRegistry``; ``script_path`` reads a
+  local file into the resolved field and validates XML when the field's
+  ``internal_type`` is ``xml``.
 * ``record_apply(preview_token)`` - commits a previously previewed write.
-
-Old tools remain registered alongside this one until Phase 3b retires them.
 """
 
 from __future__ import annotations
@@ -33,16 +32,11 @@ from servicenow_mcp.policy import (
     write_gate,
 )
 from servicenow_mcp.state import PreviewTokenStore
-from servicenow_mcp.tools._artifact import (
-    SCRIPT_FIELD_MAP,
-    _read_script_file,
-    _resolve_writable_artifact_table,
-    _validate_xml_content,
-    primary_script_field,
-)
+from servicenow_mcp.tools._artifact import _read_script_file, validate_ui_macro_xml
+from servicenow_mcp.tools._dictionary import DictionaryRegistry, ScriptField
 from servicenow_mcp.tools._payload import parse_payload_json
 from servicenow_mcp.tools._record_helpers import _build_update_diff, _check_mandatory_or_error
-from servicenow_mcp.utils import format_response, validate_sys_id
+from servicenow_mcp.utils import format_response, validate_identifier, validate_sys_id
 
 
 TOOL_NAMES: list[str] = ["record_write", "record_apply"]
@@ -51,7 +45,7 @@ _VALID_ACTIONS: Final[frozenset[str]] = frozenset({"create", "update", "delete"}
 
 
 # ---------------------------------------------------------------------------
-# Error helpers (small, stateless - keep tool body readable)
+# Error helpers
 # ---------------------------------------------------------------------------
 
 
@@ -70,7 +64,6 @@ def _validate_action_args(
     table: str,
     sys_id: str,
     data: str,
-    artifact_type: str,
     script_path: str,
     script_field: str,
     correlation_id: str,
@@ -82,14 +75,11 @@ def _validate_action_args(
             f"Unknown action {action!r}. Valid actions: {sorted(_VALID_ACTIONS)}.",
         )
 
-    if not artifact_type and not table:
-        return _err(correlation_id, "table is required when artifact_type is not set.")
+    if not table:
+        return _err(correlation_id, "table is required.")
 
-    if script_path and not artifact_type:
-        return _err(correlation_id, "script_path requires artifact_type to be set.")
-
-    if script_field and not artifact_type:
-        return _err(correlation_id, "script_field requires artifact_type to be set.")
+    if script_field and not script_path:
+        return _err(correlation_id, "script_field requires script_path to be set.")
 
     # Per-action argument checks.
     if action == "create":
@@ -111,37 +101,64 @@ def _validate_action_args(
 
 
 # ---------------------------------------------------------------------------
-# Artifact script-path injection
+# Script-path injection (dictionary-driven)
 # ---------------------------------------------------------------------------
 
 
-def _inject_script_path(
+def _pick_target_field(
+    detected: list[ScriptField],
+    requested: str,
+    table: str,
+    correlation_id: str,
+) -> ScriptField | str:
+    """Resolve which detected script field receives the ``script_path`` content.
+
+    Returns the chosen ``ScriptField`` on success or a serialized error envelope.
+    The default (empty ``requested``) is the first detected field; the registry
+    already orders child-first and sys_dictionary row order within a table.
+    """
+    if not detected:
+        return _err(
+            correlation_id,
+            f"Table {table!r} has no script-bearing fields detectable from sys_dictionary.",
+        )
+
+    if not requested:
+        return detected[0]
+
+    for field in detected:
+        if field.name == requested:
+            return field
+
+    allowed = ", ".join(f.name for f in detected)
+    return _err(
+        correlation_id,
+        f"Invalid script_field {requested!r} for table {table!r}. Detected script fields: [{allowed}].",
+    )
+
+
+async def _inject_script_path(
     parsed: dict[str, Any],
-    artifact_type: str,
+    table: str,
     script_path: str,
     script_field: str,
     allowed_root: str,
+    dictionary: DictionaryRegistry,
     correlation_id: str,
 ) -> tuple[dict[str, Any], list[str]] | str:
-    """Read script_path and inject content into the artifact's target script field.
+    """Read ``script_path`` and inject content into the resolved script field.
 
-    The destination field is ``script_field`` when supplied (must be one of
-    ``SCRIPT_FIELD_MAP[artifact_type]``), otherwise the primary field.
-
-    Returns ``(updated_payload, warnings)`` on success, or a serialized error
-    envelope on file-read failures or invalid ``script_field``.
+    Discovers script fields via ``DictionaryRegistry``. When ``script_field``
+    is empty, writes to the first detected field. When the resolved field has
+    ``internal_type == 'xml'``, the content is validated as well-formed XML
+    before any platform call. Returns ``(updated_payload, warnings)`` on
+    success, or a serialized error envelope.
     """
-    allowed_fields = SCRIPT_FIELD_MAP[artifact_type]
-    if script_field:
-        if script_field not in allowed_fields:
-            return _err(
-                correlation_id,
-                f"Invalid script_field {script_field!r} for artifact_type "
-                f"{artifact_type!r}. Allowed: {allowed_fields}.",
-            )
-        target_field = script_field
-    else:
-        target_field = primary_script_field(artifact_type)
+    detected = await dictionary.get_script_fields(table)
+    pick = _pick_target_field(detected, script_field, table, correlation_id)
+    if isinstance(pick, str):
+        return pick
+    target = pick
 
     try:
         content = _read_script_file(script_path, allowed_root)
@@ -154,15 +171,15 @@ def _inject_script_path(
     except UnicodeDecodeError as exc:
         return _err(correlation_id, f"script_path is not valid UTF-8: {exc}")
 
-    if artifact_type == "ui_macro":
-        xml_error = _validate_xml_content(content)
+    if target.internal_type == "xml":
+        xml_error = validate_ui_macro_xml(content)
         if xml_error:
             return _err(correlation_id, xml_error)
 
     warnings: list[str] = []
-    if target_field in parsed:
-        warnings.append(f"'{target_field}' field in data was overridden by script_path content.")
-    parsed[target_field] = content
+    if target.name in parsed:
+        warnings.append(f"'{target.name}' field in data was overridden by script_path content.")
+    parsed[target.name] = content
     return parsed, warnings
 
 
@@ -298,7 +315,7 @@ async def _run_delete(
 
 
 # ---------------------------------------------------------------------------
-# Apply dispatch (mirrors legacy record_apply._execute_apply_action)
+# Apply dispatch
 # ---------------------------------------------------------------------------
 
 
@@ -360,11 +377,16 @@ def register_tools(
     settings: Settings,
     auth_provider: BasicAuthProvider,
     choices: ChoiceRegistry | None = None,
+    dictionary: DictionaryRegistry | None = None,
 ) -> None:
     """Register the unified ``record_write`` and ``record_apply`` tools."""
     del choices  # unused; signature retained for loader parity
 
-    # Closure-scoped preview store (mirrors legacy record_write).
+    if dictionary is None:
+        dictionary = DictionaryRegistry(settings, auth_provider)
+    dict_registry = dictionary
+
+    # Closure-scoped preview store.
     preview_store = PreviewTokenStore()
 
     @mcp.tool()
@@ -374,7 +396,6 @@ def register_tools(
         table: str = "",
         sys_id: str = "",
         data: str = "",
-        artifact_type: str = "",
         script_path: str = "",
         script_field: str = "",
         preview: bool = True,
@@ -383,59 +404,54 @@ def register_tools(
     ) -> str:
         """Create, update, or delete a record. Defaults to preview mode.
 
+        Script-bearing tables (Business Rules, Script Includes, widgets, etc.)
+        are not special-cased - script-field discovery happens at runtime via
+        ``sys_dictionary`` and the table's super_class chain. ``script_path``
+        loads a local file into the resolved target field; ``script_field``
+        names the destination column when more than one script-bearing field
+        is detected.
+
         Args:
             action: 'create' | 'update' | 'delete'.
-            table: Target table. Required when artifact_type is empty. Ignored
-                when artifact_type is set (the artifact type's table is used
-                instead).
+            table: Target table. Required.
             sys_id: Required for 'update' and 'delete'.
             data: JSON string of field values. Required for 'create' and
                 'update'.
-            artifact_type: When set, treat as a platform artifact write.
-                Resolves to the matching table; data keys validated;
-                SCRIPT_FIELD_MAP applied. Use ``describe(action='list_artifact_types')``
-                to discover all valid types and their script fields.
             script_path: Optional absolute path to a local script file. Content
-                is read (UTF-8, max 1 MB) and stored under the artifact's
-                target script field. Path resolved with strict=True; constrained
-                to settings.script_allowed_root. Only valid when artifact_type
-                is set.
+                is read (UTF-8, max 1 MB) and stored under the resolved
+                target script field. Path resolved with strict=True;
+                constrained to ``settings.script_allowed_root``. When the
+                resolved field has ``internal_type == 'xml'``, the content is
+                validated as well-formed XML before any platform call.
             script_field: Optional override for the destination script field.
-                When empty (default), the primary field (index 0 of
-                ``SCRIPT_FIELD_MAP[artifact_type]``) is used. When set, must be
-                one of the allowed fields for the artifact_type (e.g.
-                ``script_false`` for ``ui_policy``, ``template`` or ``css`` for
-                ``widget``). Only meaningful when ``script_path`` is also set.
+                When empty (default), the first detected script field is used
+                (child-first, ``sys_dictionary`` row order within a table).
+                When set, must match one of the script-bearing fields detected
+                from ``sys_dictionary``; otherwise the call returns a
+                structured error listing the detected fields. Use
+                ``describe(action='list_script_fields', table=...)`` to
+                discover script fields for a table.
             preview: When True (default) returns a preview_token; caller
                 invokes record_apply to commit. When False, write commits
                 immediately.
         """
         # --- 1. Cross-argument validation (early exit) -------------------
-        err = _validate_action_args(
-            action, table, sys_id, data, artifact_type, script_path, script_field, correlation_id
-        )
+        err = _validate_action_args(action, table, sys_id, data, script_path, script_field, correlation_id)
         if err:
             return err
 
-        # --- 2. Mode resolution ------------------------------------------
-        extra_data: dict[str, Any] = {}
-        if artifact_type:
-            try:
-                table = _resolve_writable_artifact_table(artifact_type)
-            except ValueError as exc:
-                return _err(correlation_id, str(exc))
-            extra_data["artifact_type"] = artifact_type
+        validate_identifier(table)
 
-        # --- 3. Policy gate ----------------------------------------------
+        # --- 2. Policy gate ----------------------------------------------
         blocked = gate_write(table, settings, correlation_id)
         if blocked:
             return blocked
 
-        # --- 4. sys_id validation (update/delete only) -------------------
+        # --- 3. sys_id validation ----------------------------------------
         if sys_id:
             validate_sys_id(sys_id)
 
-        # --- 5. Parse JSON payload (create/update only) ------------------
+        # --- 4. Parse JSON payload (create/update only) ------------------
         parsed_data: dict[str, Any] = {}
         warnings: list[str] = []
         if action != "delete":
@@ -444,21 +460,23 @@ def register_tools(
                 return parsed
             parsed_data = parsed
 
-            # --- 6. Artifact script_path injection -----------------------
-            if artifact_type and script_path:
-                injected = _inject_script_path(
+            # --- 5. Script-path injection (dictionary-driven) ------------
+            if script_path:
+                injected = await _inject_script_path(
                     parsed_data,
-                    artifact_type,
+                    table,
                     script_path,
                     script_field,
                     settings.script_allowed_root,
+                    dict_registry,
                     correlation_id,
                 )
                 if isinstance(injected, str):
                     return injected
                 parsed_data, warnings = injected
 
-        # --- 7. Dispatch -------------------------------------------------
+        # --- 6. Dispatch -------------------------------------------------
+        extra_data: dict[str, Any] = {}
         async with ServiceNowClient(settings, auth_provider) as client:
             if action == "create":
                 return await _run_create(

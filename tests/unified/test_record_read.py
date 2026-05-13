@@ -11,11 +11,31 @@ import respx
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.choices import ChoiceRegistry
 from servicenow_mcp.config import Settings
+from servicenow_mcp.tools._dictionary import DictionaryRegistry
 from tests.helpers import decode_response, get_tool_functions
 
 
 BASE_URL = "https://test.service-now.com"
 SYS_ID_BR = "a" * 32
+SYS_DICT_URL = f"{BASE_URL}/api/now/table/sys_dictionary"
+SYS_DB_OBJECT_URL = f"{BASE_URL}/api/now/table/sys_db_object"
+
+
+def _mock_dictionary_for_sys_script() -> None:
+    """Mock sys_db_object + sys_dictionary so record_read can populate script_fields."""
+    respx.get(SYS_DB_OBJECT_URL).mock(
+        return_value=httpx.Response(200, json={"result": [{"super_class": ""}]}),
+    )
+    respx.get(SYS_DICT_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "result": [
+                    {"element": "script", "internal_type": "script", "attributes": ""},
+                ]
+            },
+        ),
+    )
 
 
 @pytest.fixture()
@@ -28,6 +48,7 @@ def _register_and_get_tools(
     settings: Settings,
     auth_provider: BasicAuthProvider,
     choices: ChoiceRegistry | None = None,
+    dictionary: DictionaryRegistry | None = None,
 ) -> dict[str, Any]:
     """Register the unified ``record_read`` tool on a fresh MCP and return callables."""
     from mcp.server.fastmcp import FastMCP
@@ -35,7 +56,7 @@ def _register_and_get_tools(
     from servicenow_mcp.tools.unified.record_read import register_tools
 
     mcp = FastMCP("test")
-    register_tools(mcp, settings, auth_provider, choices=choices)
+    register_tools(mcp, settings, auth_provider, choices=choices, dictionary=dictionary)
     return get_tool_functions(mcp)
 
 
@@ -43,21 +64,19 @@ class TestArgumentValidation:
     """Cross-argument validation runs before any HTTP call."""
 
     @pytest.mark.asyncio()
-    async def test_unknown_artifact_type_returns_error(
-        self, settings: Settings, auth_provider: BasicAuthProvider
-    ) -> None:
+    async def test_missing_table_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_read"](artifact_type="not_a_real_type", sys_id=SYS_ID_BR)
+        raw = await tools["record_read"](table="", sys_id=SYS_ID_BR)
         result = decode_response(raw)
         assert result["status"] == "error"
-        assert "Unknown artifact_type" in result["error"]["message"]
+        assert "table is required" in result["error"]["message"]
 
     @pytest.mark.asyncio()
     async def test_both_sys_id_and_name_returns_error(
         self, settings: Settings, auth_provider: BasicAuthProvider
     ) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_read"](artifact_type="business_rule", sys_id=SYS_ID_BR, name="BR1")
+        raw = await tools["record_read"](table="sys_script", sys_id=SYS_ID_BR, name="BR1")
         result = decode_response(raw)
         assert result["status"] == "error"
         assert "exactly one of sys_id or name" in result["error"]["message"]
@@ -67,7 +86,7 @@ class TestArgumentValidation:
         self, settings: Settings, auth_provider: BasicAuthProvider
     ) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_read"](artifact_type="business_rule")
+        raw = await tools["record_read"](table="sys_script")
         result = decode_response(raw)
         assert result["status"] == "error"
         assert "exactly one of sys_id or name" in result["error"]["message"]
@@ -79,6 +98,7 @@ class TestSysIdLookup:
     @pytest.mark.asyncio()
     @respx.mock
     async def test_sys_id_happy_path(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        _mock_dictionary_for_sys_script()
         respx.get(f"{BASE_URL}/api/now/table/sys_script/{SYS_ID_BR}").mock(
             return_value=httpx.Response(
                 200,
@@ -93,20 +113,23 @@ class TestSysIdLookup:
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_read"](artifact_type="business_rule", sys_id=SYS_ID_BR)
+        raw = await tools["record_read"](table="sys_script", sys_id=SYS_ID_BR)
         result = decode_response(raw)
         assert result["status"] == "success"
 
         data = result["data"]
-        assert data["artifact_type"] == "business_rule"
         assert data["table"] == "sys_script"
         assert data["sys_id"] == SYS_ID_BR
         assert data["record"]["name"] == "BR1"
-        assert data["script_fields"] == ["script", "condition"]
+        names = [f["name"] for f in data["script_fields"]]
+        assert names == ["script"]
+        assert data["script_fields"][0]["internal_type"] == "script"
+        assert data["script_fields"][0]["via_heuristic"] is False
 
     @pytest.mark.asyncio()
     @respx.mock
     async def test_sensitive_field_masked(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        _mock_dictionary_for_sys_script()
         respx.get(f"{BASE_URL}/api/now/table/sys_script/{SYS_ID_BR}").mock(
             return_value=httpx.Response(
                 200,
@@ -121,7 +144,7 @@ class TestSysIdLookup:
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_read"](artifact_type="business_rule", sys_id=SYS_ID_BR)
+        raw = await tools["record_read"](table="sys_script", sys_id=SYS_ID_BR)
         result = decode_response(raw)
         assert result["status"] == "success"
         assert result["data"]["record"]["password"] == "***MASKED***"  # NOSONAR
@@ -131,7 +154,7 @@ class TestSysIdLookup:
         self, settings: Settings, auth_provider: BasicAuthProvider
     ) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_read"](artifact_type="business_rule", sys_id="not-a-real-id")
+        raw = await tools["record_read"](table="sys_script", sys_id="not-a-real-id")
         result = decode_response(raw)
         assert result["status"] == "error"
         assert "sys_id" in result["error"]["message"].lower()
@@ -143,7 +166,8 @@ class TestNameLookup:
     @pytest.mark.asyncio()
     @respx.mock
     async def test_name_happy_path(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        # First request: name=BR1 query returns exactly one record
+        _mock_dictionary_for_sys_script()
+        # name=BR1 query returns exactly one record
         respx.get(f"{BASE_URL}/api/now/table/sys_script").mock(
             return_value=httpx.Response(
                 200,
@@ -151,7 +175,6 @@ class TestNameLookup:
                 headers={"X-Total-Count": "1"},
             ),
         )
-        # Second request: get by sys_id
         respx.get(f"{BASE_URL}/api/now/table/sys_script/{SYS_ID_BR}").mock(
             return_value=httpx.Response(
                 200,
@@ -160,7 +183,7 @@ class TestNameLookup:
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_read"](artifact_type="business_rule", name="BR1")
+        raw = await tools["record_read"](table="sys_script", name="BR1")
         result = decode_response(raw)
         assert result["status"] == "success"
         assert result["data"]["sys_id"] == SYS_ID_BR
@@ -173,10 +196,10 @@ class TestNameLookup:
             return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"}),
         )
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_read"](artifact_type="business_rule", name="missing")
+        raw = await tools["record_read"](table="sys_script", name="missing")
         result = decode_response(raw)
         assert result["status"] == "error"
-        assert "No artifact found" in result["error"]["message"]
+        assert "No record found" in result["error"]["message"]
 
     @pytest.mark.asyncio()
     @respx.mock
@@ -194,7 +217,7 @@ class TestNameLookup:
             ),
         )
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_read"](artifact_type="business_rule", name="Dup")
+        raw = await tools["record_read"](table="sys_script", name="Dup")
         result = decode_response(raw)
         assert result["status"] == "error"
         assert "Ambiguous" in result["error"]["message"]

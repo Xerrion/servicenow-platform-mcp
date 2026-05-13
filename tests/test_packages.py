@@ -26,6 +26,7 @@ EXPECTED_GROUPS = {
     "investigate",
     "resolve_choice",
     "service_catalog",
+    "build_query",
 }
 
 
@@ -35,23 +36,25 @@ class TestPackageRegistry:
     def test_registry_has_exactly_four_presets(self) -> None:
         assert set(PACKAGE_REGISTRY.keys()) == EXPECTED_PRESETS
 
-    def test_full_contains_seven_unified_groups(self) -> None:
+    def test_full_contains_eight_unified_groups(self) -> None:
         assert set(PACKAGE_REGISTRY["full"]) == EXPECTED_GROUPS
-        assert len(PACKAGE_REGISTRY["full"]) == 7
+        assert len(PACKAGE_REGISTRY["full"]) == 8
 
     def test_readonly_is_strict_subset_of_full(self) -> None:
         readonly = set(PACKAGE_REGISTRY["readonly"])
         full = set(PACKAGE_REGISTRY["full"])
         assert readonly < full
-        # readonly excludes mutating groups
+        # readonly excludes mutating groups and the build_query helper
         assert "record_write" not in readonly
         assert "service_catalog" not in readonly
+        assert "build_query" not in readonly
 
     def test_core_readonly_is_strict_subset_of_readonly(self) -> None:
         core = set(PACKAGE_REGISTRY["core_readonly"])
         readonly = set(PACKAGE_REGISTRY["readonly"])
         assert core < readonly
         assert core == {"query", "describe", "attachment"}
+        assert "build_query" not in core
 
     def test_none_is_empty(self) -> None:
         assert PACKAGE_REGISTRY["none"] == []
@@ -188,3 +191,15 @@ def test_domain_groups_not_in_unified_registry() -> None:
     assert domain_groups == [], (
         f"Legacy domain_* groups should not appear in the unified registry, found: {domain_groups}"
     )
+
+
+def test_build_query_only_in_full() -> None:
+    """``build_query`` is a ``full``-only helper.
+
+    It assembles encoded query strings client-side. Read-only presets pass
+    raw encoded queries straight to ``query`` and have no need for the
+    builder; gating it to ``full`` keeps the readonly surface minimal.
+    """
+    assert "build_query" in PACKAGE_REGISTRY["full"]
+    for preset in ("readonly", "core_readonly", "none"):
+        assert "build_query" not in PACKAGE_REGISTRY[preset], f"build_query should not appear in the '{preset}' preset"

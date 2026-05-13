@@ -16,7 +16,7 @@ Communication happens over **stdio transport**. The server runs as a child proce
 
 ## Unified Tool Surface
 
-Version 0.10.0 introduced a unified 11-tool surface. Most tools are implemented as **dispatchers** that take an `action` parameter, reducing the total tool count while increasing flexibility.
+Version 0.10.0 introduced a unified 12-tool surface. Most tools are implemented as **dispatchers** that take an `action` parameter, reducing the total tool count while increasing flexibility.
 
 ### Key Implementation Patterns
 

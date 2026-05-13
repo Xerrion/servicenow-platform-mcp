@@ -10,7 +10,7 @@
 
 # servicenow-platform-mcp
 
-A comprehensive [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for ServiceNow. Provides 11 unified tools for platform introspection, change intelligence, debugging, record management, and automated investigations.
+A comprehensive [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for ServiceNow. Provides 12 unified tools for platform introspection, change intelligence, debugging, record management, and automated investigations.
 
 ## Quick Start
 
@@ -133,7 +133,7 @@ Or read the [Installation Guide](INSTALL.md) directly. For usage examples and pa
 
 - **Platform Introspection** - Describe table schemas with `describe` and query records with `query` using encoded queries.
 - **Record Management** - Unified `record_write` and `record_apply` tools for create, update, and delete with a mandatory preview-then-apply safety pattern.
-- **Artifact Management** - Write 17 artifact types (Business Rules, Script Includes, etc.) via `record_write` with local script file support.
+- **Artifact Management** - Write 24 artifact types (Business Rules, Script Includes, UI Pages, Widgets, ACLs, etc.) via `record_write` with local script file support and per-field targeting (`script_field`). Read the same surface back via `record_read`, or discover the catalog at runtime with `describe(action='list_artifact_types')`.
 - **Attachment Operations** - Unified `attachment` for read operations and `attachment_write` for mutations.
 - **Investigations** - Automated analysis of system health, stale automations, performance bottlenecks, and more via `investigate`.
 - **Label Resolution** - Map human-readable choice labels to underlying values automatically with `resolve_choice`.
@@ -162,8 +162,8 @@ Control which tools are loaded with `MCP_TOOL_PACKAGE`.
 
 | Package | Tools | Description |
 |---------|-------|-------------|
-| `full` | 11 | All 11 unified tools, including the `build_query` helper (default) |
-| `readonly` | 7 | Includes `attachment_write` (gate_write blocks in prod) |
+| `full` | 12 | All 12 unified tools, including the `build_query` helper (default) |
+| `readonly` | 8 | Includes `record_read` and `attachment_write` (gate_write blocks in prod) |
 | `core_readonly` | 5 | Minimal read surface (includes `attachment_write`) |
 | `none` | 1 | Just `list_tool_packages` |
 

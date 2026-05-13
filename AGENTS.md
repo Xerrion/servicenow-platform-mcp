@@ -252,7 +252,7 @@ def register_tools(
 
 Artifacts (Business Rules, Script Includes, etc.) are written via the `record_write` tool by setting the `artifact_type` parameter.
 
-### WRITABLE_ARTIFACT_TABLES (17 types)
+### WRITABLE_ARTIFACT_TABLES (24 types)
 
 | Artifact Type | ServiceNow Table |
 |---|---|
@@ -271,8 +271,17 @@ Artifacts (Business Rules, Script Includes, etc.) are written via the `record_wr
 | `ui_macro` | `sys_ui_macro` |
 | `script_action` | `sysevent_script_action` |
 | `mid_script_include` | `ecc_agent_script_include` |
-| `scripted_rest_api` | `sys_web_service` |
 | `notification_script` | `sysevent_email_action` |
+| `email_script` | `sys_script_email` |
+| `catalog_client_script` | `catalog_script_client` |
+| `catalog_ui_policy` | `catalog_ui_policy` |
+| `transform_map_script` | `sys_transform_script` |
+| `transform_entry_script` | `sys_transform_entry` |
+| `acl` | `sys_security_acl` |
+| `dynamic_filter` | `sys_filter_option_dynamic` |
+| `decision_question` | `sys_decision_question` |
+
+Discover the catalog at runtime via `describe(action='list_artifact_types')`, which returns the table, `script_fields` list, and `primary_field` per artifact type.
 
 ### script_path Security
 
@@ -281,21 +290,52 @@ When `artifact_type` is set, `record_write` accepts an optional `script_path`:
 - Path is resolved via `Path.resolve(strict=True)` to prevent symlink/traversal attacks.
 - The resolved path must be under the directory defined by the `script_allowed_root` setting.
 - File is read as UTF-8; maximum size is 1 MB (`MAX_SCRIPT_FILE_BYTES`).
-- Content is written to the field defined in `SCRIPT_FIELD_MAP` (defaults to `"script"`).
+- Content is written to the primary script field for the artifact type (`SCRIPT_FIELD_MAP[artifact_type][0]`), unless `script_field` overrides it.
+- For `ui_macro`, the content is validated as well-formed XML (`xml.etree.ElementTree.fromstring`) before any platform call; malformed content yields a structured error.
 - `record_write` uses the `PreviewTokenStore` flow (preview/apply) by default for these operations.
+
+### script_field parameter
+
+`record_write` accepts an optional `script_field` parameter when `artifact_type` and `script_path` are set. It selects which script-bearing field receives the file contents:
+
+- Empty (default): writes to the primary field (`SCRIPT_FIELD_MAP[artifact_type][0]`).
+- Non-empty: must be one of `SCRIPT_FIELD_MAP[artifact_type]`; otherwise the call returns a structured error listing the allowed fields.
+- Setting `script_field` without `artifact_type` is rejected.
 
 ### SCRIPT_FIELD_MAP
 
-Per-artifact field override for `script_path` content:
+`SCRIPT_FIELD_MAP` is `dict[str, list[str]]`. Index 0 is the primary field (the default target); subsequent entries are alternate script-bearing fields callable via `script_field`. Every entry in `WRITABLE_ARTIFACT_TABLES` has a corresponding non-empty list; a module-load assertion enforces this.
 
-| Artifact Type | Script Field |
+| Artifact Type | Script Fields (primary first) |
 |---|---|
-| `ui_policy` | `script_true` |
+| `business_rule` | `script`, `condition` |
+| `script_include` | `script` |
+| `ui_action` | `script`, `condition`, `onclick` |
+| `client_script` | `script` |
+| `scheduled_job` | `script` |
+| `fix_script` | `script` |
+| `ui_script` | `script` |
+| `processor` | `script` |
+| `script_action` | `script` |
+| `mid_script_include` | `script` |
+| `ui_policy` | `script_true`, `script_false` |
+| `widget` | `client_script`, `script`, `template`, `css`, `link` |
+| `ui_page` | `html`, `client_script`, `processing_script` |
 | `scripted_rest_resource` | `operation_script` |
-| `widget` | `client_script` |
-| `ui_page` | `html` |
 | `ui_macro` | `xml` |
 | `notification_script` | `advanced_condition` |
+| `email_script` | `script` |
+| `catalog_client_script` | `script` |
+| `catalog_ui_policy` | `script_true`, `script_false` |
+| `transform_map_script` | `script` |
+| `transform_entry_script` | `script` |
+| `acl` | `script` |
+| `dynamic_filter` | `script` |
+| `decision_question` | `condition_script` |
+
+### record_read
+
+Read-only counterpart for the artifact surface. `record_read(artifact_type, sys_id=..., name=...)` returns the masked record plus the `script_fields` list for the artifact type, enabling discovery-driven multi-field edits. Exactly one of `sys_id` or `name` must be supplied; ambiguous names (>1 match) and missing records return structured errors. Included in both `full` and `readonly` packages.
 
 ## 🔄 ChoiceRegistry
 

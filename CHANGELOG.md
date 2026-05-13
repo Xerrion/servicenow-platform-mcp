@@ -5,7 +5,7 @@
 
 ### Breaking Changes
 
-* **tool surface consolidation**: ~50 specialized tools collapsed into 11 unified action-dispatchers: `list_tool_packages`, `query`, `build_query`, `describe`, `record_write`, `record_apply`, `attachment`, `attachment_write`, `investigate`, `resolve_choice`, `service_catalog`. All previous domain-specific tools (`incident_*`, `change_*`, `problem_*`, `cmdb_*`, `sc_req_*`, `knowledge_*`, etc.) and helper tool families (`changes_*`, `debug_*`, `docs_*`, `workflow_*`, `flow_*`, `meta_*`) were removed.
+* **tool surface consolidation**: ~50 specialized tools collapsed into 12 unified action-dispatchers: `list_tool_packages`, `query`, `build_query`, `describe`, `record_read`, `record_write`, `record_apply`, `attachment`, `attachment_write`, `investigate`, `resolve_choice`, `service_catalog`. All previous domain-specific tools (`incident_*`, `change_*`, `problem_*`, `cmdb_*`, `sc_req_*`, `knowledge_*`, etc.) and helper tool families (`changes_*`, `debug_*`, `docs_*`, `workflow_*`, `flow_*`, `meta_*`) were removed.
 * **artifact tools folded into `record_write`**: the standalone `artifact_create` and `artifact_update` tools were removed; create/update artifacts (Business Rules, Script Includes, UI Policies, etc.) by calling `record_write` with the `artifact_type` parameter.
 * **encoded queries are now first-class**: the `QueryTokenStore` was removed. `build_query` is retained but reshaped to be stateless - it returns the encoded query string directly in `data.query`, which agents pass straight to the `query` tool. Agents may also pass ServiceNow encoded query strings directly to `query` without going through `build_query` (e.g. `active=true^priority<=2`).
 * **wire format change**: TOON serialization replaced with JSON. `serialize()` in `utils.py` now returns JSON; `resolve_query_token` was deleted.
@@ -15,14 +15,18 @@
 * **loader simplification**: every tool group module now uses the unconditional 4-arg `register_tools(mcp, settings, auth_provider, choices=choices)` signature. The `domain_` prefix branching in `server.py` was removed.
 * **state management**: `QueryTokenStore` was removed; only `PreviewTokenStore` and `_BaseTokenStore` remain in `state.py`.
 
-Migration: see [`docs/agent-recipes.md`](docs/agent-recipes.md) for the canonical migration patterns and 10 worked recipes covering the new 11-tool surface.
+Migration: see [`docs/agent-recipes.md`](docs/agent-recipes.md) for the canonical migration patterns and 10 worked recipes covering the new 12-tool surface.
 
 
 ### Added
 
-* unified action-dispatcher tools: `query`, `describe`, `record_write`, `record_apply`, `attachment`, `attachment_write`, `investigate`, `resolve_choice`, `service_catalog`, `list_tool_packages`.
+* unified action-dispatcher tools: `query`, `describe`, `record_read`, `record_write`, `record_apply`, `attachment`, `attachment_write`, `investigate`, `resolve_choice`, `service_catalog`, `list_tool_packages`.
 * `docs/agent-recipes.md` with 10 worked recipes covering common ServiceNow workflows on the unified tool surface.
-* `artifact_type` parameter on `record_write` covering 17 writable artifact tables (`business_rule`, `script_include`, `ui_policy`, `ui_action`, `client_script`, `scheduled_job`, `fix_script`, `scripted_rest_resource`, `ui_script`, `processor`, `widget`, `ui_page`, `ui_macro`, `script_action`, `mid_script_include`, `scripted_rest_api`, `notification_script`).
+* `artifact_type` parameter on `record_write` covering 24 writable artifact tables (`business_rule`, `script_include`, `ui_policy`, `ui_action`, `client_script`, `scheduled_job`, `fix_script`, `scripted_rest_resource`, `ui_script`, `processor`, `widget`, `ui_page`, `ui_macro`, `script_action`, `mid_script_include`, `notification_script`, `email_script`, `catalog_client_script`, `catalog_ui_policy`, `transform_map_script`, `transform_entry_script`, `acl`, `dynamic_filter`, `decision_question`). The earlier `scripted_rest_api` candidate was dropped in favour of `scripted_rest_resource` (`sys_ws_operation`).
+* `script_field` parameter on `record_write` for artifact types with multiple script-bearing fields (e.g. `ui_policy.script_true`/`script_false`, `widget.client_script`/`template`/`css`, `ui_page.html`/`client_script`/`processing_script`). Defaults to the primary script field per `SCRIPT_FIELD_MAP`.
+* `record_read` tool - read-only counterpart to `record_write` for artifacts. Returns the masked record plus the `script_fields` list for discovery-driven multi-field edits. Included in both the `full` and `readonly` presets.
+* `describe(action='list_artifact_types')` - returns the artifact catalog (table, `script_fields`, `primary_field`) at runtime.
+* `ui_macro` writes now validate that the rendered XML parses (`xml.etree.ElementTree.fromstring`) before any platform call; malformed content is rejected with a structured error.
 
 
 ### Changed

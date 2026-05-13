@@ -1,6 +1,6 @@
 # Tool Reference
 
-Complete reference for all tools provided by the ServiceNow Platform MCP server. The surface has been unified into 11 core tools that use dispatcher patterns and ServiceNow encoded queries.
+Complete reference for all tools provided by the ServiceNow Platform MCP server. The surface has been unified into 12 core tools that use dispatcher patterns and ServiceNow encoded queries.
 
 All tools return responses as JSON strings with a standardized envelope containing `correlation_id`, `status`, `data`, and optionally `pagination` and `warnings`. See [[Architecture]] for details on the response format.
 
@@ -72,15 +72,17 @@ Stateless helper that compiles a JSON array of condition objects into a ServiceN
   ```
 
 ### `describe`
-Retrieve schema and metadata for a table.
+Retrieve schema and metadata for a table, or enumerate the artifact catalog.
 
-- **Purpose:** Understand a table's structure before querying or writing.
+- **Purpose:** Understand a table's structure before querying or writing; discover writable artifact types at runtime.
 - **Key Parameters:**
-  - `table`: Target table name.
+  - `action`: Optional. `describe_table` (default) or `list_artifact_types`. When `list_artifact_types`, returns one entry per artifact type with its `table`, `script_fields`, and `primary_field` - no `table` argument required.
+  - `table`: Target table name (required for `describe_table`).
   - `verbose`: If `true`, returns all platform metadata (otherwise returns a slim 8-key summary per field).
 - **Example:**
   ```python
   await describe(table="incident")
+  await describe(action="list_artifact_types")
   ```
 
 ---
@@ -98,14 +100,30 @@ Unified tool for staging `create`, `update`, or `delete` actions.
   - `table`: Target table name.
   - `sys_id`: Required for `update` and `delete`.
   - `data`: JSON string of field-value pairs for `create`/`update`.
-  - `artifact_type`: Set this to write scripted artifacts (e.g., `business_rule`, `script_include`).
-  - `script_path`: Local path to a script file (requires `artifact_type`).
+  - `artifact_type`: Set this to write scripted artifacts (e.g., `business_rule`, `script_include`, `widget`, `ui_page`, `ui_policy`, `acl`). 24 artifact types are supported; call `describe(action='list_artifact_types')` to enumerate.
+  - `script_path`: Local path to a script file (requires `artifact_type`). Resolved strictly under `SCRIPT_ALLOWED_ROOT`; capped at 1 MB; UTF-8.
+  - `script_field`: Optional. Target a specific script-bearing field on artifact types with more than one (e.g. `ui_policy.script_true`/`script_false`, `widget.client_script`/`template`/`css`, `ui_page.html`/`processing_script`). Defaults to the primary field per `SCRIPT_FIELD_MAP`. Setting `script_field` without `artifact_type` is rejected.
   - `preview`: If `true` (default), stores the change in `PreviewTokenStore` and returns a `preview_token`.
+- **Notes:** `ui_macro` writes validate the rendered XML (`xml.etree.ElementTree.fromstring`) before any platform call; malformed content is rejected with a structured error.
 - **Example:**
   ```python
   # Stage a create
   preview = await record_write(action="create", table="incident", data='{"short_description": "New issue"}')
   # Returns: {"data": {"preview_token": "uuid-token-here", ...}}
+  ```
+
+### `record_read`
+Read-only counterpart to `record_write` for platform artifacts.
+
+- **Purpose:** Inspect an existing artifact (and learn its script-bearing fields) before composing a multi-field update via `record_write` + `script_field`.
+- **Key Parameters:**
+  - `artifact_type`: One of the 24 writable artifact types (`describe(action='list_artifact_types')` enumerates them).
+  - `sys_id` **or** `name`: Exactly one must be supplied. Ambiguous names (more than one match) and missing records return a structured error.
+- **Response:** Masked record fields plus the `script_fields` list for the artifact type.
+- **Availability:** Included in both the `full` and `readonly` packages.
+- **Example:**
+  ```python
+  await record_read(artifact_type="business_rule", name="Validate priority on insert")
   ```
 
 ### `record_apply`

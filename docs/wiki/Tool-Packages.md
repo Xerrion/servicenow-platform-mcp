@@ -10,8 +10,8 @@ The server has been consolidated from 14 packages down to 4 focused presets. For
 
 | Package | Tools | Description |
 |---|---|---|
-| `full` (default) | 11 | All 11 unified tools, including the `build_query` helper |
-| `readonly` | 7 | Includes `attachment_write` (runtime write gating blocks in prod) |
+| `full` (default) | 12 | All 12 unified tools, including the `build_query` helper |
+| `readonly` | 8 | Includes `record_read` and `attachment_write` (runtime write gating blocks in prod) |
 | `core_readonly` | 5 | Minimal read-only core: `query`, `describe`, `attachment`, `attachment_write`, `list_tool_packages` |
 | `none` | 1 | No tools loaded - only `list_tool_packages` is available |
 
@@ -21,13 +21,13 @@ The server has been consolidated from 14 packages down to 4 focused presets. For
 
 The `list_tool_packages` tool is always available and returns the active registry at runtime.
 
-### `full` (11 tools)
-`query`, `build_query`, `describe`, `record_write`, `record_apply`, `attachment`, `attachment_write`, `investigate`, `resolve_choice`, `service_catalog`, `list_tool_packages`.
+### `full` (12 tools)
+`query`, `build_query`, `describe`, `record_read`, `record_write`, `record_apply`, `attachment`, `attachment_write`, `investigate`, `resolve_choice`, `service_catalog`, `list_tool_packages`.
 
 *Note: `build_query` is a stateless helper that returns an encoded query string for the caller to pass straight to `query`. It is the only tool that is exclusive to the `full` package - the read-only presets pass encoded queries to `query` directly.*
 
-### `readonly` (7 tools)
-`query`, `describe`, `attachment`, `attachment_write`, `investigate`, `resolve_choice`, `list_tool_packages`.
+### `readonly` (8 tools)
+`query`, `describe`, `record_read`, `attachment`, `attachment_write`, `investigate`, `resolve_choice`, `list_tool_packages`.
 *Note: While `attachment_write` is included at the MCP layer, the underlying `gate_write` check will block deletions and uploads if `SERVICENOW_ENV` is set to production.*
 
 ### `core_readonly` (5 tools)

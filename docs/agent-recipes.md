@@ -1,6 +1,6 @@
 # 📖 Agent Recipes
 
-This document provides a set of "recipes" for common ServiceNow workflows using the unified 11-tool surface.
+This document provides a set of "recipes" for common ServiceNow workflows using the unified 12-tool surface.
 
 The previous specialized helper tools (e.g., `incident_list`, `debug_trace`, `changes_updateset_inspect`) have been collapsed into a minimal, dispatcher-oriented API. Agents and developers now achieve complex tasks through multi-call joins, encoded query strings, and explicit choice resolution. These recipes demonstrate how to translate legacy tool usage into this new, more flexible vocabulary.
 
@@ -10,8 +10,9 @@ The previous specialized helper tools (e.g., `incident_list`, `debug_trace`, `ch
 | :--- | :--- |
 | `query` | Fetch records, aggregates, or single records from any table using encoded queries. |
 | `build_query` | Stateless helper - compiles a JSON array of condition objects into the encoded query string that `query` consumes. `full` package only. |
-| `describe` | Retrieve slim field metadata (8 keys) for a table to understand its structure. |
-| `record_write` | Dispatcher for creating, updating, or deleting records (with script file support). |
+| `describe` | Retrieve slim field metadata (8 keys) for a table to understand its structure. Use `action='list_artifact_types'` to enumerate the writable artifact catalog at runtime. |
+| `record_read` | Read a platform artifact by `sys_id` or `name`. Returns the masked record plus the `script_fields` list for the artifact type. |
+| `record_write` | Dispatcher for creating, updating, or deleting records (with script file support and `script_field` targeting for multi-field artifacts). |
 | `record_apply` | Commits a write operation previously staged with `preview=True`. |
 | `attachment` | Dispatcher for reading, listing, and downloading record attachments. |
 | `attachment_write` | Dispatcher for uploading or deleting record attachments. |

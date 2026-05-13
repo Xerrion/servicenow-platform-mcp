@@ -26,8 +26,8 @@ Ask the user:
    - If **no** - set `SERVICENOW_ENV=dev` (default, writes allowed)
 
 2. **Do you want all tools or a specific subset?**
-   - **All tools** (default) - set `MCP_TOOL_PACKAGE=full` (11 tools)
-   - **Read-only** - set `MCP_TOOL_PACKAGE=readonly` (7 tools)
+   - **All tools** (default) - set `MCP_TOOL_PACKAGE=full` (12 tools)
+   - **Read-only** - set `MCP_TOOL_PACKAGE=readonly` (8 tools)
    - **Minimal** - set `MCP_TOOL_PACKAGE=core_readonly` (5 tools: query, describe, attachment, attachment_write, list_tool_packages)
    - **Custom** - comma-separated tool names (e.g., `query,describe,attachment`)
 
@@ -147,7 +147,7 @@ After writing the configuration, tell the user to:
 
 ## Tool Reference
 
-The server provides 11 unified tools. Use `list_tool_packages` to see available tools at runtime. For detailed usage patterns and complex queries, see [Agent Recipes](docs/agent-recipes.md).
+The server provides 12 unified tools. Use `list_tool_packages` to see available tools at runtime. For detailed usage patterns and complex queries, see [Agent Recipes](docs/agent-recipes.md).
 
 ### query
 Search and retrieve records using ServiceNow encoded query strings. Supports `resolve_labels` for human-readable filtering and `display_values` for labeled results.
@@ -159,7 +159,10 @@ Stateless helper that compiles a JSON array of condition objects into a ServiceN
 Retrieve table schema and metadata. Returns a slim set of field attributes by default (8 keys); use `verbose=true` for the full platform payload.
 
 ### record_write
-Unified tool for `create`, `update`, and `delete` actions. When called with `preview=true` (default), it returns a `preview_token` consumed by `record_apply`. Supports `artifact_type` for writing 17 platform artifact types (Business Rules, etc.) with local script injection.
+Unified tool for `create`, `update`, and `delete` actions. When called with `preview=true` (default), it returns a `preview_token` consumed by `record_apply`. Supports `artifact_type` for writing 24 platform artifact types (Business Rules, Script Includes, UI Pages, Widgets, ACLs, etc.) with local script injection via `script_path`. Use `script_field` to target a specific field on artifact types with multiple script-bearing fields.
+
+### record_read
+Read-only counterpart to `record_write` for platform artifacts. Resolves a record by `sys_id` or `name` and returns the masked record plus the `script_fields` list so callers can drive multi-field edits without guessing field names.
 
 ### record_apply
 Commits a write operation previously staged with `record_write(preview=true)`. Takes the returned `preview_token`.

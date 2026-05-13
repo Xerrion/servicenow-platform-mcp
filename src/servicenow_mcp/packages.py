@@ -1,13 +1,14 @@
 """Tool package registry and loader for the ServiceNow MCP server.
 
-The unified tool surface exposes 8 tool groups across 4 preset packages:
+The unified tool surface exposes 9 tool groups across 4 preset packages:
 
 Groups (registered modules under ``servicenow_mcp.tools.unified``):
-    ``query``, ``describe``, ``record_write``, ``attachment``,
-    ``investigate``, ``resolve_choice``, ``service_catalog``,
-    ``build_query``. The ``build_query`` group is included only in the
-    ``full`` preset - it is a stateless query-string builder that complements
-    the ``query`` tool and is not needed for read-only surfaces.
+    ``query``, ``describe``, ``record_write``, ``record_read``,
+    ``attachment``, ``investigate``, ``resolve_choice``,
+    ``service_catalog``, ``build_query``. The ``build_query`` group is
+    included only in the ``full`` preset - it is a stateless query-string
+    builder that complements the ``query`` tool and is not needed for
+    read-only surfaces.
 
 Note: the ``record_write`` group registers both ``record_write`` and
 ``record_apply`` tools; the ``attachment`` group registers both
@@ -17,9 +18,10 @@ module and write paths are gated by ``write_gate``/``can_write``.
 
 Presets:
     ``full``           - every group (full surface).
-    ``readonly``       - read + investigate + resolve_choice (still loads
-                       attachment which carries write tools; those are
-                       blocked at runtime in production by ``write_gate``).
+    ``readonly``       - read + record_read + investigate + resolve_choice
+                       (still loads attachment which carries write tools;
+                       those are blocked at runtime in production by
+                       ``write_gate``).
     ``core_readonly``  - query + describe + attachment only.
     ``none``           - no tool groups loaded; only ``list_tool_packages``
                        is registered by the server bootstrap.
@@ -36,6 +38,7 @@ _TOOL_GROUP_MODULES: dict[str, str] = {
     "query": "servicenow_mcp.tools.unified.query",
     "describe": "servicenow_mcp.tools.unified.describe",
     "record_write": "servicenow_mcp.tools.unified.record_write",
+    "record_read": "servicenow_mcp.tools.unified.record_read",
     "attachment": "servicenow_mcp.tools.unified.attachment",
     "investigate": "servicenow_mcp.tools.unified.investigate",
     "resolve_choice": "servicenow_mcp.tools.unified.resolve_choice",
@@ -56,6 +59,7 @@ PACKAGE_REGISTRY: dict[str, list[str]] = {
         "query",
         "describe",
         "record_write",
+        "record_read",
         "attachment",
         "investigate",
         "resolve_choice",
@@ -65,6 +69,7 @@ PACKAGE_REGISTRY: dict[str, list[str]] = {
     "readonly": [
         "query",
         "describe",
+        "record_read",
         "attachment",
         "investigate",
         "resolve_choice",

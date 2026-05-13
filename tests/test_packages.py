@@ -22,6 +22,7 @@ EXPECTED_GROUPS = {
     "query",
     "describe",
     "record_write",
+    "record_read",
     "attachment",
     "investigate",
     "resolve_choice",
@@ -36,9 +37,9 @@ class TestPackageRegistry:
     def test_registry_has_exactly_four_presets(self) -> None:
         assert set(PACKAGE_REGISTRY.keys()) == EXPECTED_PRESETS
 
-    def test_full_contains_eight_unified_groups(self) -> None:
+    def test_full_contains_nine_unified_groups(self) -> None:
         assert set(PACKAGE_REGISTRY["full"]) == EXPECTED_GROUPS
-        assert len(PACKAGE_REGISTRY["full"]) == 8
+        assert len(PACKAGE_REGISTRY["full"]) == 9
 
     def test_readonly_is_strict_subset_of_full(self) -> None:
         readonly = set(PACKAGE_REGISTRY["readonly"])
@@ -48,6 +49,8 @@ class TestPackageRegistry:
         assert "record_write" not in readonly
         assert "service_catalog" not in readonly
         assert "build_query" not in readonly
+        # record_read is read-only and included
+        assert "record_read" in readonly
 
     def test_core_readonly_is_strict_subset_of_readonly(self) -> None:
         core = set(PACKAGE_REGISTRY["core_readonly"])

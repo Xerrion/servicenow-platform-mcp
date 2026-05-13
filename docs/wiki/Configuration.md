@@ -26,8 +26,8 @@ All configuration is handled through environment variables, loaded via [pydantic
 The `MCP_TOOL_PACKAGE` variable controls the available tool surface.
 
 ### Presets
-- `full`: All 10 unified tools.
-- `readonly`: 7 tools (excludes `record_write` and `record_apply`).
+- `full`: All 11 unified tools (includes the `build_query` helper).
+- `readonly`: 7 tools (excludes `record_write`, `record_apply`, `service_catalog`, and `build_query`).
 - `core_readonly`: 5 tools (`query`, `describe`, `attachment`, `attachment_write`, `list_tool_packages`).
 - `none`: Only `list_tool_packages`.
 

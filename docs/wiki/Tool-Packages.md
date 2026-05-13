@@ -10,7 +10,7 @@ The server has been consolidated from 14 packages down to 4 focused presets. For
 
 | Package | Tools | Description |
 |---|---|---|
-| `full` (default) | 10 | All 10 unified tools |
+| `full` (default) | 11 | All 11 unified tools, including the `build_query` helper |
 | `readonly` | 7 | Includes `attachment_write` (runtime write gating blocks in prod) |
 | `core_readonly` | 5 | Minimal read-only core: `query`, `describe`, `attachment`, `attachment_write`, `list_tool_packages` |
 | `none` | 1 | No tools loaded - only `list_tool_packages` is available |
@@ -21,8 +21,10 @@ The server has been consolidated from 14 packages down to 4 focused presets. For
 
 The `list_tool_packages` tool is always available and returns the active registry at runtime.
 
-### `full` (10 tools)
-`query`, `describe`, `record_write`, `record_apply`, `attachment`, `attachment_write`, `investigate`, `resolve_choice`, `service_catalog`, `list_tool_packages`.
+### `full` (11 tools)
+`query`, `build_query`, `describe`, `record_write`, `record_apply`, `attachment`, `attachment_write`, `investigate`, `resolve_choice`, `service_catalog`, `list_tool_packages`.
+
+*Note: `build_query` is a stateless helper that returns an encoded query string for the caller to pass straight to `query`. It is the only tool that is exclusive to the `full` package - the read-only presets pass encoded queries to `query` directly.*
 
 ### `readonly` (7 tools)
 `query`, `describe`, `attachment`, `attachment_write`, `investigate`, `resolve_choice`, `list_tool_packages`.

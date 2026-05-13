@@ -26,7 +26,7 @@ Ask the user:
    - If **no** - set `SERVICENOW_ENV=dev` (default, writes allowed)
 
 2. **Do you want all tools or a specific subset?**
-   - **All tools** (default) - set `MCP_TOOL_PACKAGE=full` (10 tools)
+   - **All tools** (default) - set `MCP_TOOL_PACKAGE=full` (11 tools)
    - **Read-only** - set `MCP_TOOL_PACKAGE=readonly` (7 tools)
    - **Minimal** - set `MCP_TOOL_PACKAGE=core_readonly` (5 tools: query, describe, attachment, attachment_write, list_tool_packages)
    - **Custom** - comma-separated tool names (e.g., `query,describe,attachment`)
@@ -147,10 +147,13 @@ After writing the configuration, tell the user to:
 
 ## Tool Reference
 
-The server provides 10 unified tools. Use `list_tool_packages` to see available tools at runtime. For detailed usage patterns and complex queries, see [Agent Recipes](docs/agent-recipes.md).
+The server provides 11 unified tools. Use `list_tool_packages` to see available tools at runtime. For detailed usage patterns and complex queries, see [Agent Recipes](docs/agent-recipes.md).
 
 ### query
 Search and retrieve records using ServiceNow encoded query strings. Supports `resolve_labels` for human-readable filtering and `display_values` for labeled results.
+
+### build_query
+Stateless helper that compiles a JSON array of condition objects into a ServiceNow encoded query string (returned in `data.query`). Pass the returned string as the `query` parameter to the `query` tool. Available in the `full` package only - read-only presets pass encoded queries to `query` directly.
 
 ### describe
 Retrieve table schema and metadata. Returns a slim set of field attributes by default (8 keys); use `verbose=true` for the full platform payload.

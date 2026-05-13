@@ -5,9 +5,9 @@
 
 ### Breaking Changes
 
-* **tool surface consolidation**: ~50 specialized tools collapsed into 10 unified action-dispatchers: `list_tool_packages`, `query`, `describe`, `record_write`, `record_apply`, `attachment`, `attachment_write`, `investigate`, `resolve_choice`, `service_catalog`. All previous domain-specific tools (`incident_*`, `change_*`, `problem_*`, `cmdb_*`, `sc_req_*`, `knowledge_*`, etc.) and helper tool families (`changes_*`, `debug_*`, `docs_*`, `workflow_*`, `flow_*`, `meta_*`) were removed.
+* **tool surface consolidation**: ~50 specialized tools collapsed into 11 unified action-dispatchers: `list_tool_packages`, `query`, `build_query`, `describe`, `record_write`, `record_apply`, `attachment`, `attachment_write`, `investigate`, `resolve_choice`, `service_catalog`. All previous domain-specific tools (`incident_*`, `change_*`, `problem_*`, `cmdb_*`, `sc_req_*`, `knowledge_*`, etc.) and helper tool families (`changes_*`, `debug_*`, `docs_*`, `workflow_*`, `flow_*`, `meta_*`) were removed.
 * **artifact tools folded into `record_write`**: the standalone `artifact_create` and `artifact_update` tools were removed; create/update artifacts (Business Rules, Script Includes, UI Policies, etc.) by calling `record_write` with the `artifact_type` parameter.
-* **encoded queries are now first-class**: `build_query` and the `QueryTokenStore` were removed. Agents pass ServiceNow encoded query strings directly to `query` (e.g. `active=true^priority<=2`).
+* **encoded queries are now first-class**: the `QueryTokenStore` was removed. `build_query` is retained but reshaped to be stateless - it returns the encoded query string directly in `data.query`, which agents pass straight to the `query` tool. Agents may also pass ServiceNow encoded query strings directly to `query` without going through `build_query` (e.g. `active=true^priority<=2`).
 * **wire format change**: TOON serialization replaced with JSON. `serialize()` in `utils.py` now returns JSON; `resolve_query_token` was deleted.
 * **package registry collapse**: 14 preset packages reduced to 4: `full`, `readonly`, `core_readonly`, `none`. Custom packages remain supported via comma-syntax (`MCP_TOOL_PACKAGE=query,describe,attachment`). Note that `service_catalog` is now a tool group name rather than a package — `MCP_TOOL_PACKAGE=service_catalog` resolves through the custom-package code path.
 * **ATF removed**: all Automated Test Framework tools and the corresponding `ServiceNowClient` ATF methods were deleted.
@@ -15,7 +15,7 @@
 * **loader simplification**: every tool group module now uses the unconditional 4-arg `register_tools(mcp, settings, auth_provider, choices=choices)` signature. The `domain_` prefix branching in `server.py` was removed.
 * **state management**: `QueryTokenStore` was removed; only `PreviewTokenStore` and `_BaseTokenStore` remain in `state.py`.
 
-Migration: see [`docs/agent-recipes.md`](docs/agent-recipes.md) for the canonical migration patterns and 10 worked recipes covering the new 10-tool surface.
+Migration: see [`docs/agent-recipes.md`](docs/agent-recipes.md) for the canonical migration patterns and 10 worked recipes covering the new 11-tool surface.
 
 
 ### Added
@@ -25,11 +25,16 @@ Migration: see [`docs/agent-recipes.md`](docs/agent-recipes.md) for the canonica
 * `artifact_type` parameter on `record_write` covering 17 writable artifact tables (`business_rule`, `script_include`, `ui_policy`, `ui_action`, `client_script`, `scheduled_job`, `fix_script`, `scripted_rest_resource`, `ui_script`, `processor`, `widget`, `ui_page`, `ui_macro`, `script_action`, `mid_script_include`, `scripted_rest_api`, `notification_script`).
 
 
+### Changed
+
+* `build_query` retained from v0.9.x but scoped to the `full` package only and reshaped to be stateless — returns the encoded query string directly in `data.query`, no token store. Agents pass that string as the `query` parameter to the `query` tool on the next call.
+
+
 ### Removed
 
 * ~50 specialized domain and helper tools (`incident_*`, `change_*`, `problem_*`, `cmdb_*`, `sc_req_*`, `knowledge_*`, `changes_*`, `debug_*`, `docs_*`, `workflow_*`, `flow_*`, `meta_*`).
 * `artifact_create` and `artifact_update` tools (use `record_write` with `artifact_type`).
-* `build_query` tool and `QueryTokenStore` (pass encoded queries directly to `query`).
+* `QueryTokenStore` (pass encoded queries directly to `query`, or use the stateless `build_query` helper in the `full` package).
 * All ATF tools and `ServiceNowClient` ATF methods.
 * TOON serialization helpers and `resolve_query_token`.
 * 10 preset packages (kept: `full`, `readonly`, `core_readonly`, `none`).

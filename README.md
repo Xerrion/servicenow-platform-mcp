@@ -10,7 +10,7 @@
 
 # servicenow-platform-mcp
 
-A comprehensive [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for ServiceNow. Provides 10 unified tools for platform introspection, change intelligence, debugging, record management, and automated investigations.
+A comprehensive [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for ServiceNow. Provides 11 unified tools for platform introspection, change intelligence, debugging, record management, and automated investigations.
 
 ## Quick Start
 
@@ -162,7 +162,7 @@ Control which tools are loaded with `MCP_TOOL_PACKAGE`.
 
 | Package | Tools | Description |
 |---------|-------|-------------|
-| `full` | 10 | All 10 unified tools (default) |
+| `full` | 11 | All 11 unified tools, including the `build_query` helper (default) |
 | `readonly` | 7 | Includes `attachment_write` (gate_write blocks in prod) |
 | `core_readonly` | 5 | Minimal read surface (includes `attachment_write`) |
 | `none` | 1 | Just `list_tool_packages` |

@@ -1,6 +1,6 @@
 # 📖 Agent Recipes
 
-This document provides a set of "recipes" for common ServiceNow workflows using the unified 10-tool surface.
+This document provides a set of "recipes" for common ServiceNow workflows using the unified 11-tool surface.
 
 The previous specialized helper tools (e.g., `incident_list`, `debug_trace`, `changes_updateset_inspect`) have been collapsed into a minimal, dispatcher-oriented API. Agents and developers now achieve complex tasks through multi-call joins, encoded query strings, and explicit choice resolution. These recipes demonstrate how to translate legacy tool usage into this new, more flexible vocabulary.
 
@@ -9,6 +9,7 @@ The previous specialized helper tools (e.g., `incident_list`, `debug_trace`, `ch
 | Tool | Purpose |
 | :--- | :--- |
 | `query` | Fetch records, aggregates, or single records from any table using encoded queries. |
+| `build_query` | Stateless helper - compiles a JSON array of condition objects into the encoded query string that `query` consumes. `full` package only. |
 | `describe` | Retrieve slim field metadata (8 keys) for a table to understand its structure. |
 | `record_write` | Dispatcher for creating, updating, or deleting records (with script file support). |
 | `record_apply` | Commits a write operation previously staged with `preview=True`. |
@@ -94,6 +95,28 @@ await query(
 )
 ```
 **Notes:** Dot-walking (`assignment_group.name`) is supported. Use `^NQ` (New Query) for top-level OR conditions that require entirely separate filter sets.
+
+---
+
+### 3a. Compose the same query with `build_query`
+**Goal:** Same result as Recipe 3, but expressed as structured JSON instead of hand-written encoded-query syntax. Useful when the conditions come from another tool, a UI, or any source that already speaks JSON.  
+**Availability:** `full` package only.
+```python
+import json
+
+built = await build_query(conditions=json.dumps([
+    {"operator": "in_list",     "field": "state",                  "value": ["1", "2"]},
+    {"operator": "less_or_equal", "field": "priority",             "value": "2"},
+    {"operator": "starts_with", "field": "assignment_group.name",  "value": "Network"},
+]))
+
+await query(
+    table="incident",
+    encoded_query=built["data"]["query"],
+    fields="number,short_description,assignment_group.name"
+)
+```
+**Notes:** `build_query` is stateless - it returns the encoded query string in `data.query` for the caller to forward. There is no token store and no shared state; if the second call fails, just call `build_query` again.
 
 ---
 

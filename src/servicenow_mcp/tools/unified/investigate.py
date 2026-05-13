@@ -23,6 +23,7 @@ from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.investigation_helpers import parse_element_id
 from servicenow_mcp.investigations import INVESTIGATION_REGISTRY
 from servicenow_mcp.policy import check_table_access
+from servicenow_mcp.tools._dictionary import DictionaryRegistry
 from servicenow_mcp.tools._payload import parse_payload_json
 from servicenow_mcp.utils import format_response, validate_identifier
 
@@ -118,6 +119,7 @@ def register_tools(
     settings: Settings,
     auth_provider: BasicAuthProvider,
     choices: ChoiceRegistry | None = None,
+    dictionary: DictionaryRegistry | None = None,
 ) -> None:
     """Register the unified ``investigate`` tool on the MCP server.
 
@@ -125,7 +127,7 @@ def register_tools(
     uniformly. ``investigate`` does not consume the registry; the parameter is
     accepted only to keep the loader contract consistent.
     """
-    del choices  # unused; signature retained for loader parity
+    del choices, dictionary  # unused; signature retained for loader parity
 
     @mcp.tool()
     @tool_handler

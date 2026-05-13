@@ -15,6 +15,7 @@ from servicenow_mcp.choices import ChoiceRegistry
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.policy import check_table_access
+from servicenow_mcp.tools._dictionary import DictionaryRegistry
 from servicenow_mcp.utils import format_response, validate_identifier
 
 
@@ -31,6 +32,7 @@ def register_tools(
     settings: Settings,
     auth_provider: BasicAuthProvider,
     choices: ChoiceRegistry | None = None,
+    dictionary: DictionaryRegistry | None = None,
 ) -> None:
     """Register the unified ``resolve_choice`` tool on the MCP server.
 

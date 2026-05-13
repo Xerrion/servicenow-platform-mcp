@@ -40,6 +40,7 @@ from servicenow_mcp.tools._attachment_common import (
     get_attachment_sys_id,
     get_attachment_table_name,
 )
+from servicenow_mcp.tools._dictionary import DictionaryRegistry
 from servicenow_mcp.utils import ServiceNowQuery, format_response, validate_identifier, validate_sys_id
 
 
@@ -311,12 +312,13 @@ def register_tools(
     settings: Settings,
     auth_provider: BasicAuthProvider,
     choices: ChoiceRegistry | None = None,
+    dictionary: DictionaryRegistry | None = None,
 ) -> None:
     """Register the unified ``attachment`` and ``attachment_write`` tools.
 
     ``choices`` is unused here but accepted for unified-loader contract parity.
     """
-    del choices  # unused; signature retained for loader parity
+    del choices, dictionary  # unused; signature retained for loader parity
 
     @mcp.tool()
     @tool_handler

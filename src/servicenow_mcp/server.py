@@ -13,6 +13,7 @@ from servicenow_mcp.mcp_state import attach_servicenow_state
 from servicenow_mcp.packages import _TOOL_GROUP_MODULES, get_package, list_packages
 from servicenow_mcp.sentry import capture_exception as sentry_capture
 from servicenow_mcp.sentry import set_sentry_context, setup_sentry, shutdown_sentry
+from servicenow_mcp.tools._dictionary import DictionaryRegistry
 from servicenow_mcp.utils import serialize
 
 
@@ -37,7 +38,8 @@ def create_mcp_server() -> FastMCP:
     mcp = FastMCP("servicenow-platform-mcp")
 
     choices = ChoiceRegistry(settings, auth_provider)
-    attach_servicenow_state(mcp, settings, auth_provider, choices)
+    dictionary = DictionaryRegistry(settings, auth_provider)
+    attach_servicenow_state(mcp, settings, auth_provider, choices, dictionary)
 
     # Always register the list_tool_packages tool
     @mcp.tool()
@@ -56,9 +58,17 @@ def create_mcp_server() -> FastMCP:
                 module = importlib.import_module(module_path)
                 if hasattr(module, "register_tools"):
                     # All tool modules accept the ChoiceRegistry so unified
-                    # tools can resolve display labels; modules that don't
-                    # need it accept ``choices=None`` and ignore it.
-                    module.register_tools(mcp, settings, auth_provider, choices=choices)
+                    # tools can resolve display labels, and the
+                    # DictionaryRegistry so script-field detection is shared
+                    # across the surface. Modules that don't need either
+                    # accept ``None`` and ignore it.
+                    module.register_tools(
+                        mcp,
+                        settings,
+                        auth_provider,
+                        choices=choices,
+                        dictionary=dictionary,
+                    )
                     logger.info("Loaded tool group: %s", group_name)
             except ImportError as e:
                 logger.warning("Could not load tool group '%s': %s", group_name, e)

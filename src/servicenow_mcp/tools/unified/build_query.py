@@ -19,6 +19,7 @@ from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.choices import ChoiceRegistry
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
+from servicenow_mcp.tools._dictionary import DictionaryRegistry
 from servicenow_mcp.tools._payload import MAX_JSON_PAYLOAD_BYTES
 from servicenow_mcp.utils import ServiceNowQuery, format_response
 
@@ -362,6 +363,7 @@ def register_tools(
     settings: Settings,
     auth_provider: BasicAuthProvider,
     choices: ChoiceRegistry | None = None,
+    dictionary: DictionaryRegistry | None = None,
 ) -> None:
     """Register the unified ``build_query`` tool on the MCP server.
 

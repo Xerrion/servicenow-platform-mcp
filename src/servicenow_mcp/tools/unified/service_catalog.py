@@ -22,6 +22,7 @@ from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.policy import gate_write
+from servicenow_mcp.tools._dictionary import DictionaryRegistry
 from servicenow_mcp.tools._payload import parse_payload_json
 from servicenow_mcp.utils import format_response, validate_identifier, validate_sys_id
 
@@ -213,12 +214,13 @@ def register_tools(
     settings: Settings,
     auth_provider: BasicAuthProvider,
     choices: ChoiceRegistry | None = None,
+    dictionary: DictionaryRegistry | None = None,
 ) -> None:
     """Register the unified ``service_catalog`` tool.
 
     ``choices`` is unused here but accepted for unified-loader contract parity.
     """
-    del choices  # unused; signature retained for loader parity
+    del choices, dictionary  # unused; signature retained for loader parity
 
     @mcp.tool()
     @tool_handler

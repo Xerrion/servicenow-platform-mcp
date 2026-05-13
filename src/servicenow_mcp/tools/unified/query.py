@@ -26,6 +26,7 @@ from servicenow_mcp.policy import (
     enforce_query_safety,
     mask_record,
 )
+from servicenow_mcp.tools._dictionary import DictionaryRegistry
 from servicenow_mcp.utils import format_response, validate_identifier, validate_sys_id
 
 
@@ -293,6 +294,7 @@ def register_tools(
     settings: Settings,
     auth_provider: BasicAuthProvider,
     choices: ChoiceRegistry | None = None,
+    dictionary: DictionaryRegistry | None = None,
 ) -> None:
     """Register the unified ``query`` tool on the MCP server.
 

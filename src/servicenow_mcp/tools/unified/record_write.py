@@ -34,10 +34,11 @@ from servicenow_mcp.policy import (
 )
 from servicenow_mcp.state import PreviewTokenStore
 from servicenow_mcp.tools._artifact import (
-    DEFAULT_SCRIPT_FIELD,
     SCRIPT_FIELD_MAP,
     _read_script_file,
     _resolve_writable_artifact_table,
+    _validate_xml_content,
+    primary_script_field,
 )
 from servicenow_mcp.tools._payload import parse_payload_json
 from servicenow_mcp.tools._record_helpers import _build_update_diff, _check_mandatory_or_error
@@ -71,6 +72,7 @@ def _validate_action_args(
     data: str,
     artifact_type: str,
     script_path: str,
+    script_field: str,
     correlation_id: str,
 ) -> str | None:
     """Validate the cross-argument constraints. Returns error envelope or None."""
@@ -85,6 +87,9 @@ def _validate_action_args(
 
     if script_path and not artifact_type:
         return _err(correlation_id, "script_path requires artifact_type to be set.")
+
+    if script_field and not artifact_type:
+        return _err(correlation_id, "script_field requires artifact_type to be set.")
 
     # Per-action argument checks.
     if action == "create":
@@ -114,15 +119,30 @@ def _inject_script_path(
     parsed: dict[str, Any],
     artifact_type: str,
     script_path: str,
+    script_field: str,
     allowed_root: str,
     correlation_id: str,
 ) -> tuple[dict[str, Any], list[str]] | str:
-    """Read script_path and inject content into the artifact's script field.
+    """Read script_path and inject content into the artifact's target script field.
+
+    The destination field is ``script_field`` when supplied (must be one of
+    ``SCRIPT_FIELD_MAP[artifact_type]``), otherwise the primary field.
 
     Returns ``(updated_payload, warnings)`` on success, or a serialized error
-    envelope on file-read failures. Mirrors the messages from the legacy
-    ``artifact_write._parse_and_validate_payload`` helper.
+    envelope on file-read failures or invalid ``script_field``.
     """
+    allowed_fields = SCRIPT_FIELD_MAP[artifact_type]
+    if script_field:
+        if script_field not in allowed_fields:
+            return _err(
+                correlation_id,
+                f"Invalid script_field {script_field!r} for artifact_type "
+                f"{artifact_type!r}. Allowed: {allowed_fields}.",
+            )
+        target_field = script_field
+    else:
+        target_field = primary_script_field(artifact_type)
+
     try:
         content = _read_script_file(script_path, allowed_root)
     except ValueError as exc:
@@ -134,11 +154,15 @@ def _inject_script_path(
     except UnicodeDecodeError as exc:
         return _err(correlation_id, f"script_path is not valid UTF-8: {exc}")
 
-    field = SCRIPT_FIELD_MAP.get(artifact_type, DEFAULT_SCRIPT_FIELD)
+    if artifact_type == "ui_macro":
+        xml_error = _validate_xml_content(content)
+        if xml_error:
+            return _err(correlation_id, xml_error)
+
     warnings: list[str] = []
-    if field in parsed:
-        warnings.append(f"'{field}' field in data was overridden by script_path content.")
-    parsed[field] = content
+    if target_field in parsed:
+        warnings.append(f"'{target_field}' field in data was overridden by script_path content.")
+    parsed[target_field] = content
     return parsed, warnings
 
 
@@ -352,6 +376,7 @@ def register_tools(
         data: str = "",
         artifact_type: str = "",
         script_path: str = "",
+        script_field: str = "",
         preview: bool = True,
         *,
         correlation_id: str = "",
@@ -368,18 +393,27 @@ def register_tools(
                 'update'.
             artifact_type: When set, treat as a platform artifact write.
                 Resolves to the matching table; data keys validated;
-                SCRIPT_FIELD_MAP applied.
+                SCRIPT_FIELD_MAP applied. Use ``describe(action='list_artifact_types')``
+                to discover all valid types and their script fields.
             script_path: Optional absolute path to a local script file. Content
                 is read (UTF-8, max 1 MB) and stored under the artifact's
-                script field. Path resolved with strict=True; constrained to
-                settings.script_allowed_root. Only valid when artifact_type is
-                set.
+                target script field. Path resolved with strict=True; constrained
+                to settings.script_allowed_root. Only valid when artifact_type
+                is set.
+            script_field: Optional override for the destination script field.
+                When empty (default), the primary field (index 0 of
+                ``SCRIPT_FIELD_MAP[artifact_type]``) is used. When set, must be
+                one of the allowed fields for the artifact_type (e.g.
+                ``script_false`` for ``ui_policy``, ``template`` or ``css`` for
+                ``widget``). Only meaningful when ``script_path`` is also set.
             preview: When True (default) returns a preview_token; caller
                 invokes record_apply to commit. When False, write commits
                 immediately.
         """
         # --- 1. Cross-argument validation (early exit) -------------------
-        err = _validate_action_args(action, table, sys_id, data, artifact_type, script_path, correlation_id)
+        err = _validate_action_args(
+            action, table, sys_id, data, artifact_type, script_path, script_field, correlation_id
+        )
         if err:
             return err
 
@@ -416,6 +450,7 @@ def register_tools(
                     parsed_data,
                     artifact_type,
                     script_path,
+                    script_field,
                     settings.script_allowed_root,
                     correlation_id,
                 )

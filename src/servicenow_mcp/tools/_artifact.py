@@ -1,17 +1,17 @@
 """Shared security helpers for platform artifact write operations.
 
 Single source of truth for the artifact-type catalog, the per-artifact script
-field map, and the local-script-file resolution path. Imported by both the
-legacy ``artifact_write`` tools and the unified ``record_write`` tool.
+field map, and the local-script-file resolution path. Imported by the unified
+``record_write`` and ``record_read`` tools.
 """
 
 from __future__ import annotations
 
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 
 # Mapping from human-friendly artifact type names to ServiceNow tables.
-# Superset of metadata.py's 7-type ARTIFACT_TABLES.
 WRITABLE_ARTIFACT_TABLES: dict[str, str] = {
     "business_rule": "sys_script",
     "script_include": "sys_script_include",
@@ -28,23 +28,70 @@ WRITABLE_ARTIFACT_TABLES: dict[str, str] = {
     "ui_macro": "sys_ui_macro",
     "script_action": "sysevent_script_action",
     "mid_script_include": "ecc_agent_script_include",
-    "scripted_rest_api": "sys_web_service",
     "notification_script": "sysevent_email_action",
+    # Catalog expansion (v0.10.0+)
+    "email_script": "sys_script_email",
+    "catalog_client_script": "catalog_script_client",
+    "catalog_ui_policy": "catalog_ui_policy",
+    "transform_map_script": "sys_transform_script",
+    "transform_entry_script": "sys_transform_entry",
+    "acl": "sys_security_acl",
+    "dynamic_filter": "sys_filter_option_dynamic",
+    "decision_question": "sys_decision_question",
 }
 
-DEFAULT_SCRIPT_FIELD: str = "script"
 MAX_SCRIPT_FILE_BYTES: int = 1_048_576  # 1 MB
 
-# Per-artifact override for the script field name.
-# Types not listed here default to DEFAULT_SCRIPT_FIELD ("script").
-SCRIPT_FIELD_MAP: dict[str, str] = {
-    "ui_policy": "script_true",
-    "scripted_rest_resource": "operation_script",
-    "widget": "client_script",
-    "ui_page": "html",
-    "ui_macro": "xml",
-    "notification_script": "advanced_condition",
+# Per-artifact script field list. Index 0 is the primary field (the default
+# target when ``script_field`` is not specified on ``record_write``). Additional
+# entries are alternate script-bearing fields that callers can target via the
+# ``script_field`` parameter.
+SCRIPT_FIELD_MAP: dict[str, list[str]] = {
+    "business_rule": ["script", "condition"],
+    "script_include": ["script"],
+    "ui_action": ["script", "condition", "onclick"],
+    "client_script": ["script"],
+    "scheduled_job": ["script"],
+    "fix_script": ["script"],
+    "ui_script": ["script"],
+    "processor": ["script"],
+    "script_action": ["script"],
+    "mid_script_include": ["script"],
+    "ui_policy": ["script_true", "script_false"],
+    "widget": ["client_script", "script", "template", "css", "link"],
+    "ui_page": ["html", "client_script", "processing_script"],
+    "scripted_rest_resource": ["operation_script"],
+    "ui_macro": ["xml"],
+    "notification_script": ["advanced_condition"],
+    "email_script": ["script"],
+    "catalog_client_script": ["script"],
+    "catalog_ui_policy": ["script_true", "script_false"],
+    "transform_map_script": ["script"],
+    "transform_entry_script": ["script"],
+    "acl": ["script"],
+    "dynamic_filter": ["script"],
+    "decision_question": ["condition_script"],
 }
+
+# Module-load invariant: every writable artifact must declare at least one
+# script field. Catches catalog drift on import rather than at first call.
+_missing_field_map = sorted(set(WRITABLE_ARTIFACT_TABLES) - set(SCRIPT_FIELD_MAP))
+_empty_field_map = sorted(k for k, v in SCRIPT_FIELD_MAP.items() if not v)
+if _missing_field_map or _empty_field_map:
+    raise RuntimeError(
+        f"SCRIPT_FIELD_MAP is incomplete: missing entries={_missing_field_map}; empty entries={_empty_field_map}"
+    )
+del _missing_field_map, _empty_field_map
+
+
+def primary_script_field(artifact_type: str) -> str:
+    """Return the primary (default) script field for an artifact type.
+
+    Raises:
+        KeyError: If artifact_type is not in SCRIPT_FIELD_MAP. Callers must
+            validate the type via ``_resolve_writable_artifact_table`` first.
+    """
+    return SCRIPT_FIELD_MAP[artifact_type][0]
 
 
 def _resolve_writable_artifact_table(artifact_type: str) -> str:
@@ -58,6 +105,21 @@ def _resolve_writable_artifact_table(artifact_type: str) -> str:
         valid_types = ", ".join(sorted(WRITABLE_ARTIFACT_TABLES.keys()))
         raise ValueError(f"Unknown artifact_type '{artifact_type}'. Valid types: {valid_types}")
     return table
+
+
+def _validate_xml_content(content: str) -> str | None:
+    """Validate that ``content`` parses as well-formed XML.
+
+    Returns:
+        ``None`` on success, or a human-readable error message string on parse
+        failure. Used by the ``ui_macro`` write path; Jelly macros use a single
+        ``<j:jelly xmlns:j="jelly:core">`` root and should parse as-is.
+    """
+    try:
+        ET.fromstring(content)
+    except ET.ParseError as exc:
+        return f"ui_macro content is not well-formed XML: {exc}"
+    return None
 
 
 def _read_script_file(script_path: str, allowed_root: str) -> str:

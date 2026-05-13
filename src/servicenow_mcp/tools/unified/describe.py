@@ -25,6 +25,7 @@ from servicenow_mcp.policy import (
     INTERNAL_QUERY_LIMIT,
     check_table_access,
 )
+from servicenow_mcp.tools._artifact import SCRIPT_FIELD_MAP, WRITABLE_ARTIFACT_TABLES
 from servicenow_mcp.tools._describe_helpers import (
     _build_slim_field_list,
     _build_verbose_field_list,
@@ -36,6 +37,37 @@ from servicenow_mcp.utils import ServiceNowQuery, format_response, validate_iden
 logger = logging.getLogger(__name__)
 
 TOOL_NAMES: list[str] = ["describe"]
+
+_VALID_DESCRIBE_ACTIONS: frozenset[str] = frozenset({"list_artifact_types"})
+
+
+def _run_artifact_catalog_action(action: str, correlation_id: str) -> str:
+    """Return the artifact catalog for ``action='list_artifact_types'``.
+
+    No platform calls; sorts alphabetically by ``artifact_type`` for stable
+    output. Unknown actions return a structured error.
+    """
+    if action not in _VALID_DESCRIBE_ACTIONS:
+        return format_response(
+            data=None,
+            correlation_id=correlation_id,
+            status="error",
+            error=f"Unknown describe action {action!r}. Valid actions: {sorted(_VALID_DESCRIBE_ACTIONS)}.",
+        )
+
+    entries = [
+        {
+            "artifact_type": artifact_type,
+            "table": WRITABLE_ARTIFACT_TABLES[artifact_type],
+            "script_fields": list(SCRIPT_FIELD_MAP[artifact_type]),
+            "primary_field": SCRIPT_FIELD_MAP[artifact_type][0],
+        }
+        for artifact_type in sorted(WRITABLE_ARTIFACT_TABLES)
+    ]
+    return format_response(
+        data={"artifact_types": entries, "count": len(entries)},
+        correlation_id=correlation_id,
+    )
 
 
 def register_tools(
@@ -55,23 +87,38 @@ def register_tools(
     @mcp.tool()
     @tool_handler
     async def describe(
-        table: str,
+        table: str = "",
         fields: str = "",
         verbose: bool = False,
         include_docs: bool = False,
+        action: str = "",
         *,
         correlation_id: str = "",
     ) -> str:
-        """Return slim field metadata for a table. Default is the 8-key slim shape per field.
+        """Return slim field metadata for a table, or list the artifact catalog.
 
         Args:
-            table: ServiceNow table name.
+            table: ServiceNow table name. Required unless ``action`` is set.
             fields: Comma-separated list of fields to include. Empty = all fields.
             verbose: When True, return the full sys_dictionary row per field
                 minus a fixed deny-list of high-noise keys. Default False.
             include_docs: When True, attach the matching sys_documentation entry
                 (label/help/hint/url) per field. Default False.
+            action: When set to ``'list_artifact_types'``, return the writable
+                artifact catalog (no platform calls, ``table`` ignored). Empty
+                (default) runs the standard table-describe flow.
         """
+        if action:
+            return _run_artifact_catalog_action(action, correlation_id)
+
+        if not table:
+            return format_response(
+                data=None,
+                correlation_id=correlation_id,
+                status="error",
+                error="table is required when action is not set.",
+            )
+
         validate_identifier(table)
         check_table_access(table)
 

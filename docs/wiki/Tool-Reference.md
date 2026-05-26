@@ -167,6 +167,42 @@ Runs pre-defined diagnostic and health check modules.
   - `explain`: Interpret a specific finding from a previous run.
 - **Modules:** `stale_automations`, `deprecated_apis`, `table_health`, `acl_conflicts`, `error_analysis`, `slow_transactions`, `performance_bottlenecks`.
 
+### `flow`
+Inspect ServiceNow Flow Designer artifacts from documented Table API records.
+
+- **Purpose:** Read Flow Designer flows and subflows, including triggers, declared inputs/outputs/variables, decoded V2 action and logic configuration, canvas structure, and published snapshot drift.
+- **Availability:** Included in the `full` and `readonly` packages. Custom packages can include it with `MCP_TOOL_PACKAGE=flow,query,describe`.
+- **Actions:**
+  - `inspect`: Assemble one flow/subflow. Requires exactly one of `sys_id` or `name`.
+  - `find_by_table`: Find flows with a record trigger on `table`.
+  - `decode_values`: Decode a gzip+base64+JSON `values` blob from a `sys_hub_*_v2` row. Requires `value`.
+  - `list_triggers`: List record triggers across flows. Optional filters: `table`, `trigger_type`, `active` (`true`/`false`), `limit`.
+  - `describe`: Return the action registry with names, descriptions, and parameters.
+- **Key Parameters:**
+  - `action`: One of `inspect`, `find_by_table`, `decode_values`, `list_triggers`, or `describe`.
+  - `sys_id`: 32-character flow sys_id for `inspect`; mutually exclusive with `name`.
+  - `name`: Flow name or `internal_name` for `inspect`; must resolve to exactly one flow.
+  - `table`: Target record table for `find_by_table`; optional filter for `list_triggers`.
+  - `trigger_type`: Optional trigger filter for `list_triggers`, such as `record_update`.
+  - `active`: Optional `true`/`false` filter for `list_triggers`.
+  - `value`: Raw compressed `values` field content for `decode_values`.
+  - `limit`: Optional page size for `list_triggers`; defaults to 100 when omitted or `0`.
+- **Examples:**
+  ```python
+  await flow(action="inspect", sys_id="9e858befc3340f105cf89fcd2b01317d")
+  await flow(action="inspect", name="My Flow")
+  await flow(action="find_by_table", table="incident")
+  await flow(action="decode_values", value="H4sIA...")
+  await flow(action="list_triggers", trigger_type="record_update", active="true", limit=50)
+  await flow(action="describe")
+  ```
+- **`inspect` response highlights:** `data` contains `header`, `triggers`, `inputs`, `outputs`, `variables`, `canvas`, `published_state`, `v1_count`, `v2_count`, `v1_logic_count`, and `v1_variable_values`.
+  - `header`: Flow metadata (`sys_id`, `name`, `internal_name`, `type`, `active`, `description`, `sys_scope`).
+  - `published_state`: `{master_snapshot, latest_snapshot, drift}`. `drift` is `true` when the published snapshot differs from the latest authored snapshot.
+  - `canvas`: Nested V2 tree. Root nodes have an empty `parent_ui_id`; children are sorted by `order`. Each node includes `kind` (`action` or `logic`), `ui_id`, `parent_ui_id`, `order`, `decoded_values`, and recursive `children`.
+  - `warnings`: Returned in the standard response envelope for mixed V1/V2 flows, snapshot drift, IntegrationHub spoke heuristics, or V1 logic that cannot be woven into the V2 canvas tree.
+- **Notes:** The tool reads both V1 (`sys_hub_action_instance`, `sys_hub_flow_logic`, `sys_hub_trigger_instance`) and V2 (`sys_hub_action_instance_v2`, `sys_hub_flow_logic_instance_v2`, `sys_hub_trigger_instance_v2`) records. Record-trigger conditions are joined through `sys_flow_record_trigger`. It does not use the undocumented `/api/now/processflow/flow/{sys_id}` endpoint or the opaque `sys_hub_flow_snapshot` compiled cache. A bad per-node `values` blob adds `decode_error` to that node; the rest of `inspect` still succeeds.
+
 ### `resolve_choice`
 Resolves human-readable labels to underlying ServiceNow values using the `sys_choice` table.
 
@@ -196,7 +232,7 @@ The following specialized tool families from v0.9.x have been **deleted** and re
 - ATF tools (Deleted entirely)
 - Specialized domain tools (`incident_*`, `change_*`, etc. — Use `query`, `record_write`, and `resolve_choice`)
 - Change Intelligence and Debug families (`changes_*`, `debug_*` — Use `query` against system tables like `sys_update_xml` or `syslog`)
-- Documentation and Workflow families (`docs_*`, `workflow_*`, `flow_*` — Use `query` or `describe` against platform tables)
+- Documentation and Workflow families (`docs_*`, `workflow_*`, legacy `flow_*` - Use `flow` for Flow Designer inspection, or `query`/`describe` against platform tables)
 - `artifact_create`/`artifact_update` (Folded into `record_write`)
 
 `build_query` is retained from v0.9.x but reshaped to be stateless and scoped to the `full` package. The `QueryTokenStore` is gone - `build_query` returns the encoded query string directly in `data.query` for the caller to forward to `query`. Agents may also bypass `build_query` entirely and pass encoded queries to `query` directly.

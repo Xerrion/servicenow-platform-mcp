@@ -19,19 +19,20 @@ The server has been consolidated from 14 packages down to 4 focused presets. For
 
 ## Package Contents
 
-The `list_tool_packages` tool is always available and returns the active registry at runtime.
+The `list_tool_packages` tool is always available and returns the active registry at runtime. The `full` and `readonly` counts below refer to the package tool surface, not the always-on introspection tool.
 
 ### `full` (12 tools)
-`query`, `build_query`, `describe`, `record_read`, `record_write`, `record_apply`, `attachment`, `attachment_write`, `investigate`, `resolve_choice`, `service_catalog`, `list_tool_packages`.
+`query`, `build_query`, `describe`, `record_read`, `record_write`, `record_apply`, `attachment`, `attachment_write`, `investigate`, `resolve_choice`, `service_catalog`, `flow`.
 
 *Note: `build_query` is a stateless helper that returns an encoded query string for the caller to pass straight to `query`. It is the only tool that is exclusive to the `full` package - the read-only presets pass encoded queries to `query` directly.*
 
 ### `readonly` (8 tools)
-`query`, `describe`, `record_read`, `attachment`, `attachment_write`, `investigate`, `resolve_choice`, `list_tool_packages`.
+`query`, `describe`, `record_read`, `attachment`, `attachment_write`, `investigate`, `resolve_choice`, `flow`.
 *Note: While `attachment_write` is included at the MCP layer, the underlying `gate_write` check will block deletions and uploads if `SERVICENOW_ENV` is set to production.*
 
 ### `core_readonly` (5 tools)
 `query`, `describe`, `attachment`, `attachment_write`, `list_tool_packages`.
+
 *Note: `attachment_write` is included for symmetry; mutations are blocked in production via write gating.*
 
 ---

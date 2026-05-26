@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+* `flow` unified tool for read-only Flow Designer inspection (Washington DC V2 + V1 fallback). Five actions: `inspect`, `find_by_table`, `decode_values`, `list_triggers`, `describe`. Available in `full` and `readonly` presets.
+
 ## [0.10.0](https://github.com/Xerrion/servicenow-devtools-mcp/compare/v0.9.1...v0.10.0) (2026-05-08)
 
 

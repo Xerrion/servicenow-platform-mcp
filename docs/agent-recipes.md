@@ -19,6 +19,7 @@ The previous specialized helper tools (e.g., `incident_list`, `debug_trace`, `ch
 | `investigate` | Runs pre-defined diagnostic investigations (e.g., health checks, bottleneck analysis). |
 | `resolve_choice` | Maps human-readable labels to underlying ServiceNow choice values. |
 | `service_catalog` | Dispatcher for Service Catalog operations (cart, categories, items). |
+| `flow` | Inspects Flow Designer artifacts, finds record-triggered flows, lists triggers, and decodes compressed `values` blobs. |
 
 ## 🔍 Quick Reference: Encoded Query Syntax
 
@@ -249,6 +250,32 @@ report = await query(
 # report["data"] will contain list of {assignment_group: "sys_id", count: "42"}
 ```
 **Notes:** Aggregate queries return the raw sys_id of the group. Call `query` with `sys_id` mode on `sys_user_group` to resolve the top group's name if needed.
+
+---
+
+### 11. Inspect Flow Designer artifacts
+**Goal:** Understand which flows run for a table, inspect one flow's canvas, or decode a compressed `values` field fetched manually.  
+**Old way:** Query `sys_hub_*` tables by hand and decode `values` outside the MCP server.  
+**New way:**
+```python
+# Find all flows triggered by a given table
+await flow(action="find_by_table", table="incident")
+
+# Inspect a specific flow by name
+await flow(action="inspect", name="My Flow")
+
+# Decode a values blob fetched manually via query
+await flow(action="decode_values", value="H4sIA...")
+
+# Survey active record-update triggers across the platform
+await flow(
+    action="list_triggers",
+    trigger_type="record_update",
+    active="true",
+    limit=50,
+)
+```
+**Notes:** `flow(action="inspect", ...)` reads both Washington DC+ V2 rows and V1 fallback rows. Per-node decode failures are isolated to that node as `decode_error`, so one bad `values` blob does not discard the full inspection result.
 
 ## 💡 Tips and Patterns
 

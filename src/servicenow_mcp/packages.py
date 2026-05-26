@@ -45,6 +45,7 @@ _TOOL_GROUP_MODULES: dict[str, str] = {
     "service_catalog": "servicenow_mcp.tools.unified.service_catalog",
     "build_query": "servicenow_mcp.tools.unified.build_query",
     "audit": "servicenow_mcp.tools.unified.audit",
+    "flow": "servicenow_mcp.tools.unified.flow",
 }
 
 # Registry mapping package names to lists of tool group names.
@@ -67,6 +68,7 @@ PACKAGE_REGISTRY: dict[str, list[str]] = {
         "service_catalog",
         "build_query",
         "audit",
+        "flow",
     ],
     "readonly": [
         "query",
@@ -76,6 +78,7 @@ PACKAGE_REGISTRY: dict[str, list[str]] = {
         "investigate",
         "resolve_choice",
         "audit",
+        "flow",
     ],
     "core_readonly": [
         "query",

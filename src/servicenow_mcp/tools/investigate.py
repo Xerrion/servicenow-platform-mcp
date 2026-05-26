@@ -30,7 +30,7 @@ from servicenow_mcp.utils import format_response, validate_identifier
 
 TOOL_NAMES: list[str] = ["investigate"]
 
-_VALID_ACTIONS: Final[frozenset[str]] = frozenset({"run", "explain"})
+_VALID_ACTIONS: Final[frozenset[str]] = frozenset({"run", "explain", "describe"})
 
 
 def _error(correlation_id: str, message: str) -> str:
@@ -74,6 +74,26 @@ async def _run_action(
         result = await module.run(client, params_dict)
 
     return format_response(data=result, correlation_id=correlation_id)
+
+
+def _describe_action(correlation_id: str, name: str) -> str:
+    if not name:
+        return format_response(
+            data={"investigations": sorted(INVESTIGATION_REGISTRY.keys())},
+            correlation_id=correlation_id,
+        )
+
+    module = INVESTIGATION_REGISTRY.get(name)
+    if module is None:
+        return _unknown_investigation_error(correlation_id, name)
+
+    params: dict[str, dict[str, Any]] = getattr(module, "PARAMS", {})
+    doc = (module.__doc__ or "").strip()
+    description = doc.splitlines()[0] if doc else name
+    return format_response(
+        data={"name": name, "description": description, "params": params},
+        correlation_id=correlation_id,
+    )
 
 
 async def _explain_action(
@@ -142,8 +162,8 @@ def register_tools(
         """Run an investigation or explain a finding.
 
         Args:
-            action: 'run' | 'explain'.
-            name: Investigation name (required for 'run').
+            action: 'run' | 'explain' | 'describe'.
+            name: Investigation name (required for 'run', optional for 'describe').
                 Available: stale_automations, deprecated_apis, table_health,
                 acl_conflicts, error_analysis, slow_transactions, performance_bottlenecks.
             params: JSON string of run parameters (run only).
@@ -163,6 +183,9 @@ def register_tools(
                 auth_provider=auth_provider,
                 correlation_id=correlation_id,
             )
+
+        if action == "describe":
+            return _describe_action(correlation_id, name)
 
         return await _explain_action(
             element_id=element_id,

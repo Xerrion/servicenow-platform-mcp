@@ -45,6 +45,7 @@ async def test_unknown_action_returns_error(settings: Settings, auth_provider: B
     assert "frobnicate" in result["error"]["message"]
     assert "run" in result["error"]["message"]
     assert "explain" in result["error"]["message"]
+    assert "describe" in result["error"]["message"]
 
 
 # ---------------------------------------------------------------------------
@@ -164,7 +165,7 @@ async def test_explain_dispatches_to_module_explain(settings: Settings, auth_pro
     stub_module.run = AsyncMock()
     stub_module.explain = AsyncMock(
         return_value={
-            "element": "flow_context:fc001",
+            "element": "sys_flow_context:fc001",
             "explanation": "stub says hi",
             "record": {"sys_id": "fc001"},
         }
@@ -175,7 +176,7 @@ async def test_explain_dispatches_to_module_explain(settings: Settings, auth_pro
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate"](
             action="explain",
-            element_id="flow_context:fc001",
+            element_id="sys_flow_context:fc001",
         )
     result = decode_response(raw)
 
@@ -184,4 +185,92 @@ async def test_explain_dispatches_to_module_explain(settings: Settings, auth_pro
 
     stub_module.explain.assert_awaited_once()
     _client_arg, element_arg = stub_module.explain.await_args.args
-    assert element_arg == "flow_context:fc001"
+    assert element_arg == "sys_flow_context:fc001"
+
+
+# ---------------------------------------------------------------------------
+# action='describe'
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio()
+async def test_describe_with_no_name_returns_directory(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    """action='describe' without a name returns a sorted directory of investigations."""
+    from servicenow_mcp.investigations import INVESTIGATION_REGISTRY
+
+    tools = _register_and_get_tools(settings, auth_provider)
+    raw = await tools["investigate"](action="describe")
+    result = decode_response(raw)
+
+    assert result["status"] == "success"
+    assert result["data"]["investigations"] == sorted(INVESTIGATION_REGISTRY.keys())
+    for expected in (
+        "stale_automations",
+        "deprecated_apis",
+        "table_health",
+        "acl_conflicts",
+        "error_analysis",
+        "slow_transactions",
+        "performance_bottlenecks",
+    ):
+        assert expected in result["data"]["investigations"]
+
+
+@pytest.mark.asyncio()
+async def test_describe_with_unknown_name_returns_error_with_valid_names(
+    settings: Settings, auth_provider: BasicAuthProvider
+) -> None:
+    """An unknown describe name lists every available investigation in the error message."""
+    tools = _register_and_get_tools(settings, auth_provider)
+    raw = await tools["investigate"](action="describe", name="nonexistent")
+    result = decode_response(raw)
+
+    assert result["status"] == "error"
+    message = result["error"]["message"]
+    assert "nonexistent" in message
+    for valid_name in (
+        "stale_automations",
+        "deprecated_apis",
+        "table_health",
+        "acl_conflicts",
+        "error_analysis",
+        "slow_transactions",
+        "performance_bottlenecks",
+    ):
+        assert valid_name in message
+
+
+@pytest.mark.asyncio()
+async def test_describe_returns_params_schema(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    """describe(name=...) returns the module's PARAMS schema and a one-line description."""
+    tools = _register_and_get_tools(settings, auth_provider)
+    raw = await tools["investigate"](action="describe", name="stale_automations")
+    result = decode_response(raw)
+
+    assert result["status"] == "success"
+    data = result["data"]
+    assert data["name"] == "stale_automations"
+    assert isinstance(data["description"], str)
+    assert data["description"]
+
+    params = data["params"]
+    assert isinstance(params, dict)
+    for key in ("stale_days", "limit"):
+        assert key in params
+        entry = params[key]
+        assert "type" in entry
+        assert "default" in entry
+        assert "description" in entry
+
+
+@pytest.mark.asyncio()
+async def test_describe_for_required_param_marks_required(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    """A required param is flagged as required; an optional one is not."""
+    tools = _register_and_get_tools(settings, auth_provider)
+    raw = await tools["investigate"](action="describe", name="table_health")
+    result = decode_response(raw)
+
+    assert result["status"] == "success"
+    params = result["data"]["params"]
+    assert params["table"]["required"] is True
+    assert params["hours"].get("required", False) is False

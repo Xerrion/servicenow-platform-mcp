@@ -1,6 +1,6 @@
 """Investigation: find deprecated API patterns in scripts."""
 
-from typing import Any
+from typing import Any, Final
 
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.investigation_helpers import (
@@ -26,6 +26,11 @@ _ALLOWED_TABLES = {
     "sys_ui_script",
     "sys_processor",
     "sp_widget",
+}
+
+
+PARAMS: Final[dict[str, dict[str, Any]]] = {
+    "limit": {"type": "int", "default": 20, "description": "Max findings per pattern."},
 }
 
 

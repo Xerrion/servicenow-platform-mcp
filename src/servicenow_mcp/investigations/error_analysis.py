@@ -1,7 +1,7 @@
 """Investigation: analyze and cluster syslog errors."""
 
 from collections import defaultdict
-from typing import Any
+from typing import Any, Final
 
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.investigation_helpers import (
@@ -11,6 +11,13 @@ from servicenow_mcp.investigation_helpers import (
 )
 from servicenow_mcp.policy import check_table_access, mask_sensitive_fields
 from servicenow_mcp.utils import ServiceNowQuery
+
+
+PARAMS: Final[dict[str, dict[str, Any]]] = {
+    "hours": {"type": "int", "default": 24, "description": "Lookback window in hours."},
+    "source": {"type": "str|None", "default": None, "description": "Optional source-name filter (LIKE match)."},
+    "limit": {"type": "int", "default": 100, "description": "Max log entries to fetch."},
+}
 
 
 async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any]:

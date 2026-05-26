@@ -47,7 +47,7 @@ def register_tools(
     ...
 ```
 
-The bootstrap process dynamically imports modules from `servicenow_mcp.tools.unified` and registers them.
+The bootstrap process dynamically imports modules from `servicenow_mcp.tools` and registers them.
 
 ## Wire Format
 
@@ -93,14 +93,13 @@ src/servicenow_mcp/
     policy.py              # Safety guardrails & write gating
     state.py               # PreviewTokenStore
     tools/
-        unified/           # The unified tools
-            query.py
-            describe.py
-            record_write.py # Registers both record_write and record_apply
-            attachment.py   # Registers both attachment and attachment_write
-            investigate.py
-            resolve_choice.py
-            service_catalog.py
+        query.py
+        describe.py
+        record_write.py # Registers both record_write and record_apply
+        attachment.py   # Registers both attachment and attachment_write
+        investigate.py
+        resolve_choice.py
+        service_catalog.py
         _artifact.py       # Artifact script security
         _describe_helpers.py
         _record_helpers.py

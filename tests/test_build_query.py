@@ -32,7 +32,7 @@ def _register_and_get_tools(
     """Register the unified ``build_query`` tool on a fresh MCP and return callables."""
     from mcp.server.fastmcp import FastMCP
 
-    from servicenow_mcp.tools.unified.build_query import register_tools
+    from servicenow_mcp.tools.build_query import register_tools
 
     mcp = FastMCP("test")
     register_tools(mcp, settings, auth_provider, choices=None)
@@ -324,7 +324,7 @@ class TestBuildQuery:
         """Unexpected exception in ServiceNowQuery triggers generic handler."""
         tools = _register_and_get_tools(settings, auth_provider)
         with patch(
-            "servicenow_mcp.tools.unified.build_query.ServiceNowQuery",
+            "servicenow_mcp.tools.build_query.ServiceNowQuery",
             side_effect=RuntimeError("boom"),
         ):
             raw = await tools["build_query"](conditions='[{"operator": "equals", "field": "active", "value": "true"}]')

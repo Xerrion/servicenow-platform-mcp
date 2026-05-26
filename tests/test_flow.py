@@ -33,7 +33,7 @@ def _register_and_get_tools(
     choices: Any | None = None,
 ) -> dict[str, Any]:
     """Register the unified ``flow`` tool on a fresh MCP and return callables."""
-    from servicenow_mcp.tools.unified.flow import register_tools
+    from servicenow_mcp.tools.flow import register_tools
 
     mcp = FastMCP("test")
     register_tools(mcp, settings, auth_provider, choices=choices)
@@ -54,7 +54,7 @@ def _patch_client(client: AsyncMock) -> Any:
     cm.__aenter__ = AsyncMock(return_value=client)
     cm.__aexit__ = AsyncMock(return_value=False)
     factory = MagicMock(return_value=cm)
-    return patch("servicenow_mcp.tools.unified.flow.ServiceNowClient", factory)
+    return patch("servicenow_mcp.tools.flow.ServiceNowClient", factory)
 
 
 def _encode_values(payload: Any) -> str:

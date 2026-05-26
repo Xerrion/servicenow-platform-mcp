@@ -1,11 +1,12 @@
 """Tool package registry and loader for the ServiceNow MCP server.
 
-The unified tool surface exposes 9 tool groups across 4 preset packages:
+The unified tool surface exposes 11 tool groups across 4 preset packages:
 
-Groups (registered modules under ``servicenow_mcp.tools.unified``):
+Groups (registered modules under ``servicenow_mcp.tools``):
     ``query``, ``describe``, ``record_write``, ``record_read``,
     ``attachment``, ``investigate``, ``resolve_choice``,
-    ``service_catalog``, ``build_query``. The ``build_query`` group is
+    ``service_catalog``, ``build_query``, ``audit``, ``flow``.
+    The ``build_query`` group is
     included only in the ``full`` preset - it is a stateless query-string
     builder that complements the ``query`` tool and is not needed for
     read-only surfaces.
@@ -35,21 +36,21 @@ tool only.
 """
 
 _TOOL_GROUP_MODULES: dict[str, str] = {
-    "query": "servicenow_mcp.tools.unified.query",
-    "describe": "servicenow_mcp.tools.unified.describe",
-    "record_write": "servicenow_mcp.tools.unified.record_write",
-    "record_read": "servicenow_mcp.tools.unified.record_read",
-    "attachment": "servicenow_mcp.tools.unified.attachment",
-    "investigate": "servicenow_mcp.tools.unified.investigate",
-    "resolve_choice": "servicenow_mcp.tools.unified.resolve_choice",
-    "service_catalog": "servicenow_mcp.tools.unified.service_catalog",
-    "build_query": "servicenow_mcp.tools.unified.build_query",
-    "audit": "servicenow_mcp.tools.unified.audit",
-    "flow": "servicenow_mcp.tools.unified.flow",
+    "query": "servicenow_mcp.tools.query",
+    "describe": "servicenow_mcp.tools.describe",
+    "record_write": "servicenow_mcp.tools.record_write",
+    "record_read": "servicenow_mcp.tools.record_read",
+    "attachment": "servicenow_mcp.tools.attachment",
+    "investigate": "servicenow_mcp.tools.investigate",
+    "resolve_choice": "servicenow_mcp.tools.resolve_choice",
+    "service_catalog": "servicenow_mcp.tools.service_catalog",
+    "build_query": "servicenow_mcp.tools.build_query",
+    "audit": "servicenow_mcp.tools.audit",
+    "flow": "servicenow_mcp.tools.flow",
 }
 
 # Registry mapping package names to lists of tool group names.
-# Tool groups correspond to modules in servicenow_mcp.tools.unified.
+# Tool groups correspond to modules in servicenow_mcp.tools.
 #
 # Caveat: ``readonly`` and ``core_readonly`` both include the ``attachment``
 # group, which registers both read AND write attachment tools. The write

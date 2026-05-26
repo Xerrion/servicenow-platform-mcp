@@ -1,10 +1,8 @@
 """Shared helpers for the ``describe`` tool family.
 
-Both ``tools/table.py:table_describe`` (legacy) and
-``tools/unified/describe.py:describe`` (Phase 3a) project sys_dictionary rows
-into the same slim/verbose shapes. Keeping the projection logic here gives the
-upcoming Phase 4 deletion of ``tools/table.py`` a clean cut: the helpers stay,
-the legacy tool module goes.
+``tools/describe.py:describe`` projects sys_dictionary rows into slim/verbose
+shapes. The projection helpers live here so the tool module stays focused on
+registration and dispatch.
 """
 
 from typing import Any

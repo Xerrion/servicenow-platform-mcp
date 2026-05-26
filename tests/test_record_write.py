@@ -62,7 +62,7 @@ def _register_and_get_tools(settings: Settings, auth_provider: BasicAuthProvider
     """Register the unified record_write tools on a fresh MCP and return callables."""
     from mcp.server.fastmcp import FastMCP
 
-    from servicenow_mcp.tools.unified.record_write import register_tools
+    from servicenow_mcp.tools.record_write import register_tools
 
     mcp = FastMCP("test")
     register_tools(mcp, settings, auth_provider)

@@ -32,7 +32,7 @@ def _register_and_get_tools(
     """Register the unified ``describe`` tool on a fresh MCP and return callables."""
     from mcp.server.fastmcp import FastMCP
 
-    from servicenow_mcp.tools.unified.describe import register_tools
+    from servicenow_mcp.tools.describe import register_tools
 
     mcp = FastMCP("test")
     register_tools(mcp, settings, auth_provider, choices=choices)

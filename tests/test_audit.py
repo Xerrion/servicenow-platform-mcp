@@ -15,7 +15,7 @@ from servicenow_mcp.choices import ChoiceRegistry
 from servicenow_mcp.config import Settings
 from servicenow_mcp.tools._audit import attribute_has_no_audit
 from servicenow_mcp.tools._dictionary import DictionaryRegistry
-from servicenow_mcp.tools.unified.audit import register_tools
+from servicenow_mcp.tools.audit import register_tools
 from tests.helpers import decode_response, get_tool_functions
 
 

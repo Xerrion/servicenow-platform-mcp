@@ -22,7 +22,7 @@ def _register_and_get_tools(settings: Settings, auth_provider: BasicAuthProvider
     """Register the unified ``investigate`` tool on a fresh MCP and return callables."""
     from mcp.server.fastmcp import FastMCP
 
-    from servicenow_mcp.tools.unified.investigate import register_tools
+    from servicenow_mcp.tools.investigate import register_tools
 
     mcp = FastMCP("test")
     register_tools(mcp, settings, auth_provider)
@@ -96,7 +96,7 @@ async def test_run_dispatches_to_module_run(settings: Settings, auth_provider: B
     stub_module.explain = AsyncMock()
 
     fake_registry = {"my_stub": stub_module}
-    with patch("servicenow_mcp.tools.unified.investigate.INVESTIGATION_REGISTRY", fake_registry):
+    with patch("servicenow_mcp.tools.investigate.INVESTIGATION_REGISTRY", fake_registry):
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate"](
             action="run",
@@ -171,7 +171,7 @@ async def test_explain_dispatches_to_module_explain(settings: Settings, auth_pro
     )
 
     fake_registry = {"my_stub": stub_module}
-    with patch("servicenow_mcp.tools.unified.investigate.INVESTIGATION_REGISTRY", fake_registry):
+    with patch("servicenow_mcp.tools.investigate.INVESTIGATION_REGISTRY", fake_registry):
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate"](
             action="explain",

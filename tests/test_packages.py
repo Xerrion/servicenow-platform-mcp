@@ -2,7 +2,7 @@
 
 Phase 3b collapsed 14 legacy presets into 4 (``full``, ``readonly``,
 ``core_readonly``, ``none``) and 21 legacy tool groups into 7 unified
-groups under ``servicenow_mcp.tools.unified.*``.
+groups under ``servicenow_mcp.tools.*``.
 """
 
 import importlib
@@ -28,6 +28,8 @@ EXPECTED_GROUPS = {
     "resolve_choice",
     "service_catalog",
     "build_query",
+    "flow",
+    "audit",
 }
 
 
@@ -37,9 +39,9 @@ class TestPackageRegistry:
     def test_registry_has_exactly_four_presets(self) -> None:
         assert set(PACKAGE_REGISTRY.keys()) == EXPECTED_PRESETS
 
-    def test_full_contains_nine_unified_groups(self) -> None:
+    def test_full_contains_ten_unified_groups(self) -> None:
         assert set(PACKAGE_REGISTRY["full"]) == EXPECTED_GROUPS
-        assert len(PACKAGE_REGISTRY["full"]) == 9
+        assert len(PACKAGE_REGISTRY["full"]) == 11
 
     def test_readonly_is_strict_subset_of_full(self) -> None:
         readonly = set(PACKAGE_REGISTRY["readonly"])
@@ -86,7 +88,7 @@ class TestToolGroupModules:
 
     def test_all_paths_under_unified_namespace(self) -> None:
         for group, path in _TOOL_GROUP_MODULES.items():
-            assert path == f"servicenow_mcp.tools.unified.{group}"
+            assert path == f"servicenow_mcp.tools.{group}"
 
     @pytest.mark.parametrize("group", sorted(EXPECTED_GROUPS))
     def test_each_group_module_is_importable(self, group: str) -> None:
@@ -206,3 +208,28 @@ def test_build_query_only_in_full() -> None:
     assert "build_query" in PACKAGE_REGISTRY["full"]
     for preset in ("readonly", "core_readonly", "none"):
         assert "build_query" not in PACKAGE_REGISTRY[preset], f"build_query should not appear in the '{preset}' preset"
+
+
+def test_flow_in_full_and_readonly_only() -> None:
+    """``flow`` is a Flow Designer inspection group.
+
+    It is read-only (no write tools) so it appears in ``full`` and
+    ``readonly``. It is excluded from ``core_readonly`` (which is the
+    minimum useful surface) and from ``none`` (empty by definition).
+    """
+    assert "flow" in PACKAGE_REGISTRY["full"]
+    assert "flow" in PACKAGE_REGISTRY["readonly"]
+    for preset in ("core_readonly", "none"):
+        assert "flow" not in PACKAGE_REGISTRY[preset], f"flow should not appear in the '{preset}' preset"
+
+
+def test_audit_in_full_and_readonly_only() -> None:
+    """``audit`` is a read-only audit-posture / change-trail inspection group.
+
+    Membership mirrors ``flow``: present in ``full`` and ``readonly``,
+    absent from ``core_readonly`` and ``none``.
+    """
+    assert "audit" in PACKAGE_REGISTRY["full"]
+    assert "audit" in PACKAGE_REGISTRY["readonly"]
+    for preset in ("core_readonly", "none"):
+        assert "audit" not in PACKAGE_REGISTRY[preset], f"audit should not appear in the '{preset}' preset"

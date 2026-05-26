@@ -150,7 +150,7 @@ class TestCreateMcpServer:
         original_import = importlib.import_module
 
         def mock_import(name: str, *args: Any, **kwargs: Any) -> ModuleType:
-            if name == "servicenow_mcp.tools.unified.query":
+            if name == "servicenow_mcp.tools.query":
                 raise ImportError("fake import error")
             return original_import(name, *args, **kwargs)
 

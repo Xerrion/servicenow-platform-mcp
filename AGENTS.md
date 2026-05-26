@@ -42,7 +42,6 @@ mypy override: `servicenow_mcp.server` has `call-arg` error code disabled.
 | Command                                                    | Purpose                                                        |
 | ---------------------------------------------------------- | -------------------------------------------------------------- |
 | `uv run pytest`                                              | All unit tests (integration excluded via `-m 'not integration'`) |
-| `uv run pytest tests/unified/`                               | All unified tool tests                                         |
 | `uv run pytest tests/test_client.py`                         | Single file                                                    |
 | `uv run pytest tests/test_client.py::TestClass::test_method` | Single test                                                    |
 | `uv run pytest -k "keyword"`                                 | Keyword match                                                  |
@@ -323,6 +322,49 @@ Dispatched via the `investigate` tool with `action='run'` or `action='explain'`.
 | `slow_transactions`       | Identify slow-running transactions       |
 | `performance_bottlenecks` | Find performance issues                  |
 
+## 🔎 Flow Designer Inspection
+
+Dispatched via the read-only `flow` tool. Available in the `full` and `readonly` packages, or through custom packages such as `MCP_TOOL_PACKAGE=flow,query,describe`.
+
+### 5 Flow Actions
+
+| Action | Purpose |
+| ------ | ------- |
+| `inspect` | Assemble one flow/subflow by `sys_id` or `name`: header, triggers, inputs, outputs, variables, decoded V2 action/logic nodes, canvas tree, published snapshot drift, and warnings. |
+| `find_by_table` | Find flows with record triggers on a given table. |
+| `decode_values` | Stateless decode for gzip+base64+JSON `values` blobs from `sys_hub_*_v2` rows. |
+| `list_triggers` | List V1 and V2 trigger rows with optional `table`, `trigger_type`, `active`, and `limit` filters. |
+| `describe` | Return the action registry without platform I/O. |
+
+- Reads both V1 (`sys_hub_action_instance`, `sys_hub_flow_logic`, `sys_hub_trigger_instance`) and V2 (`sys_hub_action_instance_v2`, `sys_hub_flow_logic_instance_v2`, `sys_hub_trigger_instance_v2`) Flow Designer tables.
+- Joins V2 record-trigger conditions through `sys_flow_record_trigger.sys_id == trigger_v2.remote_trigger_id`.
+- Pure decoder lives in `tools/_flow_values.py` as `decode_values()` and `looks_compressed()`.
+- Deliberately does not use undocumented `/api/now/processflow/*` endpoints.
+- Deliberately skips `sys_hub_flow_snapshot` because it is an opaque compiled cache.
+- Per-node decode failures add `decode_error` to that node only; the enclosing `inspect` response still succeeds.
+
+## 🛡 Audit Inspection
+
+Dispatched via the read-only `audit` tool. Available in the `full` and `readonly` packages, or through custom packages such as `MCP_TOOL_PACKAGE=audit,query,describe`. Backed by `AuditRegistry` (in `tools/_audit.py`), which composes `DictionaryRegistry` for the `super_class` chain walk rather than reimplementing it.
+
+### 5 Audit Actions
+
+| Action | Purpose |
+| ------ | ------- |
+| `check_field` | Resolve the combined audit verdict for one `(table, field)` pair: chain-walked `sys_db_object.sys_audit`, chain-walked `sys_dictionary.audit`, `no_audit` attribute veto, and a positive-control count from `sys_audit`. |
+| `check_fields` | Batch variant of `check_field`. Accepts a comma-separated `fields_csv` (max 50) and returns one verdict per field plus a single shared `table_change_count`. |
+| `check_table` | Table-level posture: table default, super_class chain, and the list of fields whose resolved audit flag differs from that default. |
+| `history` | Masked, date-bounded audit trail for one record. Queries `sys_audit` with the real column names (`tablename`, `documentkey`, `fieldname`) and masks entries via `mask_audit_entry`. |
+| `describe` | Return the action registry without platform I/O. |
+
+- `verdict` enum: `audited`, `not_audited_field_flag` (with `reason` of `audit_flag` or `no_audit_attribute`), `not_audited_table_flag`, `audited_but_inactive`, `inconclusive`.
+- The `sys_audit` table is one of the largest tables on the platform. Every action that reads it applies a default 90-day window. Callers MAY override the window via `window_days` (or an explicit `since` on `history`) but SHOULD keep the default - wider windows cause slow queries and risk timeouts. Responses include both the `window_days` actually used and a `window_note` describing it.
+- Field-level audit is resolved child-first along `super_class`; the first `sys_dictionary` row found wins, and `inherited_from` names the source table (or is `null` when the queried table declared its own row).
+- `no_audit=true` in the `attributes` blob is an absolute veto over the boolean `audit` column. It is matched at comma boundaries so substrings like `my_no_audit=true` do not false-positive.
+- Positive control disambiguates "no field activity in window" from "audit not configured": zero field rows with non-zero table rows means `audited_but_inactive`; zero on both means `inconclusive`.
+- `AuditRegistry` caches table-level posture and per-(table, field) resolution for the server lifetime; `sys_audit` row counts are NEVER cached.
+- Deliberately does not inspect `sys_audit_delete`, `sys_audit_relation`, or `sys_history_line` - those are distinct stores with different schemas.
+
 ## 🖥 Server Bootstrap
 
 `create_mcp_server()` performs the following:
@@ -358,14 +400,14 @@ Dispatched via the `investigate` tool with `action='run'` or `action='explain'`.
 
 ## 📦 Packages & Tool Groups
 
-The registry contains 4 preset packages. Tool groups are loaded from `servicenow_mcp.tools.unified.*`.
+The registry contains 4 preset packages. Tool groups are loaded from `servicenow_mcp.tools.*`.
 
 ### Preset Packages
 
 | Package | Tools | Description |
 |---|---|---|
-| `full` | 11 | Every group (full surface, includes `build_query`) |
-| `readonly` | 7 | Read tools + investigate + resolve_choice |
+| `full` | 13 | Every group (full surface, includes `build_query`) |
+| `readonly` | 9 | Read tools + investigate + resolve_choice |
 | `core_readonly` | 5 | Query + describe + attachment only |
 | `none` | 1 | Only `list_tool_packages` loaded |
 
@@ -401,9 +443,9 @@ Opt-in error tracking. `tool.name` tag values were updated in v0.10.0 to reflect
 
 Use **respx** library with `@respx.mock` decorator on async test methods.
 
-### Unified Tool Test Helpers
+### Tool Test Helpers
 
-Unified tool tests are located in `tests/unified/`. Standard tool registration for tests uses the 4-argument signature:
+Tool tests live alongside the rest of the suite in `tests/`. Standard tool registration for tests uses the 4-argument signature:
 
 ```python
 def _register_and_get_tools(settings, auth_provider, choices=None):

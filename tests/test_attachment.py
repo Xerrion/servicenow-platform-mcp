@@ -14,7 +14,7 @@ from mcp.server.fastmcp import FastMCP
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.policy import DENIED_TABLES
-from servicenow_mcp.tools.unified.attachment import register_tools
+from servicenow_mcp.tools.attachment import register_tools
 from tests.helpers import decode_response, get_tool_functions
 
 

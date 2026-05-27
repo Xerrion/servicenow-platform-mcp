@@ -60,8 +60,8 @@ class TestQueryMode:
                         {
                             "sys_id": "1",
                             "number": "INC0001",
-                            "password": "leak",
-                        },  # NOSONAR(python:S2068) test fixture, masked at line 74
+                            "password": "leak",  # NOSONAR(python:S2068) test fixture, masked at line 74
+                        },
                         {"sys_id": "2", "number": "INC0002"},
                     ]
                 },

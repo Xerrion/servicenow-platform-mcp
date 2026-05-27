@@ -41,6 +41,7 @@ Thumbs.db
 .sisyphus/
 
 # uv
-uv.lock
+# uv.lock is tracked; build artifacts only:
+.uv/
 
 .ruff_cache

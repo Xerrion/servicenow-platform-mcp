@@ -264,12 +264,12 @@ class AuditRegistry:
         # iterating ``.keys()`` directly would raise ``RuntimeError``.
         for row_key in list(
             self._table_field_rows_cache.keys()
-        ):  # NOSONAR(python:S7504) intentional snapshot; dict mutated during iteration
+        ):  # NOSONAR(S7504) intentional snapshot; dict mutated during iteration
             if row_key.startswith(prefix):
                 self._table_field_rows_cache.pop(row_key, None)
         for field_key in list(
             self._field_audit_cache.keys()
-        ):  # NOSONAR(python:S7504) intentional snapshot; dict mutated during iteration
+        ):  # NOSONAR(S7504) intentional snapshot; dict mutated during iteration
             if field_key[0] == table:
                 self._field_audit_cache.pop(field_key, None)
         # ``DictionaryRegistry`` owns the super_class chain cache; that is

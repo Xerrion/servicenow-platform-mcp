@@ -84,7 +84,12 @@ def _v(field: Any) -> str:
     Accepts either a ``{"value": x, "display_value": y}`` dict or a scalar.
     Always returns a string (empty string for None).
     """
-    raw = field.get("value", "") if isinstance(field, dict) else (field if field is not None else "")
+    if isinstance(field, dict):
+        raw = field.get("value", "")
+    elif field is None:
+        raw = ""
+    else:
+        raw = field
     return str(raw) if raw is not None else ""
 
 
@@ -111,6 +116,16 @@ def _maybe_decode(values_field: Any) -> tuple[Any, str | None]:
         return decode_values(raw), None
     except ValueError as exc:
         return None, str(exc)
+
+
+def _index_by_sys_id(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Index ``rows`` by their ``sys_id`` field (display_value=all-aware)."""
+    indexed: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        key = _v(row.get("sys_id"))
+        if key:
+            indexed[key] = row
+    return indexed
 
 
 # ---------------------------------------------------------------------------
@@ -222,6 +237,73 @@ def _v1_trigger_entry(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+async def _resolve_inspect_sys_id(
+    client: ServiceNowClient,
+    sys_id: str,
+    name: str,
+    correlation_id: str,
+) -> tuple[str, str | None]:
+    """Resolve the flow ``sys_id`` for ``inspect``.
+
+    Returns ``(resolved_sys_id, error_envelope_or_none)``. When ``sys_id``
+    is provided it is returned unchanged; otherwise ``name`` is looked up
+    and the single match's sys_id is returned. Empty / ambiguous / missing
+    cases yield an error envelope in the second slot.
+    """
+    if sys_id:
+        return sys_id, None
+    matches = await client.find_flows_by_name(name)
+    if len(matches) == 0:
+        return "", _error(correlation_id, f"No flow found with name {name!r}.")
+    if len(matches) > 1:
+        return "", _error(
+            correlation_id,
+            f"Name {name!r} is ambiguous ({len(matches)} flows match); pass sys_id instead.",
+        )
+    resolved = _v(matches[0].get("sys_id"))
+    if not resolved:
+        return "", _error(correlation_id, f"Resolved flow for {name!r} has no sys_id.")
+    return resolved, None
+
+
+def _build_inspect_warnings(
+    *,
+    drift: bool,
+    master: str,
+    latest: str,
+    actions_v1: list[dict[str, Any]],
+    logic_v1: list[dict[str, Any]],
+    triggers_v1: list[dict[str, Any]],
+    actions_v2: list[dict[str, Any]],
+    logic_v2: list[dict[str, Any]],
+    triggers_v2: list[dict[str, Any]],
+    action_type_lookup: dict[str, dict[str, Any]],
+) -> list[str]:
+    """Assemble the ``inspect`` warning list (drift, V1/V2 coexistence, spokes)."""
+    warnings: list[str] = []
+    if drift:
+        warnings.append(
+            f"snapshot drift: master_snapshot={master!r} differs from latest_snapshot={latest!r}; "
+            "the runtime engine and the latest design may not agree."
+        )
+    if (actions_v1 or logic_v1 or triggers_v1) and (actions_v2 or logic_v2 or triggers_v2):
+        warnings.append("V1 and V2 Flow Designer artifacts coexist on this flow; canvas omits V1 nodes.")
+    if logic_v1:
+        warnings.append(
+            f"{len(logic_v1)} V1 logic instance(s) present; their semantics are not reflected in the canvas tree."
+        )
+    spoke_actions = [
+        meta
+        for meta in action_type_lookup.values()
+        if "spoke" in _v(meta.get("category")).lower() or "spoke" in _v(meta.get("sys_scope")).lower()
+    ]
+    if spoke_actions:
+        warnings.append(
+            f"{len(spoke_actions)} spoke action type(s) referenced; their decoded values may depend on scoped types."
+        )
+    return warnings
+
+
 async def _action_inspect(
     *,
     sys_id: str,
@@ -238,19 +320,9 @@ async def _action_inspect(
         validate_sys_id(sys_id)
 
     async with ServiceNowClient(settings, auth_provider) as client:
-        resolved_sys_id = sys_id
-        if not resolved_sys_id:
-            matches = await client.find_flows_by_name(name)
-            if len(matches) == 0:
-                return _error(correlation_id, f"No flow found with name {name!r}.")
-            if len(matches) > 1:
-                return _error(
-                    correlation_id,
-                    f"Name {name!r} is ambiguous ({len(matches)} flows match); pass sys_id instead.",
-                )
-            resolved_sys_id = _v(matches[0].get("sys_id"))
-            if not resolved_sys_id:
-                return _error(correlation_id, f"Resolved flow for {name!r} has no sys_id.")
+        resolved_sys_id, err = await _resolve_inspect_sys_id(client, sys_id, name, correlation_id)
+        if err is not None:
+            return err
 
         header = await client.get_flow_by_sys_id(resolved_sys_id)
         if header is None:
@@ -276,23 +348,16 @@ async def _action_inspect(
         v1_variable_values = await client.list_v1_variable_values(v1_action_ids) if v1_action_ids else []
 
     # Build lookups.
-    action_type_lookup: dict[str, dict[str, Any]] = {}
-    for row in action_type_rows:
-        key = _v(row.get("sys_id"))
-        if key:
-            action_type_lookup[key] = row
-    condition_lookup: dict[str, str] = {}
-    for row in record_triggers:
-        key = _v(row.get("sys_id"))
-        if key:
-            condition_lookup[key] = _v(row.get("condition"))
+    action_type_lookup = _index_by_sys_id(action_type_rows)
+    condition_lookup: dict[str, str] = {
+        _v(row.get("sys_id")): _v(row.get("condition")) for row in record_triggers if _v(row.get("sys_id"))
+    }
 
     # Build canvas nodes (actions + logic, both V2), sorted by ``order``.
-    nodes: list[dict[str, Any]] = []
-    for row in actions_v2:
-        nodes.append(_build_v2_node(row, kind="action", action_type_lookup=action_type_lookup))
-    for row in logic_v2:
-        nodes.append(_build_v2_node(row, kind="logic"))
+    nodes: list[dict[str, Any]] = [
+        _build_v2_node(row, kind="action", action_type_lookup=action_type_lookup) for row in actions_v2
+    ]
+    nodes.extend(_build_v2_node(row, kind="logic") for row in logic_v2)
     nodes.sort(key=lambda n: _safe_int(n["order"]))
     canvas = _assemble_canvas(nodes)
 
@@ -304,27 +369,18 @@ async def _action_inspect(
     latest = _v(header.get("latest_snapshot"))
     drift = bool(master and latest and master != latest)
 
-    warnings: list[str] = []
-    if drift:
-        warnings.append(
-            f"snapshot drift: master_snapshot={master!r} differs from latest_snapshot={latest!r}; "
-            "the runtime engine and the latest design may not agree."
-        )
-    if (actions_v1 or logic_v1 or triggers_v1) and (actions_v2 or logic_v2 or triggers_v2):
-        warnings.append("V1 and V2 Flow Designer artifacts coexist on this flow; canvas omits V1 nodes.")
-    if logic_v1:
-        warnings.append(
-            f"{len(logic_v1)} V1 logic instance(s) present; their semantics are not reflected in the canvas tree."
-        )
-    spoke_actions = [
-        meta
-        for meta in action_type_lookup.values()
-        if "spoke" in _v(meta.get("category")).lower() or "spoke" in _v(meta.get("sys_scope")).lower()
-    ]
-    if spoke_actions:
-        warnings.append(
-            f"{len(spoke_actions)} spoke action type(s) referenced; their decoded values may depend on scoped types."
-        )
+    warnings = _build_inspect_warnings(
+        drift=drift,
+        master=master,
+        latest=latest,
+        actions_v1=actions_v1,
+        logic_v1=logic_v1,
+        triggers_v1=triggers_v1,
+        actions_v2=actions_v2,
+        logic_v2=logic_v2,
+        triggers_v2=triggers_v2,
+        action_type_lookup=action_type_lookup,
+    )
 
     payload: dict[str, Any] = {
         "flow": {
@@ -388,46 +444,14 @@ async def _action_find_by_table(
         v2_triggers = await client.list_v2_triggers_by_remote_ids(remote_ids) if remote_ids else []
         v1_triggers = await client.list_v1_triggers_by_table(table)
 
-        flow_versions: dict[str, set[str]] = {}
-        for row in v2_triggers:
-            flow_id = _v(row.get("flow"))
-            if flow_id:
-                flow_versions.setdefault(flow_id, set()).add("v2")
-        for row in v1_triggers:
-            flow_id = _v(row.get("flow"))
-            if flow_id:
-                flow_versions.setdefault(flow_id, set()).add("v1")
-
+        flow_versions = _collect_flow_versions(v2_triggers, v1_triggers)
         flow_sys_ids = sorted(flow_versions.keys())
         flows_meta = await client.get_flows_bulk(flow_sys_ids) if flow_sys_ids else []
 
-    meta_by_id: dict[str, dict[str, Any]] = {}
-    for row in flows_meta:
-        key = _v(row.get("sys_id"))
-        if key:
-            meta_by_id[key] = row
-
-    flows: list[dict[str, Any]] = []
-    v1_unique: set[str] = set()
-    v2_unique: set[str] = set()
-    for flow_id, versions in flow_versions.items():
-        if "v1" in versions:
-            v1_unique.add(flow_id)
-        if "v2" in versions:
-            v2_unique.add(flow_id)
-        version_tag = "+".join(sorted(versions))
-        meta = meta_by_id.get(flow_id, {})
-        flows.append(
-            {
-                "sys_id": flow_id,
-                "name": _d(meta.get("name")) if meta else "",
-                "internal_name": _v(meta.get("internal_name")) if meta else "",
-                "type": _v(meta.get("type")) if meta else "",
-                "active": _v(meta.get("active")) == "true" if meta else False,
-                "sys_scope": _d(meta.get("sys_scope")) if meta else "",
-                "version": version_tag,
-            }
-        )
+    meta_by_id = _index_by_sys_id(flows_meta)
+    v1_unique = {fid for fid, versions in flow_versions.items() if "v1" in versions}
+    v2_unique = {fid for fid, versions in flow_versions.items() if "v2" in versions}
+    flows = [_find_by_table_entry(fid, versions, meta_by_id.get(fid, {})) for fid, versions in flow_versions.items()]
 
     payload: dict[str, Any] = {
         "table": table,
@@ -437,6 +461,40 @@ async def _action_find_by_table(
         "flows": flows,
     }
     return format_response(data=payload, correlation_id=correlation_id)
+
+
+def _collect_flow_versions(
+    v2_triggers: list[dict[str, Any]],
+    v1_triggers: list[dict[str, Any]],
+) -> dict[str, set[str]]:
+    """Group trigger rows by flow sys_id, tagging each with its version set."""
+    flow_versions: dict[str, set[str]] = {}
+    for row in v2_triggers:
+        flow_id = _v(row.get("flow"))
+        if flow_id:
+            flow_versions.setdefault(flow_id, set()).add("v2")
+    for row in v1_triggers:
+        flow_id = _v(row.get("flow"))
+        if flow_id:
+            flow_versions.setdefault(flow_id, set()).add("v1")
+    return flow_versions
+
+
+def _find_by_table_entry(
+    flow_id: str,
+    versions: set[str],
+    meta: dict[str, Any],
+) -> dict[str, Any]:
+    """Build one ``find_by_table`` flow entry from its trigger versions and metadata."""
+    return {
+        "sys_id": flow_id,
+        "name": _d(meta.get("name")) if meta else "",
+        "internal_name": _v(meta.get("internal_name")) if meta else "",
+        "type": _v(meta.get("type")) if meta else "",
+        "active": _v(meta.get("active")) == "true" if meta else False,
+        "sys_scope": _d(meta.get("sys_scope")) if meta else "",
+        "version": "+".join(sorted(versions)),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -499,34 +557,10 @@ async def _action_list_triggers(
         flow_ids = {_v(row.get("flow")) for row in v2_rows + v1_rows if _v(row.get("flow"))}
         flows_meta = await client.get_flows_bulk(sorted(flow_ids)) if flow_ids else []
 
-    meta_by_id: dict[str, dict[str, Any]] = {}
-    for row in flows_meta:
-        key = _v(row.get("sys_id"))
-        if key:
-            meta_by_id[key] = row
+    meta_by_id = _index_by_sys_id(flows_meta)
 
-    def _trigger_with_flow(row: dict[str, Any], version: str) -> dict[str, Any]:
-        flow_id = _v(row.get("flow"))
-        meta = meta_by_id.get(flow_id, {})
-        entry: dict[str, Any] = {
-            "version": version,
-            "sys_id": _v(row.get("sys_id")),
-            "type": _v(row.get("type")),
-            "active": _v(row.get("active")) == "true",
-            "table": _v(row.get("table")),
-            "flow": {
-                "sys_id": flow_id,
-                "name": _d(meta.get("name")) if meta else _d(row.get("flow")),
-            },
-        }
-        if version == "v1":
-            entry["condition"] = _v(row.get("condition"))
-        else:
-            entry["remote_trigger_id"] = _v(row.get("remote_trigger_id"))
-        return entry
-
-    triggers: list[dict[str, Any]] = [_trigger_with_flow(row, "v2") for row in v2_rows]
-    triggers.extend(_trigger_with_flow(row, "v1") for row in v1_rows)
+    triggers: list[dict[str, Any]] = [_trigger_with_flow(row, "v2", meta_by_id) for row in v2_rows]
+    triggers.extend(_trigger_with_flow(row, "v1", meta_by_id) for row in v1_rows)
 
     payload: dict[str, Any] = {
         "v1_count": len(v1_rows),
@@ -538,6 +572,32 @@ async def _action_list_triggers(
         correlation_id=correlation_id,
         pagination={"limit": effective_limit, "offset": 0, "total": len(triggers)},
     )
+
+
+def _trigger_with_flow(
+    row: dict[str, Any],
+    version: str,
+    meta_by_id: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Build a ``list_triggers`` entry stitched with flow metadata."""
+    flow_id = _v(row.get("flow"))
+    meta = meta_by_id.get(flow_id, {})
+    entry: dict[str, Any] = {
+        "version": version,
+        "sys_id": _v(row.get("sys_id")),
+        "type": _v(row.get("type")),
+        "active": _v(row.get("active")) == "true",
+        "table": _v(row.get("table")),
+        "flow": {
+            "sys_id": flow_id,
+            "name": _d(meta.get("name")) if meta else _d(row.get("flow")),
+        },
+    }
+    if version == "v1":
+        entry["condition"] = _v(row.get("condition"))
+    else:
+        entry["remote_trigger_id"] = _v(row.get("remote_trigger_id"))
+    return entry
 
 
 # ---------------------------------------------------------------------------

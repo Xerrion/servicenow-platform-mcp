@@ -80,6 +80,25 @@ def _make_sys_db_handler(
     return handler
 
 
+def _parse_in_list_clause(query: str, prefix: str) -> list[str]:
+    """Return the values from a ``<prefix>IN<csv>`` clause in an encoded query."""
+    needle = f"{prefix}IN"
+    for part in query.split("^"):
+        if part.startswith(needle):
+            return part[len(needle) :].split(",")
+    return []
+
+
+def _parse_eq_clause(query: str, key: str) -> str | None:
+    """Return the value from a ``<key>=<value>`` clause, ignoring ``<key>IS...`` ops."""
+    eq_prefix = f"{key}="
+    is_prefix = f"{key}IS"
+    for part in query.split("^"):
+        if part.startswith(eq_prefix) and not part.startswith(is_prefix):
+            return part.split("=", 1)[1]
+    return None
+
+
 def _make_sys_dict_handler(
     rows_by_table: dict[str, list[dict[str, Any]]],
 ) -> Callable[[httpx.Request], httpx.Response]:
@@ -92,17 +111,8 @@ def _make_sys_dict_handler(
     def handler(request: httpx.Request) -> httpx.Response:
         params = dict(request.url.params)
         query = params.get("sysparm_query", "")
-        # Parse nameIN clause.
-        names: list[str] = []
-        for part in query.split("^"):
-            if part.startswith("nameIN"):
-                names = part[len("nameIN") :].split(",")
-                break
-        element: str | None = None
-        for part in query.split("^"):
-            if part.startswith("element=") and not part.startswith("elementIS"):
-                element = part.split("=", 1)[1]
-                break
+        names = _parse_in_list_clause(query, "name")
+        element = _parse_eq_clause(query, "element")
 
         result: list[dict[str, Any]] = []
         for table in names:

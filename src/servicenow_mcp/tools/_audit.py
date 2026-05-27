@@ -43,6 +43,70 @@ def attribute_has_no_audit(attributes: str) -> bool:
     return bool(_NO_AUDIT_RE.search(attributes))
 
 
+def _empty_field_audit() -> FieldAudit:
+    """Return the canonical ``FieldAudit`` used when no row exists in the chain."""
+    return FieldAudit(
+        field_audit=None,
+        raw_field_audit=None,
+        inherited_from=None,
+        has_row=False,
+        no_audit_attribute=False,
+        attributes_raw="",
+    )
+
+
+def _index_dict_rows_by_table(rows: list[dict[str, Any]], field: str) -> dict[str, dict[str, Any]]:
+    """Index ``sys_dictionary`` rows by ``name`` keeping only ``element == field``.
+
+    First row per table wins; subsequent rows for the same table are ignored
+    (the caller relies on this for child-first chain resolution).
+    """
+    rows_by_table: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        element = str(row.get("element") or "").strip()
+        if element != field:
+            continue
+        name = str(row.get("name") or "").strip()
+        if not name or name in rows_by_table:
+            continue
+        rows_by_table[name] = row
+    return rows_by_table
+
+
+def _pick_chain_match(
+    chain: list[str],
+    rows_by_table: dict[str, dict[str, Any]],
+) -> tuple[str | None, dict[str, Any] | None]:
+    """Return the first ``(table, row)`` along ``chain`` (child-first) that has a row."""
+    for current in chain:
+        row = rows_by_table.get(current)
+        if row is not None:
+            return current, row
+    return None, None
+
+
+def _build_field_audit(match_row: dict[str, Any], match_table: str, queried_table: str) -> FieldAudit:
+    """Assemble a :class:`FieldAudit` from the resolved ``sys_dictionary`` row.
+
+    Applies the ``no_audit=true`` attribute veto over the raw ``audit`` column.
+    """
+    attributes_raw = str(match_row.get("attributes") or "")
+    no_audit = attribute_has_no_audit(attributes_raw)
+    raw_field_audit = str(match_row.get("audit") or "").strip().lower() == "true"
+    # ``no_audit=true`` in the attributes blob is an absolute veto over
+    # the boolean audit column (see AGENTS.md "Audit Inspection").
+    field_audit = False if no_audit else raw_field_audit
+    inherited_from = match_table if match_table != queried_table else None
+    return FieldAudit(
+        field_audit=field_audit,
+        raw_field_audit=raw_field_audit,
+        inherited_from=inherited_from,
+        has_row=True,
+        no_audit_attribute=no_audit,
+        attributes_raw=attributes_raw,
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class FieldAudit:
     """Resolved audit posture for a single ``(table, field)`` pair.
@@ -161,68 +225,24 @@ class AuditRegistry:
 
         chain = await self.get_chain(table)
         if not chain:
-            result = FieldAudit(
-                field_audit=None,
-                raw_field_audit=None,
-                inherited_from=None,
-                has_row=False,
-                no_audit_attribute=False,
-                attributes_raw="",
-            )
-            self._field_audit_cache[cache_key] = result
-            return result
+            return self._cache_field_audit(cache_key, _empty_field_audit())
 
         rows = await self._fetch_field_audit_rows(table, chain, field)
-
-        # Index rows by table name for child-first walk.
-        rows_by_table: dict[str, dict[str, Any]] = {}
-        for row in rows:
-            element = str(row.get("element") or "").strip()
-            if element != field:
-                continue
-            name = str(row.get("name") or "").strip()
-            if not name or name in rows_by_table:
-                continue
-            rows_by_table[name] = row
-
-        match_table: str | None = None
-        match_row: dict[str, Any] | None = None
-        for current in chain:
-            if current in rows_by_table:
-                match_table = current
-                match_row = rows_by_table[current]
-                break
+        rows_by_table = _index_dict_rows_by_table(rows, field)
+        match_table, match_row = _pick_chain_match(chain, rows_by_table)
 
         if match_row is None or match_table is None:
-            result = FieldAudit(
-                field_audit=None,
-                raw_field_audit=None,
-                inherited_from=None,
-                has_row=False,
-                no_audit_attribute=False,
-                attributes_raw="",
-            )
-            self._field_audit_cache[cache_key] = result
-            return result
+            return self._cache_field_audit(cache_key, _empty_field_audit())
 
-        attributes_raw = str(match_row.get("attributes") or "")
-        no_audit = attribute_has_no_audit(attributes_raw)
-        raw_field_audit = str(match_row.get("audit") or "").strip().lower() == "true"
-        # ``no_audit=true`` in the attributes blob is an absolute veto over
-        # the boolean audit column (see AGENTS.md "Audit Inspection").
-        field_audit = False if no_audit else raw_field_audit
-        inherited_from = match_table if match_table != table else None
-
-        result = FieldAudit(
-            field_audit=field_audit,
-            raw_field_audit=raw_field_audit,
-            inherited_from=inherited_from,
-            has_row=True,
-            no_audit_attribute=no_audit,
-            attributes_raw=attributes_raw,
+        return self._cache_field_audit(
+            cache_key,
+            _build_field_audit(match_row, match_table, table),
         )
-        self._field_audit_cache[cache_key] = result
-        return result
+
+    def _cache_field_audit(self, key: tuple[str, str], value: FieldAudit) -> FieldAudit:
+        """Memoize ``value`` under ``key`` and return it."""
+        self._field_audit_cache[key] = value
+        return value
 
     def flush(self, table: str | None = None) -> None:
         """Clear cached entries.
@@ -240,10 +260,12 @@ class AuditRegistry:
         # ``_table_field_rows_cache`` is keyed by ``"{table}:{field}"``; iterate
         # to clear every entry that belongs to ``table``.
         prefix = f"{table}:"
-        for row_key in list(self._table_field_rows_cache.keys()):
+        # ``list()`` snapshots the keys because we mutate the dict in the loop body;
+        # iterating ``.keys()`` directly would raise ``RuntimeError``. NOSONAR-S7504.
+        for row_key in list(self._table_field_rows_cache.keys()):  # NOSONAR
             if row_key.startswith(prefix):
                 self._table_field_rows_cache.pop(row_key, None)
-        for field_key in list(self._field_audit_cache.keys()):
+        for field_key in list(self._field_audit_cache.keys()):  # NOSONAR
             if field_key[0] == table:
                 self._field_audit_cache.pop(field_key, None)
         # ``DictionaryRegistry`` owns the super_class chain cache; that is

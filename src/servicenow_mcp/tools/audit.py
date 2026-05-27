@@ -42,17 +42,20 @@ _VALID_ACTIONS: Final[frozenset[str]] = frozenset({"check_field", "check_fields"
 _DEFAULT_WINDOW_DAYS: Final[int] = 90
 _MAX_FIELDS_PER_BATCH: Final[int] = 50
 
+# Reused param-schema literal for optional integer parameters in _ACTION_REGISTRY.
+_OPTIONAL_INT_PARAM: Final[str] = "int (optional)"
+
 _ACTION_REGISTRY: Final[dict[str, dict[str, Any]]] = {
     "check_field": {
         "description": "Resolve the combined audit verdict for one (table, field) pair.",
-        "params": {"table": "str", "field": "str", "window_days": "int (optional)"},
+        "params": {"table": "str", "field": "str", "window_days": _OPTIONAL_INT_PARAM},
     },
     "check_fields": {
         "description": "Batch ``check_field`` for a comma-separated list of fields on one table.",
         "params": {
             "table": "str",
             "fields_csv": f"comma-separated field names (1..{_MAX_FIELDS_PER_BATCH})",
-            "window_days": "int (optional)",
+            "window_days": _OPTIONAL_INT_PARAM,
         },
     },
     "check_table": {
@@ -66,7 +69,7 @@ _ACTION_REGISTRY: Final[dict[str, dict[str, Any]]] = {
             "sys_id": "str (32-char)",
             "since": "YYYY-MM-DD (optional, overrides window_days)",
             "window_days": "int (optional, default 90)",
-            "limit": "int (optional)",
+            "limit": _OPTIONAL_INT_PARAM,
         },
     },
     "describe": {

@@ -162,14 +162,16 @@ async def _inject_script_path(
 
     try:
         content = _read_script_file(script_path, allowed_root)
+    except UnicodeDecodeError as exc:
+        # UnicodeDecodeError is a subclass of ValueError; catch it first so the
+        # caller gets the UTF-8-specific message instead of the generic one.
+        return _err(correlation_id, f"script_path is not valid UTF-8: {exc}")
     except ValueError as exc:
         return _err(correlation_id, f"Invalid script_path: {exc}")
     except FileNotFoundError as exc:
         return _err(correlation_id, str(exc))
     except PermissionError as exc:
         return _err(correlation_id, f"script_path security violation: {exc}")
-    except UnicodeDecodeError as exc:
-        return _err(correlation_id, f"script_path is not valid UTF-8: {exc}")
 
     if target.internal_type == "xml":
         xml_error = validate_ui_macro_xml(content)

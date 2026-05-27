@@ -66,8 +66,12 @@ def test_looks_compressed_returns_false_for_empty_string() -> None:
 
 def test_looks_compressed_returns_false_for_non_string() -> None:
     # The function is typed for str but defends against non-string input.
-    assert looks_compressed(None) is False  # type: ignore[arg-type]
-    assert looks_compressed(123) is False  # type: ignore[arg-type]
+    # Sentinels are typed ``Any`` so static type-checkers (and Sonar S5655)
+    # do not flag the deliberate misuse.
+    none_sentinel: Any = None
+    int_sentinel: Any = 123
+    assert looks_compressed(none_sentinel) is False
+    assert looks_compressed(int_sentinel) is False
 
 
 # ---------------------------------------------------------------------------

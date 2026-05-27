@@ -57,7 +57,7 @@ class TestQueryMode:
                 200,
                 json={
                     "result": [
-                        {"sys_id": "1", "number": "INC0001", "password": "leak"},
+                        {"sys_id": "1", "number": "INC0001", "password": "leak"},  # NOSONAR: fake test fixture value
                         {"sys_id": "2", "number": "INC0002"},
                     ]
                 },

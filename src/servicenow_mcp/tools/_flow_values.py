@@ -12,7 +12,6 @@ state. Callers decide when (and whether) to decode.
 from __future__ import annotations
 
 import base64
-import binascii
 import gzip
 import json
 from typing import Any
@@ -62,7 +61,8 @@ def decode_values(compressed: str) -> list[Any] | dict[str, Any]:
 
     try:
         raw = base64.b64decode(payload, validate=True)
-    except (binascii.Error, ValueError) as exc:
+    except ValueError as exc:
+        # binascii.Error is a subclass of ValueError; ValueError alone covers it.
         raise ValueError(f"not valid base64: {exc}") from exc
 
     try:

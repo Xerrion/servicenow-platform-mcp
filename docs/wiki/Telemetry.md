@@ -54,19 +54,21 @@ When `HAS_SENTRY` is `False`, all public functions no-op immediately - zero over
 
 ## SDK Configuration
 
-When activated, Sentry is initialized with these settings:
+When activated, Sentry is initialized with conservative defaults:
 
 ```python
 sentry_sdk.init(
     dsn=dsn,
     environment=environment,
-    release=_RELEASE,            # e.g. "servicenow-platform-mcp@0.9.0"
-    send_default_pii=True,
+    release=_RELEASE,            # e.g. "servicenow-platform-mcp@0.10.0"
+    send_default_pii=False,      # No PII in breadcrumbs, request bodies, etc.
     integrations=integrations,   # Includes MCPIntegration when available
-    traces_sample_rate=1.0,      # All transactions sampled
+    traces_sample_rate=0.1,      # 10% of transactions sampled
     profiles_sample_rate=None,   # Profiling disabled
 )
 ```
+
+`send_default_pii` is `False` so the SDK does not attach usernames, IP addresses, or request bodies to events. `traces_sample_rate` defaults to `0.1` (10%) to limit trace volume. Both values are operator-tunable via the standard Sentry SDK environment variables (`SENTRY_SEND_DEFAULT_PII`, `SENTRY_TRACES_SAMPLE_RATE`) without code changes.
 
 The release string is dynamically derived from package metadata using `importlib.metadata.version()`:
 
@@ -86,19 +88,37 @@ Sentry context and exception capture is woven through the codebase at key points
 Every tool invocation sets:
 
 - **Tags** (indexed, searchable):
-  - `tool.name` - The tool function name (e.g., `"record_list"`)
+  - `tool.name` - The tool function name (e.g., `"query"`)
   - `tool.correlation_id` - UUID4 for request tracing
 - **Context** (structured data):
-  - `"tool"` context with `name`, `correlation_id`, and `args` (with `correlation_id` excluded from the args dict)
+  - `"tool"` context with `name`, `correlation_id`, and `args`
+  - `correlation_id` is excluded from the `args` dict (it is already a top-level tag and context field)
+
+### Argument Redaction
+
+Before the `args` dict is attached to Sentry context, `_redact_args()` replaces the values of sensitive keys with the sentinel `_REDACTED` (`"***REDACTED***"`). Redaction is **shallow** - if a value is a JSON-shaped string, it is replaced as a whole rather than parsed and field-redacted.
+
+The 13 keys in `_SENSITIVE_ARG_KEYS` (matched case-insensitively by exact name):
+
+`data`, `content_base64`, `value`, `script_path`, `encoded_query`, `params`, `password`, `token`, `secret`, `api_key`, `authorization`, `variables`, `conditions`, `text`.
+
+This ensures cleartext payloads, query strings, and credentials are never transmitted to a third-party observability service. Operators who need the full argument values can inspect the local server logs, where arguments are not redacted.
 
 ### `safe_tool_call()` (utils.py)
 
-The error boundary that wraps all tool executions:
+The error boundary that wraps all tool executions. It distinguishes **verbose** arms - whose curated, caller-actionable messages are returned to the agent - from an **opaque** arm for unclassified failures:
 
-- Catches `ForbiddenError` - captures to Sentry, returns ACL denial error envelope
-- Catches generic `Exception` - captures to Sentry, returns generic error envelope
+| Arm | What the agent sees |
+|---|---|
+| `ACLError` | Verbose: curated ACL denial message |
+| `ForbiddenError` | Verbose: curated forbidden message |
+| `ServiceNowMCPError` | Verbose: curated platform error message |
+| `ValueError` | Verbose: the rejected-input message from validators like `validate_identifier` |
+| Generic `Exception` | **Opaque:** `"Internal error (correlation_id=<uuid>)"` |
 
-Both paths call `capture_exception(e)` before returning the serialized error response.
+For the generic arm, full exception detail is logged locally via `logger.exception` and captured to Sentry via `capture_exception(e)`. The agent receives only the opaque envelope and the `correlation_id`, which operators can use to pivot to logs or Sentry events.
+
+All arms call `capture_exception(e)` before returning the serialized error response.
 
 ### `serialize()` (utils.py)
 

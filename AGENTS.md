@@ -143,6 +143,8 @@ reason = write_blocked_reason("incident", settings)
 
 **Tool functions never raise to MCP.** The `@tool_handler` decorator combined with `safe_tool_call()` catches all exceptions and returns serialized error envelopes automatically. Manual try/except blocks are NOT needed in tool functions.
 
+`safe_tool_call()` arms, in order: `ACLError`, `ForbiddenError`, `ServiceNowMCPError`, `ValueError` - these four preserve verbose, caller-actionable messages. The final generic `Exception` arm returns an opaque `"Internal error (correlation_id=<uuid>)"` envelope and logs full detail via `logger.exception` + `sentry_capture(e)`.
+
 When Sentry is active, `safe_tool_call()` also calls `sentry_capture(e)` to capture exceptions before returning the error envelope.
 
 ## 🎯 @tool_handler Decorator - THE CENTRAL PATTERN
@@ -161,9 +163,9 @@ async def my_tool(param: str, correlation_id: str = "") -> str:
 What `@tool_handler` does:
 
 1. Auto-generates `correlation_id` via `generate_correlation_id()` (UUID4).
-2. Wraps the function call in `safe_tool_call()` which catches `ForbiddenError` and `Exception`, returning serialized error envelopes.
+2. Wraps the function call in `safe_tool_call()` which catches `ACLError`, `ForbiddenError`, `ServiceNowMCPError`, and `ValueError` (verbose envelopes) plus generic `Exception` (opaque `"Internal error (correlation_id=...)"` envelope with `logger.exception` + `sentry_capture`).
 3. Hides `correlation_id` from the FastMCP tool schema by overriding `__signature__` and deleting `__wrapped__`.
-4. Sets Sentry tags (`tool.name`, `tool.correlation_id`) and context with tool name, correlation_id, and args.
+4. Sets Sentry tags (`tool.name`, `tool.correlation_id`) and context with tool name, correlation_id, and redacted args. Sensitive argument keys are replaced with `"***REDACTED***"` before transmission to Sentry (see Sentry Module section).
 
 ## 📊 Response Format
 
@@ -258,7 +260,7 @@ Script-bearing artifacts (Business Rules, Script Includes, UI Macros, etc.) are 
 1. Walks `sys_db_object.super_class` child-first, bounded at depth 8, with a cycle guard.
 2. Fetches active `sys_dictionary` rows for each table in the chain.
 3. Admits a field when its `internal_type` is in `UNAMBIGUOUS_SCRIPT_TYPES` (`script`, `script_plain`, `script_server`, `script_client`, `email_script`, `html_script`, `html_template`, `css`).
-4. For ambiguous types (`html`, `xml`), admits the field only when `attributes` contains `tinymce_allow_all=true` or `html_sanitize=false`.
+4. For ambiguous types (`html`, `xml`), admits the field only when `_parse_attributes(attributes)` yields an exact token-boundary match for `tinymce_allow_all=true` or `html_sanitize=false`. The parser splits on commas, partitions on the first `=`, and lowercases keys and values. Substring matches like `my_tinymce_allow_all=true` no longer admit.
 5. Drops anything in `EXCLUDED_ELEMENTS` (`translated_html`, `template_value`, `glide_var`, `json`, `conditions`, `condition_string`, `glide_action_list`, `variable_conditions`, `snapshot_template_value`, `variable_template_value`).
 6. Caches per-table results for the registry lifetime; `flush(table=None)` invalidates everything or a single table.
 
@@ -270,8 +272,8 @@ Discover the script fields for any table at runtime via `describe(action='list_s
 
 `record_write` accepts an optional `script_path` for any table that has at least one script-bearing field:
 
-- Path is resolved via `Path.resolve(strict=True)` to prevent symlink/traversal attacks.
-- The resolved path must be under the directory defined by the `script_allowed_root` setting.
+- `script_allowed_root` is resolved and `is_dir()`-validated **before** any user-controlled `script_path.resolve()`.
+- All user-path rejections (file missing, not regular, outside root, symlink escape) return a single opaque message: `"script_path is not readable or is outside the allowed root"`. Configuration errors (`script_allowed_root` unset or not a directory) and the >1 MiB file-size error remain verbose.
 - File is read as UTF-8; maximum size is 1 MB (`MAX_SCRIPT_FILE_BYTES`).
 - Content is written to the first script-bearing field detected by `DictionaryRegistry` (child-first, sys_dictionary row order), unless `script_field` overrides it.
 - When the resolved field has `internal_type == 'xml'`, the content is validated as well-formed XML (`xml.etree.ElementTree.fromstring`) before any platform call; malformed content yields a structured error.
@@ -288,6 +290,10 @@ Discover the script fields for any table at runtime via `describe(action='list_s
 ### record_read
 
 Read-only counterpart. `record_read(table, sys_id=..., name=...)` returns the masked record plus the `script_fields` list resolved by `DictionaryRegistry` for the table, enabling discovery-driven multi-field edits. Exactly one of `sys_id` or `name` must be supplied; ambiguous names (>1 match) and missing records return structured errors. Included in both `full` and `readonly` packages.
+
+### Payload Size Cap
+
+`record_write` enforces `MAX_PAYLOAD_BYTES = 1 MiB` on the `data` parameter (covers both `create.data` and `update.changes`). The check runs in `_validate_action_args` before `_prepare_payload`, before `parse_payload_json`, and before any `PreviewTokenStore.create` call. `record_apply` inherits the cap by construction because it only reads previously-validated tokens. Defence in depth: `parse_payload_json` has its own 256 KiB cap downstream; the 1 MiB outer cap is the entry-point ceiling.
 
 ## 🔄 ChoiceRegistry
 
@@ -338,7 +344,7 @@ Dispatched via the read-only `flow` tool. Available in the `full` and `readonly`
 
 - Reads both V1 (`sys_hub_action_instance`, `sys_hub_flow_logic`, `sys_hub_trigger_instance`) and V2 (`sys_hub_action_instance_v2`, `sys_hub_flow_logic_instance_v2`, `sys_hub_trigger_instance_v2`) Flow Designer tables.
 - Joins V2 record-trigger conditions through `sys_flow_record_trigger.sys_id == trigger_v2.remote_trigger_id`.
-- Pure decoder lives in `tools/_flow_values.py` as `decode_values()` and `looks_compressed()`.
+- Pure decoder lives in `tools/_flow_values.py` as `decode_values()` and `looks_compressed()`. Decompression is bounded: `MAX_COMPRESSED_BYTES = 1 MiB` (wire cap, checked before allocating the decompressor) and `MAX_DECOMPRESSED_BYTES = 4 MiB`. Truncated streams and trailing garbage are rejected with `ValueError`.
 - Deliberately does not use undocumented `/api/now/processflow/*` endpoints.
 - Deliberately skips `sys_hub_flow_snapshot` because it is an opaque compiled cache.
 - Per-node decode failures add `decode_error` to that node only; the enclosing `inspect` response still succeeds.
@@ -360,7 +366,7 @@ Dispatched via the read-only `audit` tool. Available in the `full` and `readonly
 - `verdict` enum: `audited`, `not_audited_field_flag` (with `reason` of `audit_flag` or `no_audit_attribute`), `not_audited_table_flag`, `audited_but_inactive`, `inconclusive`.
 - The `sys_audit` table is one of the largest tables on the platform. Every action that reads it applies a default 90-day window. Callers MAY override the window via `window_days` (or an explicit `since` on `history`) but SHOULD keep the default - wider windows cause slow queries and risk timeouts. Responses include both the `window_days` actually used and a `window_note` describing it.
 - Field-level audit is resolved child-first along `super_class`; the first `sys_dictionary` row found wins, and `inherited_from` names the source table (or is `null` when the queried table declared its own row).
-- `no_audit=true` in the `attributes` blob is an absolute veto over the boolean `audit` column. It is matched at comma boundaries so substrings like `my_no_audit=true` do not false-positive.
+- `no_audit=true` in the `attributes` blob is an absolute veto over the boolean `audit` column. It is matched at comma boundaries so substrings like `my_no_audit=true` do not false-positive. Trailing whitespace before end-of-string is tolerated (`"no_audit=true "` correctly vetoes).
 - Positive control disambiguates "no field activity in window" from "audit not configured": zero field rows with non-zero table rows means `audited_but_inactive`; zero on both means `inconclusive`.
 - `AuditRegistry` caches table-level posture and per-(table, field) resolution for the server lifetime; `sys_audit` row counts are NEVER cached.
 - Deliberately does not inspect `sys_audit_delete`, `sys_audit_relation`, or `sys_history_line` - those are distinct stores with different schemas.
@@ -426,6 +432,16 @@ The registry contains 4 preset packages. Tool groups are loaded from `servicenow
 ## 🔒 Sentry Module
 
 Opt-in error tracking. `tool.name` tag values were updated in v0.10.0 to reflect the unified tool surface.
+
+### SDK Defaults
+
+- `send_default_pii=False` - no PII in breadcrumbs or request bodies.
+- `traces_sample_rate=0.1` - 10% of transactions sampled.
+- Both are operator-tunable via standard Sentry SDK env vars.
+
+### Argument Redaction
+
+`@tool_handler` redacts sensitive argument keys before attaching them to Sentry context. The `_SENSITIVE_ARG_KEYS` frozenset (case-insensitive, exact-name match): `data`, `content_base64`, `value`, `script_path`, `encoded_query`, `params`, `password`, `token`, `secret`, `api_key`, `authorization`, `variables`, `conditions`, `text`. Redacted value: `_REDACTED` (`"***REDACTED***"`). Redaction is shallow - JSON-shaped string args are replaced as a whole, not parsed and field-redacted. `correlation_id` is dropped from the args dict (already promoted to top-level context).
 
 ### Key Functions
 

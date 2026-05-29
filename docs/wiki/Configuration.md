@@ -48,7 +48,7 @@ When `SERVICENOW_ENV` is `"prod"` or `"production"`:
 
 ## Script Path Security
 
-To use the `script_path` feature in `record_write`, you **must** configure `SCRIPT_ALLOWED_ROOT` with an absolute path. The server will reject any `script_path` that resolves outside of this directory.
+To use the `script_path` feature in `record_write`, you **must** configure `SCRIPT_ALLOWED_ROOT` with an absolute path. The root directory is resolved and validated as existing before any user-supplied path is touched. All user-path rejections (missing file, not a regular file, outside root, symlink escape) return a single opaque error: `"script_path is not readable or is outside the allowed root"`.
 
 Example:
 `SCRIPT_ALLOWED_ROOT=/Users/dev/projects/servicenow-scripts`

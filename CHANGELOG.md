@@ -6,6 +6,17 @@
 
 * `flow` unified tool for read-only Flow Designer inspection (Washington DC V2 + V1 fallback). Five actions: `inspect`, `find_by_table`, `decode_values`, `list_triggers`, `describe`. Available in `full` and `readonly` presets.
 
+### Security
+
+* Sentry SDK defaults changed to `send_default_pii=False` and `traces_sample_rate=0.1` to reduce data exposure and trace volume. Both remain operator-tunable via standard Sentry SDK env vars. ([#85](https://github.com/Xerrion/servicenow-platform-mcp/pull/85))
+* Sensitive tool arguments (`data`, `content_base64`, `value`, `script_path`, `encoded_query`, `params`, `password`, `token`, `secret`, `api_key`, `authorization`, `variables`, `conditions`, `text`) are now redacted before transmission to Sentry. ([#85](https://github.com/Xerrion/servicenow-platform-mcp/pull/85))
+* Unclassified exceptions now return an opaque `"Internal error (correlation_id=...)"` envelope to agents instead of leaking `str(e)`. Full detail is logged locally and captured to Sentry. Known exception types (`ACLError`, `ForbiddenError`, `ServiceNowMCPError`, `ValueError`) continue to surface curated messages. ([#85](https://github.com/Xerrion/servicenow-platform-mcp/pull/85))
+* `script_path` rejections (missing file, not regular, outside root, symlink escape) now return a single opaque error message, closing the differential-error filesystem-enumeration channel. Root directory is validated before any user-controlled path resolution. ([#85](https://github.com/Xerrion/servicenow-platform-mcp/pull/85))
+* Flow Designer `decode_values` decompression is now bounded: `MAX_COMPRESSED_BYTES = 1 MiB` (wire cap) and `MAX_DECOMPRESSED_BYTES = 4 MiB`. Truncated streams and trailing garbage are rejected. ([#85](https://github.com/Xerrion/servicenow-platform-mcp/pull/85))
+* `record_write` enforces `MAX_PAYLOAD_BYTES = 1 MiB` on the `data` parameter before parsing or token creation. ([#85](https://github.com/Xerrion/servicenow-platform-mcp/pull/85))
+* Dictionary attribute parsing for ambiguous `html`/`xml` field types now uses token-boundary matching via `_parse_attributes()` instead of substring matching. `my_tinymce_allow_all=true` no longer falsely admits a field. ([#85](https://github.com/Xerrion/servicenow-platform-mcp/pull/85))
+* Audit `no_audit=true` regex now tolerates trailing whitespace before end-of-string (`"no_audit=true "` correctly vetoes auditing). ([#85](https://github.com/Xerrion/servicenow-platform-mcp/pull/85))
+
 ## [0.10.0](https://github.com/Xerrion/servicenow-platform-mcp/compare/v0.9.1...v0.10.0) (2026-05-08)
 
 

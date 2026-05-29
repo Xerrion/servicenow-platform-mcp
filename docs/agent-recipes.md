@@ -80,7 +80,7 @@ preview = json.loads(await record_write(
 # 3. Commit the change
 await record_apply(preview_token=preview["data"]["preview_token"])
 ```
-**Notes:** The preview/apply two-step is a mandatory safety mechanism for all writes. It allows the agent (or human) to inspect the impact before commitment. Every tool returns a JSON-serialized envelope string (see `format_response` in `responses.py`); always `json.loads(...)` before indexing into `data`.
+**Notes:** The preview/apply two-step is a mandatory safety mechanism for all writes. It allows the agent (or human) to inspect the impact before commitment. The `data` parameter is capped at 1 MiB (`MAX_PAYLOAD_BYTES`). Every tool returns a JSON-serialized envelope string (see `format_response` in `responses.py`); always `json.loads(...)` before indexing into `data`.
 
 ---
 
@@ -237,7 +237,7 @@ preview = json.loads(await record_write(
 # Commit
 await record_apply(preview_token=preview["data"]["preview_token"])
 ```
-**Notes:** `script_path` must be within the directory defined by the `SCRIPT_ALLOWED_ROOT` setting. Files are capped at 1MB and must be UTF-8.
+**Notes:** `script_path` must be within the directory defined by the `SCRIPT_ALLOWED_ROOT` setting. All path rejections return a single opaque error. Files are capped at 1MB and must be UTF-8.
 
 ---
 

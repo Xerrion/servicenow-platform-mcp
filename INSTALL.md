@@ -126,8 +126,8 @@ Ask the user if they want to configure any of these optional settings:
 2. **Large tables** - Tables that require date-bounded queries (default: `syslog,sys_audit,sys_log_transaction,sys_email_log`)
    - Add `"LARGE_TABLE_NAMES_CSV": "<comma_separated_tables>"` to the environment/env block
 
-3. **Script file root** - When using `record_write` with `script_path`, constrains file reads to a directory tree
-   - Add `"SCRIPT_ALLOWED_ROOT": "<absolute_path>"` to the environment/env block
+3. **Script file root** - When using `record_write` with `script_path`, constrains file reads to a directory tree. All path rejections return a single opaque error.
+    - Add `"SCRIPT_ALLOWED_ROOT": "<absolute_path>"` to the environment/env block
 
 4. **Sentry error tracking** - MCP servers run as child processes, so stdout/stderr is invisible. Sentry provides error visibility.
    - Add `"SENTRY_DSN": "<dsn_url>"` to the environment/env block
@@ -159,7 +159,7 @@ Stateless helper that compiles a JSON array of condition objects into a ServiceN
 Retrieve table schema and metadata. Returns a slim set of field attributes by default (8 keys); use `verbose=true` for the full platform payload.
 
 ### record_write
-Unified tool for `create`, `update`, and `delete` actions. When called with `preview=true` (default), it returns a `preview_token` consumed by `record_apply`. Supports local script injection via `script_path` for any table whose dictionary fields are script-bearing (Business Rules, Script Includes, UI Pages, Widgets, UI Macros, ACLs, etc.) — script fields are discovered at runtime from `sys_dictionary`, no hardcoded catalog. Use `script_field` to target a specific field on tables that have more than one.
+Unified tool for `create`, `update`, and `delete` actions. When called with `preview=true` (default), it returns a `preview_token` consumed by `record_apply`. The `data` parameter is capped at 1 MiB (`MAX_PAYLOAD_BYTES`). Supports local script injection via `script_path` for any table whose dictionary fields are script-bearing (Business Rules, Script Includes, UI Pages, Widgets, UI Macros, ACLs, etc.) — script fields are discovered at runtime from `sys_dictionary`, no hardcoded catalog. Use `script_field` to target a specific field on tables that have more than one.
 
 ### record_read
 Read-only counterpart to `record_write` for platform artifacts. Resolves a record by `sys_id` or `name` and returns the masked record plus the `script_fields` list so callers can drive multi-field edits without guessing field names.

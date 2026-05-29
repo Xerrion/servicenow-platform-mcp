@@ -81,8 +81,8 @@ The `QueryTokenStore` from previous versions has been deleted as agents now pass
 The `@tool_handler` decorator (in `decorators.py`) wraps every tool invocation:
 
 1. **Correlation ID:** Generates a unique UUID4 for the request.
-2. **Sentry Context:** Attaches tool names and arguments to the Sentry scope.
-3. **Safe Execution:** Wraps the tool in `safe_tool_call()`, which catches all exceptions (including `ForbiddenError` and `PolicyError`) and returns them as `status: "error"` JSON envelopes.
+2. **Sentry Context:** Attaches tool names and redacted arguments to the Sentry scope (sensitive keys are replaced with `"***REDACTED***"` before transmission).
+3. **Safe Execution:** Wraps the tool in `safe_tool_call()`, which catches all exceptions and returns them as `status: "error"` JSON envelopes. Known exception types (`ACLError`, `ForbiddenError`, `ServiceNowMCPError`, `ValueError`) preserve verbose messages; unclassified exceptions return an opaque `"Internal error (correlation_id=...)"` envelope with full detail logged locally and captured to Sentry.
 
 ## Source Layout
 

@@ -99,8 +99,8 @@ Unified tool for staging `create`, `update`, or `delete` actions.
   - `action`: One of `create`, `update`, or `delete`.
   - `table`: Target table name.
   - `sys_id`: Required for `update` and `delete`.
-  - `data`: JSON string of field-value pairs for `create`/`update`.
-  - `script_path`: Local path to a script file. Allowed on any table that has at least one script-bearing field (resolved via `DictionaryRegistry` from `sys_dictionary`). Resolved strictly under `SCRIPT_ALLOWED_ROOT`; capped at 1 MB; UTF-8.
+  - `data`: JSON string of field-value pairs for `create`/`update`. Capped at `MAX_PAYLOAD_BYTES = 1 MiB` (checked before parsing or token creation).
+  - `script_path`: Local path to a script file. Allowed on any table that has at least one script-bearing field (resolved via `DictionaryRegistry` from `sys_dictionary`). The `script_allowed_root` setting is resolved and validated as a directory before the user path is touched; all user-path rejections return a single opaque message: `"script_path is not readable or is outside the allowed root"`. Files are capped at 1 MB and must be UTF-8.
   - `script_field`: Optional. Target a specific script-bearing field on tables with more than one (e.g. `sys_ui_policy.script_true`/`script_false`, `sp_widget.client_script`/`template`/`css`, `sys_ui_page.html`/`processing_script`). Defaults to the first field returned by `DictionaryRegistry.get_script_fields(table)`. Setting `script_field` without `script_path` is rejected.
   - `preview`: If `true` (default), stores the change in `PreviewTokenStore` and returns a `preview_token`.
 - **Notes:** When the resolved script field has `internal_type == 'xml'` (e.g. `sys_ui_macro.xml`), `record_write` validates the rendered XML (`xml.etree.ElementTree.fromstring`) before any platform call; malformed content is rejected with a structured error.
@@ -187,7 +187,7 @@ Inspect ServiceNow field-level auditing posture and masked history.
   - `sys_id`: Document sys_id for `history`.
   - `window_days`: Override the default 90-day window for `sys_audit` queries. Wider windows risk timeouts.
   - `since`: Explicit ISO date floor for `history` (overrides `window_days`).
-- **Notes:** `sys_audit` is one of the largest tables on the platform; every action that touches it applies a default 90-day window. Responses include the `window_days` actually used and a `window_note` describing it. `no_audit=true` in the `attributes` blob vetoes the boolean `audit` column. The positive-control count distinguishes "no field activity in window" (`audited_but_inactive`) from "audit not configured" (`inconclusive`).
+- **Notes:** `sys_audit` is one of the largest tables on the platform; every action that touches it applies a default 90-day window. Responses include the `window_days` actually used and a `window_note` describing it. `no_audit=true` in the `attributes` blob vetoes the boolean `audit` column; the match is token-boundary-aware (comma-delimited) and tolerates trailing whitespace before end-of-string. The positive-control count distinguishes "no field activity in window" (`audited_but_inactive`) from "audit not configured" (`inconclusive`).
 - **Example:**
 
   ```python
@@ -206,7 +206,7 @@ Inspect ServiceNow Flow Designer artifacts from documented Table API records.
 - **Actions:**
   - `inspect`: Assemble one flow/subflow. Requires exactly one of `sys_id` or `name`.
   - `find_by_table`: Find flows with a record trigger on `table`.
-  - `decode_values`: Decode a gzip+base64+JSON `values` blob from a `sys_hub_*_v2` row. Requires `value`.
+  - `decode_values`: Decode a gzip+base64+JSON `values` blob from a `sys_hub_*_v2` row. Requires `value`. Compressed input is capped at `MAX_COMPRESSED_BYTES = 1 MiB`; decompressed output is capped at `MAX_DECOMPRESSED_BYTES = 4 MiB`. Truncated streams and trailing garbage are rejected.
   - `list_triggers`: List record triggers across flows. Optional filters: `table`, `trigger_type`, `active` (`true`/`false`), `limit`.
   - `describe`: Return the action registry with names, descriptions, and parameters.
 - **Key Parameters:**
@@ -216,7 +216,7 @@ Inspect ServiceNow Flow Designer artifacts from documented Table API records.
   - `table`: Target record table for `find_by_table`; optional filter for `list_triggers`.
   - `trigger_type`: Optional trigger filter for `list_triggers`, such as `record_update`.
   - `active`: Optional `true`/`false` filter for `list_triggers`.
-  - `value`: Raw compressed `values` field content for `decode_values`.
+  - `value`: Raw compressed `values` field content for `decode_values`. Must not exceed 1 MiB compressed.
   - `limit`: Optional page size for `list_triggers`; defaults to 100 when omitted or `0`.
 - **Examples:**
   ```python
@@ -232,7 +232,7 @@ Inspect ServiceNow Flow Designer artifacts from documented Table API records.
   - `published_state`: `{master_snapshot, latest_snapshot, drift}`. `drift` is `true` when the published snapshot differs from the latest authored snapshot.
   - `canvas`: Nested V2 tree. Root nodes have an empty `parent_ui_id`; children are sorted by `order`. Each node includes `kind` (`action` or `logic`), `ui_id`, `parent_ui_id`, `order`, `decoded_values`, and recursive `children`.
   - `warnings`: Returned in the standard response envelope for mixed V1/V2 flows, snapshot drift, IntegrationHub spoke heuristics, or V1 logic that cannot be woven into the V2 canvas tree.
-- **Notes:** The tool reads both V1 (`sys_hub_action_instance`, `sys_hub_flow_logic`, `sys_hub_trigger_instance`) and V2 (`sys_hub_action_instance_v2`, `sys_hub_flow_logic_instance_v2`, `sys_hub_trigger_instance_v2`) records. Record-trigger conditions are joined through `sys_flow_record_trigger`. It does not use the undocumented `/api/now/processflow/flow/{sys_id}` endpoint or the opaque `sys_hub_flow_snapshot` compiled cache. A bad per-node `values` blob adds `decode_error` to that node; the rest of `inspect` still succeeds.
+- **Notes:** The tool reads both V1 (`sys_hub_action_instance`, `sys_hub_flow_logic`, `sys_hub_trigger_instance`) and V2 (`sys_hub_action_instance_v2`, `sys_hub_flow_logic_instance_v2`, `sys_hub_trigger_instance_v2`) records. Record-trigger conditions are joined through `sys_flow_record_trigger`. It does not use the undocumented `/api/now/processflow/flow/{sys_id}` endpoint or the opaque `sys_hub_flow_snapshot` compiled cache. A bad per-node `values` blob adds `decode_error` to that node; the rest of `inspect` still succeeds. Decompression is bounded at 1 MiB compressed / 4 MiB decompressed; truncated streams and trailing garbage are rejected with a `ValueError`.
 
 ### `resolve_choice`
 Resolves human-readable labels to underlying ServiceNow values using the `sys_choice` table.

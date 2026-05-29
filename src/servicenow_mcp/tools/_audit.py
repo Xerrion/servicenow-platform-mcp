@@ -261,7 +261,8 @@ class AuditRegistry:
         # to clear every entry that belongs to ``table``. The ``list()`` calls
         # below snapshot the keys because the loop bodies mutate the dicts;
         # iterating ``.keys()`` directly would raise ``RuntimeError``. The
-        # per-line ``NOSONAR(S7504)`` markers document the intentional copy.
+        # trailing suppression comments on each ``list()`` call document the
+        # intentional copy for Sonar's S7504 rule.
         prefix = f"{table}:"
         row_keys_snapshot = list(self._table_field_rows_cache.keys())  # NOSONAR(S7504)
         for row_key in row_keys_snapshot:

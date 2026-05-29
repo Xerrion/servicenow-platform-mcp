@@ -9,7 +9,9 @@ import collections
 import logging
 from typing import Any
 
+from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.client import ServiceNowClient
+from servicenow_mcp.config import Settings
 from servicenow_mcp.policy import INTERNAL_QUERY_LIMIT
 from servicenow_mcp.utils import ServiceNowQuery
 
@@ -186,3 +188,74 @@ async def _fetch_documentation(
     if len(records) >= 500:
         warnings.append("Documentation records may be truncated at 500 entries")
     return {d["element"]: d for d in records if d.get("element")}
+
+
+def _apply_fields_filter(
+    field_list: list[dict[str, Any]],
+    requested_fields: list[str],
+    warnings: list[str],
+) -> list[dict[str, Any]]:
+    """Restrict ``field_list`` to ``requested_fields`` and warn on unknown names.
+
+    Preserves left-to-right order of ``requested_fields`` when collecting the
+    ``unknown`` list so the warning text is stable across runs. The returned
+    list keeps the original ``field_list`` ordering for matched fields.
+    """
+    wanted = set(requested_fields)
+    present = {str(f.get("name") or f.get("element") or "") for f in field_list}
+    unknown = [name for name in requested_fields if name not in present]
+    filtered = [f for f in field_list if str(f.get("name") or f.get("element") or "") in wanted]
+    if unknown:
+        warnings.append(f"Unknown field(s): {','.join(unknown)}")
+    return filtered
+
+
+async def _describe_impl(
+    table: str,
+    *,
+    verbose: bool,
+    include_docs: bool,
+    requested_fields: list[str],
+    settings: Settings,
+    auth_provider: BasicAuthProvider,
+) -> tuple[dict[str, Any], list[str]]:
+    """Run the post-validation orchestration for the ``describe`` tool.
+
+    Opens its own ``ServiceNowClient``, fetches sys_dictionary metadata, the
+    ``sys_db_object`` row, choice counts, and optional documentation, then
+    assembles the response ``data`` dict. Warnings are collected in the order
+    callers expect: choice warnings -> documentation warnings -> unknown-field
+    warnings. Returns ``(data, warnings)`` for the caller to feed straight into
+    ``format_response``.
+    """
+    warnings: list[str] = []
+    async with ServiceNowClient(settings, auth_provider) as client:
+        metadata = await client.get_metadata(table)
+        table_meta = await client.query_records(
+            "sys_db_object",
+            ServiceNowQuery().equals("name", table).build(),
+            fields=["label", "super_class", "is_extendable", "number_ref", "sys_id"],
+            limit=1,
+        )
+        table_info = table_meta.get("records", [{}])[0] if table_meta.get("records") else {}
+        choice_counts = await _fetch_choice_counts(client, table, warnings)
+        docs: dict[str, dict[str, Any]] = {}
+        if include_docs:
+            docs = await _fetch_documentation(client, table, warnings)
+
+    field_list = (
+        _build_verbose_field_list(metadata, choice_counts)
+        if verbose
+        else _build_slim_field_list(metadata, choice_counts)
+    )
+    if requested_fields:
+        field_list = _apply_fields_filter(field_list, requested_fields, warnings)
+
+    data: dict[str, Any] = {
+        "table": table_info,
+        "fields": field_list,
+        "field_count": len(field_list),
+    }
+    if include_docs:
+        data["documentation"] = docs
+    return data, warnings

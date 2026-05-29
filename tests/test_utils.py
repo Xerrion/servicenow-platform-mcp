@@ -1037,16 +1037,24 @@ class TestSafeToolCall:
         assert parsed["correlation_id"] == "test-corr-id"
 
     async def test_generic_exception_returns_error_envelope(self) -> None:
-        """Generic exceptions are caught and formatted as error envelope."""
+        """Truly unclassified exceptions are returned as an opaque envelope.
+
+        The original ``str(exc)`` is NOT exposed to the caller — it could leak
+        internal hostnames, paths, and stack fragments. The full exception is
+        logged locally instead. ``ValueError`` and ``ServiceNowMCPError`` have
+        their own arms with verbose messages — see the curated-error tests.
+        """
 
         async def fn() -> str:
-            raise ValueError("something broke")
+            raise RuntimeError("something broke")
 
         result = await safe_tool_call(fn, "test-corr-id")
         parsed = decode_response(result)
         assert parsed["status"] == "error"
         assert isinstance(parsed["error"], dict)
-        assert "something broke" in parsed["error"]["message"]
+        message = parsed["error"]["message"]
+        assert "something broke" not in message
+        assert message == "Internal error (correlation_id=test-corr-id)"
         assert parsed["correlation_id"] == "test-corr-id"
 
 

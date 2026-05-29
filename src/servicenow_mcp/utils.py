@@ -7,7 +7,7 @@ import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any, override
 
-from servicenow_mcp.errors import ACLError, ForbiddenError
+from servicenow_mcp.errors import ACLError, ForbiddenError, ServiceNowMCPError
 from servicenow_mcp.sentry import capture_exception as sentry_capture
 
 
@@ -746,11 +746,41 @@ async def safe_tool_call(
             status="error",
             error=f"Access forbidden by ServiceNow: {e}",
         )
-    except Exception as e:
+    except ServiceNowMCPError as e:
+        # Domain errors (PolicyError, QuerySafetyError, NotFoundError, ServerError,
+        # AuthError, ...) carry curated, caller-actionable messages and are safe
+        # to surface verbatim.
         sentry_capture(e)
         return format_response(
             data=None,
             correlation_id=correlation_id,
             status="error",
             error=str(e),
+        )
+    except ValueError as e:
+        # Project convention: ValueError is the signal for "rejected user input"
+        # raised by validators like ``validate_identifier``. Messages are curated
+        # and safe to surface (they quote the caller's own input).
+        sentry_capture(e)
+        return format_response(
+            data=None,
+            correlation_id=correlation_id,
+            status="error",
+            error=str(e),
+        )
+    except Exception as e:
+        # Truly unclassified failure (RuntimeError, OSError, httpx errors, ...).
+        # Log full detail locally for operators but return an opaque message to
+        # the caller so we do not leak internal hostnames, file paths, or
+        # platform stack fragments.
+        logger.exception(
+            "Unhandled exception in tool",
+            extra={"correlation_id": correlation_id},
+        )
+        sentry_capture(e)
+        return format_response(
+            data=None,
+            correlation_id=correlation_id,
+            status="error",
+            error=f"Internal error (correlation_id={correlation_id})",
         )

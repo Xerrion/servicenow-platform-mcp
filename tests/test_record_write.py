@@ -165,6 +165,40 @@ class TestActionDispatch:
         assert result["status"] == "error"
         assert "script_field requires script_path" in result["error"]["message"]
 
+    @pytest.mark.asyncio()
+    async def test_oversized_data_payload_rejected_before_token_creation(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """``data`` >1 MiB returns a structured error and creates no preview token."""
+        from servicenow_mcp.tools import record_write as record_write_module
+
+        # Patch PreviewTokenStore.create to detect any token-allocation attempt.
+        # If the cap fires correctly, this never runs.
+        created_tokens: list[Any] = []
+
+        original_create = record_write_module.PreviewTokenStore.create
+
+        async def _spy_create(self: Any, payload: dict[str, Any]) -> str:
+            created_tokens.append(payload)
+            return await original_create(self, payload)
+
+        with patch.object(record_write_module.PreviewTokenStore, "create", _spy_create):
+            tools = _register_and_get_tools(settings, auth_provider)
+            # 1 MiB + 1 byte payload as a JSON object: pad a single field.
+            oversized_value = "x" * (1 * 1024 * 1024 + 1)
+            payload = json.dumps({"short_description": oversized_value})
+            assert len(payload.encode("utf-8")) > 1 * 1024 * 1024
+            raw = await tools["record_write"](
+                action="create",
+                table="incident",
+                data=payload,
+            )
+
+        result = decode_response(raw)
+        assert result["status"] == "error"
+        assert "1 MiB" in result["error"]["message"]
+        assert created_tokens == [], "no preview token should be allocated for oversized payload"
+
 
 # ---------------------------------------------------------------------------
 # Standard record write (no script_path)

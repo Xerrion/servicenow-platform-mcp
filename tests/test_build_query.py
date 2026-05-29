@@ -321,7 +321,7 @@ class TestBuildQuery:
     async def test_unexpected_exception_returns_error(
         self, settings: Settings, auth_provider: BasicAuthProvider
     ) -> None:
-        """Unexpected exception in ServiceNowQuery triggers generic handler."""
+        """Unexpected exception in ServiceNowQuery triggers the opaque generic handler."""
         tools = _register_and_get_tools(settings, auth_provider)
         with patch(
             "servicenow_mcp.tools.build_query.ServiceNowQuery",
@@ -330,7 +330,11 @@ class TestBuildQuery:
             raw = await tools["build_query"](conditions='[{"operator": "equals", "field": "active", "value": "true"}]')
         result = decode_response(raw)
         assert result["status"] == "error"
-        assert "boom" in result["error"]["message"]
+        # The original ``str(exc)`` is NOT exposed — unclassified exceptions are
+        # collapsed to an opaque envelope to prevent information leakage.
+        message = result["error"]["message"]
+        assert "boom" not in message
+        assert message.startswith("Internal error")
 
     # -- Operator coverage -----------------------------------------------------
 

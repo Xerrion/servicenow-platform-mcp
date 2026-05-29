@@ -5,7 +5,7 @@ import json
 import uuid
 from typing import Any
 
-from servicenow_mcp.decorators import tool_handler
+from servicenow_mcp.decorators import _REDACTED, _redact_args, tool_handler
 from servicenow_mcp.errors import ForbiddenError
 from servicenow_mcp.utils import format_response
 from tests.helpers import get_registered_tools
@@ -76,18 +76,26 @@ class TestToolHandler:
         assert not hasattr(my_tool, "__wrapped__")
 
     async def test_catches_generic_exception(self) -> None:
-        """Exceptions in the tool body are caught and returned as error envelopes."""
+        """Exceptions in the tool body are caught and returned as opaque envelopes.
+
+        The wire-level message MUST NOT contain ``str(exc)`` — that would leak
+        internal hostnames, paths, and platform stack fragments. The full
+        exception is logged locally (see SECURITY in utils.safe_tool_call).
+        """
 
         @tool_handler
         async def my_tool(*, correlation_id: str) -> str:
             _ = correlation_id
-            raise ValueError("something broke")
+            raise RuntimeError("something broke")
 
         result = await my_tool()
         parsed = json.loads(result)
         assert isinstance(parsed, dict)
         assert parsed["status"] == "error"
-        assert "something broke" in parsed["error"]["message"]
+        message = parsed["error"]["message"]
+        assert "something broke" not in message
+        assert message.startswith("Internal error")
+        assert parsed["correlation_id"] in message
 
     async def test_catches_forbidden_error(self) -> None:
         """ForbiddenError is caught and returned as an ACL denial error envelope."""
@@ -163,3 +171,56 @@ class TestToolHandler:
         assert isinstance(parsed, dict)
         assert parsed["status"] == "success"
         assert parsed["data"]["table"] == "my_table"
+
+
+class TestRedactArgs:
+    """Sensitive arg names are redacted before being attached to Sentry context."""
+
+    def test_drops_correlation_id(self) -> None:
+        """``correlation_id`` is dropped (sent as a separate context field)."""
+        out = _redact_args({"correlation_id": "abc", "table": "incident"})
+        assert "correlation_id" not in out
+        assert out == {"table": "incident"}
+
+    def test_redacts_known_sensitive_keys(self) -> None:
+        """All canonical sensitive keys are replaced with the redaction marker."""
+        sensitive = {
+            "data": '{"name": "alice"}',
+            "params": "anything",
+            "password": "hunter2",
+            "token": "deadbeef",
+            "secret": "shh",
+            "api_key": "k",
+            "authorization": "Bearer x",
+            "script_path": "/etc/passwd",
+            "encoded_query": "active=true",
+            "content_base64": "AAAA",
+            "value": "raw",
+        }
+        out = _redact_args(sensitive)
+        for key in sensitive:
+            assert out[key] == _REDACTED, f"{key} was not redacted"
+
+    def test_redacts_user_supplied_content_keys(self) -> None:
+        """``variables``, ``conditions``, ``text`` carry user content and must redact."""
+        out = _redact_args(
+            {
+                "variables": '{"email": "alice@example.com"}',
+                "conditions": '[{"field": "x", "op": "=", "value": "secret"}]',
+                "text": "search for something private",
+            }
+        )
+        assert out["variables"] == _REDACTED
+        assert out["conditions"] == _REDACTED
+        assert out["text"] == _REDACTED
+
+    def test_passes_through_non_sensitive(self) -> None:
+        """Non-sensitive keys retain their original values."""
+        out = _redact_args({"table": "incident", "limit": 10, "sys_id": "abc"})
+        assert out == {"table": "incident", "limit": 10, "sys_id": "abc"}
+
+    def test_key_match_is_case_insensitive(self) -> None:
+        """Sensitive key matching ignores case."""
+        out = _redact_args({"DATA": "x", "Token": "y"})
+        assert out["DATA"] == _REDACTED
+        assert out["Token"] == _REDACTED

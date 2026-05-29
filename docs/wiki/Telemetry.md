@@ -1,206 +1,78 @@
 # Telemetry
 
-Observability documentation for the `servicenow-platform-mcp` server. Currently, **Sentry** is the sole observability integration.
+## What is instrumented - and what is not
 
-See also: [[Architecture]] for server internals, [[Development]] for setup.
+Sentry is the only telemetry channel. The server does not expose a metrics endpoint, does not emit Prometheus scrape targets, and does not integrate OpenTelemetry. When Sentry is not configured, every telemetry function is a no-op and nothing leaves the process.
 
-## Overview
+## Enabling Sentry
 
-MCP servers run as child processes of AI agents via stdio transport - the user never sees stdout or stderr. This makes traditional logging insufficient for error visibility. Sentry provides structured error capture, contextual data, and alerting for production deployments.
+Set the `SENTRY_DSN` environment variable to a valid Sentry project DSN. Optionally set `SENTRY_ENVIRONMENT` to override the environment tag (falls back to `SERVICENOW_ENV`). Leave `SENTRY_DSN` empty - the default - to disable entirely.
 
-> **Note:** OpenTelemetry was previously available but has been removed from the project. See [Historical Note](#historical-note) at the end of this page.
+When disabled the server logs `"Sentry disabled (no DSN configured)"` at debug level. If the `sentry-sdk` package is missing at runtime it logs `"Sentry disabled (sentry-sdk not installed)"` instead.
 
-## Sentry Integration
+See [[Configuration]] for the full settings table.
 
-The Sentry integration lives in `sentry.py` and follows a graceful-degradation pattern - all public functions are safe to call regardless of whether Sentry is active.
+## SDK defaults
 
-### Activation Requirements
-
-`sentry-sdk` is a **core dependency** (always installed, not an optional extra). However, Sentry only activates when the `SENTRY_DSN` environment variable is set to a non-empty value. There is no separate `SENTRY_ENABLED` flag - the DSN presence is the gate.
-
-## Configuration
-
-| Variable | Default | Purpose |
+| Setting | Value | Notes |
 |---|---|---|
-| `SENTRY_DSN` | `""` (disabled) | Sentry Data Source Name - activates error tracking when set |
-| `SENTRY_ENVIRONMENT` | Falls back to `SERVICENOW_ENV` | Environment label shown in Sentry UI |
+| `send_default_pii` | `False` | No cookies, IPs, or user data in breadcrumbs |
+| `traces_sample_rate` | `0.1` | 10% of transactions sampled for performance tracing |
 
-Both values are defined in the `Settings` class (`config.py`) and loaded from environment variables or `.env`/`.env.local` files.
+Both values are operator-tunable via standard Sentry SDK environment variables (e.g. `SENTRY_TRACES_SAMPLE_RATE`). The server does not override SDK-level env var configuration.
 
-## Import Guard Pattern
+## What gets captured
 
-The module uses a two-level import guard to handle environments where `sentry-sdk` might not be installed and SDK versions that may or may not include the MCP integration:
+Exceptions are captured by the opaque generic `Exception` arm of `safe_tool_call`. This arm fires for unclassified failures - `RuntimeError`, `OSError`, httpx transport errors, and anything else not covered by the four verbose arms. When it fires, the caller receives only `"Internal error (correlation_id=<uuid>)"`. The full detail is logged via `logger.exception` and sent to Sentry via `sentry_capture(e)`.
 
-```python
-# Primary guard
-HAS_SENTRY: bool
-try:
-    import sentry_sdk
-    HAS_SENTRY = True
-except ImportError:
-    HAS_SENTRY = False
+The four verbose arms (`ACLError`, `ForbiddenError`, `ServiceNowMCPError`, `ValueError`) also call `sentry_capture(e)` but return caller-actionable messages in the error envelope rather than an opaque string.
 
-# Secondary guard for newer SDK versions
-_HAS_MCP_INTEGRATION = False
-if HAS_SENTRY:
-    try:
-        from sentry_sdk.integrations.mcp import MCPIntegration
-        _HAS_MCP_INTEGRATION = True
-    except ImportError:
-        pass
+## Argument redaction
+
+Before attaching tool arguments to Sentry context, `@tool_handler` replaces values for keys in `_SENSITIVE_ARG_KEYS` with `"***REDACTED***"`. The full set (case-insensitive, exact-name match):
+
+```
+data, content_base64, value, script_path, encoded_query, params,
+password, token, secret, api_key, authorization, variables, conditions, text
 ```
 
-When `HAS_SENTRY` is `False`, all public functions no-op immediately - zero overhead. The secondary guard allows the optional `MCPIntegration` to be used when available in newer SDK versions without breaking on older ones.
+`correlation_id` is dropped from the args dict entirely - it is already promoted to a top-level context field.
 
-## SDK Configuration
+Redaction is shallow. JSON-shaped string arguments are replaced as a whole, not parsed and field-redacted. A `data` parameter containing a serialized record is replaced wholesale; nested keys inside that JSON are never inspected by this pass.
 
-When activated, Sentry is initialized with conservative defaults:
+## Tags and context
 
-```python
-sentry_sdk.init(
-    dsn=dsn,
-    environment=environment,
-    release=_RELEASE,            # e.g. "servicenow-platform-mcp@0.10.0"
-    send_default_pii=False,      # No PII in breadcrumbs, request bodies, etc.
-    integrations=integrations,   # Includes MCPIntegration when available
-    traces_sample_rate=0.1,      # 10% of transactions sampled
-    profiles_sample_rate=None,   # Profiling disabled
-)
-```
+Each tool invocation sets:
 
-`send_default_pii` is `False` so the SDK does not attach usernames, IP addresses, or request bodies to events. `traces_sample_rate` defaults to `0.1` (10%) to limit trace volume. Both values are operator-tunable via the standard Sentry SDK environment variables (`SENTRY_SEND_DEFAULT_PII`, `SENTRY_TRACES_SAMPLE_RATE`) without code changes.
+- **Tags**: `tool.name`, `tool.correlation_id` - indexed and searchable in Sentry.
+- **Structured context** (`tool`): `{name, correlation_id, args}` where `args` has sensitive keys redacted per the rules above.
 
-The release string is dynamically derived from package metadata using `importlib.metadata.version()`:
+Additionally:
 
-```python
-try:
-    _RELEASE = f"servicenow-platform-mcp@{pkg_version('servicenow-platform-mcp')}"
-except Exception:
-    _RELEASE = "servicenow-platform-mcp@unknown"
-```
+- **HTTP context** (set by `_raise_for_status` on error): `{status_code, method, url}` with query parameters stripped from the URL.
+- **Server context** (set once at boot): `{instance_url (hostname only), environment, is_production, tool_package}`.
 
-## Instrumentation Points
+## MCPIntegration conditional load
 
-Sentry context and exception capture is woven through the codebase at key points:
+If the installed Sentry SDK exposes `sentry_sdk.integrations.mcp.MCPIntegration`, it is included in the integrations list passed to `sentry_sdk.init`. Otherwise the integrations list is empty. No error is raised when the integration is absent - newer SDK versions add it; older ones skip it silently.
 
-### `@tool_handler` (decorators.py)
+## Operational concerns
 
-Every tool invocation sets:
+**Flush on shutdown.** `shutdown_sentry()` is called in the `finally` block of `main()`. It flushes pending events with a 2-second timeout and closes the client with a second 2-second timeout. Safe to call multiple times.
 
-- **Tags** (indexed, searchable):
-  - `tool.name` - The tool function name (e.g., `"query"`)
-  - `tool.correlation_id` - UUID4 for request tracing
-- **Context** (structured data):
-  - `"tool"` context with `name`, `correlation_id`, and `args`
-  - `correlation_id` is excluded from the `args` dict (it is already a top-level tag and context field)
+**Sampling tuning.** The default `traces_sample_rate=0.1` means 90% of performance transactions are dropped. For high-volume deployments this is appropriate. For low-volume development instances, set `SENTRY_TRACES_SAMPLE_RATE=1.0` to capture everything.
 
-### Argument Redaction
+**Idempotent init.** `setup_sentry` is idempotent - only the first call initializes the SDK. Subsequent calls return immediately.
 
-Before the `args` dict is attached to Sentry context, `_redact_args()` replaces the values of sensitive keys with the sentinel `_REDACTED` (`"***REDACTED***"`). Redaction is **shallow** - if a value is a JSON-shaped string, it is replaced as a whole rather than parsed and field-redacted.
+**Graceful degradation.** All public functions in `sentry.py` are safe to call when `sentry-sdk` is not importable. The module sets `HAS_SENTRY = False` and every function becomes a no-op.
 
-The 13 keys in `_SENSITIVE_ARG_KEYS` (matched case-insensitively by exact name):
+## What is NOT sent
 
-`data`, `content_base64`, `value`, `script_path`, `encoded_query`, `params`, `password`, `token`, `secret`, `api_key`, `authorization`, `variables`, `conditions`, `text`.
+- **Secrets.** `_SENSITIVE_ARG_KEYS` redaction removes tool arguments that could carry credentials before any Sentry context is attached.
+- **Denied-table values.** Policy enforcement (`check_table_access`) raises before any data is fetched from restricted tables; there is no path where denied-table content reaches a logging or telemetry call.
+- **Sensitive-field values.** Response masking (`mask_sensitive_fields`, `mask_audit_entry`) replaces field values with `***MASKED***` before the response envelope is built. Even if the envelope were inadvertently logged, masked values are all that remain.
+- **Default PII.** `send_default_pii=False` instructs the Sentry SDK to omit cookies, IP addresses, and user identifiers from breadcrumbs and event payloads.
 
-This ensures cleartext payloads, query strings, and credentials are never transmitted to a third-party observability service. Operators who need the full argument values can inspect the local server logs, where arguments are not redacted.
+---
 
-### `safe_tool_call()` (utils.py)
-
-The error boundary that wraps all tool executions. It distinguishes **verbose** arms - whose curated, caller-actionable messages are returned to the agent - from an **opaque** arm for unclassified failures:
-
-| Arm | What the agent sees |
-|---|---|
-| `ACLError` | Verbose: curated ACL denial message |
-| `ForbiddenError` | Verbose: curated forbidden message |
-| `ServiceNowMCPError` | Verbose: curated platform error message |
-| `ValueError` | Verbose: the rejected-input message from validators like `validate_identifier` |
-| Generic `Exception` | **Opaque:** `"Internal error (correlation_id=<uuid>)"` |
-
-For the generic arm, full exception detail is logged locally via `logger.exception` and captured to Sentry via `capture_exception(e)`. The agent receives only the opaque envelope and the `correlation_id`, which operators can use to pivot to logs or Sentry events.
-
-All arms call `capture_exception(e)` before returning the serialized error response.
-
-### `serialize()` (utils.py)
-
-Captures JSON serialization failures to Sentry before returning a JSON error envelope.
-
-### `_raise_for_status()` (client.py)
-
-Before raising HTTP-related exceptions, sets `"http"` Sentry context with:
-
-- `status_code` - The HTTP status code
-- `method` - The HTTP method (GET, POST, etc.)
-- `url` - The request URL
-
-### `ChoiceRegistry` (choices.py)
-
-Captures persistent `sys_choice` fetch failures when the registry cannot load choice data from the ServiceNow instance.
-
-### Server Bootstrap (server.py)
-
-- Sets `"server"` Sentry context with instance hostname (extracted from URL), environment, `is_production` flag, and tool package name
-- Captures `ImportError` exceptions when tool group modules fail to load
-
-## Public API
-
-| Function | Signature | Purpose |
-|---|---|---|
-| `setup_sentry` | `(settings: Settings) -> None` | Initialize SDK with DSN gating. No-ops on re-call. |
-| `capture_exception` | `(exc: BaseException \| None) -> None` | Capture exception (or current `sys.exc_info()` if `None`) |
-| `set_sentry_tag` | `(key: str, value: str) -> None` | Set indexed tag on current isolation scope |
-| `set_sentry_context` | `(key: str, data: dict[str, Any]) -> None` | Set structured context dict on current isolation scope |
-| `shutdown_sentry` | `() -> None` | Flush pending events (2s timeout) and close client (2s timeout) |
-
-All functions no-op when either `HAS_SENTRY` is `False` or `_initialized` is `False`.
-
-## Lifecycle
-
-### Startup
-
-`setup_sentry(settings)` is called early in `create_mcp_server()`, before tool registration. The function uses a triple gate to prevent double-initialization:
-
-1. **`_initialized` check** - Short-circuits if already called
-2. **`HAS_SENTRY` check** - Short-circuits if `sentry-sdk` is not installed (sets `_initialized = True`)
-3. **DSN check** - Short-circuits if `sentry_dsn` is empty (sets `_initialized = True`)
-
-In all three cases, `_initialized` is set to `True` so future calls no-op immediately.
-
-### Shutdown
-
-`shutdown_sentry()` is called in the `finally` block of `main()`:
-
-```python
-def main() -> None:
-    mcp = create_mcp_server()
-    try:
-        mcp.run(transport="stdio")
-    finally:
-        shutdown_sentry()
-```
-
-The shutdown sequence:
-
-1. Checks `HAS_SENTRY and _initialized`
-2. Gets the active Sentry client
-3. If the client is active: flushes pending events (2s timeout), then closes the client (2s timeout)
-4. Resets `_initialized = False`
-5. Wraps everything in try/except to prevent shutdown errors from propagating
-
-### Testing
-
-Tests use an autouse fixture (`_disable_sentry_capture` in `tests/conftest.py`) that resets `_initialized = False` before and after each test, preventing real Sentry SDK calls during test runs:
-
-```python
-@pytest.fixture(autouse=True)
-def _disable_sentry_capture():
-    import servicenow_mcp.sentry as _sentry_mod
-    _sentry_mod._initialized = False
-    yield
-    _sentry_mod._initialized = False
-```
-
-## Historical Note
-
-OpenTelemetry was previously integrated via a `telemetry.py` module that provided distributed tracing with spans for tool invocations and HTTP requests. It supported OTLP and console exporters, W3C `traceparent` header injection, and trace context in response envelopes.
-
-The OTel integration was **removed in v0.9.0** (commit `b72cee3`, PR [#68](https://github.com/Xerrion/servicenow-platform-mcp/pull/68)) to resolve SonarCloud issues and simplify the observability stack. The `.env.example` file may still contain stale OTel-related variables (`OTEL_ENABLED`, `OTEL_EXPORTER_OTLP_ENDPOINT`, etc.) - these are ignored by the server and have no effect.
+See also: [[Configuration]] for the env var table, [[Safety-and-Policy]] for field masking and denied-table policies, [[Architecture]] for the full request flow and `@tool_handler` contract.

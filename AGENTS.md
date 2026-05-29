@@ -167,6 +167,8 @@ What `@tool_handler` does:
 3. Hides `correlation_id` from the FastMCP tool schema by overriding `__signature__` and deleting `__wrapped__`.
 4. Sets Sentry tags (`tool.name`, `tool.correlation_id`) and context with tool name, correlation_id, and redacted args. Sensitive argument keys are replaced with `"***REDACTED***"` before transmission to Sentry (see Sentry Module section).
 
+One exception: `list_tool_packages` (registered directly in the server bootstrap) is NOT wrapped by `@tool_handler`. It returns the raw `serialize(list_packages())` payload with no error envelope and no `correlation_id`. Source: `src/servicenow_mcp/server.py:45-48`.
+
 ## 📊 Response Format
 
 All tools return a serialized JSON string via `format_response()`:
@@ -227,7 +229,7 @@ Agents pass ServiceNow encoded query strings directly to the `query` tool. Refer
 
 ## 🏗 Tool Registration
 
-The server bootstrap uses an unconditional 4-argument registration pattern for all tool groups.
+The server bootstrap uses an unconditional 5-argument registration pattern for all tool groups.
 
 ```python
 def register_tools(
@@ -235,9 +237,11 @@ def register_tools(
     settings: Settings,
     auth_provider: BasicAuthProvider,
     choices: ChoiceRegistry | None = None,
+    dictionary: DictionaryRegistry | None = None,
 ) -> None:
-    # Modules that do not require the ChoiceRegistry explicitly ignore it
-    del choices  # unused; signature retained for loader parity
+    # Modules that do not require the ChoiceRegistry or DictionaryRegistry
+    # explicitly ignore them
+    del choices, dictionary  # unused; signature retained for loader parity
 
     @mcp.tool()
     @tool_handler
@@ -314,7 +318,7 @@ Read-only counterpart. `record_read(table, sys_id=..., name=...)` returns the ma
 
 ## 🔍 Investigation Modules
 
-Dispatched via the `investigate` tool with `action='run'` or `action='explain'`. The `explain` action trial-dispatches across registered modules. Bare-table forms are not supported.
+Dispatched via the `investigate` tool with `action='run'`, `action='explain'`, or `action='describe'`. The `explain` action trial-dispatches across registered modules. The `describe` action returns the registry without platform I/O. Bare-table forms are not supported.
 
 ### 7 Available Investigations
 
@@ -380,7 +384,7 @@ Dispatched via the read-only `audit` tool. Available in the `full` and `readonly
 3. Creates `FastMCP('servicenow-platform-mcp')`.
 4. Calls `attach_servicenow_state(...)` to attach shared state.
 5. Always registers the `list_tool_packages` tool.
-6. Loads tool groups via `importlib` and calls an unconditional 4-argument `register_tools(...)`.
+6. Loads tool groups via `importlib` and calls an unconditional 5-argument `register_tools(...)`.
 7. `main()` runs with stdio transport; `shutdown_sentry()` is called in a finally block.
 
 ## 🌐 Client
@@ -399,6 +403,7 @@ Dispatched via the read-only `audit` tool. Available in the `full` and `readonly
 | `mcp_tool_package`        | `str`       | `"full"`                                               | `MCP_TOOL_PACKAGE`        |
 | `servicenow_env`          | `str`       | `"dev"`                                                | `SERVICENOW_ENV`          |
 | `max_row_limit`           | `int`       | `100` (range 1-10000)                                  | `MAX_ROW_LIMIT`           |
+| `httpx_timeout_seconds`   | `float`     | `30.0` (range 1.0-600.0)                               | `HTTPX_TIMEOUT_SECONDS`   |
 | `large_table_names_csv`   | `str`       | `"syslog,sys_audit,sys_log_transaction,sys_email_log"` | `LARGE_TABLE_NAMES_CSV`   |
 | `script_allowed_root`     | `str`       | `""`                                                     | `SCRIPT_ALLOWED_ROOT`     |
 | `sentry_dsn`              | `str`       | `""`                                                     | `SENTRY_DSN`              |
@@ -412,9 +417,9 @@ The registry contains 4 preset packages. Tool groups are loaded from `servicenow
 
 | Package | Tools | Description |
 |---|---|---|
-| `full` | 13 | Every group (full surface, includes `build_query`) |
-| `readonly` | 9 | Read tools + investigate + resolve_choice |
-| `core_readonly` | 5 | Query + describe + attachment only |
+| `full` | 14 | Every group (full surface, includes `build_query`); `record_write` group registers `record_write` + `record_apply`, `attachment` group registers `attachment` + `attachment_write` |
+| `readonly` | 10 | Read tools + investigate + resolve_choice + audit + flow (still loads `attachment_write`, runtime-gated by `write_gate`) |
+| `core_readonly` | 5 | Query + describe + attachment (loads `attachment_write` too, runtime-gated by `write_gate`) |
 | `none` | 1 | Only `list_tool_packages` loaded |
 
 - **Custom Packages:** Comma-separated group names are supported (e.g., `MCP_TOOL_PACKAGE=query,describe`).
@@ -461,12 +466,12 @@ Use **respx** library with `@respx.mock` decorator on async test methods.
 
 ### Tool Test Helpers
 
-Tool tests live alongside the rest of the suite in `tests/`. Standard tool registration for tests uses the 4-argument signature:
+Tool tests live alongside the rest of the suite in `tests/`. Standard tool registration for tests uses the 5-argument signature:
 
 ```python
-def _register_and_get_tools(settings, auth_provider, choices=None):
+def _register_and_get_tools(settings, auth_provider, choices=None, dictionary=None):
     mcp = FastMCP("test")
-    register_tools(mcp, settings, auth_provider, choices=choices)
+    register_tools(mcp, settings, auth_provider, choices=choices, dictionary=dictionary)
     return {t.name: t.fn for t in mcp._tool_manager._tools.values()}
 ```
 

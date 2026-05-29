@@ -1,308 +1,304 @@
-# 📖 Agent Recipes
+# Agent Recipes
 
-This document provides a set of "recipes" for common ServiceNow workflows using the unified 12-tool surface.
+Worked examples for AI agents (or developers scripting agents) integrating with the ServiceNow Platform MCP server. Each recipe is a self-contained call sequence you can adapt directly.
 
-The previous specialized helper tools (e.g., `incident_list`, `debug_trace`, `changes_updateset_inspect`) have been collapsed into a minimal, dispatcher-oriented API. Agents and developers now achieve complex tasks through multi-call joins, encoded query strings, and explicit choice resolution. These recipes demonstrate how to translate legacy tool usage into this new, more flexible vocabulary.
-
-## 🛠 The Unified Surface at a Glance
-
-| Tool | Purpose |
-| :--- | :--- |
-| `query` | Fetch records, aggregates, or single records from any table using encoded queries. |
-| `build_query` | Stateless helper - compiles a JSON array of condition objects into the encoded query string that `query` consumes. `full` package only. |
-| `describe` | Retrieve slim field metadata (8 keys) for a table to understand its structure. Use `action='list_script_fields'` with a `table` argument to discover the dictionary-driven script-bearing fields and the resolved super_class chain. |
-| `record_read` | Read a record by `sys_id` or `name`. Returns the masked record plus the `script_fields` list resolved from `sys_dictionary` for the table. |
-| `record_write` | Dispatcher for creating, updating, or deleting records (with `script_path` file injection and `script_field` targeting for tables with multiple script-bearing fields). |
-| `record_apply` | Commits a write operation previously staged with `preview=True`. |
-| `attachment` | Dispatcher for reading, listing, and downloading record attachments. |
-| `attachment_write` | Dispatcher for uploading or deleting record attachments. |
-| `investigate` | Runs pre-defined diagnostic investigations (e.g., health checks, bottleneck analysis). |
-| `resolve_choice` | Maps human-readable labels to underlying ServiceNow choice values. |
-| `service_catalog` | Dispatcher for Service Catalog operations (cart, categories, items). |
-| `flow` | Inspects Flow Designer artifacts, finds record-triggered flows, lists triggers, and decodes compressed `values` blobs. |
-
-## 🔍 Quick Reference: Encoded Query Syntax
-
-ServiceNow [Encoded Queries](https://docs.servicenow.com/bundle/vancouver-platform-user-interface/page/use/using-lists/concept/c_EncodedQueryStrings.html) are the primary filter mechanism for the `query` tool.
-
-| Operator | Syntax | Description |
-| :--- | :--- | :--- |
-| Equals | `state=1` | Field equals value |
-| Not Equals | `state!=1` | Field does not equal value |
-| In List | `priorityIN1,2` | Field is one of the comma-separated values |
-| Starts With | `short_descriptionSTARTSWITHOutage` | Field starts with string |
-| Contains | `short_descriptionLIKEvpn` | Field contains string |
-| Date Filter | `sys_created_on>=javascript:gs.daysAgoStart(7)` | Use for large tables (syslog, sys_audit) |
-| Sorting | `ORDERBYDESCnumber` | Append to query for ordering (use `ORDERBY<field>` for ascending) |
-| AND | `active=true^priority=1` | Combine conditions with carets |
-| OR | `state=1^ORstate=2` | Or condition for the same field |
-| Dot-walk | `assignment_group.nameSTARTSWITHNetwork` | Access fields on referenced tables |
-
-## 👨‍🍳 Recipes
-
-### 1. List my open incidents by priority
-**Goal:** Retrieve open incidents and filter by a human-readable priority label.  
-**Old way:** `incident_list(state="open", priority="high")`  
-**New way:**
-```python
-# Use resolve_labels to handle label-to-value mapping automatically
-# This appends (state=1^priority=1) to the encoded_query internally
-await query(
-    table="incident",
-    resolve_labels="state=open,priority=high",
-    fields="number,short_description,priority,state"
-)
-```
-**Notes:** `resolve_labels` is the most efficient way to query by label. It performs a ChoiceRegistry lookup before executing the query.
+For package configuration details, see [Tool Packages](wiki/Tool-Packages.md).
 
 ---
 
-### 2. Create an incident with proper state value
-**Goal:** Create a new record ensuring the 'state' field uses the correct underlying integer.  
-**Old way:** `incident_create(state="open", short_description="...")`  
-**New way:**
-```python
-import json
+## 1. Discover what is available
 
-# 1. Resolve the label to a value
-# Tool returns a JSON-serialized envelope string - parse it before indexing.
-state_resp = json.loads(await resolve_choice(table="incident", field="state", label="New"))
-state_val = state_resp["data"]["value"]  # "1"
+Start every session by learning which tool packages exist and what they contain.
 
-# 2. Stage the create (preview=True by default)
-# Returns a preview_token inside data
-preview = json.loads(await record_write(
-    action="create",
-    table="incident",
-    data='{"short_description": "Email service down", "state": "1"}'
-))
-
-# 3. Commit the change
-await record_apply(preview_token=preview["data"]["preview_token"])
 ```
-**Notes:** The preview/apply two-step is a mandatory safety mechanism for all writes. It allows the agent (or human) to inspect the impact before commitment. The `data` parameter is capped at 1 MiB (`MAX_PAYLOAD_BYTES`). Every tool returns a JSON-serialized envelope string (see `format_response` in `responses.py`); always `json.loads(...)` before indexing into `data`.
+list_tool_packages()
+```
+
+This returns the registry of preset packages (`full`, `readonly`, `core_readonly`, `none`) and the tool groups each contains. No `correlation_id` or error envelope - this tool is unwrapped.
+
+To discover which fields on a table carry executable script content:
+
+```
+describe(action="list_script_fields", table="sys_script_include")
+```
+
+Returns the super_class chain and a list of `{name, internal_type, inherited_from, via_heuristic}` entries for every script-bearing field detected from `sys_dictionary`.
 
 ---
 
-### 3. Build a complex multi-condition query
-**Goal:** Find incidents that are either New or In Progress, have High/Critical priority, and belong to a Network group.  
-**Old way:** `build_query(...)` then `table_query(...)`  
-**New way:**
-```python
-# Compose the query string directly
-# (state=1 OR state=2) AND (priority <= 2) AND (group name starts with Network)
-query_string = "stateIN1,2^priority<=2^assignment_group.nameSTARTSWITHNetwork"
+## 2. Field metadata
 
-await query(
-    table="incident",
-    encoded_query=query_string,
-    fields="number,short_description,assignment_group.name"
-)
+Retrieve the schema for any table with a bare `describe` call (no `action` parameter):
+
 ```
-**Notes:** Dot-walking (`assignment_group.name`) is supported. Use `^NQ` (New Query) for top-level OR conditions that require entirely separate filter sets.
+describe(table="incident")
+```
+
+Returns table metadata, field list (with label, type, max_length, mandatory, read_only, reference_table, choice_count), and field count.
+
+**Anti-pattern:** Do not pass an invented action value. For example, `action="fields"` produces:
+
+```
+"Unknown describe action 'fields'. Valid actions: ['list_script_fields']."
+```
+
+The only valid action is `list_script_fields`. Omit `action` entirely for normal field metadata.
 
 ---
 
-### 3a. Compose the same query with `build_query`
-**Goal:** Same result as Recipe 3, but expressed as structured JSON instead of hand-written encoded-query syntax. Useful when the conditions come from another tool, a UI, or any source that already speaks JSON.  
-**Availability:** `full` package only.
-```python
-import json
+## 3. Filtered query
 
-built = json.loads(await build_query(conditions=json.dumps([
-    {"operator": "in_list",     "field": "state",                  "value": ["1", "2"]},
-    {"operator": "less_or_equal", "field": "priority",             "value": "2"},
-    {"operator": "starts_with", "field": "assignment_group.name",  "value": "Network"},
-])))
+Fetch active high-priority incidents:
 
-await query(
-    table="incident",
-    encoded_query=built["data"]["query"],
-    fields="number,short_description,assignment_group.name"
-)
 ```
-**Notes:** `build_query` is stateless - it returns the encoded query string in `data.query` for the caller to forward. There is no token store and no shared state; if the second call fails, just call `build_query` again.
+query(table="incident", encoded_query="active=true^priority<=2", limit=20)
+```
+
+### Encoded-query cheat sheet
+
+| Syntax | Meaning |
+|--------|---------|
+| `^` | AND |
+| `^OR` | OR |
+| `=` | Equals |
+| `!=` | Not equals |
+| `<`, `<=`, `>`, `>=` | Numeric/date comparison |
+| `LIKE` | Contains (case-insensitive) |
+| `STARTSWITH` | Starts with |
+| `IN` | Value in comma-separated list |
+| `ISEMPTY` | Field is empty |
+| `ISNOTEMPTY` | Field is not empty |
+
+Example combining operators:
+
+```
+active=true^priority<=2^stateBETWEEN1@3^categoryIN network,hardware
+```
+
+Date-bounded queries are required for large tables (`syslog`, `sys_audit`, `sys_log_transaction`, `sys_email_log`). Add a date constraint like `sys_created_on>=2025-01-01`.
 
 ---
 
-### 4. Find recently modified business rules
-**Goal:** Audit recent logic changes in the system.  
-**Old way:** `meta_list_artifacts` or `meta_what_writes`  
-**New way:**
-```python
-await query(
-    table="sys_script",
-    encoded_query="active=true^sys_updated_on>=javascript:gs.daysAgoStart(7)",
-    fields="name,collection,sys_updated_on,sys_updated_by",
-    order_by="-sys_updated_on",
-    limit=50
-)
+## 4. Aggregate query
+
+Count incidents grouped by state:
+
 ```
-**Notes:** `sys_script` stores Business Rules. The `collection` field indicates the target table.
+query(table="incident", aggregate="count", group_by="state")
+```
+
+The `aggregate` parameter accepts comma-separated tokens: `count`, or `op:field` where op is one of `avg`, `sum`, `min`, `max`.
+
+```
+query(table="incident", aggregate="count,avg:reassignment_count", group_by="priority")
+```
+
+**Mode mutex rules:**
+
+- `sys_id` cannot combine with `aggregate` or `group_by`.
+- `group_by` requires `aggregate` to be set.
+
+Violating these returns an error envelope - not an exception.
 
 ---
 
-### 5. Inspect an Update Set's contents
-**Goal:** See exactly what files are included in a specific Update Set.  
-**Old way:** `changes_updateset_inspect`  
-**New way:**
-```python
-# 1. Verify the Update Set exists
-# await query(table="sys_update_set", sys_id="<sys_id>")
+## 5. Build an encoded query programmatically
 
-# 2. List the captured changes (sys_update_xml)
-await query(
-    table="sys_update_xml",
-    encoded_query="update_set=<sys_id>",
-    fields="name,type,target_name,action",
-    limit=100
-)
+The `build_query` tool (available in the `full` package only) accepts a JSON array of condition objects and returns the encoded query string:
+
 ```
-**Notes:** `sys_update_xml` is the "Customer Update" table where individual modifications are tracked.
+build_query(conditions='[{"operator":"equals","field":"active","value":"true"},{"operator":"less_or_equal","field":"priority","value":"2"},{"operator":"order_by","field":"sys_created_on","descending":true}]')
+```
+
+Returns `{"query": "active=true^priority<=2^ORDERBYDESCsys_created_on"}` in the `data` field. Pass the result directly to the `query` tool's `encoded_query` parameter.
 
 ---
 
-### 6. Debug recent script errors
-**Goal:** Search system logs for errors occurring in the last 15 minutes.  
-**Old way:** `debug_trace` or `debug_log_errors`  
-**New way:**
-```python
-# level=2 is Error. Date filter is mandatory for syslog.
-await query(
-    table="syslog",
-    encoded_query="level=2^sys_created_on>=javascript:gs.minutesAgo(15)",
-    fields="message,source,sys_created_on",
-    order_by="-sys_created_on",
-    limit=50
-)
+## 6. Read a single record
+
+By sys_id:
+
 ```
-**Notes:** Always include a time-based filter when querying `syslog` to avoid performance degradation and query rejection.
+record_read(table="sys_script_include", sys_id="a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6")
+```
+
+By name:
+
+```
+record_read(table="sys_script_include", name="MyScriptInclude")
+```
+
+Exactly one of `sys_id` or `name` must be supplied. Providing both returns:
+
+```
+"Provide exactly one of sys_id or name, not both."
+```
+
+The response includes the masked record and the `script_fields` list resolved by `DictionaryRegistry` for that table.
 
 ---
 
-### 7. Audit who last touched a record
-**Goal:** Get a history of field mutations for a specific record.  
-**Old way:** `debug_field_mutation_story`  
-**New way:**
-```python
-# sys_audit is a massive table; strict filtering is required.
-await query(
-    table="sys_audit",
-    encoded_query="tablename=incident^documentkey=<sys_id>",
-    fields="fieldname,oldvalue,newvalue,sys_created_by,sys_created_on",
-    order_by="-sys_created_on",
-    limit=100
-)
+## 7. Update with preview-then-apply
+
+The default write flow uses a two-call sequence with a single-use preview token.
+
+**Step 1 - Preview:**
+
 ```
-**Notes:** For high-volume production instances, always combine `documentkey` with a `sys_created_on` filter if the history is expected to be long.
-
----
-
-### 8. Discover a table's choice values for a field
-**Goal:** Understand the available states or categories for a table without guessing.  
-**Old way:** Implicitly handled by domain tools.  
-**New way:**
-```python
-import json
-
-# 1. Check if choices exist
-meta = json.loads(await describe(table="incident", fields="state"))
-# If meta["data"]["state"]["choice_count"] > 0...
-
-# 2. Get the full mapping (label="" returns all)
-choices = json.loads(await resolve_choice(table="incident", field="state"))
-```
-**Notes:** `resolve_choice` returns a dictionary mapping labels (e.g., "In Progress") to values (e.g., "2").
-
----
-
-### 9. Update a Business Rule from a local file
-**Goal:** Sync a script developed locally into a ServiceNow Business Rule.  
-**Old way:** `artifact_update`  
-**New way:**
-```python
-import json
-
-# Stage the update using a local path.
-# content is read, validated, and placed in the first script-bearing field
-# resolved by DictionaryRegistry (here: sys_script.script).
-preview = json.loads(await record_write(
-    action="update",
-    table="sys_script",
-    sys_id="<sys_id>",
-    script_path="/Users/dev/project/br_logic.js",
-    preview=True
-))
-
-# Commit
-await record_apply(preview_token=preview["data"]["preview_token"])
-```
-**Notes:** `script_path` must be within the directory defined by the `SCRIPT_ALLOWED_ROOT` setting. All path rejections return a single opaque error. Files are capped at 1MB and must be UTF-8.
-
----
-
-### 10. Aggregate incident counts by assignment group
-**Goal:** Perform ad-hoc reporting to find which groups have the most active work.  
-**Old way:** ad-hoc manual queries.  
-**New way:**
-```python
-import json
-
-# Get counts grouped by the reference field 'assignment_group'
-report = json.loads(await query(
-    table="incident",
-    encoded_query="active=true",
-    aggregate="count",
-    group_by="assignment_group"
-))
-
-# report["data"] will contain list of {assignment_group: "sys_id", count: "42"}
-```
-**Notes:** Aggregate queries return the raw sys_id of the group. Call `query` with `sys_id` mode on `sys_user_group` to resolve the top group's name if needed.
-
----
-
-### 11. Inspect Flow Designer artifacts
-
-**Goal:** Understand which flows run for a table, inspect one flow's canvas, or decode a compressed `values` field fetched manually.  
-**Old way:** Query `sys_hub_*` tables by hand and decode `values` outside the MCP server.  
-**New way:**
-
-```python
-# Find all flows triggered by a given table
-await flow(action="find_by_table", table="incident")
-
-# Inspect a specific flow by name
-await flow(action="inspect", name="My Flow")
-
-# Decode a values blob fetched manually via query
-await flow(action="decode_values", value="H4sIA...")
-
-# Survey active record-update triggers across the platform
-await flow(
-    action="list_triggers",
-    trigger_type="record_update",
-    active="true",
-    limit=50,
+record_write(
+  action="update",
+  table="incident",
+  sys_id="abc123def456abc123def456abc123de",
+  data='{"state": "6"}',
+  preview=true
 )
 ```
 
-**Notes:** `flow(action="inspect", ...)` reads both Washington DC+ V2 rows and V1 fallback rows. Per-node decode failures are isolated to that node as `decode_error`, so one bad `values` blob does not discard the full inspection result.
+Response includes a `preview_token` and a diff showing old vs new values (sensitive fields masked).
 
-## 💡 Tips and Patterns
+**Step 2 - Apply:**
 
-### Describe First
-When working with an unfamiliar table, always call `describe(table="...")` first. It provides the field names, types, and mandatory flags in a slim format (8 keys per field). This is significantly lower "context cost" for the agent than fetching actual records.
+```
+record_apply(preview_token="<token from step 1>")
+```
 
-### Use Display Values
-When you need human-readable labels for reference fields (like `assigned_to`) or choice fields (like `state`) in a single pass, use `display_values=True` in your `query` call. This returns a `_display` object alongside the raw values, avoiding the need for multiple `resolve_choice` calls.
+Tokens are single-use and expire after 5 minutes.
 
-### Large Table Constraints
-Queries against `syslog`, `sys_audit`, `sys_log_transaction`, and `sys_email_log` are gated. You **must** include a date filter (e.g., `sys_created_on>=javascript:gs.daysAgoStart(1)`) or the server will reject the query to protect instance performance.
+**Skipping preview:** Set `preview=false` for a direct commit without the token round-trip:
 
-### Pagination
-The `query` tool returns a `pagination` object containing `offset`, `limit`, and `total`. To fetch the next page, call the tool again with the same parameters but increment the `offset` by the `limit`.
+```
+record_write(action="create", table="incident", data='{"short_description":"New issue"}', preview=false)
+```
+
+**Production environments block ALL writes.** When `SERVICENOW_ENV` is `prod` or `production`, every write operation returns a gating error - no override exists at the tool level.
 
 ---
 
-For detailed per-tool API documentation, see [Tool Reference](./wiki/Tool-Reference.md).
+## 8. Upload an attachment
+
+```
+attachment_write(
+  action="upload",
+  table="incident",
+  table_sys_id="abc123def456abc123def456abc123de",
+  file_name="screenshot.png",
+  content_base64="iVBORw0KGgoAAAANS..."
+)
+```
+
+Maximum attachment size is 10 MB. The `content_base64` field must be standard base64-encoded file content. An optional `content_type` parameter defaults to `"application/octet-stream"`.
+
+---
+
+## 9. Run an investigation
+
+```
+investigate(action="run", name="stale_automations", params='{"stale_days":90}')
+```
+
+The `name` parameter selects from 7 registered investigations: `stale_automations`, `deprecated_apis`, `table_health`, `acl_conflicts`, `error_analysis`, `slow_transactions`, `performance_bottlenecks`.
+
+Three actions are available:
+
+| Action | Purpose |
+|--------|---------|
+| `run` | Execute the investigation (requires `name`) |
+| `explain` | Trial-run all modules against an `element_id` in `table:sys_id` format |
+| `describe` | Return available investigations and their parameters |
+
+Use `describe` with no `name` to list all investigations, or with a `name` to see that module's accepted parameters.
+
+---
+
+## 10. Resolve a choice label
+
+Map human-readable state labels to their numeric values:
+
+```
+resolve_choice(table="incident", field="state")
+```
+
+Returns all known label-to-value mappings for that field. To resolve a single label:
+
+```
+resolve_choice(table="incident", field="state", label="resolved")
+```
+
+Returns `{table: "incident", field: "state", label: "resolved", value: "6"}`.
+
+---
+
+## 11. Inspect a Flow
+
+```
+flow(action="inspect", name="My Approval Flow")
+```
+
+Returns the full flow structure: triggers, inputs, outputs, variables, decoded V2 action/logic nodes, canvas tree, published snapshot drift, and warnings.
+
+You can also pass `sys_id` instead of `name` (exactly one required).
+
+To find flows triggered by a specific table:
+
+```
+flow(action="find_by_table", table="incident")
+```
+
+To list triggers with filtering:
+
+```
+flow(action="list_triggers", table="incident", active="true")
+```
+
+The `active` parameter accepts three values: `"true"`, `"false"`, or `""` (empty string for no filter). Any other value returns:
+
+```
+"'active' must be 'true', 'false', or '' (got ...)"
+```
+
+---
+
+## 12. Audit a field
+
+Check whether a field is being audited:
+
+```
+audit(action="check_field", table="incident", field="priority")
+```
+
+Returns a verdict (`audited`, `not_audited_field_flag`, `not_audited_table_flag`, `audited_but_inactive`, or `inconclusive`), the super_class chain walk, attribute analysis, and recent activity counts.
+
+**Default 90-day window.** All audit actions that read `sys_audit` apply a 90-day lookback by default. The response includes a `window_note`:
+
+```
+"Default 90-day window used (sys_audit is large; widen with care)."
+```
+
+Override with `window_days` if needed, but keep the default unless you have a specific reason - wider windows risk slow queries and timeouts.
+
+To check multiple fields in one call:
+
+```
+audit(action="check_fields", table="incident", fields_csv="priority,state,assigned_to")
+```
+
+---
+
+## 13. Service Catalog
+
+List available catalogs:
+
+```
+service_catalog(action="catalogs_list")
+```
+
+Other catalog actions follow the same dispatch pattern - `catalog_get`, `categories_list`, `category_get`, `items_list`, `item_get`, `item_variables`, `order_now`, `add_to_cart`, `cart_get`, `cart_submit`, `cart_checkout`. Write actions (`order_now`, `add_to_cart`, `cart_submit`, `cart_checkout`) are subject to write gating.
+
+---
+
+## General notes
+
+- Every tool except `list_tool_packages` returns a JSON envelope with `correlation_id`, `status`, `data`, and optionally `error`, `pagination`, `warnings`.
+- Sensitive fields in responses are masked as `***MASKED***`.
+- Tables in the denied list (`sys_user_has_password`, `oauth_credential`, `oauth_entity`, `sys_certificate`, `sys_ssh_key`, `sys_credentials`, `discovery_credentials`, `sys_user_token`) are blocked from all operations.
+- Tool functions never raise to MCP - all errors are caught and returned as structured error envelopes.

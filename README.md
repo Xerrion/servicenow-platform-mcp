@@ -1,197 +1,82 @@
-<p align="center">
-  <img src="assets/banner.svg" alt="servicenow-platform-mcp banner" width="900" />
-</p>
-
-<p align="center">
-  <a href="https://pypi.org/project/servicenow-platform-mcp/"><img src="https://img.shields.io/pypi/v/servicenow-platform-mcp" alt="PyPI version"></a>
-  <a href="https://pypi.org/project/servicenow-platform-mcp/"><img src="https://img.shields.io/pypi/pyversions/servicenow-platform-mcp" alt="Python versions"></a>
-  <a href="https://github.com/Xerrion/servicenow-platform-mcp/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Xerrion/servicenow-platform-mcp" alt="License"></a>
-</p>
-
 # servicenow-platform-mcp
 
-A comprehensive [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for ServiceNow. Provides 12 unified tools for platform introspection, change intelligence, debugging, record management, and automated investigations.
+A Python 3.12+ async MCP server that gives AI agents structured, policy-guarded access to ServiceNow. It exposes schema inspection, record CRUD, attachment operations, audit trail analysis, Flow Designer inspection, and platform investigations - all over the Model Context Protocol's stdio transport.
 
-## Quick Start
+## What you get
 
-**1. Set environment variables:**
+The server presents a unified tool surface to any MCP-compatible client. Capabilities include:
+
+- **Query and inspect** - encoded-query search, aggregation, field-level schema discovery, choice-label resolution.
+- **Read and write records** - including script-bearing artifacts (Business Rules, Script Includes, UI Macros) with file-based script injection and preview-then-apply confirmation.
+- **Attachments** - list, download, upload, and delete with size-capped base64 transfer.
+- **Audit** - field-level audit verdict resolution, batch checks, and masked history retrieval.
+- **Flow Designer** - inspect flows, decode compressed action values, find record-trigger bindings.
+- **Investigations** - pluggable analysis modules for stale automations, deprecated APIs, ACL conflicts, performance bottlenecks, and more.
+- **Service Catalog** - browse catalogs, order items, manage carts.
+
+## Tool-package presets
+
+Control the exposed surface with `MCP_TOOL_PACKAGE`. Four presets ship; custom comma-separated group lists are also accepted.
+
+| Preset | Tools | Purpose |
+|--------|-------|---------|
+| `full` | 14 | Complete surface including writes and query builder |
+| `readonly` | 10 | Read operations, investigations, audit, and flow inspection |
+| `core_readonly` | 5 | Query, describe, and attachment only |
+| `none` | 1 | Only the `list_tool_packages` introspection tool |
+
+## Quickstart
 
 ```bash
-export SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com
-export SERVICENOW_USERNAME=admin
-export SERVICENOW_PASSWORD=your-password
+# Install dependencies
+uv sync
+
+# Configure credentials
+cp .env.example .env.local
+# Edit .env.local with your instance URL, username, and password
+
+# Run the server (stdio transport)
+servicenow-platform-mcp
 ```
 
-**2. Run the server:**
+Three environment variables are required:
 
-```bash
-uvx servicenow-platform-mcp
-```
+- `SERVICENOW_INSTANCE_URL` - your instance (HTTPS enforced, e.g. `https://dev12345.service-now.com`)
+- `SERVICENOW_USERNAME`
+- `SERVICENOW_PASSWORD`
 
-**3. Connect your MCP client** (see [Configuration](#configuration) below).
-
-## Configuration
-
-### OpenCode
-
-Add to `~/.config/opencode/opencode.json`:
-
-```json
-{
-  "mcp": {
-    "servicenow": {
-      "type": "local",
-      "command": ["uvx", "servicenow-platform-mcp"],
-      "environment": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_USERNAME": "admin",
-        "SERVICENOW_PASSWORD": "your-password"
-      }
-    }
-  }
-}
-```
-
-### Claude Desktop
-
-Add to `claude_desktop_config.json`:
+### MCP client configuration
 
 ```json
 {
   "mcpServers": {
     "servicenow": {
-      "command": "uvx",
-      "args": ["servicenow-platform-mcp"],
-      "env": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_USERNAME": "admin",
-        "SERVICENOW_PASSWORD": "your-password"
-      }
+      "command": "servicenow-platform-mcp",
+      "transport": "stdio"
     }
   }
 }
 ```
 
-### VS Code / Cursor
+## Safety posture
 
-Add to `.vscode/mcp.json`:
+Eight sensitive tables (credential stores, OAuth entities, SSH keys) are unconditionally denied at the policy layer. Fields matching sensitive patterns - passwords, tokens, secrets, API keys, private keys, credentials - are masked in every response. Write operations use a preview-then-apply flow by default: the server returns a confirmation token that must be explicitly applied before any mutation reaches ServiceNow. In production environments (`SERVICENOW_ENV=prod` or `production`), all write operations are blocked at runtime regardless of which tool package is loaded.
 
-```json
-{
-  "servers": {
-    "servicenow": {
-      "command": "uvx",
-      "args": ["servicenow-platform-mcp"],
-      "env": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_USERNAME": "admin",
-        "SERVICENOW_PASSWORD": "your-password"
-      }
-    }
-  }
-}
-```
+## Where to go next
 
-### Generic stdio
-
-```bash
-SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com \
-SERVICENOW_USERNAME=admin \
-SERVICENOW_PASSWORD=your-password \
-uvx servicenow-platform-mcp
-```
-
-## Environment Variables
-
-| Variable | Description | Default | Required |
-|----------|-------------|---------|----------|
-| `SERVICENOW_INSTANCE_URL` | Full URL (must start with `https://`) | - | Yes |
-| `SERVICENOW_USERNAME` | ServiceNow username | - | Yes |
-| `SERVICENOW_PASSWORD` | ServiceNow password | - | Yes |
-| `MCP_TOOL_PACKAGE` | Tool package to load (`full`, `readonly`, `core_readonly`, `none`) | `full` | No |
-| `SERVICENOW_ENV` | Environment label (`dev`/`test`/`staging`/`prod`) | `dev` | No |
-| `MAX_ROW_LIMIT` | Max rows per query (1-10000) | `100` | No |
-| `LARGE_TABLE_NAMES_CSV` | Tables requiring date filters | `syslog,sys_audit,sys_log_transaction,sys_email_log` | No |
-| `SCRIPT_ALLOWED_ROOT` | Root dir for `script_path` in artifact write | `""` (disabled) | When using `script_path` |
-| `SENTRY_DSN` | Sentry DSN for error reporting | `""` | No |
-| `SENTRY_ENVIRONMENT` | Sentry environment label | Falls back to `SERVICENOW_ENV` | No |
-
-The server reads from `.env` and `.env.local` files automatically.
-
-## AI Agent Setup
-
-Copy and paste this prompt to your AI agent (Claude Code, Cursor, OpenCode, etc.):
-
-```
-Install and configure servicenow-platform-mcp by following the instructions here:
-https://raw.githubusercontent.com/Xerrion/servicenow-platform-mcp/refs/heads/main/INSTALL.md
-```
-
-Or read the [Installation Guide](INSTALL.md) directly. For usage examples and patterns, see [Agent Recipes](docs/agent-recipes.md).
-
-## Key Features
-
-- **Platform Introspection** - Describe table schemas with `describe` and query records with `query` using encoded queries.
-- **Record Management** - Unified `record_write` and `record_apply` tools for create, update, and delete with a mandatory preview-then-apply safety pattern. Payload data is capped at 1 MiB.
-- **Script-Bearing Records** - Write Business Rules, Script Includes, UI Pages, Widgets, UI Macros, ACLs, and any other table whose dictionary fields carry executable script or markup, all via `record_write` with local script file support and per-field targeting (`script_field`). Script fields are discovered at runtime from `sys_dictionary` — no hardcoded artifact catalog. Read the same surface back via `record_read`, or enumerate a table's script fields with `describe(action='list_script_fields', table='<table>')`.
-- **Attachment Operations** - Unified `attachment` for read operations and `attachment_write` for mutations.
-- **Investigations** - Automated analysis of system health, stale automations, performance bottlenecks, and more via `investigate`.
-- **Label Resolution** - Map human-readable choice labels to underlying values automatically with `resolve_choice`.
-- **Service Catalog** - Dispatcher-based `service_catalog` tool for browsing and ordering.
-
-## Example Usage
-
-### Describe a Table
-```python
-await describe(table="incident")
-```
-
-### Query Records
-```python
-# Fetch high priority incidents using an encoded query
-await query(
-    table="incident",
-    encoded_query="active=true^priority=1",
-    fields="number,short_description,priority"
-)
-```
-
-## Tool Packages
-
-Control which tools are loaded with `MCP_TOOL_PACKAGE`.
-
-| Package | Tools | Description |
-|---------|-------|-------------|
-| `full` | 13 | All unified tools, including `audit`, `flow`, and the `build_query` helper (default) |
-| `readonly` | 9 | Includes `record_read`, `audit`, `flow`, and `attachment_write` (write_gate blocks in prod) |
-| `core_readonly` | 5 | Minimal read surface (includes `attachment_write`) |
-| `none` | 1 | Just `list_tool_packages` |
-
-Custom packages are supported via comma-separated tool names: `MCP_TOOL_PACKAGE="query,describe,attachment"`.
-
-## Safety
-
-- **Table Deny List** - Blocks access to sensitive system tables (`sys_user_has_password`, `sys_credentials`, etc.).
-- **Sensitive Field Masking** - Passwords, tokens, and secrets are automatically masked in responses.
-- **Write Gating** - All mutations are blocked when `SERVICENOW_ENV` is set to `prod` or `production`.
-- **Query Safety** - Enforces row limits and mandatory date filters on high-volume system tables.
-
-These guardrails reduce risk but are not a guarantee - always validate in a sub-production environment.
-
-See the [Safety & Policy](https://github.com/Xerrion/servicenow-platform-mcp/wiki/Safety-and-Policy) wiki page for complete details.
-
-## Development
-
-```bash
-git clone https://github.com/Xerrion/servicenow-platform-mcp.git
-cd servicenow-platform-mcp
-uv sync --group dev
-uv run pytest                  # Run tests
-uv run ruff check .            # Lint
-uv run ruff format .           # Format
-uv run mypy src/               # Type check
-```
+- [Getting Started](docs/wiki/Getting-Started.md) - detailed setup and first-use walkthrough
+- [Configuration](docs/wiki/Configuration.md) - full environment variable reference
+- [Tool Reference](docs/wiki/Tool-Reference.md) - per-tool parameter and response documentation
+- [Tool Packages](docs/wiki/Tool-Packages.md) - preset details and custom package composition
+- [Architecture](docs/wiki/Architecture.md) - server bootstrap, decorator patterns, state management
+- [Safety and Policy](docs/wiki/Safety-and-Policy.md) - denied tables, masking, query safety, write gating
+- [Investigations](docs/wiki/Investigations.md) - available analysis modules and their parameters
+- [Telemetry](docs/wiki/Telemetry.md) - opt-in Sentry integration
+- [Development](docs/wiki/Development.md) - contributing, linting, testing
+- [INSTALL.md](INSTALL.md) - alternative installation methods
 
 ## License
 
-[MIT](LICENSE)
+MIT. See [LICENSE](LICENSE).
+
+Built by the ServiceNow MCP Contributors.

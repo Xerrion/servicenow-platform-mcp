@@ -1,198 +1,156 @@
-# ServiceNow Platform MCP Server - Installation Guide
+# Installation
 
-> **For AI Agents:** You are helping your user install and configure the ServiceNow Platform MCP server.
-> Follow each step below in order. Ask the user questions where indicated, then generate the appropriate configuration.
+How to install, configure, and run the servicenow-platform-mcp server.
 
-## Step 0: Gather Credentials
+## Prerequisites
 
-Ask the user for their ServiceNow instance details:
+- **Python 3.12 or later** (3.13 and 3.14 are also supported).
+- **[uv](https://docs.astral.sh/uv/)** package manager.
+- **A ServiceNow instance** with REST API access and a user account that can authenticate via HTTP Basic Auth.
 
-1. **What is your ServiceNow instance URL?**
-   - Must start with `https://` (e.g., `https://dev12345.service-now.com`)
-   - Trailing slash will be stripped automatically
+## Install
 
-2. **What is your ServiceNow username?**
-   - Needs admin or appropriate roles for the tools being used
-
-3. **What is your ServiceNow password?**
-   - Will be stored in the MCP client config (environment variable, not committed to source)
-
-## Step 1: Determine Environment
-
-Ask the user:
-
-1. **Is this a production instance?**
-   - If **yes** - set `SERVICENOW_ENV=prod` (all write operations will be blocked)
-   - If **no** - set `SERVICENOW_ENV=dev` (default, writes allowed)
-
-2. **Do you want all tools or a specific subset?**
-   - **All tools** (default) - set `MCP_TOOL_PACKAGE=full` (13 tools, including `audit` and `flow`)
-   - **Read-only** - set `MCP_TOOL_PACKAGE=readonly` (9 tools, including `audit` and `flow`)
-   - **Minimal** - set `MCP_TOOL_PACKAGE=core_readonly` (5 tools: query, describe, attachment, attachment_write, list_tool_packages)
-   - **Custom** - comma-separated tool names (e.g., `query,describe,attachment`)
-
-## Step 2: Choose MCP Client
-
-Ask the user which MCP client they use, then generate the appropriate configuration file.
-
-### OpenCode
-
-Write to `~/.config/opencode/opencode.json`:
-
-```json
-{
-  "mcp": {
-    "servicenow": {
-      "type": "local",
-      "command": ["uvx", "servicenow-platform-mcp"],
-      "environment": {
-        "SERVICENOW_INSTANCE_URL": "<instance_url>",
-        "SERVICENOW_USERNAME": "<username>",
-        "SERVICENOW_PASSWORD": "<password>",
-        "MCP_TOOL_PACKAGE": "<package>",
-        "SERVICENOW_ENV": "<env>"
-      }
-    }
-  }
-}
+```bash
+git clone https://github.com/lassenn/servicenow-platform-mcp.git
+cd servicenow-platform-mcp
+uv sync --group dev
 ```
+
+No build step is needed. The server runs directly from source.
+
+## Credentials
+
+```bash
+cp .env.example .env.local
+```
+
+Open `.env.local` and fill in the three required variables:
+
+```bash
+SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com
+SERVICENOW_USERNAME=your_user
+SERVICENOW_PASSWORD=your_password
+```
+
+`SERVICENOW_INSTANCE_URL` must use HTTPS. A trailing slash is stripped automatically.
+
+> **Note:** `.env.example` may list preset package names that no longer exist in the registry. Refer to the [Tool Packages](docs/wiki/Tool-Packages.md) page for current presets.
+
+## Choosing a tool package
+
+The `MCP_TOOL_PACKAGE` environment variable controls which tools the server exposes. Four presets exist:
+
+| Preset | Description |
+|---|---|
+| `full` | All 14 tools (read, write, investigate, flow, audit, catalog, build_query) |
+| `readonly` | 10 tools - read and inspect, no create/update/delete |
+| `core_readonly` | 5 tools - query, describe, attachment |
+| `none` | Only `list_tool_packages` (1 tool) |
+
+You can also pass a comma-separated list of tool group names for a custom surface (e.g. `MCP_TOOL_PACKAGE=query,describe,flow`).
+
+See [Tool Packages](docs/wiki/Tool-Packages.md) for the full group list and tool counts.
+
+## Production mode
+
+Set `SERVICENOW_ENV=production` when pointing at a production instance.
+
+This blocks **all** write operations regardless of table. The write gate returns an error envelope with the message `"Write operations are blocked in production environments"` for every call to `record_write`, `record_apply`, `attachment_write` (upload and delete), and catalog ordering actions. The gate is function-based and never raises - it returns a serialized error response to the caller.
+
+The eight permanently denied tables (`sys_user_has_password`, `oauth_credential`, `oauth_entity`, `sys_certificate`, `sys_ssh_key`, `sys_credentials`, `discovery_credentials`, `sys_user_token`) are blocked in every environment, including dev.
+
+## Running the server
+
+The entry point is `servicenow_mcp.server:main`. It uses stdio transport - no HTTP listener is started.
+
+```bash
+uv run python -m servicenow_mcp.server
+```
+
+In practice, an MCP client spawns the process and communicates over stdin/stdout.
+
+## Wiring an MCP client
 
 ### Claude Desktop
 
-Add to `claude_desktop_config.json`:
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
 
 ```json
 {
   "mcpServers": {
     "servicenow": {
-      "command": "uvx",
-      "args": ["servicenow-platform-mcp"],
+      "command": "uv",
+      "args": ["--directory", "/path/to/servicenow-platform-mcp", "run", "python", "-m", "servicenow_mcp.server"],
       "env": {
-        "SERVICENOW_INSTANCE_URL": "<instance_url>",
-        "SERVICENOW_USERNAME": "<username>",
-        "SERVICENOW_PASSWORD": "<password>",
-        "MCP_TOOL_PACKAGE": "<package>",
-        "SERVICENOW_ENV": "<env>"
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_USERNAME": "your_user",
+        "SERVICENOW_PASSWORD": "your_password"
       }
     }
   }
 }
 ```
 
-### VS Code / Cursor (Copilot MCP)
+### OpenCode
 
-Write to `.vscode/mcp.json` in the workspace:
+Add to your `opencode.json`:
 
 ```json
 {
-  "servers": {
+  "mcpServers": {
     "servicenow": {
-      "command": "uvx",
-      "args": ["servicenow-platform-mcp"],
+      "command": "uv",
+      "args": ["--directory", "/path/to/servicenow-platform-mcp", "run", "python", "-m", "servicenow_mcp.server"],
       "env": {
-        "SERVICENOW_INSTANCE_URL": "<instance_url>",
-        "SERVICENOW_USERNAME": "<username>",
-        "SERVICENOW_PASSWORD": "<password>",
-        "MCP_TOOL_PACKAGE": "<package>",
-        "SERVICENOW_ENV": "<env>"
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_USERNAME": "your_user",
+        "SERVICENOW_PASSWORD": "your_password"
       }
     }
   }
 }
 ```
 
-### Generic stdio
+## Smoke test
 
-If the user's client is not listed above, provide the generic command:
+Once your client connects, call `list_tool_packages` with no arguments. This tool:
 
-```bash
-SERVICENOW_INSTANCE_URL=<instance_url> \
-SERVICENOW_USERNAME=<username> \
-SERVICENOW_PASSWORD=<password> \
-MCP_TOOL_PACKAGE=<package> \
-SERVICENOW_ENV=<env> \
-uvx servicenow-platform-mcp
-```
+- Does not contact ServiceNow (no auth required).
+- Returns the package registry as a raw JSON payload (no correlation_id, no error envelope).
+- Confirms the server process is running and the MCP transport is working.
 
-**Important:** Replace all `<placeholder>` values with the user's actual answers from Steps 0-1 before writing the config.
+If that succeeds, try `query` with `table="incident"` and `limit=1` to verify credentials and network connectivity.
 
-## Step 3: Optional Configuration
+## Troubleshooting
 
-Ask the user if they want to configure any of these optional settings:
+**Auth failure (401)**
 
-1. **Row limit** - Maximum records per query (default: 100, range: 1-10000)
-   - Add `"MAX_ROW_LIMIT": "<number>"` to the environment/env block
+- Verify `SERVICENOW_INSTANCE_URL` is the base URL with no path suffix.
+- Confirm the username and password in `.env.local` match an active ServiceNow user.
+- Check that Basic Auth is enabled on the instance (some organizations disable it).
 
-2. **Large tables** - Tables that require date-bounded queries (default: `syslog,sys_audit,sys_log_transaction,sys_email_log`)
-   - Add `"LARGE_TABLE_NAMES_CSV": "<comma_separated_tables>"` to the environment/env block
+**ForbiddenError on writes**
 
-3. **Script file root** - When using `record_write` with `script_path`, constrains file reads to a directory tree. All path rejections return a single opaque error.
-    - Add `"SCRIPT_ALLOWED_ROOT": "<absolute_path>"` to the environment/env block
+Two independent checks can block writes:
 
-4. **Sentry error tracking** - MCP servers run as child processes, so stdout/stderr is invisible. Sentry provides error visibility.
-   - Add `"SENTRY_DSN": "<dsn_url>"` to the environment/env block
-   - Optionally add `"SENTRY_ENVIRONMENT": "<label>"` (defaults to `SERVICENOW_ENV`)
+1. The eight denied tables are blocked unconditionally in every environment.
+2. `SERVICENOW_ENV=production` (or `prod`) blocks all writes regardless of table.
 
-## Step 4: Verify Setup
+Both return a serialized error envelope - the server never raises to the MCP client.
 
-After writing the configuration, tell the user to:
+**script_path returns an opaque error**
 
-1. **Restart their MCP client** (or reload the MCP server)
-2. **Test with a simple tool call** - try `list_tool_packages` to verify connectivity
-3. **If it fails**, check:
-   - Instance URL starts with `https://`
-   - Credentials are correct
-   - The user has network access to the ServiceNow instance
-   - `uvx` is installed (requires `uv` - install via `curl -LsSf https://astral.sh/uv/install.sh | sh`)
+The message `"script_path is not readable or is outside the allowed root"` collapses four distinct causes into one response for security:
 
-## Tool Reference
+1. The file does not exist.
+2. The path is not a regular file.
+3. The resolved path is outside `SCRIPT_ALLOWED_ROOT`.
+4. A symlink escapes the allowed root after resolution.
 
-The server provides 12 unified tools. Use `list_tool_packages` to see available tools at runtime. For detailed usage patterns and complex queries, see [Agent Recipes](docs/agent-recipes.md).
+Configuration errors (`SCRIPT_ALLOWED_ROOT` not set or not a directory) produce distinct, verbose messages.
 
-### query
-Search and retrieve records using ServiceNow encoded query strings. Supports `resolve_labels` for human-readable filtering and `display_values` for labeled results.
+## Next steps
 
-### build_query
-Stateless helper that compiles a JSON array of condition objects into a ServiceNow encoded query string (returned in `data.query`). Pass the returned string as the `query` parameter to the `query` tool. Available in the `full` package only - read-only presets pass encoded queries to `query` directly.
-
-### describe
-Retrieve table schema and metadata. Returns a slim set of field attributes by default (8 keys); use `verbose=true` for the full platform payload.
-
-### record_write
-Unified tool for `create`, `update`, and `delete` actions. When called with `preview=true` (default), it returns a `preview_token` consumed by `record_apply`. The `data` parameter is capped at 1 MiB (`MAX_PAYLOAD_BYTES`). Supports local script injection via `script_path` for any table whose dictionary fields are script-bearing (Business Rules, Script Includes, UI Pages, Widgets, UI Macros, ACLs, etc.) — script fields are discovered at runtime from `sys_dictionary`, no hardcoded catalog. Use `script_field` to target a specific field on tables that have more than one.
-
-### record_read
-Read-only counterpart to `record_write` for platform artifacts. Resolves a record by `sys_id` or `name` and returns the masked record plus the `script_fields` list so callers can drive multi-field edits without guessing field names.
-
-### record_apply
-Commits a write operation previously staged with `record_write(preview=true)`. Takes the returned `preview_token`.
-
-### attachment
-Dispatcher for read operations: `list`, `get`, `download`.
-
-### attachment_write
-Dispatcher for write operations: `upload`, `delete`. Included in all standard packages; blocked in production via runtime write gating.
-
-### investigate
-Runs automated diagnostic modules. Actions: `run` (execute module) or `explain` (interpret findings). Includes: `stale_automations`, `table_health`, `performance_bottlenecks`, and more.
-
-### resolve_choice
-Maps human-readable labels (e.g., "In Progress") to underlying ServiceNow choice values (e.g., "2").
-
-### service_catalog
-Dispatcher for Service Catalog operations: browse catalogs, categories, items, and manage carts.
-
-### list_tool_packages
-Always-on tool to list the active tool package and its available tools.
-
-## Safety Guardrails
-
-These guardrails are always active. They reduce risk but are not a guarantee - always validate in a sub-production environment.
-
-- **Table Deny List** - Sensitive tables (`sys_user_has_password`, `sys_credentials`, etc.) are blocked.
-- **Sensitive Field Masking** - Fields matching `password`, `token`, `secret`, and others are masked.
-- **Row Limit Caps** - Query limits capped at `MAX_ROW_LIMIT` (default 100).
-- **Large Table Protection** - Configured tables require date-bounded queries.
-- **Write Gating** - All write operations blocked when `SERVICENOW_ENV` is set to `prod` or `production`.
-- **Attachment Limits** - 10 MB maximum per attachment transfer.
-- **Standardized Responses** - All tools return JSON-serialized envelopes with `correlation_id`, `status`, and `data`.
+- [Getting Started](docs/wiki/Getting-Started.md) - first workflows and patterns.
+- [Tool Reference](docs/wiki/Tool-Reference.md) - per-tool parameters and behavior.
+- [Safety and Policy](docs/wiki/Safety-and-Policy.md) - denied tables, masking, query safety, write gating.

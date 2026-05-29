@@ -1,311 +1,263 @@
 # Development
 
-Comprehensive development guide for contributing to `servicenow-platform-mcp`.
+This guide is for contributors working on the MCP server itself - not for consumers integrating it into an AI client.
 
-See also: [[Architecture]] for technical internals, [[Telemetry]] for observability.
+Related pages: [[Architecture]], [[Telemetry]].
 
-## Getting Started
+---
 
-### Prerequisites
+## Repository Layout
 
-- **Python 3.12+** (tested on 3.12, 3.13, 3.14)
-- **uv** - Fast Python package manager (not pip/poetry)
-- A ServiceNow instance with admin or developer credentials
+The project uses a src-layout with hatchling as the build backend and **uv** as the package manager.
 
-### Setup
+```
+src/servicenow_mcp/         # Package root
+  server.py                 # Entry point (console script servicenow-platform-mcp)
+  client.py                 # ServiceNowClient - async HTTP
+  config.py                 # Settings (pydantic-settings)
+  packages.py               # Package registry and tool group mapping
+  tools/                    # One module per tool group
+  investigations/           # Investigation modules (7)
+tests/                      # Unit and integration tests
+  integration/              # Live-instance tests (require .env.local)
+.github/workflows/          # CI, CodeQL, release-please, stale
+pyproject.toml              # Metadata, dependencies, tool configuration
+```
+
+Entry point: `servicenow_mcp.server:main` (registered as the `servicenow-platform-mcp` console script).
+
+Build backend: `hatchling`. Package manager: `uv` (not pip, not poetry).
+
+---
+
+## Setup
 
 ```bash
-git clone https://github.com/Xerrion/servicenow-platform-mcp.git
-cd servicenow-platform-mcp
 uv sync --group dev
-cp .env.example .env.local  # Fill in ServiceNow credentials
+cp .env.example .env.local   # fill in ServiceNow credentials
 ```
 
-The `.env.local` file needs at minimum:
+No build step is needed for development. Run the server with `uv run servicenow-platform-mcp`.
+
+---
+
+## Development Loop
+
+### Tests
 
 ```bash
-SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com
-SERVICENOW_USERNAME=admin
-SERVICENOW_PASSWORD=your-password
+uv run pytest                                           # all unit tests (integration excluded)
+uv run pytest tests/test_client.py                      # single file
+uv run pytest tests/test_client.py::TestClass::test_method  # single test
+uv run pytest -k "keyword"                              # keyword filter
+uv run pytest -m integration                            # integration tests (needs .env.local)
+uv run pytest --no-cov                                  # skip coverage for speed
 ```
 
-No build step is required for development. The server runs directly from source via `uv run servicenow-platform-mcp`.
+### Lint and Format
 
-## Development Commands
-
-| Command | Purpose |
-|---|---|
-| `uv run ruff check .` | Lint (all rules) |
-| `uv run ruff check --fix .` | Auto-fix lint issues |
-| `uv run ruff format .` | Format code |
-| `uv run ruff format --check .` | Verify formatting without changes |
-| `uv run mypy src/` | Type checking |
-| `uv run pytest` | Run all unit tests (integration excluded) |
-| `uv run pytest tests/test_client.py` | Run a single test file |
-| `uv run pytest tests/test_client.py::TestClass::test_method` | Run a single test |
-| `uv run pytest -k "keyword"` | Run tests matching a keyword |
-| `uv run pytest -m integration` | Run integration tests (requires `.env.local`) |
-| `uv run pytest --no-cov` | Skip coverage collection for speed |
-| `uv build` | Build distribution wheel |
-
-## Code Style
-
-### Formatter
-
-- **Ruff** is the sole formatter and linter
-- Line length: **120 characters**
-- Quote style: **double quotes**
-- Target: **Python 3.12**
-- Indent style: **spaces**
-
-### Lint Rules
-
-The project enables an extensive set of ruff lint rules:
-
-| Rule Set | Category |
-|---|---|
-| E | pycodestyle errors |
-| F | pyflakes |
-| W | pycodestyle warnings |
-| I | isort (import sorting) |
-| UP | pyupgrade |
-| B | flake8-bugbear |
-| SIM | flake8-simplify |
-| RUF | ruff-specific rules |
-| C4 | flake8-comprehensions |
-| DTZ | flake8-datetimez |
-| T20 | flake8-print (no print statements in production code) |
-| PTH | flake8-use-pathlib |
-| TC | flake8-type-checking |
-| RET | flake8-return |
-| PLW | pylint warnings |
-| PT | flake8-pytest-style |
-| A | flake8-builtins |
-| COM | flake8-commas |
-| PIE | flake8-pie |
-| ISC | flake8-implicit-str-concat |
-| G | flake8-logging-format |
-| INP | flake8-no-pep420 |
-| TID | flake8-tidy-imports |
-| ERA | eradicate (commented-out code) |
-
-Notable ignored rules:
-
-- **E501** - Line too long (the formatter handles wrapping at 120 chars)
-- **COM812** - Missing trailing comma (conflicts with formatter)
-- **ISC001** - Implicit string concatenation (conflicts with formatter)
-- **TC001/TC002/TC003** - Type checking imports (would break runtime type resolution)
-- **RET504/RET505** - Return-related simplifications (reduces debuggability)
-
-### Import Order
-
-Enforced by ruff/isort:
-
-1. Standard library (`import logging`, `import json`)
-2. Third-party packages (`import httpx`, `from pydantic import ...`)
-3. Local imports (`from servicenow_mcp.client import ServiceNowClient`)
-
-**Absolute imports only** - relative imports are not used.
-
-## Type Annotations
-
-All function signatures must have full type hints - enforced by mypy with `disallow_untyped_defs = true`.
-
-### Rules
-
-- Return types always explicit, including `-> None` for void functions
-- Modern union syntax: `str | None` (not `Optional[str]`)
-- Lowercase generic types (PEP 585): `dict[str, Any]`, `list[str]`, `set[str]`
-- Primary typing import: `from typing import Any`
-- Regex patterns typed as `re.Pattern[str]`
-
-### mypy Configuration
-
-```toml
-[tool.mypy]
-python_version = "3.12"
-warn_return_any = false
-warn_unused_configs = true
-disallow_untyped_defs = true
-ignore_missing_imports = true
+```bash
+uv run ruff check .            # lint
+uv run ruff check --fix .      # auto-fix
+uv run ruff format .           # format
+uv run ruff format --check .   # verify without writing
 ```
 
-The `servicenow_mcp.server` module has `call-arg` error code disabled due to FastMCP's dynamic tool registration.
+### Type Check
 
-## Naming Conventions
+```bash
+uv run mypy src/
+```
 
-| Category | Convention | Examples |
-|---|---|---|
-| Functions/methods/variables | `snake_case` | `check_table_access`, `query_store` |
-| Classes | `PascalCase` | `ServiceNowClient`, `ChoiceRegistry` |
-| Constants | `UPPER_SNAKE_CASE` | `DENIED_TABLES`, `MASK_VALUE`, `PACKAGE_REGISTRY` |
-| Private | Single `_` prefix | `_table_url`, `_http_client`, `_ensure_client` |
-| Logger | Module-level | `logger = logging.getLogger(__name__)` |
-| Test classes | `Test` prefix + feature | `TestServiceNowClientGetRecord` |
-| Test methods | `test_` prefix + descriptive | `test_get_record_success` |
+---
 
-## Testing
+## Ruff Configuration
 
-### Framework
+Configured in `pyproject.toml`. Key settings:
 
-- **pytest** with **pytest-asyncio** (`asyncio_mode = "auto"` - no manual event loop configuration needed)
-- HTTP mocking: **respx** library with `@respx.mock` decorator on async test methods
-- Coverage: **pytest-cov**, reports to **Codecov**
-- Default addopts: `-m 'not integration' --cov=servicenow_mcp --cov-report=xml --cov-report=term-missing`
+| Setting | Value |
+|---------|-------|
+| Line length | 120 |
+| Quote style | double |
+| Target | `py312` |
+| Src dirs | `["src", "tests"]` |
 
-### Parsing Tool Output in Tests
+Selected rule families:
 
-All tool output is JSON. Parse with `json.loads()`:
+```
+E, F, W, I, UP, B, SIM, RUF, C4, DTZ, T20, PTH, TC, RET, PLW, PT, A, COM, PIE, ISC, G, INP, TID, ERA
+```
+
+Ignored rules:
+
+```
+E501, COM812, ISC001, TC001, TC002, TC003, RET504, RET505
+```
+
+Per-file ignores for `tests/**/*.py`: `T20, ERA001, PT019`.
+
+isort is configured with `known-first-party = ["servicenow_mcp"]`.
+
+---
+
+## Mypy Configuration
+
+| Setting | Value |
+|---------|-------|
+| `python_version` | `"3.12"` |
+| `disallow_untyped_defs` | `true` |
+| `ignore_missing_imports` | `true` |
+| `warn_return_any` | `false` |
+| `warn_unused_configs` | `true` |
+
+Module override: `servicenow_mcp.server` disables the `call-arg` error code. This accommodates FastMCP's dynamic tool registration signature.
+
+---
+
+## Pytest Configuration
+
+| Setting | Value |
+|---------|-------|
+| `asyncio_mode` | `"auto"` |
+| `testpaths` | `["tests"]` |
+| Default addopts | `-m 'not integration' --cov=servicenow_mcp --cov-report=xml --cov-report=term-missing` |
+
+The `integration` marker gates tests that run against a live ServiceNow instance. These require credentials in `.env.local` and are excluded by default.
+
+---
+
+## Adding a New Tool Group
+
+Every tool group module exports a `register_tools` function with the canonical 5-argument signature. The server loader calls every group with identical arguments regardless of whether the group needs them all.
 
 ```python
-import json
+def register_tools(
+    mcp: FastMCP,
+    settings: Settings,
+    auth_provider: BasicAuthProvider,
+    choices: ChoiceRegistry | None = None,
+    dictionary: DictionaryRegistry | None = None,
+) -> None:
+    del choices, dictionary  # unused; signature retained for loader parity
 
-raw = await tools["my_tool"](param="value")
+    @mcp.tool()
+    @tool_handler
+    async def my_tool(table: str, correlation_id: str = "") -> str:
+        """Brief description shown to the AI client.
+
+        Args:
+            table: The ServiceNow table name.
+        """
+        validate_identifier(table)
+        check_table_access(table)
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            result = await client.some_method(table)
+
+        return format_response(data=result, correlation_id=correlation_id)
+```
+
+Rules:
+
+1. Decorator order is `@mcp.tool()` then `@tool_handler`.
+2. `correlation_id: str = ""` is always the last parameter. `@tool_handler` auto-injects it and hides it from the MCP schema.
+3. Never raise to the caller. `@tool_handler` wraps every call in `safe_tool_call()` which catches exceptions and returns serialized error envelopes.
+4. The docstring `Args:` section becomes the tool's parameter descriptions in MCP.
+5. Register your group in `_TOOL_GROUP_MODULES` and add it to the appropriate preset packages in `packages.py`.
+
+The one exception: `list_tool_packages` is registered inline in `server.py` without `@tool_handler`. It has no `correlation_id`, no error envelope, and returns `serialize(list_packages())` directly.
+
+---
+
+## Testing Patterns
+
+### HTTP Mocking with respx
+
+All unit tests mock HTTP via the **respx** library:
+
+```python
+@respx.mock
+async def test_query_success(self, settings, auth_provider):
+    respx.get("https://test.service-now.com/api/now/table/incident").mock(
+        return_value=httpx.Response(200, json={"result": [...]})
+    )
+    tools = _register_and_get_tools(settings, auth_provider)
+    raw = await tools["query"](table="incident", encoded_query="active=true")
+    result = json.loads(raw)
+    assert result["status"] == "success"
+```
+
+### Registering Tools in Tests
+
+Use the helper with the same 5-argument signature:
+
+```python
+def _register_and_get_tools(settings, auth_provider, choices=None, dictionary=None):
+    mcp = FastMCP("test")
+    register_tools(mcp, settings, auth_provider, choices=choices, dictionary=dictionary)
+    return {t.name: t.fn for t in mcp._tool_manager._tools.values()}
+```
+
+### Parsing Tool Output
+
+All tools return a serialized JSON string via `format_response`. Parse with `json.loads`:
+
+```python
+raw = await tools["my_tool"](table="incident")
 result = json.loads(raw)
 assert result["status"] == "success"
-assert result["data"]["field"] == "expected"
+assert result["correlation_id"]  # always present
 ```
-
-### Standard Test Helper Pattern
-
-```python
-def _register_and_get_tools(settings, auth_provider):
-    mcp = FastMCP("test")
-    register_tools(mcp, settings, auth_provider)
-    return {t.name: t.fn for t in mcp._tool_manager._tools.values()}
-```
-
-Domain tools use the same pattern with an extra `choices` parameter:
-
-```python
-def _register_and_get_tools(settings, auth_provider, choices=None):
-    mcp = FastMCP("test")
-    register_tools(mcp, settings, auth_provider, choices=choices)
-    return {t.name: t.fn for t in mcp._tool_manager._tools.values()}
-```
-
-### Test Fixtures
-
-Defined in `tests/conftest.py`:
-
-| Fixture | Scope | Description |
-|---|---|---|
-| `_disable_sentry_capture` | autouse | Resets Sentry `_initialized` flag to prevent real captures during tests |
-| `settings` | per-test | Dev environment settings (`SERVICENOW_ENV=dev`) |
-| `prod_settings` | per-test | Production environment settings (`SERVICENOW_ENV=prod`) |
-| `prod_auth_provider` | per-test | `BasicAuthProvider` from production settings |
-
-All fixtures construct `Settings(_env_file=None)` with `patch.dict("os.environ", ...)` to avoid loading real env files.
 
 ### Integration Tests
 
 - Located in `tests/integration/`
 - Marked with `@pytest.mark.integration`
-- Excluded from default test runs (via `-m 'not integration'` addopts)
+- Excluded by default; run with `uv run pytest -m integration`
 - Require `.env.local` with real ServiceNow credentials
-- Run with: `uv run pytest -m integration`
+- Use session-scoped fixtures for the instance connection
 
-## CI Pipeline
+---
 
-The CI workflow (`.github/workflows/ci.yml`) runs on every push to `main` and every pull request targeting `main`.
+## CI
 
-### Concurrency
+Four workflows live in `.github/workflows/`:
 
-Uses GitHub's concurrency groups with `cancel-in-progress: true` - new pushes cancel in-flight runs for the same branch.
+### ci.yml
 
-### Jobs
+Triggers on push to `main` and PRs targeting `main`. Concurrency groups cancel in-progress runs.
 
-Three parallel jobs run on `ubuntu-latest`:
+Three parallel jobs on `ubuntu-latest`:
 
-**1. Lint**
-- Installs dependencies with `uv sync --group dev`
-- Runs `uv run ruff check .` (lint rules)
-- Runs `uv run ruff format --check .` (formatting verification)
+1. **lint** - `uv run ruff check .` and `uv run ruff format --check .`
+2. **type-check** - `uv run mypy src/`
+3. **test** - matrix over Python 3.12, 3.13, 3.14 (`fail-fast: false`). Coverage uploaded to Codecov on 3.12 only.
 
-**2. Type Check**
-- Installs dependencies with `uv sync --group dev`
-- Runs `uv run mypy src/`
+### codeql.yml
 
-**3. Test** (matrix: Python 3.12, 3.13, 3.14)
-- Installs the target Python version via `uv python install`
-- Installs dependencies with `uv sync --group dev --python ${{ matrix.python-version }}`
-- Runs `uv run --python ${{ matrix.python-version }} pytest`
-- Uploads coverage to Codecov on **Python 3.12 only**
+GitHub CodeQL static analysis for Python. Runs on push, PRs, and a weekly cron (Monday 06:00 UTC).
 
-All three jobs must pass before a PR can be merged.
+### release-please.yml
 
-## Release Process
+Automated releases driven by conventional commits. See Releases below.
 
-Automated via **release-please** (`.github/workflows/release-please.yml`).
+### stale.yml
 
-### How It Works
+Marks inactive issues and PRs as stale (daily cron).
 
-1. **Conventional commits** on `main` trigger release-please to create/update a release PR with a generated changelog
-2. **Merging the release PR** creates a GitHub Release with the new tag and version
-3. The **publish job** runs only when a release is created:
-   - Checks out the code
-   - Builds the package with `uv build`
-   - Publishes to PyPI with `uv publish --token ${{ secrets.PYPI_TOKEN }}`
+---
 
-### Required Secrets
+## Releases
 
-| Secret | Purpose |
-|---|---|
-| `RELEASE_PLEASE_TOKEN` | GitHub token for creating release PRs |
-| `PYPI_TOKEN` | PyPI API token for package publishing |
-| `CODECOV_TOKEN` | Codecov upload token |
+The project uses **release-please** (`googleapis/release-please-action@v5`) with conventional commits.
 
-### Commit Convention
+Workflow:
 
-Release-please uses conventional commits to determine version bumps:
+1. Land changes on `main` using conventional commit messages (`feat:`, `fix:`, `docs:`, etc.).
+2. release-please opens or updates a release PR with a generated changelog.
+3. Merging that PR creates a GitHub Release and git tag.
+4. A conditional **publish** job runs `uv build` then `uv publish` to PyPI.
 
-| Prefix | Version Bump | Example |
-|---|---|---|
-| `feat:` | Minor | `feat: add attachment upload tool` |
-| `fix:` | Patch | `fix: handle empty query results` |
-| `docs:` | None | `docs: update README` |
-| `chore:` | None | `chore: update dependencies` |
-| `refactor:` | None | `refactor: extract query builder` |
-| `test:` | None | `test: add client error handling tests` |
-| `feat!:` or `BREAKING CHANGE:` | Major | `feat!: remove deprecated API` |
+Version is managed in `pyproject.toml`. release-please handles the bump automatically.
 
-## Git Workflow
-
-- **Never** work directly on `main` - always use feature branches
-- **Conventional commits** required (enforced by release-please)
-- **Small, atomic commits** - each commit should do one thing
-- **Use `gh` CLI** for GitHub operations (PRs, issues, etc.)
-- **Never** commit code that breaks existing tests
-
-## Project Dependencies
-
-### Core Dependencies
-
-| Package | Purpose |
-|---|---|
-| `mcp` (>=1.0.0) | MCP server framework |
-| `httpx` (>=0.27.0) | Async HTTP client |
-| `pydantic` (>=2.0.0) | Data validation |
-| `pydantic-settings` (>=2.0.0) | Environment-based configuration |
-| `python-dotenv` (>=1.0.0) | `.env` file loading |
-| `uvicorn` (>=0.30.0) | ASGI server (SSE transport) |
-| `starlette` (>=0.38.0) | ASGI framework (SSE transport) |
-| `sentry-sdk` (>=2.55.0) | Error tracking |
-
-### Dev Dependencies
-
-| Package | Purpose |
-|---|---|
-| `pytest` (>=8.0.0) | Test framework |
-| `pytest-asyncio` (>=0.24.0) | Async test support |
-| `respx` (>=0.21.0) | httpx mocking |
-| `ruff` (>=0.9.0) | Linter and formatter |
-| `mypy` (>=1.14.0) | Type checker |
-| `pytest-cov` (>=6.0.0) | Coverage reporting |
-| `basedpyright` (>=1.29.0) | Alternative type checker |
-
-### Build System
-
-- **Build backend**: hatchling
-- **Wheel packages**: `src/servicenow_mcp` (src-layout)
-- **Entry point**: `servicenow-platform-mcp = servicenow_mcp.server:main`
+Required repository secrets: `RELEASE_PLEASE_TOKEN`, `PYPI_TOKEN`, `CODECOV_TOKEN`.

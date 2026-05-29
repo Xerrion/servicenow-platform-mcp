@@ -1,193 +1,157 @@
 # Getting Started
 
-This guide walks you through installing and configuring the ServiceNow Platform MCP server for use with your AI client.
-
----
+This tutorial walks you through a first session with the servicenow-platform-mcp server. You have it installed and connected to an MCP client; now you want to do useful things. Each step builds on the last - by the end you will have queried records, inspected schema, written safely, resolved choice labels, and run an investigation.
 
 ## Prerequisites
 
-- **Python 3.12 or later** - The server requires Python 3.12+ (3.12, 3.13, and 3.14 are supported)
-- **A ServiceNow instance** - Developer, test, or production (note: write operations are blocked on production instances)
-- **ServiceNow credentials** - A user account with appropriate roles. Admin is recommended for full access to all tools
-- **An MCP-compatible AI client** - [OpenCode](https://opencode.ai), [Claude Desktop](https://claude.ai/download), [VS Code Copilot](https://code.visualstudio.com/), [Cursor](https://cursor.sh/), or any client supporting the [Model Context Protocol](https://modelcontextprotocol.io/)
+- Server installed and running (see INSTALL.md)
+- Credentials pointing at a dev or sandbox ServiceNow instance
+- `MCP_TOOL_PACKAGE` set to `full` (the default)
 
----
+## 1. Confirm the Server Is Up
 
-## Installation
+Call `list_tool_packages` with no arguments.
 
-### Recommended: Run with uvx (no install required)
+This tool is special: it bypasses `@tool_handler` entirely and returns raw JSON - no `status` field, no `correlation_id`, no error envelope. It is always registered regardless of your active package.
 
-```bash
-uvx servicenow-platform-mcp
-```
-
-This downloads and runs the server in an isolated environment. No permanent installation needed.
-
-### Alternative: Install with pip or uv
-
-```bash
-pip install servicenow-platform-mcp
-```
-
-```bash
-uv add servicenow-platform-mcp
-```
-
-> **Note:** The server communicates via stdio transport - it is launched by your MCP client as a subprocess, not run as a standalone service. You do not need to start it manually.
-
----
-
-## Environment Variables
-
-Three environment variables are required. These are passed to the server by your MCP client configuration.
-
-| Variable | Required | Description |
-|---|---|---|
-| `SERVICENOW_INSTANCE_URL` | Yes | Full instance URL, must start with `https://` |
-| `SERVICENOW_USERNAME` | Yes | ServiceNow username for Basic Auth |
-| `SERVICENOW_PASSWORD` | Yes | ServiceNow password |
-| `MCP_TOOL_PACKAGE` | No | Tool package to load (default: `"full"`). See [[Tool-Packages]] |
-| `SERVICENOW_ENV` | No | Environment label (default: `"dev"`). Write ops blocked on `"prod"` / `"production"` |
-
-The server also loads variables from `.env` and `.env.local` files in the working directory (`.env.local` takes precedence).
-
-See [[Configuration]] for the full reference of all environment variables.
-
----
-
-## MCP Client Configuration
-
-Configure your MCP client to launch the server with the required environment variables. Below are configuration examples for popular clients.
-
-### OpenCode
-
-File: `~/.config/opencode/opencode.json`
+Expected output:
 
 ```json
 {
-  "mcp": {
-    "servicenow": {
-      "type": "local",
-      "command": ["uvx", "servicenow-platform-mcp"],
-      "environment": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_USERNAME": "admin",
-        "SERVICENOW_PASSWORD": "your-password"
-      }
-    }
-  }
+  "full": ["query", "build_query", "describe", "record_read", "record_write", "attachment", "investigate", "resolve_choice", "service_catalog", "audit", "flow"],
+  "readonly": ["query", "describe", "record_read", "attachment", "investigate", "resolve_choice", "audit", "flow"],
+  "core_readonly": ["query", "describe", "attachment"],
+  "none": []
 }
 ```
 
-### Claude Desktop
+If your MCP client shows only `list_tool_packages` and nothing else, your `MCP_TOOL_PACKAGE` value is `none` or does not match a valid preset or comma-separated group list.
 
-File: `claude_desktop_config.json`
+## 2. Inspect a Table
+
+Call `describe` with only `table`:
+
+```json
+{ "table": "incident" }
+```
+
+When `action` is omitted (or empty string), `describe` runs the default field-metadata flow: it queries `sys_dictionary` and returns each field's name, label, type, max_length, mandatory flag, read_only flag, reference_table, and choice_count.
+
+The `action` parameter accepts exactly one value: `"list_script_fields"`. Any other string - for example `action: "fields"` - returns the error:
+
+```
+Unknown describe action 'fields'. Valid actions: ['list_script_fields'].
+```
+
+Do not guess action names. Omit the parameter for field metadata; pass `"list_script_fields"` when you need the script-bearing fields on a table.
+
+## 3. Query Records
+
+Call `query` with:
+
+```json
+{ "table": "incident", "limit": 5 }
+```
+
+The response envelope includes `data` (the masked records), `pagination` with `offset`, `limit`, and `total`, plus a `correlation_id` for tracing.
+
+To filter, pass `encoded_query` using ServiceNow's encoded query syntax:
+
+```json
+{ "table": "incident", "limit": 5, "encoded_query": "active=true^priority=1" }
+```
+
+The server enforces query safety: limits are capped at `MAX_ROW_LIMIT` (default 100), and large tables (syslog, sys_audit, sys_log_transaction, sys_email_log) require a date-bounded filter.
+
+## 4. Read One Record
+
+Take a `sys_id` from the query results and call `record_read`:
+
+```json
+{ "table": "incident", "sys_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6" }
+```
+
+The response includes the full masked record plus `script_fields` - the list of script-bearing fields detected on that table via the DictionaryRegistry.
+
+Exactly one of `sys_id` or `name` must be supplied. Passing both returns an error; passing neither also returns an error. When using `name`, if multiple records match the server returns an ambiguity error rather than guessing.
+
+## 5. Write Safely (Preview-Then-Apply)
+
+Writes use a two-step pattern by default.
+
+**Step 5a - Preview:**
 
 ```json
 {
-  "mcpServers": {
-    "servicenow": {
-      "command": "uvx",
-      "args": ["servicenow-platform-mcp"],
-      "env": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_USERNAME": "admin",
-        "SERVICENOW_PASSWORD": "your-password"
-      }
-    }
-  }
+  "table": "incident",
+  "action": "update",
+  "sys_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+  "data": "{\"short_description\": \"Updated via MCP\"}"
 }
 ```
 
-### VS Code / Cursor
+Because `preview` defaults to `True`, the server does not touch ServiceNow. It fetches the current record, computes a diff, stores the payload in a single-use token store (TTL 5 minutes), and returns a `preview_token` along with the masked diff.
 
-File: `.vscode/mcp.json`
+**Step 5b - Apply:**
+
+```json
+{ "preview_token": "b7e4f9a2-1c3d-4e5f-8a9b-0c1d2e3f4a5b" }
+```
+
+Call `record_apply` with the `preview_token` parameter (not `token` - the parameter name is `preview_token`). The server consumes the token, re-validates write permissions, and executes the update. The token is single-use; replaying it returns `"Invalid or expired preview token"`.
+
+## 6. Resolve Choice Labels
+
+Human-readable labels like "In Progress" do not match the numeric values ServiceNow stores. Call `resolve_choice` to map them:
+
+```json
+{ "table": "incident", "field": "state" }
+```
+
+With no `label` parameter, this returns all known choices for that field (e.g. open=1, in_progress=2, on_hold=3, resolved=6, closed=7, canceled=8). Pass `label` to resolve a single value:
+
+```json
+{ "table": "incident", "field": "state", "label": "in_progress" }
+```
+
+Labels are normalized: lowercase, spaces replaced with underscores.
+
+## 7. Run an Investigation
+
+The `investigate` tool dispatches predefined analysis playbooks. Call it with:
 
 ```json
 {
-  "servers": {
-    "servicenow": {
-      "command": "uvx",
-      "args": ["servicenow-platform-mcp"],
-      "env": {
-        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_USERNAME": "admin",
-        "SERVICENOW_PASSWORD": "your-password"
-      }
-    }
-  }
+  "action": "run",
+  "name": "stale_automations",
+  "params": "{\"stale_days\": 90}"
 }
 ```
 
-### Generic stdio
+The parameter is `name` (not `investigation`). The `params` value is a JSON string parsed server-side.
 
-For any client that supports stdio transport, launch the server with inline environment variables:
+Three actions are available:
 
-```bash
-SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com \
-SERVICENOW_USERNAME=admin \
-SERVICENOW_PASSWORD=your-password \
-uvx servicenow-platform-mcp
+- `run` - execute the investigation and return findings
+- `explain` - given an `element_id` (format `table:sys_id`), ask all registered investigations to explain that element
+- `describe` - list available investigations and their parameters (no platform I/O)
+
+Seven investigations are registered: `stale_automations`, `deprecated_apis`, `table_health`, `acl_conflicts`, `error_analysis`, `slow_transactions`, `performance_bottlenecks`.
+
+## 8. Production Safety
+
+When `SERVICENOW_ENV` is set to `prod` or `production`, ALL write operations are blocked regardless of table. The server returns a serialized error envelope with the message:
+
+```
+Write operations are blocked in production environments
 ```
 
----
+This applies to `record_write`, `record_apply`, `attachment_write`, and the write actions on `service_catalog` (ordering, cart operations). There is no override flag - the block is absolute for the environment.
 
-## First Steps
+Even outside production, 8 security-sensitive tables are permanently denied for writes (and reads): `sys_user_has_password`, `oauth_credential`, `oauth_entity`, `sys_certificate`, `sys_ssh_key`, `sys_credentials`, `discovery_credentials`, `sys_user_token`.
 
-Once configured, try these example prompts with your AI agent:
+## Where to Go Next
 
-- **"Describe the incident table schema"** - Explores table structure, field types, and metadata
-- **"List open incidents"** - Queries records using domain tools with choice label resolution
-- **"Show me what business rules run on the incident table"** - Inspects platform artifacts
-- **"Trace the debug log for incident INC0010001"** - Builds an event timeline from system logs
-- **"What update sets were created this week?"** - Change intelligence across your instance
-- **"Run a table health investigation on cmdb_ci"** - Automated analysis with findings and recommendations
-
----
-
-## AI Agent Setup
-
-For copy-paste installation instructions optimized for AI agents, see [INSTALL.md](https://github.com/Xerrion/servicenow-platform-mcp/blob/main/INSTALL.md) in the repository root. This file is designed to be fed directly to an AI agent for self-configuration.
-
----
-
-## Troubleshooting
-
-### Connection refused or timeout
-
-- Verify `SERVICENOW_INSTANCE_URL` starts with `https://` (HTTP is not supported)
-- Check that your ServiceNow instance is reachable from your network
-- Trailing slashes are stripped automatically - `https://dev12345.service-now.com/` works fine
-
-### Authentication errors
-
-- Confirm `SERVICENOW_USERNAME` and `SERVICENOW_PASSWORD` are correct
-- The user account needs appropriate ServiceNow roles. Admin is recommended for full tool access
-- Check if your instance requires MFA or SSO - Basic Auth must be enabled for the user
-
-### No tools appearing in your AI client
-
-- Verify `MCP_TOOL_PACKAGE` is set to a valid package name (default is `"full"`)
-- Use the `list_tool_packages` tool (always available) to see what packages and groups exist
-- Check your MCP client logs for startup errors
-
-### Write operations blocked
-
-- Write operations are blocked when `SERVICENOW_ENV` is set to `"prod"` or `"production"`
-- This is a safety guardrail with no override - use a sub-production instance for write operations
-- Read operations work normally regardless of environment setting
-
-### Server not starting
-
-- Ensure Python 3.12 or later is installed: `python --version`
-- Try running directly: `uvx servicenow-platform-mcp` to see error output
-- Check that `uvx` is installed: `uv --version` (install from [astral.sh/uv](https://astral.sh/uv))
-
----
-
-## Next Steps
-
-- [[Configuration]] - Full environment variable reference and validation rules
-- [[Tool-Reference]] - Complete list of available tools with descriptions
-- [[Tool-Packages]] - Choose the right tool package for your use case
-- [[Safety-and-Policy]] - Understand the security guardrails
+- [[Tool-Reference]] - complete parameter and response documentation for every tool
+- [[Investigations]] - the 7 registered playbooks, their parameters, and element_id format
+- [[Safety-and-Policy]] - denied tables, field masking, query safety, and write gating in detail

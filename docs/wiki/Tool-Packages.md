@@ -1,68 +1,87 @@
 # Tool Packages
 
-Tool packages control which tools are loaded when the server starts. Configure the active package via the `MCP_TOOL_PACKAGE` environment variable.
+`MCP_TOOL_PACKAGE` controls which tools the server exposes at startup. It defaults to `full`. The server must restart for changes to take effect.
 
-The server has been consolidated from 14 packages down to 4 focused presets. For a complete reference of every tool, see [[Tool-Reference]]. For security guardrails that apply across all packages, see [[Safety-and-Policy]].
+For the complete tool reference see [[Tool-Reference]]. For all environment variables see [[Configuration]].
 
----
+## Tool Counting Convention
+
+Every tool count in this document includes the always-on `list_tool_packages` tool. This tool is registered unconditionally - it is not part of any package - and returns the package registry so callers can discover the active surface without out-of-band knowledge.
 
 ## Preset Packages
 
-| Package | Tools | Description |
-|---|---|---|
-| `full` (default) | 13 | All unified tools, including `audit`, `flow`, and the `build_query` helper |
-| `readonly` | 9 | Includes `record_read`, `audit`, `flow`, and `attachment_write` (runtime write gating blocks in prod) |
-| `core_readonly` | 5 | Minimal read-only core: `query`, `describe`, `attachment`, `attachment_write`, `list_tool_packages` |
-| `none` | 1 | No tools loaded - only `list_tool_packages` is available |
+| Package | Groups | Tools | Description |
+|---------|--------|-------|-------------|
+| `full` | 11 | 14 | Complete read/write surface for development instances |
+| `readonly` | 8 | 10 | Read-focused; no `record_write`, `record_apply`, `build_query`, or `service_catalog` |
+| `core_readonly` | 3 | 5 | Minimal - query, describe, attachments |
+| `none` | 0 | 1 | Only `list_tool_packages`; useful for connectivity checks |
 
----
+## Full Tool List Per Preset
 
-## Package Contents
+### `full` - 14 tools
 
-The `list_tool_packages` tool is always available and returns the active registry at runtime. The `full` and `readonly` counts below refer to the package tool surface, not the always-on introspection tool.
+`list_tool_packages`, `query`, `build_query`, `describe`, `record_read`, `record_write`, `record_apply`, `attachment`, `attachment_write`, `investigate`, `resolve_choice`, `service_catalog`, `audit`, `flow`
 
-### `full` (13 tools)
+### `readonly` - 10 tools
 
-`query`, `build_query`, `describe`, `record_read`, `record_write`, `record_apply`, `attachment`, `attachment_write`, `investigate`, `resolve_choice`, `service_catalog`, `audit`, `flow`.
+`list_tool_packages`, `query`, `describe`, `record_read`, `attachment`, `attachment_write`, `investigate`, `resolve_choice`, `audit`, `flow`
 
-*Note: `build_query` is a stateless helper that returns an encoded query string for the caller to pass straight to `query`. It is the only tool that is exclusive to the `full` package - the read-only presets pass encoded queries to `query` directly.*
+### `core_readonly` - 5 tools
 
-### `readonly` (9 tools)
+`list_tool_packages`, `query`, `describe`, `attachment`, `attachment_write`
 
-`query`, `describe`, `record_read`, `attachment`, `attachment_write`, `investigate`, `resolve_choice`, `audit`, `flow`.
+### `none` - 1 tool
 
-*Note: While `attachment_write` is included at the MCP layer, the underlying `write_gate` check will block deletions and uploads if `SERVICENOW_ENV` is set to production.*
+`list_tool_packages`
 
-### `core_readonly` (5 tools)
+## Runtime-Gated Writes
 
-`query`, `describe`, `attachment`, `attachment_write`, `list_tool_packages`.
-
-*Note: `attachment_write` is included for symmetry; mutations are blocked in production via write gating.*
-
----
+The `readonly` and `core_readonly` presets load `attachment_write` because the `attachment` group registers both its read and write tools as a pair. Write operations (`upload`, `delete`) are blocked at runtime by `write_gate` when the environment is production or the target table is denied. In non-production environments, `attachment_write` remains functional even under the readonly presets.
 
 ## Custom Packages
 
-You can create a custom package by setting `MCP_TOOL_PACKAGE` to a comma-separated list of tool names:
+Set `MCP_TOOL_PACKAGE` to a comma-separated list of group names to compose a bespoke surface:
 
 ```bash
-MCP_TOOL_PACKAGE="query,describe,attachment"
+MCP_TOOL_PACKAGE=query,describe,audit
 ```
 
-### Migration from v0.9.x
+A single group name also works - `MCP_TOOL_PACKAGE=service_catalog` loads only that group (plus `list_tool_packages`).
 
-The previous specialized packages (`itil`, `developer`, `incident_management`, `change_management`, `cmdb`, `problem_management`, `request_management`, `knowledge_management`, `service_catalog`, `analyst`) have been removed.
+Valid group names: `query`, `build_query`, `describe`, `record_read`, `record_write`, `attachment`, `investigate`, `resolve_choice`, `service_catalog`, `audit`, `flow`.
 
-- If you were using **incident_management** or **itil**, use `full` or `readonly`.
-- If you were using **developer**, use `full`.
-- If you were using **service_catalog**, note that `service_catalog` is now a single tool name. You can load it specifically: `MCP_TOOL_PACKAGE="query,describe,service_catalog"`.
+If a token in the comma-separated list does not match a known group name, the server logs an `ImportError` and captures it via Sentry; the remaining groups still load.
 
-The unified tools (`query`, `record_write`) are more powerful than the previous domain-specific tools and can handle all ITSM and CMDB workflows when combined with `resolve_choice`.
+## Tool-Group to Tool Mapping
 
----
+Most groups register a single MCP tool with the same name as the group. Two groups register a pair:
 
-## Next Steps
+| Group | Tools registered |
+|-------|-----------------|
+| `query` | `query` |
+| `build_query` | `build_query` |
+| `describe` | `describe` |
+| `record_read` | `record_read` |
+| `record_write` | `record_write`, `record_apply` |
+| `attachment` | `attachment`, `attachment_write` |
+| `investigate` | `investigate` |
+| `resolve_choice` | `resolve_choice` |
+| `service_catalog` | `service_catalog` |
+| `audit` | `audit` |
+| `flow` | `flow` |
 
-- [[Tool-Reference]] - Complete tool reference with descriptions and parameters
-- [[Safety-and-Policy]] - Security guardrails and write gating
-- [Agent Recipes](../../docs/agent-recipes.md) - Learn how to compose these tools for complex workflows
+## Runtime Introspection
+
+Call `list_tool_packages` to see the registry. It returns group names per preset:
+
+```json
+{
+  "full": ["query", "build_query", "describe", "record_read", "record_write", "attachment", "investigate", "resolve_choice", "service_catalog", "audit", "flow"],
+  "readonly": ["query", "describe", "record_read", "attachment", "investigate", "resolve_choice", "audit", "flow"],
+  "core_readonly": ["query", "describe", "attachment"],
+  "none": []
+}
+```
+
+Use the group-to-tool mapping above to determine individual tool names from these group lists.

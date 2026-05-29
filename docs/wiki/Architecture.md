@@ -1,41 +1,32 @@
 # Architecture
 
-Deep technical architecture of the `servicenow-platform-mcp` server - an async Python MCP server for ServiceNow platform introspection and management.
+How the servicenow-platform-mcp server is built, from process shape down to the moving parts inside a single tool call.
 
-## Overview
+## High-Level Shape
 
-The server is built on:
+The server is a Python 3.12+ async process that speaks the Model Context Protocol over stdio. It is built on FastMCP, uses httpx for all ServiceNow HTTP traffic, and ships as a src-layout package (`src/servicenow_mcp/`). The console entry point is `servicenow_mcp.server:main`.
 
-- **FastMCP** - MCP server framework providing tool registration and transport handling.
-- **httpx** - Async HTTP client for ServiceNow REST API communication.
-- **JSON** - Standard JSON serialization for all tool responses.
-- **pydantic-settings** - Configuration management via environment variables.
-- **sentry-sdk** - Error tracking for invisible child-process environments.
-
-Communication happens over **stdio transport**. The server runs as a child process of an AI agent, and all output is captured in a standardized JSON envelope.
-
-## Unified Tool Surface
-
-Version 0.10.0 introduced a unified 12-tool surface. Most tools are implemented as **dispatchers** that take an `action` parameter, reducing the total tool count while increasing flexibility.
-
-### Key Implementation Patterns
-
-- **Action Dispatchers:** Tools like `attachment`, `investigate`, and `service_catalog` use an `action` parameter to route requests to internal logic.
-- **Encoded Queries:** The `query` tool accepts ServiceNow encoded query strings directly. The optional `build_query` helper (in the `full` package) is a stateless transform that compiles a JSON array of condition objects into an encoded query string for callers that prefer structured input.
-- **Two-Stage Writes:** `record_write` (stage) and `record_apply` (commit) implement a mandatory safety flow for all mutations.
-- **Helper Modules:** Shared logic is extracted into specialized helpers:
-  - `_artifact.py`: Handles secure script file reads (path containment, UTF-8 decode, 1 MB cap) and the `xml` well-formedness check.
-  - `_dictionary.py`: `DictionaryRegistry` — runtime discovery of script-bearing fields per table by walking `sys_db_object.super_class` and filtering `sys_dictionary` rows. Replaces the previous hardcoded artifact catalog.
-  - `_describe_helpers.py`: Manages slim vs. verbose schema building.
-  - `_record_helpers.py`: Handles mandatory field validation and diff generation.
+There is no HTTP listener, no multi-tenant routing, and no background scheduling. The MCP client (an AI assistant runtime) launches the process and owns its lifecycle. All I/O is cooperative async on a single thread.
 
 ## Server Bootstrap
 
-The server entry point is `server.py`.
+`create_mcp_server()` in `server.py` assembles the runtime in this order:
 
-### Registration Pattern
+1. `Settings()` - loads configuration from environment variables via pydantic-settings (`.env` then `.env.local`).
+2. `create_auth(settings)` - returns a `BasicAuthProvider`.
+3. `setup_sentry(settings)` - initializes the Sentry SDK (no-op when DSN is empty or the SDK is missing).
+4. Sets Sentry server context (instance hostname, environment, production flag, tool package).
+5. `FastMCP("servicenow-platform-mcp")` - creates the protocol server instance.
+6. Creates shared registries: `ChoiceRegistry(settings, auth_provider)` and `DictionaryRegistry(settings, auth_provider)`.
+7. `attach_servicenow_state(mcp, settings, auth_provider, choices, dictionary)` - injects shared state onto the MCP instance.
+8. Registers the `list_tool_packages` tool inline (see below).
+9. Resolves the active package via `get_package(settings.mcp_tool_package)`, then for each group calls `importlib.import_module` and invokes the module's `register_tools`.
 
-The loader uses an unconditional 4-argument `register_tools()` pattern for all tool groups:
+`main()` runs `mcp.run(transport="stdio")` in a try/finally that calls `shutdown_sentry()` on exit.
+
+## Tool Registration
+
+Every tool group module exports a `register_tools` function with this exact signature:
 
 ```python
 def register_tools(
@@ -43,77 +34,118 @@ def register_tools(
     settings: Settings,
     auth_provider: BasicAuthProvider,
     choices: ChoiceRegistry | None = None,
+    dictionary: DictionaryRegistry | None = None,
 ) -> None:
     ...
 ```
 
-The bootstrap process dynamically imports modules from `servicenow_mcp.tools` and registers them.
+Inside, each tool is defined as a closure decorated with `@mcp.tool()` then `@tool_handler`:
 
-## Wire Format
+```python
+@mcp.tool()
+@tool_handler
+async def my_tool(param: str, correlation_id: str = "") -> str:
+    validate_identifier(param)
+    check_table_access(param)
+    async with ServiceNowClient(settings, auth_provider) as client:
+        result = await client.some_method(param)
+    return format_response(data=result, correlation_id=correlation_id)
+```
 
-All tool outputs are serialized using standard JSON. The TOON format from previous versions has been removed.
+The one exception is `list_tool_packages`, registered directly in `server.py` as a bare closure. It returns `serialize(list_packages())` with no `@tool_handler` wrapper, no `correlation_id`, and no error envelope. It is the only tool that is not wrapped by `@tool_handler`.
 
-### `format_response()` Envelope
+## The `@tool_handler` Decorator
 
-Every tool returns a standardized envelope:
+Defined in `decorators.py`, this decorator is the central safety and observability layer:
+
+1. **Injects `correlation_id`** - generates a UUID4 via `generate_correlation_id()` and passes it as a keyword argument to the wrapped function.
+2. **Hides `correlation_id` from the schema** - overrides `__signature__` and deletes `__wrapped__` so FastMCP does not expose it to callers.
+3. **Attaches Sentry telemetry** - sets tags (`tool.name`, `tool.correlation_id`) and a context blob with tool name, correlation ID, and redacted arguments. Sensitive argument keys are replaced wholesale with `"***REDACTED***"` before transmission (see [[Telemetry]] for the full key list).
+4. **Wraps execution in `safe_tool_call()`** which catches exceptions in this order:
+
+| Caught | Envelope behavior |
+|---|---|
+| `ACLError` | Verbose message |
+| `ForbiddenError` | Verbose message |
+| `ServiceNowMCPError` (all subclasses) | Verbose `str(e)` |
+| `ValueError` | Verbose `str(e)` |
+| Generic `Exception` | Opaque `"Internal error (correlation_id=...)"` - full detail goes to `logger.exception` and Sentry |
+
+Tool functions never raise to the MCP layer.
+
+## Response Envelope
+
+Every tool (except `list_tool_packages`) returns a serialized JSON string built by `format_response()` in `utils.py`:
 
 ```json
 {
-  "status": "success",
-  "correlation_id": "uuid-v4",
-  "data": { ... },
-  "pagination": { "offset": 0, "limit": 100, "total": 500 },
-  "warnings": []
+  "correlation_id": "...",
+  "status": "success | error",
+  "data": "<any>",
+  "error": {"message": "..."} | null,
+  "pagination": {"limit": 0, "offset": 0, "total": 0} | null,
+  "warnings": ["..."] | null
 }
 ```
 
-## State Management
+When `error` is passed as a plain string it is wrapped into `{"message": str}`. When passed as a dict it is used verbatim. The keys `error`, `pagination`, and `warnings` are omitted when their value is `None`; `correlation_id`, `status`, and `data` are always present (`data` is serialized as `null` when it is `None`).
 
-The server maintains minimal in-memory state via `state.py`.
+## Async Client
 
-- **PreviewTokenStore:** Mediates between `record_write` and `record_apply`. When `record_write` is called with `preview=true` (default), it stores the proposed mutation and returns a UUID token. `record_apply` then consumes this token to finalize the write. Tokens expire after 5 minutes.
-- **ChoiceRegistry:** Lazy-loads choice labels from the `sys_choice` table on first use and caches them for the lifetime of the process.
+`ServiceNowClient(settings, auth_provider)` is an async context manager over `httpx.AsyncClient`. The timeout is configured via `HTTPX_TIMEOUT_SECONDS` (default 30 seconds, range 1-600).
 
-The `QueryTokenStore` from previous versions has been deleted as agents now pass encoded queries directly.
-
-## Error Handling Flow
-
-The `@tool_handler` decorator (in `decorators.py`) wraps every tool invocation:
-
-1. **Correlation ID:** Generates a unique UUID4 for the request.
-2. **Sentry Context:** Attaches tool names and arguments to the Sentry scope.
-3. **Safe Execution:** Wraps the tool in `safe_tool_call()`, which catches all exceptions (including `ForbiddenError` and `PolicyError`) and returns them as `status: "error"` JSON envelopes.
-
-## Source Layout
-
-```
-src/servicenow_mcp/
-    server.py              # Entry point, bootstrap
-    client.py              # ServiceNow HTTP client (httpx)
-    policy.py              # Safety guardrails & write gating
-    state.py               # PreviewTokenStore
-    tools/
-        query.py
-        describe.py
-        record_write.py # Registers both record_write and record_apply
-        attachment.py   # Registers both attachment and attachment_write
-        investigate.py
-        resolve_choice.py
-        service_catalog.py
-        audit.py
-        flow.py
-        _artifact.py       # Artifact script security
-        _audit.py          # AuditRegistry: super_class walk + verdict resolution
-        _dictionary.py     # DictionaryRegistry: script-bearing field discovery
-        _flow_values.py    # gzip+base64+JSON values blob decoder
-        _describe_helpers.py
-        _record_helpers.py
+```python
+async with ServiceNowClient(settings, auth_provider) as client:
+    record = await client.get_record("incident", sys_id)
 ```
 
-## Client Retentions
+Auth headers are produced by `BasicAuthProvider.get_headers()` (async for future OAuth2 extensibility). Each request also carries an `X-Correlation-ID` header (a fresh UUID4).
 
-Per ADR §2.3, the core `ServiceNowClient` retains several specialized methods to support the unified dispatchers:
-- `list_reports` and `get_email`
-- `get_import_set_record`
-- Full `sc_*` method suite for Service Catalog
-- Legacy investigation methods used by the `investigate` tool
+`_raise_for_status()` maps HTTP status codes to the exception hierarchy defined in `errors.py`:
+
+| HTTP | Exception |
+|---|---|
+| 401 | `AuthError` |
+| 403 | `ACLError` (when body matches ACL indicator regex) or `ForbiddenError` |
+| 404 | `NotFoundError` |
+| 500+ | `ServerError` |
+| Other 4xx | `ServiceNowMCPError` |
+
+## State
+
+The only in-memory mutable state is `PreviewTokenStore` in `state.py`:
+
+- TTL: 300 seconds (5 minutes).
+- Capacity: 1000 entries.
+- `create(payload) -> str` stores a dict and returns a UUID token.
+- `consume(token) -> dict | None` retrieves and deletes in one step (single-use).
+- All mutations are serialized through an `asyncio.Lock`.
+- `_sweep_expired()` reclaims stale entries before capacity checks.
+
+This backs the preview-then-apply write flow: `record_write` (with `preview=True`) creates a token containing the validated payload; `record_apply` consumes that token and executes the write.
+
+## Choice and Dictionary Registries
+
+**ChoiceRegistry** maps human-readable labels to internal values for state-like fields. It ships 6 default table-field mappings (incident, change_request, problem, cmdb_ci, sc_request, sc_req_item) and lazily fetches instance-specific overrides from `sys_choice`. Labels are normalized to lowercase with spaces replaced by underscores. See [[Tool-Reference]] for the `resolve_choice` tool surface.
+
+**DictionaryRegistry** resolves which fields on a given table carry executable script or markup content. It walks the `sys_db_object.super_class` chain child-first (bounded at depth 8, cycle-guarded), classifies fields by `internal_type` and attribute heuristics, and caches per-table results for the server lifetime. See [[Tool-Reference]] for the `describe` tool's `list_script_fields` action.
+
+## Where Things Live
+
+| Path | Role |
+|---|---|
+| `src/servicenow_mcp/server.py` | Bootstrap, `main()`, `list_tool_packages` |
+| `src/servicenow_mcp/tools/` | Tool group modules (one per group) and underscore-prefixed helpers |
+| `src/servicenow_mcp/investigations/` | Investigation modules (7 files) |
+| `src/servicenow_mcp/policy.py` | Table access, field masking, query safety, write gating |
+| `src/servicenow_mcp/client.py` | `ServiceNowClient` async HTTP layer |
+| `src/servicenow_mcp/config.py` | `Settings` model (pydantic-settings) |
+| `src/servicenow_mcp/decorators.py` | `@tool_handler` and Sentry arg redaction |
+| `src/servicenow_mcp/errors.py` | Exception hierarchy |
+| `src/servicenow_mcp/state.py` | `PreviewTokenStore` |
+| `src/servicenow_mcp/utils.py` | `format_response`, `safe_tool_call`, `ServiceNowQuery`, validators |
+| `src/servicenow_mcp/sentry.py` | Opt-in Sentry SDK setup and helpers |
+
+---
+
+See also: [[Safety-and-Policy]] for guardrails and write gating, [[Telemetry]] for Sentry integration details, [[Tool-Packages]] for the full package registry.

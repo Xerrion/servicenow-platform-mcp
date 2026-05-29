@@ -66,12 +66,13 @@ def test_looks_compressed_returns_false_for_empty_string() -> None:
 
 def test_looks_compressed_returns_false_for_non_string() -> None:
     # The function is typed for str but defends against non-string input.
-    # Sentinels are typed ``Any`` so static type-checkers (and Sonar S5655)
-    # do not flag the deliberate misuse.
+    # Sentinels are typed ``Any`` so the type-checker is satisfied; Sonar's
+    # S5655 still tracks the original ``str`` annotation, so we suppress per
+    # call below to keep this deliberate misuse exercise green.
     none_sentinel: Any = None
     int_sentinel: Any = 123
-    assert looks_compressed(none_sentinel) is False
-    assert looks_compressed(int_sentinel) is False
+    assert looks_compressed(none_sentinel) is False  # NOSONAR(S5655) deliberate non-str input
+    assert looks_compressed(int_sentinel) is False  # NOSONAR(S5655) deliberate non-str input
 
 
 # ---------------------------------------------------------------------------

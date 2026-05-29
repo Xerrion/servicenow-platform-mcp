@@ -258,18 +258,17 @@ class AuditRegistry:
             return
         self._table_audit_cache.pop(table, None)
         # ``_table_field_rows_cache`` is keyed by ``"{table}:{field}"``; iterate
-        # to clear every entry that belongs to ``table``.
+        # to clear every entry that belongs to ``table``. The ``list()`` calls
+        # below snapshot the keys because the loop bodies mutate the dicts;
+        # iterating ``.keys()`` directly would raise ``RuntimeError``. The
+        # per-line ``NOSONAR(S7504)`` markers document the intentional copy.
         prefix = f"{table}:"
-        # ``list()`` snapshots the keys because we mutate the dict in the loop body;
-        # iterating ``.keys()`` directly would raise ``RuntimeError``.
-        for row_key in list(
-            self._table_field_rows_cache.keys()
-        ):  # NOSONAR(S7504) intentional snapshot; dict mutated during iteration
+        row_keys_snapshot = list(self._table_field_rows_cache.keys())  # NOSONAR(S7504)
+        for row_key in row_keys_snapshot:
             if row_key.startswith(prefix):
                 self._table_field_rows_cache.pop(row_key, None)
-        for field_key in list(
-            self._field_audit_cache.keys()
-        ):  # NOSONAR(S7504) intentional snapshot; dict mutated during iteration
+        field_keys_snapshot = list(self._field_audit_cache.keys())  # NOSONAR(S7504)
+        for field_key in field_keys_snapshot:
             if field_key[0] == table:
                 self._field_audit_cache.pop(field_key, None)
         # ``DictionaryRegistry`` owns the super_class chain cache; that is

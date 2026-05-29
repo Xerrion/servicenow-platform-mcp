@@ -109,10 +109,6 @@ class TestSerialize:
         The original payload is intentionally NOT leaked through; the failure is
         made visible via the error envelope (logged + reported to Sentry).
         """
-
-        class Unserializable:
-            pass
-
         # An arbitrary object that json cannot encode (default=str converts it,
         # so we patch json.dumps to force a TypeError on the first call only).
         original_dumps = json.dumps

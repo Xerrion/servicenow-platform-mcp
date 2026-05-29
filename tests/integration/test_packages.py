@@ -25,13 +25,17 @@ pytestmark = pytest.mark.integration
 # blocked at runtime by ``write_gate`` in production). This is documented in
 # ``packages.py``.
 EXPECTED_TOOL_COUNTS: dict[str, int] = {
-    # full = 1 + (1+1+2+2+1+1+1) = 10
+    # full preset: 1 always-on plus 9 unified tools (query, describe, two
+    # record_write tools, two attachment tools, investigate, resolve_choice,
+    # service_catalog) = 10.
     "full": 10,
-    # readonly = 1 + (query 1 + describe 1 + attachment 2 + investigate 1 + resolve_choice 1) = 7
+    # readonly preset: 1 always-on plus query, describe, two attachment tools,
+    # investigate, resolve_choice = 7.
     "readonly": 7,
-    # core_readonly = 1 + (query 1 + describe 1 + attachment 2) = 5
+    # core_readonly preset: 1 always-on plus query, describe, two attachment
+    # tools = 5.
     "core_readonly": 5,
-    # none = 1 (only list_tool_packages)
+    # none preset: only list_tool_packages.
     "none": 1,
 }
 

@@ -40,6 +40,7 @@ def register_tools(
     ``auth_provider`` are accepted to match the loader contract used by
     ``server.py`` for every unified tool.
     """
+    del settings, auth_provider, dictionary  # unused; signature retained for loader parity
 
     @mcp.tool()
     @tool_handler

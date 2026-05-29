@@ -329,7 +329,7 @@ def _apply_condition(
     return handler(query, field, operator, condition, correlation_id)
 
 
-async def _build_query_impl(
+def _build_query_impl(
     conditions_list: list[Any],
     correlation_id: str,
 ) -> str:
@@ -372,6 +372,7 @@ def register_tools(
     four-argument signature is preserved so the bootstrap loader can call every
     unified ``register_tools`` uniformly.
     """
+    del settings, auth_provider, choices, dictionary  # unused; signature retained for loader parity
 
     @mcp.tool()
     @tool_handler
@@ -436,4 +437,4 @@ def register_tools(
                 error="conditions must be a JSON array",
             )
 
-        return await _build_query_impl(parsed, correlation_id)
+        return _build_query_impl(parsed, correlation_id)

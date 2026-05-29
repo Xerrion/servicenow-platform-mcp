@@ -49,7 +49,7 @@ async def test_unknown_action_returns_error(settings: Settings, auth_provider: B
 
 
 # ---------------------------------------------------------------------------
-# action='run'
+# Section: run action
 # ---------------------------------------------------------------------------
 
 
@@ -130,7 +130,7 @@ async def test_run_invalid_params_json_returns_error(settings: Settings, auth_pr
 
 
 # ---------------------------------------------------------------------------
-# action='explain'
+# Section: explain action
 # ---------------------------------------------------------------------------
 
 
@@ -189,7 +189,7 @@ async def test_explain_dispatches_to_module_explain(settings: Settings, auth_pro
 
 
 # ---------------------------------------------------------------------------
-# action='describe'
+# Section: describe action
 # ---------------------------------------------------------------------------
 
 

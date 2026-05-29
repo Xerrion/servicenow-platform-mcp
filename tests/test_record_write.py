@@ -166,6 +166,7 @@ class TestActionDispatch:
         assert "script_field requires script_path" in result["error"]["message"]
 
     @pytest.mark.asyncio()
+    @respx.mock
     async def test_oversized_data_payload_rejected_before_token_creation(
         self, settings: Settings, auth_provider: BasicAuthProvider
     ) -> None:
@@ -184,10 +185,10 @@ class TestActionDispatch:
 
         with patch.object(record_write_module.PreviewTokenStore, "create", _spy_create):
             tools = _register_and_get_tools(settings, auth_provider)
-            # 1 MiB + 1 byte payload as a JSON object: pad a single field.
-            oversized_value = "x" * (1 * 1024 * 1024 + 1)
+            # MAX_PAYLOAD_BYTES + 1 byte payload as a JSON object: pad a single field.
+            oversized_value = "x" * (record_write_module.MAX_PAYLOAD_BYTES + 1)
             payload = json.dumps({"short_description": oversized_value})
-            assert len(payload.encode("utf-8")) > 1 * 1024 * 1024
+            assert len(payload.encode("utf-8")) > record_write_module.MAX_PAYLOAD_BYTES
             raw = await tools["record_write"](
                 action="create",
                 table="incident",

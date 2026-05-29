@@ -197,3 +197,36 @@ def test_decode_values_caps_are_tunable_module_constants() -> None:
     assert isinstance(_flow_values.MAX_DECOMPRESSED_BYTES, int)
     assert _flow_values.MAX_COMPRESSED_BYTES > 0
     assert _flow_values.MAX_DECOMPRESSED_BYTES > 0
+
+
+# ---------------------------------------------------------------------------
+# decode_values: stream-completeness guards
+# ---------------------------------------------------------------------------
+
+
+def test_truncated_gzip_stream_rejected() -> None:
+    """A gzip member missing its trailing footer bytes must be rejected.
+
+    Without the eof check, ``decompressobj`` happily yields the inflated
+    bytes it has so far; if they happen to be valid JSON, callers would
+    receive partial data with no signal it was truncated.
+    """
+    raw = gzip.compress(json.dumps([{"k": "v"}]).encode("utf-8"))
+    truncated = raw[:-4]  # lop off the last 4 bytes of the gzip footer
+    encoded = base64.b64encode(truncated).decode("ascii")
+    with pytest.raises(ValueError, match="invalid or truncated gzip stream"):
+        decode_values(encoded)
+
+
+def test_trailing_garbage_after_gzip_rejected() -> None:
+    """Bytes appearing after a complete gzip member must be rejected.
+
+    ``decompressobj`` stops at the footer and stashes the extra bytes in
+    ``unused_data``; silently dropping them would let an attacker append
+    smuggled content that downstream tooling never sees.
+    """
+    raw = gzip.compress(json.dumps([{"k": "v"}]).encode("utf-8"))
+    with_garbage = raw + b"\x00garbage-trailer\x00"
+    encoded = base64.b64encode(with_garbage).decode("ascii")
+    with pytest.raises(ValueError, match="invalid or truncated gzip stream"):
+        decode_values(encoded)

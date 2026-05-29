@@ -4,6 +4,7 @@ import inspect
 import json
 import uuid
 from typing import Any
+from unittest.mock import patch
 
 from servicenow_mcp.decorators import _REDACTED, _redact_args, tool_handler
 from servicenow_mcp.errors import ForbiddenError
@@ -224,3 +225,38 @@ class TestRedactArgs:
         out = _redact_args({"DATA": "x", "Token": "y"})
         assert out["DATA"] == _REDACTED
         assert out["Token"] == _REDACTED
+
+    async def test_wrapper_pipes_redacted_args_into_sentry_context(self) -> None:
+        """``tool_handler`` must attach the *redacted* kwargs dict to Sentry.
+
+        ``_redact_args`` is exercised in isolation by the tests above; this
+        test pins the wiring at decorators.py so that a future refactor
+        cannot accidentally hand raw kwargs (including ``password``,
+        ``data``, etc.) to ``set_sentry_context``.
+        """
+        with patch("servicenow_mcp.decorators.set_sentry_context") as mock_ctx:
+
+            @tool_handler
+            async def my_tool(
+                table: str,
+                data: str = "",
+                password: str = "",
+                *,
+                correlation_id: str,
+            ) -> str:
+                return format_response(data=None, correlation_id=correlation_id)
+
+            await my_tool(
+                table="incident",
+                data='{"password":"hunter2"}',
+                password="hunter2",  # NOSONAR(S2068) - test fixture, not a credential
+            )
+
+            tool_calls = [c for c in mock_ctx.call_args_list if c.args and c.args[0] == "tool"]
+            assert tool_calls, "set_sentry_context('tool', ...) was never called"
+            ctx_payload = tool_calls[-1].args[1]
+            recorded_args = ctx_payload["args"]
+
+            assert recorded_args["data"] == _REDACTED
+            assert recorded_args["password"] == _REDACTED
+            assert recorded_args["table"] == "incident"

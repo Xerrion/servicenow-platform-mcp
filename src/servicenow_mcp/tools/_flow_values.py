@@ -91,6 +91,12 @@ def decode_values(compressed: str) -> list[Any] | dict[str, Any]:
         raise ValueError(
             f"decompressed payload exceeds maximum allowed size (> {MAX_DECOMPRESSED_BYTES} bytes)",
         )
+    # Reject truncated streams (gzip footer never reached) and trailing
+    # bytes after a valid gzip member. Either condition can yield
+    # JSON-parseable but spoofed or partial output that callers should
+    # never see.
+    if not decompressor.eof or decompressor.unused_data:
+        raise ValueError("invalid or truncated gzip stream")
 
     try:
         decoded = json.loads(decompressed.decode("utf-8"))

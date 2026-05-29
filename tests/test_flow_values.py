@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 
+from servicenow_mcp.tools import _flow_values
 from servicenow_mcp.tools._flow_values import decode_values, looks_compressed
 
 
@@ -153,3 +154,46 @@ def test_decode_values_gzip_with_non_utf8_bytes_raises_value_error() -> None:
     assert encoded.startswith("H4sIA")  # sanity: prefix scan is a no-op
     with pytest.raises(ValueError, match="not valid JSON"):
         decode_values(encoded)
+
+
+# ---------------------------------------------------------------------------
+# decode_values: decompression-bomb guards
+# ---------------------------------------------------------------------------
+
+
+def test_decode_values_rejects_oversize_compressed_payload() -> None:
+    """A base64-decoded wire payload over MAX_COMPRESSED_BYTES is rejected.
+
+    The reject path runs before any decompressor is allocated, so even a
+    legitimate-looking gzip blob is refused if its compressed size exceeds
+    the wire cap.
+    """
+    # Random bytes don't compress well; pad to exceed the 1 MiB compressed cap.
+    big_blob = b"\x00" * (_flow_values.MAX_COMPRESSED_BYTES + 1024)
+    encoded = base64.b64encode(big_blob).decode("ascii")
+    with pytest.raises(ValueError, match="compressed payload exceeds maximum"):
+        decode_values(encoded)
+
+
+def test_decode_values_rejects_gzip_bomb() -> None:
+    """A gzip payload that decompresses past MAX_DECOMPRESSED_BYTES is rejected.
+
+    ``b"A" * (MAX_DECOMPRESSED_BYTES + 1024)`` compresses to a tiny base64
+    blob but would expand past the cap; the decoder must reject without
+    materializing the full output.
+    """
+    bomb_plain = b"A" * (_flow_values.MAX_DECOMPRESSED_BYTES + 1024)
+    encoded = base64.b64encode(gzip.compress(bomb_plain)).decode("ascii")
+    # Sanity: the compressed wire form is well under the wire cap, so the
+    # reject path is the *decompression* cap, not the compressed-size cap.
+    assert len(base64.b64decode(encoded)) < _flow_values.MAX_COMPRESSED_BYTES
+    with pytest.raises(ValueError, match="decompressed payload exceeds maximum"):
+        decode_values(encoded)
+
+
+def test_decode_values_caps_are_tunable_module_constants() -> None:
+    """The caps are module-level ints so tests and ops can read/tune them."""
+    assert isinstance(_flow_values.MAX_COMPRESSED_BYTES, int)
+    assert isinstance(_flow_values.MAX_DECOMPRESSED_BYTES, int)
+    assert _flow_values.MAX_COMPRESSED_BYTES > 0
+    assert _flow_values.MAX_DECOMPRESSED_BYTES > 0

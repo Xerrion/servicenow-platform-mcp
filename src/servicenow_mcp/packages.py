@@ -19,7 +19,8 @@ module and write paths are gated by ``write_gate``/``can_write``.
 
 Presets:
     ``full``           - every group (full surface).
-    ``readonly``       - read + record_read + investigate + resolve_choice
+    ``readonly``       - query + describe + record_read + attachment +
+                       investigate + resolve_choice + audit + flow
                        (still loads attachment which carries write tools;
                        those are blocked at runtime in production by
                        ``write_gate``).

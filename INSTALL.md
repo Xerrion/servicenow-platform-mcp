@@ -26,8 +26,8 @@ Ask the user:
    - If **no** - set `SERVICENOW_ENV=dev` (default, writes allowed)
 
 2. **Do you want all tools or a specific subset?**
-   - **All tools** (default) - set `MCP_TOOL_PACKAGE=full` (12 tools)
-   - **Read-only** - set `MCP_TOOL_PACKAGE=readonly` (8 tools)
+   - **All tools** (default) - set `MCP_TOOL_PACKAGE=full` (13 tools, including `audit` and `flow`)
+   - **Read-only** - set `MCP_TOOL_PACKAGE=readonly` (9 tools, including `audit` and `flow`)
    - **Minimal** - set `MCP_TOOL_PACKAGE=core_readonly` (5 tools: query, describe, attachment, attachment_write, list_tool_packages)
    - **Custom** - comma-separated tool names (e.g., `query,describe,attachment`)
 

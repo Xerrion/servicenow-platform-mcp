@@ -100,7 +100,12 @@ src/servicenow_mcp/
         investigate.py
         resolve_choice.py
         service_catalog.py
+        audit.py
+        flow.py
         _artifact.py       # Artifact script security
+        _audit.py          # AuditRegistry: super_class walk + verdict resolution
+        _dictionary.py     # DictionaryRegistry: script-bearing field discovery
+        _flow_values.py    # gzip+base64+JSON values blob decoder
         _describe_helpers.py
         _record_helpers.py
 ```

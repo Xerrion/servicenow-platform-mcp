@@ -60,7 +60,7 @@ Failure to provide a date filter on these tables results in a `QuerySafetyError`
 
 ## Write Gating
 
-Mutations are controlled by the `gate_write` function.
+Mutations are controlled by the `write_gate` function.
 
 ### Production Blocking
 All write operations are blocked when `SERVICENOW_ENV` is set to `"prod"` or `"production"`. This affects:

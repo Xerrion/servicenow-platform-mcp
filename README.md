@@ -162,8 +162,8 @@ Control which tools are loaded with `MCP_TOOL_PACKAGE`.
 
 | Package | Tools | Description |
 |---------|-------|-------------|
-| `full` | 12 | All 12 unified tools, including the `build_query` helper (default) |
-| `readonly` | 8 | Includes `record_read` and `attachment_write` (gate_write blocks in prod) |
+| `full` | 13 | All unified tools, including `audit`, `flow`, and the `build_query` helper (default) |
+| `readonly` | 9 | Includes `record_read`, `audit`, `flow`, and `attachment_write` (write_gate blocks in prod) |
 | `core_readonly` | 5 | Minimal read surface (includes `attachment_write`) |
 | `none` | 1 | Just `list_tool_packages` |
 

@@ -1,6 +1,6 @@
 # Tool Reference
 
-Complete reference for all tools provided by the ServiceNow Platform MCP server. The surface has been unified into 12 core tools that use dispatcher patterns and ServiceNow encoded queries.
+Complete reference for all tools provided by the ServiceNow Platform MCP server. The surface has been unified into 13 core tools that use dispatcher patterns and ServiceNow encoded queries.
 
 All tools return responses as JSON strings with a standardized envelope containing `correlation_id`, `status`, `data`, and optionally `pagination` and `warnings`. See [[Architecture]] for details on the response format.
 
@@ -167,7 +167,38 @@ Runs pre-defined diagnostic and health check modules.
   - `explain`: Interpret a specific finding from a previous run.
 - **Modules:** `stale_automations`, `deprecated_apis`, `table_health`, `acl_conflicts`, `error_analysis`, `slow_transactions`, `performance_bottlenecks`.
 
+### `audit`
+
+Inspect ServiceNow field-level auditing posture and masked history.
+
+- **Purpose:** Resolve whether a `(table, field)` pair is actually audited (walking `super_class` and `sys_dictionary`), survey a table's audit posture, and fetch a masked, date-bounded audit trail for one record.
+- **Availability:** Included in the `full` and `readonly` packages.
+- **Actions:**
+  - `check_field`: Resolve the combined audit verdict for one `(table, field)` pair. Returns the chain-walked dictionary flag, the `no_audit` attribute veto, the table-level flag, and a positive-control count from `sys_audit` within `window_days`.
+  - `check_fields`: Batch variant of `check_field`. Accepts `fields_csv` (max 50) and returns one verdict per field plus a single shared `table_change_count`.
+  - `check_table`: Table-level posture - the table default plus the list of fields whose resolved audit flag differs from that default.
+  - `history`: Masked, date-bounded audit trail for one record. Queries `sys_audit` by `tablename` + `documentkey` and masks sensitive fields via `mask_audit_entry`.
+  - `describe`: Return the action registry without platform I/O.
+- **Key Parameters:**
+  - `action`: One of `check_field`, `check_fields`, `check_table`, `history`, or `describe`.
+  - `table`: Target table name (required for all actions except `describe`).
+  - `field`: Field name (required for `check_field`).
+  - `fields_csv`: Comma-separated field names, max 50 (required for `check_fields`).
+  - `sys_id`: Document sys_id for `history`.
+  - `window_days`: Override the default 90-day window for `sys_audit` queries. Wider windows risk timeouts.
+  - `since`: Explicit ISO date floor for `history` (overrides `window_days`).
+- **Notes:** `sys_audit` is one of the largest tables on the platform; every action that touches it applies a default 90-day window. Responses include the `window_days` actually used and a `window_note` describing it. `no_audit=true` in the `attributes` blob vetoes the boolean `audit` column. The positive-control count distinguishes "no field activity in window" (`audited_but_inactive`) from "audit not configured" (`inconclusive`).
+- **Example:**
+
+  ```python
+  await audit(action="check_field", table="incident", field="state")
+  await audit(action="check_fields", table="incident", fields_csv="state,priority,assigned_to")
+  await audit(action="check_table", table="incident")
+  await audit(action="history", table="incident", sys_id="<sys_id>", window_days=30)
+  ```
+
 ### `flow`
+
 Inspect ServiceNow Flow Designer artifacts from documented Table API records.
 
 - **Purpose:** Read Flow Designer flows and subflows, including triggers, declared inputs/outputs/variables, decoded V2 action and logic configuration, canvas structure, and published snapshot drift.

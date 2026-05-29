@@ -33,7 +33,7 @@ ServiceNow [Encoded Queries](https://docs.servicenow.com/bundle/vancouver-platfo
 | Starts With | `short_descriptionSTARTSWITHOutage` | Field starts with string |
 | Contains | `short_descriptionLIKEvpn` | Field contains string |
 | Date Filter | `sys_created_on>=javascript:gs.daysAgoStart(7)` | Use for large tables (syslog, sys_audit) |
-| Sorting | `numberORDERBYDESC` | Append to query for ordering |
+| Sorting | `ORDERBYDESCnumber` | Append to query for ordering (use `ORDERBY<field>` for ascending) |
 | AND | `active=true^priority=1` | Combine conditions with carets |
 | OR | `state=1^ORstate=2` | Or condition for the same field |
 | Dot-walk | `assignment_group.nameSTARTSWITHNetwork` | Access fields on referenced tables |
@@ -62,22 +62,25 @@ await query(
 **Old way:** `incident_create(state="open", short_description="...")`  
 **New way:**
 ```python
+import json
+
 # 1. Resolve the label to a value
-# Returns "1"
-state_val = await resolve_choice(table="incident", field="state", label="New")
+# Tool returns a JSON-serialized envelope string - parse it before indexing.
+state_resp = json.loads(await resolve_choice(table="incident", field="state", label="New"))
+state_val = state_resp["data"]["value"]  # "1"
 
 # 2. Stage the create (preview=True by default)
-# Returns a preview_token
-preview = await record_write(
+# Returns a preview_token inside data
+preview = json.loads(await record_write(
     action="create",
     table="incident",
     data='{"short_description": "Email service down", "state": "1"}'
-)
+))
 
 # 3. Commit the change
 await record_apply(preview_token=preview["data"]["preview_token"])
 ```
-**Notes:** The preview/apply two-step is a mandatory safety mechanism for all writes. It allows the agent (or human) to inspect the impact before commitment.
+**Notes:** The preview/apply two-step is a mandatory safety mechanism for all writes. It allows the agent (or human) to inspect the impact before commitment. Every tool returns a JSON-serialized envelope string (see `format_response` in `responses.py`); always `json.loads(...)` before indexing into `data`.
 
 ---
 
@@ -106,11 +109,11 @@ await query(
 ```python
 import json
 
-built = await build_query(conditions=json.dumps([
+built = json.loads(await build_query(conditions=json.dumps([
     {"operator": "in_list",     "field": "state",                  "value": ["1", "2"]},
     {"operator": "less_or_equal", "field": "priority",             "value": "2"},
     {"operator": "starts_with", "field": "assignment_group.name",  "value": "Network"},
-]))
+])))
 
 await query(
     table="incident",
@@ -200,12 +203,14 @@ await query(
 **Old way:** Implicitly handled by domain tools.  
 **New way:**
 ```python
+import json
+
 # 1. Check if choices exist
-meta = await describe(table="incident", fields="state")
+meta = json.loads(await describe(table="incident", fields="state"))
 # If meta["data"]["state"]["choice_count"] > 0...
 
 # 2. Get the full mapping (label="" returns all)
-choices = await resolve_choice(table="incident", field="state")
+choices = json.loads(await resolve_choice(table="incident", field="state"))
 ```
 **Notes:** `resolve_choice` returns a dictionary mapping labels (e.g., "In Progress") to values (e.g., "2").
 
@@ -216,16 +221,18 @@ choices = await resolve_choice(table="incident", field="state")
 **Old way:** `artifact_update`  
 **New way:**
 ```python
+import json
+
 # Stage the update using a local path.
 # content is read, validated, and placed in the first script-bearing field
 # resolved by DictionaryRegistry (here: sys_script.script).
-preview = await record_write(
+preview = json.loads(await record_write(
     action="update",
     table="sys_script",
     sys_id="<sys_id>",
     script_path="/Users/dev/project/br_logic.js",
     preview=True
-)
+))
 
 # Commit
 await record_apply(preview_token=preview["data"]["preview_token"])
@@ -239,13 +246,15 @@ await record_apply(preview_token=preview["data"]["preview_token"])
 **Old way:** ad-hoc manual queries.  
 **New way:**
 ```python
+import json
+
 # Get counts grouped by the reference field 'assignment_group'
-report = await query(
+report = json.loads(await query(
     table="incident",
     encoded_query="active=true",
     aggregate="count",
     group_by="assignment_group"
-)
+))
 
 # report["data"] will contain list of {assignment_group: "sys_id", count: "42"}
 ```
@@ -254,9 +263,11 @@ report = await query(
 ---
 
 ### 11. Inspect Flow Designer artifacts
+
 **Goal:** Understand which flows run for a table, inspect one flow's canvas, or decode a compressed `values` field fetched manually.  
 **Old way:** Query `sys_hub_*` tables by hand and decode `values` outside the MCP server.  
 **New way:**
+
 ```python
 # Find all flows triggered by a given table
 await flow(action="find_by_table", table="incident")
@@ -275,6 +286,7 @@ await flow(
     limit=50,
 )
 ```
+
 **Notes:** `flow(action="inspect", ...)` reads both Washington DC+ V2 rows and V1 fallback rows. Per-node decode failures are isolated to that node as `decode_error`, so one bad `values` blob does not discard the full inspection result.
 
 ## 💡 Tips and Patterns

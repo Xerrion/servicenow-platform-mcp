@@ -24,7 +24,7 @@ from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.policy import gate_write
 from servicenow_mcp.tools._dictionary import DictionaryRegistry
 from servicenow_mcp.tools._payload import parse_payload_json
-from servicenow_mcp.utils import format_response, validate_identifier, validate_sys_id
+from servicenow_mcp.utils import format_response, validate_sys_id
 
 
 TOOL_NAMES: list[str] = ["service_catalog"]
@@ -270,7 +270,7 @@ def register_tools(
         parsed_vars: dict[str, Any] | None = None
 
         if action == "order_now":
-            validate_identifier(item_sys_id)
+            validate_sys_id(item_sys_id)
             blocked = gate_write("sc_req_item", settings, correlation_id)
             if blocked:
                 return blocked
@@ -286,7 +286,7 @@ def register_tools(
                 parsed_vars = parsed
 
         elif action == "add_to_cart":
-            validate_identifier(item_sys_id)
+            validate_sys_id(item_sys_id)
             blocked = gate_write("sc_cart_item", settings, correlation_id)
             if blocked:
                 return blocked
@@ -305,6 +305,9 @@ def register_tools(
             blocked = gate_write("sc_request", settings, correlation_id)
             if blocked:
                 return blocked
+
+        elif action == "categories_list":
+            validate_sys_id(catalog_sys_id)
 
         # --- 4. Dispatch -------------------------------------------------
         async with ServiceNowClient(settings, auth_provider) as client:

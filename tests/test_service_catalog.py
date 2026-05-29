@@ -18,6 +18,11 @@ from tests.helpers import decode_response, get_tool_functions
 BASE_URL = "https://test.service-now.com"
 SC_BASE = f"{BASE_URL}/api/sn_sc/servicecatalog"
 
+# Valid 32-char hex sys_ids used across this module. Real sys_ids are required
+# because the tool calls ``validate_sys_id`` on these inputs.
+ITEM_SYS_ID = "e" * 32
+CATALOG_SYS_ID = "f" * 32
+
 
 @pytest.fixture()
 def auth_provider(settings: Settings) -> BasicAuthProvider:
@@ -130,7 +135,7 @@ class TestCategoriesList:
     @respx.mock
     async def test_list_categories(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """List categories for a catalog."""
-        respx.get(f"{SC_BASE}/catalogs/cat123/categories").mock(
+        respx.get(f"{SC_BASE}/catalogs/{CATALOG_SYS_ID}/categories").mock(
             return_value=Response(
                 200,
                 json={
@@ -143,7 +148,9 @@ class TestCategoriesList:
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        result = decode_response(await tools["service_catalog"](action="categories_list", catalog_sys_id="cat123"))
+        result = decode_response(
+            await tools["service_catalog"](action="categories_list", catalog_sys_id=CATALOG_SYS_ID)
+        )
 
         assert result["status"] == "success"
         assert len(result["data"]) == 2
@@ -152,10 +159,12 @@ class TestCategoriesList:
     @respx.mock
     async def test_pagination(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """limit / offset are forwarded."""
-        respx.get(f"{SC_BASE}/catalogs/cat123/categories").mock(return_value=Response(200, json={"result": []}))
+        respx.get(f"{SC_BASE}/catalogs/{CATALOG_SYS_ID}/categories").mock(
+            return_value=Response(200, json={"result": []})
+        )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        await tools["service_catalog"](action="categories_list", catalog_sys_id="cat123", limit=10, offset=5)
+        await tools["service_catalog"](action="categories_list", catalog_sys_id=CATALOG_SYS_ID, limit=10, offset=5)
 
         url = str(respx.calls.last.request.url)
         assert "sysparm_limit=10" in url
@@ -165,12 +174,26 @@ class TestCategoriesList:
     @respx.mock
     async def test_top_level_only(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """top_level_only=True is forwarded."""
-        respx.get(f"{SC_BASE}/catalogs/cat123/categories").mock(return_value=Response(200, json={"result": []}))
+        respx.get(f"{SC_BASE}/catalogs/{CATALOG_SYS_ID}/categories").mock(
+            return_value=Response(200, json={"result": []})
+        )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        await tools["service_catalog"](action="categories_list", catalog_sys_id="cat123", top_level_only=True)
+        await tools["service_catalog"](action="categories_list", catalog_sys_id=CATALOG_SYS_ID, top_level_only=True)
 
         assert "sysparm_top_level_only=true" in str(respx.calls.last.request.url)
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_invalid_catalog_sys_id_rejected(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        """A catalog_sys_id that is not a 32-char hex string is rejected before any HTTP call."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        result = decode_response(
+            await tools["service_catalog"](action="categories_list", catalog_sys_id="not-a-sys-id")
+        )
+
+        assert result["status"] == "error"
+        assert len(respx.calls) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -320,12 +343,12 @@ class TestOrderNow:
     @respx.mock
     async def test_order_no_variables(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Order an item without variables (writes succeed in dev)."""
-        respx.post(f"{SC_BASE}/items/item123/order_now").mock(
+        respx.post(f"{SC_BASE}/items/{ITEM_SYS_ID}/order_now").mock(
             return_value=Response(200, json={"result": {"sys_id": "req123", "number": "REQ0010001"}})
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        result = decode_response(await tools["service_catalog"](action="order_now", item_sys_id="item123"))
+        result = decode_response(await tools["service_catalog"](action="order_now", item_sys_id=ITEM_SYS_ID))
 
         assert result["status"] == "success"
         assert result["data"]["number"] == "REQ0010001"
@@ -334,13 +357,13 @@ class TestOrderNow:
     @respx.mock
     async def test_order_with_variables(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Order an item with variables JSON (validate_keys=False allows arbitrary names)."""
-        respx.post(f"{SC_BASE}/items/item123/order_now").mock(
+        respx.post(f"{SC_BASE}/items/{ITEM_SYS_ID}/order_now").mock(
             return_value=Response(200, json={"result": {"sys_id": "req123", "number": "REQ0010001"}})
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
         result = decode_response(
-            await tools["service_catalog"](action="order_now", item_sys_id="item123", variables='{"urgency": "1"}')
+            await tools["service_catalog"](action="order_now", item_sys_id=ITEM_SYS_ID, variables='{"urgency": "1"}')
         )
 
         assert result["status"] == "success"
@@ -349,7 +372,7 @@ class TestOrderNow:
     async def test_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider) -> None:
         """Production blocks the write before HTTP."""
         tools = _register_and_get_tools(prod_settings, prod_auth_provider)
-        result = decode_response(await tools["service_catalog"](action="order_now", item_sys_id="item123"))
+        result = decode_response(await tools["service_catalog"](action="order_now", item_sys_id=ITEM_SYS_ID))
 
         assert result["status"] == "error"
         assert "production" in result["error"]["message"].lower()
@@ -357,7 +380,7 @@ class TestOrderNow:
     @pytest.mark.asyncio()
     @respx.mock
     async def test_invalid_item_sys_id_rejected(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """An item_sys_id with disallowed characters is rejected before any HTTP call."""
+        """An item_sys_id that is not a 32-char hex string is rejected before any HTTP call."""
         tools = _register_and_get_tools(settings, auth_provider)
         result = decode_response(
             await tools["service_catalog"](action="order_now", item_sys_id="not valid; DROP TABLE")
@@ -379,12 +402,12 @@ class TestAddToCart:
     @respx.mock
     async def test_add_no_variables(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Add an item to cart (writes succeed in dev)."""
-        respx.post(f"{SC_BASE}/items/item123/add_to_cart").mock(
-            return_value=Response(200, json={"result": {"cart_item_id": "ci123", "item_id": "item123"}})
+        respx.post(f"{SC_BASE}/items/{ITEM_SYS_ID}/add_to_cart").mock(
+            return_value=Response(200, json={"result": {"cart_item_id": "ci123", "item_id": ITEM_SYS_ID}})
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        result = decode_response(await tools["service_catalog"](action="add_to_cart", item_sys_id="item123"))
+        result = decode_response(await tools["service_catalog"](action="add_to_cart", item_sys_id=ITEM_SYS_ID))
 
         assert result["status"] == "success"
         assert result["data"]["cart_item_id"] == "ci123"
@@ -393,7 +416,7 @@ class TestAddToCart:
     @respx.mock
     async def test_add_with_variables(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Variables JSON with arbitrary keys is accepted (validate_keys=False)."""
-        respx.post(f"{SC_BASE}/items/item123/add_to_cart").mock(
+        respx.post(f"{SC_BASE}/items/{ITEM_SYS_ID}/add_to_cart").mock(
             return_value=Response(200, json={"result": {"cart_item_id": "ci123"}})
         )
 
@@ -401,7 +424,7 @@ class TestAddToCart:
         result = decode_response(
             await tools["service_catalog"](
                 action="add_to_cart",
-                item_sys_id="item123",
+                item_sys_id=ITEM_SYS_ID,
                 variables='{"quantity": "2"}',
             )
         )
@@ -412,7 +435,7 @@ class TestAddToCart:
     async def test_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider) -> None:
         """Production blocks add-to-cart."""
         tools = _register_and_get_tools(prod_settings, prod_auth_provider)
-        result = decode_response(await tools["service_catalog"](action="add_to_cart", item_sys_id="item123"))
+        result = decode_response(await tools["service_catalog"](action="add_to_cart", item_sys_id=ITEM_SYS_ID))
 
         assert result["status"] == "error"
         assert "production" in result["error"]["message"].lower()
@@ -420,7 +443,7 @@ class TestAddToCart:
     @pytest.mark.asyncio()
     @respx.mock
     async def test_invalid_item_sys_id_rejected(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """An item_sys_id with disallowed characters is rejected before any HTTP call."""
+        """An item_sys_id that is not a 32-char hex string is rejected before any HTTP call."""
         tools = _register_and_get_tools(settings, auth_provider)
         result = decode_response(await tools["service_catalog"](action="add_to_cart", item_sys_id="bad; DROP"))
 

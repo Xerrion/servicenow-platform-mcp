@@ -397,6 +397,7 @@ def register_tools(
 
         # --- 2. Per-action gating + dispatch -----------------------------
         if action == "upload":
+            validate_identifier(table)
             validate_sys_id(table_sys_id)
 
             blocked = gate_write(table, settings, correlation_id)

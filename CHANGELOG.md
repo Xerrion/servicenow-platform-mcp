@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.10.0](https://github.com/Xerrion/servicenow-platform-mcp/compare/v0.9.1...v0.10.0) (2026-05-29)
+
+
+### Features
+
+* add audit and flow inspection tools; flatten tools/unified to tools ([#82](https://github.com/Xerrion/servicenow-platform-mcp/issues/82)) ([d2f7cb3](https://github.com/Xerrion/servicenow-platform-mcp/commit/d2f7cb3e1a7e7aadecfa815679e06ab61453cf5f))
+
+
+### Bug Fixes
+
+* **security:** address red-team findings (7 fixes, 3 batches) ([#85](https://github.com/Xerrion/servicenow-platform-mcp/issues/85)) ([7a10acc](https://github.com/Xerrion/servicenow-platform-mcp/commit/7a10acc12219011c09245fa78c9a546924a9b320))
+
+
+### Documentation
+
+* sync docs and CHANGELOG with PR [#85](https://github.com/Xerrion/servicenow-platform-mcp/issues/85) security hardening ([#86](https://github.com/Xerrion/servicenow-platform-mcp/issues/86)) ([5f296ac](https://github.com/Xerrion/servicenow-platform-mcp/commit/5f296ac3caa33ccf3f18955fc49443bb98ba28b9))
+
 ## [Unreleased]
 
 ### Added

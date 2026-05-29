@@ -187,7 +187,7 @@ class TestRedactArgs:
         sensitive = {
             "data": '{"name": "alice"}',
             "params": "anything",
-            "password": "hunter2",
+            "password": "hunter2",  # NOSONAR(S2068) - test fixture asserting redaction; not a credential.
             "token": "deadbeef",
             "secret": "shh",
             "api_key": "k",

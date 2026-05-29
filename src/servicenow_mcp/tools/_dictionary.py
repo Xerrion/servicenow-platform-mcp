@@ -104,10 +104,14 @@ EXCLUDED_ELEMENTS: Final[frozenset[str]] = frozenset(
     }
 )
 
-# Attribute substrings that flip an html/xml field into "script-bearing".
-_HEURISTIC_ATTR_FLAGS: Final[tuple[str, ...]] = (
-    "tinymce_allow_all=true",
-    "html_sanitize=false",
+# Attribute flags that flip an html/xml field into "script-bearing".
+# Encoded inside the comma-separated ``attributes`` blob as ``key=value``;
+# matched at token boundaries so substrings like ``my_tinymce_allow_all=true``
+# never produce a false positive. Mirrors the boundary discipline used by
+# ``tools._audit._NO_AUDIT_RE``.
+_HEURISTIC_ATTR_FLAGS: Final[tuple[tuple[str, str], ...]] = (
+    ("tinymce_allow_all", "true"),
+    ("html_sanitize", "false"),
 )
 
 # Bound on super_class chain depth - generous ceiling above the deepest OOTB
@@ -119,12 +123,40 @@ _MAX_CHAIN_DEPTH: Final[int] = 8
 _TEMPLATE_RE: Final[re.Pattern[str]] = re.compile(r"\$\{[^}]+\}")
 
 
-def _attributes_admit_heuristic(attributes: str) -> bool:
-    """Return True when ``attributes`` carries a heuristic-admission flag."""
+def _parse_attributes(attributes: str) -> dict[str, str]:
+    """Parse the comma-separated ``key=value`` ``attributes`` blob.
+
+    Strips whitespace around both the token and the ``=`` separator. Keys
+    are lowercased; values are stripped and lowercased (heuristic flags
+    only compare against the literals ``true``/``false``). Splits on the
+    first ``=`` only so values containing ``=`` survive. Duplicate keys
+    follow last-wins semantics. Empty strings and tokens without ``=``
+    are skipped.
+    """
     if not attributes:
+        return {}
+    parsed: dict[str, str] = {}
+    for raw_token in attributes.split(","):
+        token = raw_token.strip()
+        if not token or "=" not in token:
+            continue
+        key, _, value = token.partition("=")
+        parsed[key.strip().lower()] = value.strip().lower()
+    return parsed
+
+
+def _attributes_admit_heuristic(attributes: str) -> bool:
+    """Return True when ``attributes`` carries a heuristic-admission flag.
+
+    Parses ``attributes`` as comma-separated ``key=value`` tokens (the
+    ServiceNow convention) and admits only when one of the configured
+    flag keys is present with the matching literal value. Substring
+    matches like ``my_tinymce_allow_all=true`` are rejected.
+    """
+    parsed = _parse_attributes(attributes)
+    if not parsed:
         return False
-    lowered = attributes.lower()
-    return any(flag in lowered for flag in _HEURISTIC_ATTR_FLAGS)
+    return any(parsed.get(key) == value for key, value in _HEURISTIC_ATTR_FLAGS)
 
 
 def _classify(field: DictionaryField) -> ScriptField | None:

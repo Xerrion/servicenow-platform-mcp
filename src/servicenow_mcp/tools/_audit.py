@@ -32,8 +32,12 @@ logger = logging.getLogger(__name__)
 
 # ``no_audit`` is encoded inside the comma-separated ``attributes`` blob.
 # Match it at a comma boundary so substrings like ``my_no_audit=true``
-# never produce a false positive.
-_NO_AUDIT_RE: Final[re.Pattern[str]] = re.compile(r"(?:^|,)\s*no_audit\s*=\s*true(?:\s*,|$)", re.IGNORECASE)
+# never produce a false positive. The right boundary tolerates trailing
+# whitespace before EOL (``foo, no_audit = true `` must match).
+_NO_AUDIT_RE: Final[re.Pattern[str]] = re.compile(
+    r"(?:^|,)\s*no_audit\s*=\s*true(?:\s*,|\s*$)",  # NOSONAR(S5850) - alternations are grouped; precedence explicit.
+    re.IGNORECASE,
+)
 
 
 def attribute_has_no_audit(attributes: str) -> bool:

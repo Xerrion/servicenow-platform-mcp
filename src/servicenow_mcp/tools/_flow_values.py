@@ -12,14 +12,25 @@ state. Callers decide when (and whether) to decode.
 from __future__ import annotations
 
 import base64
-import gzip
 import json
+import zlib
 from typing import Any
 
 
 # Base64 prefix produced by the gzip magic bytes (``1f 8b 08 ...``). Cheap
 # heuristic to distinguish plain string values from compressed payloads.
 _GZIP_BASE64_MAGIC: str = "H4sIA"
+
+# Decompression-bomb guards. Legitimate Flow Designer ``values`` blobs are
+# typically a few KB; these caps are deliberately generous but bounded so a
+# malicious row (or attacker-supplied ``decode_values`` argument) cannot OOM
+# the server. The base64-decoded wire payload is rejected before allocating
+# the decompressor; the decompressed output is bounded via ``decompressobj``.
+MAX_COMPRESSED_BYTES: int = 1 * 1024 * 1024
+MAX_DECOMPRESSED_BYTES: int = 4 * 1024 * 1024
+
+# ``zlib.MAX_WBITS | 16`` selects gzip framing (RFC 1952) inside zlib.
+_GZIP_WBITS: int = zlib.MAX_WBITS | 16
 
 
 def looks_compressed(value: str) -> bool:
@@ -65,10 +76,27 @@ def decode_values(compressed: str) -> list[Any] | dict[str, Any]:
         # binascii.Error is a subclass of ValueError; ValueError alone covers it.
         raise ValueError(f"not valid base64: {exc}") from exc
 
+    if len(raw) > MAX_COMPRESSED_BYTES:
+        raise ValueError(
+            f"compressed payload exceeds maximum allowed size ({len(raw)} > {MAX_COMPRESSED_BYTES} bytes)",
+        )
+
+    decompressor = zlib.decompressobj(wbits=_GZIP_WBITS)
     try:
-        decompressed = gzip.decompress(raw)
-    except (OSError, EOFError) as exc:
+        decompressed = decompressor.decompress(raw, MAX_DECOMPRESSED_BYTES + 1)
+    except zlib.error as exc:
         raise ValueError(f"not valid gzip data: {exc}") from exc
+
+    if len(decompressed) > MAX_DECOMPRESSED_BYTES or decompressor.unconsumed_tail:
+        raise ValueError(
+            f"decompressed payload exceeds maximum allowed size (> {MAX_DECOMPRESSED_BYTES} bytes)",
+        )
+    # Reject truncated streams (gzip footer never reached) and trailing
+    # bytes after a valid gzip member. Either condition can yield
+    # JSON-parseable but spoofed or partial output that callers should
+    # never see.
+    if not decompressor.eof or decompressor.unused_data:
+        raise ValueError("invalid or truncated gzip stream")
 
     try:
         decoded = json.loads(decompressed.decode("utf-8"))

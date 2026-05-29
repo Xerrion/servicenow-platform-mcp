@@ -43,6 +43,17 @@ TOOL_NAMES: list[str] = ["record_write", "record_apply"]
 
 _VALID_ACTIONS: Final[frozenset[str]] = frozenset({"create", "update", "delete"})
 
+# Hard cap on the raw byte length of the ``data`` argument accepted by
+# ``record_write``. Mirrors ``MAX_SCRIPT_FILE_BYTES`` (1 MiB) so JSON
+# payloads and script files share the same ceiling. Bounding here keeps
+# ``PreviewTokenStore`` from being pinned by oversized payloads
+# (1000-token cap * payload size = total memory exposure).
+#
+# ``parse_payload_json`` applies a tighter 256 KiB cap downstream; this
+# constant is the defence-in-depth ceiling at the tool entry point and
+# also fires before any JSON parsing work.
+MAX_PAYLOAD_BYTES: Final[int] = 1 * 1024 * 1024
+
 
 # ---------------------------------------------------------------------------
 # Error helpers
@@ -107,6 +118,14 @@ def _validate_action_args(
 
     if script_field and not script_path:
         return _err(correlation_id, "script_field requires script_path to be set.")
+
+    # Cap the raw byte length of ``data`` (which doubles as ``changes`` on
+    # update) before any parsing work or token allocation. Mirrors the
+    # ``script_path`` 1 MiB ceiling. ``parse_payload_json`` enforces a
+    # tighter cap downstream; this fires first and at the entry point so
+    # the ``PreviewTokenStore`` is never asked to retain >1 MiB per entry.
+    if data and len(data.encode("utf-8")) > MAX_PAYLOAD_BYTES:
+        return _err(correlation_id, "payload exceeds maximum allowed size of 1 MiB")
 
     # Per-action argument checks delegated to focused validators.
     if action == "create":
@@ -185,10 +204,11 @@ async def _inject_script_path(
         return _err(correlation_id, f"script_path is not valid UTF-8: {exc}")
     except ValueError as exc:
         return _err(correlation_id, f"Invalid script_path: {exc}")
-    except FileNotFoundError as exc:
-        return _err(correlation_id, str(exc))
-    except PermissionError as exc:
-        return _err(correlation_id, f"script_path security violation: {exc}")
+    except (FileNotFoundError, PermissionError):
+        # Collapsed on purpose: both arms return the SAME opaque message so a
+        # caller cannot enumerate the host filesystem by observing which error
+        # comes back (see SECURITY in _artifact._read_script_file).
+        return _err(correlation_id, "script_path is not readable or is outside the allowed root")
 
     if target.internal_type == "xml":
         xml_error = validate_ui_macro_xml(content)

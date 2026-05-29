@@ -48,30 +48,45 @@ def _read_script_file(script_path: str, allowed_root: str) -> str:
     Raises:
         ValueError: If the path is not absolute, allowed_root is empty or inaccessible,
             or the file exceeds MAX_SCRIPT_FILE_BYTES.
-        PermissionError: If the resolved path is outside the allowed root.
-        FileNotFoundError: If the file does not exist or is not a regular file.
+        PermissionError: If the resolved path is outside the allowed root, does not
+            exist, or is not a readable regular file. The error message is intentionally
+            opaque and identical across cases to prevent host-filesystem enumeration
+            via differential error responses (see SECURITY).
+        FileNotFoundError: Same opaque message as ``PermissionError``; both are raised
+            for the not-readable / outside-root condition so callers can collapse them.
         UnicodeDecodeError: If the file is not valid UTF-8.
     """
+    # Opaque, identical message for both "not readable" and "outside allowed root".
+    # Do NOT echo script_path or resolved path back to the caller.
+    _OPAQUE_NOT_READABLE = "script_path is not readable or is outside the allowed root"
+
     if not Path(script_path).is_absolute():
         raise ValueError(f"script_path must be an absolute path, got: {script_path!r}")
 
     if not allowed_root:
         raise ValueError("script_allowed_root must be configured when using script_path")
 
-    try:
-        resolved = Path(script_path).resolve(strict=True)
-    except (OSError, ValueError) as exc:
-        raise FileNotFoundError(f"Script file not found or not accessible: {script_path!r}") from exc
-
+    # Resolve and validate the allowed root FIRST. Configuration errors are
+    # surfaced verbatim because they are operator-facing, not attacker-controlled.
     try:
         root = Path(allowed_root).resolve(strict=True)
     except (OSError, ValueError) as exc:
         raise ValueError(f"Configured script_allowed_root is not accessible: {allowed_root!r}") from exc
+    if not root.is_dir():
+        raise ValueError(f"Configured script_allowed_root is not a directory: {allowed_root!r}")
+
+    # From here on, every failure mode that depends on the attacker-controlled
+    # script_path collapses to a single opaque error.
+    try:
+        resolved = Path(script_path).resolve(strict=True)
+    except (OSError, ValueError) as exc:
+        raise FileNotFoundError(_OPAQUE_NOT_READABLE) from exc
+
     if not resolved.is_relative_to(root):
-        raise PermissionError(f"Script path {str(resolved)!r} is outside the allowed root {str(root)!r}")
+        raise PermissionError(_OPAQUE_NOT_READABLE)
 
     if not resolved.is_file():
-        raise FileNotFoundError(f"Script path is not a regular file: {script_path!r}")
+        raise FileNotFoundError(_OPAQUE_NOT_READABLE)
 
     file_size = resolved.stat().st_size
     if file_size > MAX_SCRIPT_FILE_BYTES:

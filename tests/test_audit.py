@@ -372,6 +372,16 @@ def test_attribute_has_no_audit_recognises_flag() -> None:
     assert not attribute_has_no_audit("")
 
 
+def test_attribute_has_no_audit_tolerates_trailing_whitespace() -> None:
+    """The right boundary allows trailing whitespace before EOL."""
+    # Trailing space before EOL must match (right-boundary fix).
+    assert attribute_has_no_audit("foo, no_audit = true ")
+    assert attribute_has_no_audit("no_audit=true   ")
+    assert attribute_has_no_audit("no_audit=true\t")
+    # Left-boundary anti-collision protection is preserved.
+    assert not attribute_has_no_audit("my_no_audit=true ")
+
+
 @pytest.mark.asyncio()
 @respx.mock
 async def test_no_audit_attribute_vetoes_audit_true(settings: Settings, auth_provider: BasicAuthProvider) -> None:

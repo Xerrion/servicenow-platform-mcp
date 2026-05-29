@@ -15,7 +15,7 @@ import httpx
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.errors import ForbiddenError, NotFoundError, ServerError
 from servicenow_mcp.policy import MASK_VALUE, is_sensitive_field
-from servicenow_mcp.utils import format_response
+from servicenow_mcp.utils import ServiceNowQuery, format_response, validate_sys_id
 
 
 logger = logging.getLogger(__name__)
@@ -67,6 +67,52 @@ async def _check_mandatory_or_error(
             error=f"Missing mandatory fields for table '{table}': {', '.join(missing)}",
         )
     return None
+
+
+async def _resolve_record_sys_id(
+    client: ServiceNowClient,
+    table: str,
+    sys_id: str,
+    name: str,
+    correlation_id: str,
+) -> tuple[str | None, str | None]:
+    """Resolve the target sys_id for ``record_read``.
+
+    Returns ``(resolved_sys_id, None)`` on success and ``(None, error_envelope)``
+    on failure. The caller (``record_read``) owns the ``ServiceNowClient``
+    context manager and passes the open client in; this helper never opens or
+    closes a client.
+
+    When ``sys_id`` is supplied directly we validate its shape and pass
+    through; when ``name`` is supplied we issue a ``limit=2`` lookup so we can
+    detect ambiguity at exactly two matches without paging. Error message text
+    is byte-identical to the prior inlined version because tests assert on it.
+    """
+    if sys_id:
+        validate_sys_id(sys_id)
+        return sys_id, None
+
+    lookup = await client.query_records(
+        table,
+        ServiceNowQuery().equals("name", name).build(),
+        limit=2,
+    )
+    records = lookup.get("records", [])
+    if not records:
+        return None, format_response(
+            data=None,
+            correlation_id=correlation_id,
+            status="error",
+            error=f"No record found with name={name!r} on table {table!r}.",
+        )
+    if len(records) > 1:
+        return None, format_response(
+            data=None,
+            correlation_id=correlation_id,
+            status="error",
+            error=f"Ambiguous name={name!r} on table {table!r}: multiple records match.",
+        )
+    return records[0]["sys_id"], None
 
 
 def _build_update_diff(

@@ -5,7 +5,16 @@ shapes. The projection helpers live here so the tool module stays focused on
 registration and dispatch.
 """
 
+import collections
+import logging
 from typing import Any
+
+from servicenow_mcp.client import ServiceNowClient
+from servicenow_mcp.policy import INTERNAL_QUERY_LIMIT
+from servicenow_mcp.utils import ServiceNowQuery
+
+
+logger = logging.getLogger(__name__)
 
 
 # Keys stripped from each sys_dictionary row when verbose=True. These are either
@@ -124,3 +133,56 @@ def _parse_fields_filter(fields: str) -> list[str]:
     if not fields:
         return []
     return [f.strip() for f in fields.split(",") if f.strip()]
+
+
+async def _fetch_choice_counts(
+    client: ServiceNowClient,
+    table: str,
+    warnings: list[str],
+) -> dict[str, int]:
+    """Fetch sys_choice records for ``table`` and return per-field counts.
+
+    Non-fatal: any exception (typically an ACL block on sys_choice in
+    restricted instances) results in an empty dict and a warning appended to
+    ``warnings`` in place. The truncation warning is appended when the row
+    count meets the internal query limit.
+    """
+    try:
+        choices_resp = await client.query_records(
+            "sys_choice",
+            ServiceNowQuery().equals("name", table).build(),
+            fields=["element"],
+            limit=INTERNAL_QUERY_LIMIT,
+        )
+        choice_records = choices_resp.get("records", [])
+        counts = dict(collections.Counter(c.get("element", "") for c in choice_records if c.get("element")))
+        if len(choice_records) >= INTERNAL_QUERY_LIMIT:
+            warnings.append(f"sys_choice records may be truncated at {INTERNAL_QUERY_LIMIT} entries")
+    except Exception:
+        logger.warning("sys_choice fetch failed for table %s; choice_count will be 0", table)
+        warnings.append("Could not fetch sys_choice; choice_count is 0 for all fields")
+        return {}
+    return counts
+
+
+async def _fetch_documentation(
+    client: ServiceNowClient,
+    table: str,
+    warnings: list[str],
+) -> dict[str, dict[str, Any]]:
+    """Fetch sys_documentation rows for ``table`` keyed by element name.
+
+    Always issues the query (the caller decides whether to invoke this helper
+    via the ``include_docs`` flag). Appends a truncation warning to
+    ``warnings`` in place when the row count meets the 500-row cap.
+    """
+    docs_result = await client.query_records(
+        "sys_documentation",
+        ServiceNowQuery().equals("name", table).build(),
+        fields=["element", "label", "help", "hint", "url"],
+        limit=500,
+    )
+    records = docs_result.get("records", [])
+    if len(records) >= 500:
+        warnings.append("Documentation records may be truncated at 500 entries")
+    return {d["element"]: d for d in records if d.get("element")}

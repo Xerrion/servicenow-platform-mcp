@@ -16,12 +16,8 @@ from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.policy import check_table_access, mask_record
 from servicenow_mcp.tools._dictionary import DictionaryRegistry, ScriptField
-from servicenow_mcp.utils import (
-    ServiceNowQuery,
-    format_response,
-    validate_identifier,
-    validate_sys_id,
-)
+from servicenow_mcp.tools._record_helpers import _resolve_record_sys_id
+from servicenow_mcp.utils import format_response, validate_identifier
 
 
 TOOL_NAMES: list[str] = ["record_read"]
@@ -99,28 +95,11 @@ def register_tools(
 
         # --- 4. Resolve target sys_id and fetch record ---------------------
         async with ServiceNowClient(settings, auth_provider) as client:
-            if sys_id:
-                validate_sys_id(sys_id)
-                resolved_sys_id = sys_id
-            else:
-                lookup = await client.query_records(
-                    table,
-                    ServiceNowQuery().equals("name", name).build(),
-                    limit=2,
-                )
-                records = lookup.get("records", [])
-                if not records:
-                    return _err(
-                        correlation_id,
-                        f"No record found with name={name!r} on table {table!r}.",
-                    )
-                if len(records) > 1:
-                    return _err(
-                        correlation_id,
-                        f"Ambiguous name={name!r} on table {table!r}: multiple records match.",
-                    )
-                resolved_sys_id = records[0]["sys_id"]
-
+            resolved_sys_id, err = await _resolve_record_sys_id(client, table, sys_id, name, correlation_id)
+            if err:
+                return err
+            # _resolve_record_sys_id returns (sys_id, None) on success.
+            assert resolved_sys_id is not None
             record = await client.get_record(table, resolved_sys_id)
 
         # --- 5. Discover script-bearing fields (dictionary-driven) ---------

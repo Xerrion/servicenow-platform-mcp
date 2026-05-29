@@ -59,6 +59,33 @@ def _err(correlation_id: str, message: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _validate_create_args(sys_id: str, data: str, correlation_id: str) -> str | None:
+    """Validate per-action constraints for ``action='create'``."""
+    if not data:
+        return _err(correlation_id, "data is required for action='create'.")
+    if sys_id:
+        return _err(correlation_id, "sys_id must be empty for action='create'.")
+    return None
+
+
+def _validate_update_args(sys_id: str, data: str, correlation_id: str) -> str | None:
+    """Validate per-action constraints for ``action='update'``."""
+    if not sys_id:
+        return _err(correlation_id, "sys_id is required for action='update'.")
+    if not data:
+        return _err(correlation_id, "data is required for action='update'.")
+    return None
+
+
+def _validate_delete_args(sys_id: str, data: str, correlation_id: str) -> str | None:
+    """Validate per-action constraints for ``action='delete'``."""
+    if not sys_id:
+        return _err(correlation_id, "sys_id is required for action='delete'.")
+    if data:
+        return _err(correlation_id, "data must be empty for action='delete'.")
+    return None
+
+
 def _validate_action_args(
     action: str,
     table: str,
@@ -81,23 +108,13 @@ def _validate_action_args(
     if script_field and not script_path:
         return _err(correlation_id, "script_field requires script_path to be set.")
 
-    # Per-action argument checks.
+    # Per-action argument checks delegated to focused validators.
     if action == "create":
-        if not data:
-            return _err(correlation_id, "data is required for action='create'.")
-        if sys_id:
-            return _err(correlation_id, "sys_id must be empty for action='create'.")
-    elif action == "update":
-        if not sys_id:
-            return _err(correlation_id, "sys_id is required for action='update'.")
-        if not data:
-            return _err(correlation_id, "data is required for action='update'.")
-    else:  # delete
-        if not sys_id:
-            return _err(correlation_id, "sys_id is required for action='delete'.")
-        if data:
-            return _err(correlation_id, "data must be empty for action='delete'.")
-    return None
+        return _validate_create_args(sys_id, data, correlation_id)
+    if action == "update":
+        return _validate_update_args(sys_id, data, correlation_id)
+    # delete (membership in _VALID_ACTIONS narrows the action enum).
+    return _validate_delete_args(sys_id, data, correlation_id)
 
 
 # ---------------------------------------------------------------------------
@@ -317,6 +334,81 @@ async def _run_delete(
 
 
 # ---------------------------------------------------------------------------
+# Payload preparation + dispatch (used by record_write)
+# ---------------------------------------------------------------------------
+
+
+async def _prepare_payload(
+    action: str,
+    data: str,
+    table: str,
+    script_path: str,
+    script_field: str,
+    allowed_root: str,
+    dictionary: DictionaryRegistry,
+    correlation_id: str,
+) -> tuple[dict[str, Any], list[str]] | str:
+    """Parse JSON payload and optionally inject ``script_path`` content.
+
+    Returns ``(parsed_data, warnings)`` on success or a serialized error
+    envelope on failure (parse error or script-injection error). For
+    ``action='delete'`` returns ``({}, [])`` - delete has no payload to
+    prepare. Mirrors the prior inlined logic exactly so existing error
+    envelopes (from ``parse_payload_json`` and ``_inject_script_path``)
+    propagate unchanged.
+    """
+    if action == "delete":
+        return {}, []
+
+    parsed = parse_payload_json(data, field_name="data", correlation_id=correlation_id)
+    if isinstance(parsed, str):
+        return parsed
+    parsed_data = parsed
+    warnings: list[str] = []
+
+    if script_path:
+        injected = await _inject_script_path(
+            parsed_data,
+            table,
+            script_path,
+            script_field,
+            allowed_root,
+            dictionary,
+            correlation_id,
+        )
+        if isinstance(injected, str):
+            return injected
+        parsed_data, warnings = injected
+
+    return parsed_data, warnings
+
+
+async def _dispatch_record_write(
+    client: ServiceNowClient,
+    action: str,
+    table: str,
+    sys_id: str,
+    parsed_data: dict[str, Any],
+    preview: bool,
+    preview_store: PreviewTokenStore,
+    correlation_id: str,
+    warnings: list[str],
+    extra_data: dict[str, Any],
+) -> str:
+    """Route a validated ``record_write`` request to its ``_run_*`` helper."""
+    if action == "create":
+        return await _run_create(
+            client, table, parsed_data, preview, preview_store, correlation_id, warnings, extra_data
+        )
+    if action == "update":
+        return await _run_update(
+            client, table, sys_id, parsed_data, preview, preview_store, correlation_id, warnings, extra_data
+        )
+    # delete - membership in _VALID_ACTIONS narrows the action enum.
+    return await _run_delete(client, table, sys_id, preview, preview_store, correlation_id, extra_data)
+
+
+# ---------------------------------------------------------------------------
 # Apply dispatch
 # ---------------------------------------------------------------------------
 
@@ -453,42 +545,36 @@ def register_tools(
         if sys_id:
             validate_sys_id(sys_id)
 
-        # --- 4. Parse JSON payload (create/update only) ------------------
-        parsed_data: dict[str, Any] = {}
-        warnings: list[str] = []
-        if action != "delete":
-            parsed = parse_payload_json(data, field_name="data", correlation_id=correlation_id)
-            if isinstance(parsed, str):
-                return parsed
-            parsed_data = parsed
+        # --- 4. Payload prep (parse JSON + optional script-path inject) --
+        prepared = await _prepare_payload(
+            action,
+            data,
+            table,
+            script_path,
+            script_field,
+            settings.script_allowed_root,
+            dict_registry,
+            correlation_id,
+        )
+        if isinstance(prepared, str):
+            return prepared
+        parsed_data, warnings = prepared
 
-            # --- 5. Script-path injection (dictionary-driven) ------------
-            if script_path:
-                injected = await _inject_script_path(
-                    parsed_data,
-                    table,
-                    script_path,
-                    script_field,
-                    settings.script_allowed_root,
-                    dict_registry,
-                    correlation_id,
-                )
-                if isinstance(injected, str):
-                    return injected
-                parsed_data, warnings = injected
-
-        # --- 6. Dispatch -------------------------------------------------
+        # --- 5. Dispatch -------------------------------------------------
         extra_data: dict[str, Any] = {}
         async with ServiceNowClient(settings, auth_provider) as client:
-            if action == "create":
-                return await _run_create(
-                    client, table, parsed_data, preview, preview_store, correlation_id, warnings, extra_data
-                )
-            if action == "update":
-                return await _run_update(
-                    client, table, sys_id, parsed_data, preview, preview_store, correlation_id, warnings, extra_data
-                )
-            return await _run_delete(client, table, sys_id, preview, preview_store, correlation_id, extra_data)
+            return await _dispatch_record_write(
+                client,
+                action,
+                table,
+                sys_id,
+                parsed_data,
+                preview,
+                preview_store,
+                correlation_id,
+                warnings,
+                extra_data,
+            )
 
     @mcp.tool()
     @tool_handler

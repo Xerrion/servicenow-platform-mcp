@@ -141,6 +141,53 @@ def _validate_write_args(
 
 
 # ---------------------------------------------------------------------------
+# Read-side identifier validation + dispatch
+# ---------------------------------------------------------------------------
+
+
+def _validate_read_identifier_shapes(
+    action: str,
+    sys_id: str,
+    table_sys_id: str,
+    table: str,
+) -> None:
+    """Validate identifier shapes and table access for the read-side actions.
+
+    Raises ``ValueError`` from ``validate_sys_id`` / ``validate_identifier`` and
+    ``PolicyError`` from ``check_table_access`` so ``safe_tool_call`` serializes
+    the failure into an error envelope. ``_validate_read_args`` has already
+    confirmed which identifiers are required for the requested action.
+    """
+    if sys_id:
+        validate_sys_id(sys_id)
+    if table_sys_id:
+        validate_sys_id(table_sys_id)
+    if action in {"list", "download_by_name"}:
+        validate_identifier(table)
+        check_table_access(table)
+
+
+async def _dispatch_read_action(
+    client: ServiceNowClient,
+    action: str,
+    sys_id: str,
+    table: str,
+    table_sys_id: str,
+    file_name: str,
+    correlation_id: str,
+) -> str:
+    """Dispatch a validated read-side action to its ``_run_*`` helper."""
+    if action == "list":
+        return await _run_list(client, table, table_sys_id, correlation_id)
+    if action == "get":
+        return await _run_get(client, sys_id, correlation_id)
+    if action == "download":
+        return await _run_download(client, sys_id, correlation_id)
+    # download_by_name - implicit final branch matches _validate_read_args.
+    return await _run_download_by_name(client, table, table_sys_id, file_name, correlation_id)
+
+
+# ---------------------------------------------------------------------------
 # Read-side execution helpers
 # ---------------------------------------------------------------------------
 
@@ -345,26 +392,12 @@ def register_tools(
         if err:
             return err
 
-        # --- 2. Identifier-shape validation ------------------------------
-        if sys_id:
-            validate_sys_id(sys_id)
-        if table_sys_id:
-            validate_sys_id(table_sys_id)
+        # --- 2. Identifier-shape + table-access validation ---------------
+        _validate_read_identifier_shapes(action, sys_id, table_sys_id, table)
 
-        # --- 3. Table access policy (table-bearing actions only) ---------
-        if action in {"list", "download_by_name"}:
-            validate_identifier(table)
-            check_table_access(table)
-
-        # --- 4. Dispatch -------------------------------------------------
+        # --- 3. Dispatch -------------------------------------------------
         async with ServiceNowClient(settings, auth_provider) as client:
-            if action == "list":
-                return await _run_list(client, table, table_sys_id, correlation_id)
-            if action == "get":
-                return await _run_get(client, sys_id, correlation_id)
-            if action == "download":
-                return await _run_download(client, sys_id, correlation_id)
-            return await _run_download_by_name(client, table, table_sys_id, file_name, correlation_id)
+            return await _dispatch_read_action(client, action, sys_id, table, table_sys_id, file_name, correlation_id)
 
     @mcp.tool()
     @tool_handler

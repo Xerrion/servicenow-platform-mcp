@@ -10,7 +10,6 @@ Helpers for projecting sys_dictionary rows into the slim/verbose shapes live in
 a single source of truth.
 """
 
-import collections
 import logging
 from typing import Any
 
@@ -21,13 +20,12 @@ from servicenow_mcp.choices import ChoiceRegistry
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
-from servicenow_mcp.policy import (
-    INTERNAL_QUERY_LIMIT,
-    check_table_access,
-)
+from servicenow_mcp.policy import check_table_access
 from servicenow_mcp.tools._describe_helpers import (
     _build_slim_field_list,
     _build_verbose_field_list,
+    _fetch_choice_counts,
+    _fetch_documentation,
     _parse_fields_filter,
 )
 from servicenow_mcp.tools._dictionary import DictionaryRegistry, ScriptField
@@ -39,6 +37,26 @@ logger = logging.getLogger(__name__)
 TOOL_NAMES: list[str] = ["describe"]
 
 _VALID_DESCRIBE_ACTIONS: frozenset[str] = frozenset({"list_script_fields"})
+
+
+def _apply_fields_filter(
+    field_list: list[dict[str, Any]],
+    requested_fields: list[str],
+    warnings: list[str],
+) -> list[dict[str, Any]]:
+    """Restrict ``field_list`` to ``requested_fields`` and warn on unknown names.
+
+    Preserves left-to-right order of ``requested_fields`` when collecting the
+    ``unknown`` list so the warning text is stable across runs. The returned
+    list keeps the original ``field_list`` ordering for matched fields.
+    """
+    wanted = set(requested_fields)
+    present = {str(f.get("name") or f.get("element") or "") for f in field_list}
+    unknown = [name for name in requested_fields if name not in present]
+    filtered = [f for f in field_list if str(f.get("name") or f.get("element") or "") in wanted]
+    if unknown:
+        warnings.append(f"Unknown field(s): {','.join(unknown)}")
+    return filtered
 
 
 def _script_field_summary(fields: list[ScriptField]) -> list[dict[str, object]]:
@@ -176,40 +194,14 @@ def register_tools(
             )
             table_info = table_meta.get("records", [{}])[0] if table_meta.get("records") else {}
 
-            # Batched sys_choice fetch keyed by field (element). One HTTP call per
-            # describe; failure (e.g. ACL on sys_choice) is non-fatal so a slim
-            # describe still works in restricted instances.
-            choice_counts: dict[str, int] = {}
-            try:
-                choices_resp = await client.query_records(
-                    "sys_choice",
-                    ServiceNowQuery().equals("name", table).build(),
-                    fields=["element"],
-                    limit=INTERNAL_QUERY_LIMIT,
-                )
-                choice_records = choices_resp.get("records", [])
-                choice_counts = dict(
-                    collections.Counter(c.get("element", "") for c in choice_records if c.get("element"))
-                )
-                if len(choice_records) >= INTERNAL_QUERY_LIMIT:
-                    warnings.append(f"sys_choice records may be truncated at {INTERNAL_QUERY_LIMIT} entries")
-            except Exception:
-                logger.warning("sys_choice fetch failed for table %s; choice_count will be 0", table)
-                warnings.append("Could not fetch sys_choice; choice_count is 0 for all fields")
-                choice_counts = {}
+            # Batched sys_choice fetch keyed by field; non-fatal failures so a
+            # slim describe still works in restricted instances.
+            choice_counts = await _fetch_choice_counts(client, table, warnings)
 
             # Optional sys_documentation fetch (off by default; help text is huge).
             docs: dict[str, dict[str, Any]] = {}
             if include_docs:
-                docs_result = await client.query_records(
-                    "sys_documentation",
-                    ServiceNowQuery().equals("name", table).build(),
-                    fields=["element", "label", "help", "hint", "url"],
-                    limit=500,
-                )
-                docs = {d["element"]: d for d in docs_result.get("records", []) if d.get("element")}
-                if len(docs_result.get("records", [])) >= 500:
-                    warnings.append("Documentation records may be truncated at 500 entries")
+                docs = await _fetch_documentation(client, table, warnings)
 
         field_list = (
             _build_verbose_field_list(metadata, choice_counts)
@@ -218,12 +210,7 @@ def register_tools(
         )
 
         if requested_fields:
-            wanted = set(requested_fields)
-            present = {str(f.get("name") or f.get("element") or "") for f in field_list}
-            unknown = [name for name in requested_fields if name not in present]
-            field_list = [f for f in field_list if str(f.get("name") or f.get("element") or "") in wanted]
-            if unknown:
-                warnings.append(f"Unknown field(s): {','.join(unknown)}")
+            field_list = _apply_fields_filter(field_list, requested_fields, warnings)
 
         data: dict[str, Any] = {
             "table": table_info,

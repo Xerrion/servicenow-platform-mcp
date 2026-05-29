@@ -285,6 +285,86 @@ async def _run_query_mode(
 
 
 # ---------------------------------------------------------------------------
+# Mode-conflict + per-mode validation helpers for the ``query`` closure
+# ---------------------------------------------------------------------------
+
+
+def _err(correlation_id: str, message: str) -> str:
+    """Return a serialized error envelope with the given message."""
+    return format_response(data=None, correlation_id=correlation_id, status="error", error=message)
+
+
+def _check_mode_conflicts(sys_id: str, aggregate: str, group_by: str, correlation_id: str) -> str | None:
+    """Validate that the requested mode combination is legal.
+
+    Three modes are mutually exclusive: sys_id-fetch, aggregate, and default
+    query. ``group_by`` is only meaningful in aggregate mode. Returns an error
+    envelope on conflict, otherwise ``None``. Runs BEFORE table validation so
+    a bad combination surfaces as a mode error, not a table error.
+    """
+    if sys_id and aggregate:
+        return _err(correlation_id, "Cannot combine sys_id with aggregate; sys_id mode fetches a single record.")
+    if sys_id and group_by:
+        return _err(correlation_id, "Cannot combine sys_id with group_by; sys_id mode fetches a single record.")
+    if group_by and not aggregate:
+        return _err(correlation_id, "group_by requires aggregate to be set (aggregate mode only).")
+    return None
+
+
+async def _apply_resolve_labels_block(
+    table: str,
+    encoded_query: str,
+    resolve_labels: str,
+    choices: ChoiceRegistry | None,
+    correlation_id: str,
+) -> tuple[str, list[str]] | str:
+    """Parse ``resolve_labels`` and fold the resolved pairs into ``encoded_query``.
+
+    Returns ``(augmented_query, warnings)`` on success or an error envelope
+    string on parse failure. When ``choices`` is ``None`` (e.g. in tests),
+    each label is treated as a literal value with a single passthrough
+    warning, preserving the historic degraded-mode behaviour.
+    """
+    pairs_or_error = _parse_label_pairs(resolve_labels)
+    if isinstance(pairs_or_error, str):
+        return _err(correlation_id, pairs_or_error)
+
+    if choices is None:
+        warnings = [
+            "resolve_labels supplied but ChoiceRegistry is unavailable; treating each label as a literal value."
+        ]
+        augmented = encoded_query
+        for pair in pairs_or_error:
+            augmented = _join_query(augmented, f"{pair.field}={pair.label}")
+        return augmented, warnings
+
+    augmented, label_warnings = await _apply_resolve_labels(
+        table=table,
+        encoded_query=encoded_query,
+        pairs=pairs_or_error,
+        choices=choices,
+    )
+    return augmented, label_warnings
+
+
+def _validate_aggregate_block(aggregate: str, correlation_id: str) -> _AggregatePlan | str:
+    """Parse and validate the ``aggregate`` spec.
+
+    Returns the parsed ``_AggregatePlan`` on success or an error envelope
+    string on either parse failure or an empty operation set.
+    """
+    plan_or_error = _parse_aggregate(aggregate)
+    if isinstance(plan_or_error, str):
+        return _err(correlation_id, plan_or_error)
+    if plan_or_error.is_empty:
+        return _err(
+            correlation_id,
+            "aggregate must contain at least one operation (count, avg:<f>, sum:<f>, min:<f>, max:<f>).",
+        )
+    return plan_or_error
+
+
+# ---------------------------------------------------------------------------
 # Tool registration
 # ---------------------------------------------------------------------------
 
@@ -302,6 +382,7 @@ def register_tools(
     the shared ``ChoiceRegistry``. ``choices`` may be ``None`` in tests; when
     it is, ``resolve_labels`` degrades to passthrough with a warning.
     """
+    del dictionary  # unused; signature retained for loader parity
 
     @mcp.tool()
     @tool_handler
@@ -340,28 +421,10 @@ def register_tools(
                 Each label is resolved via ChoiceRegistry to its underlying value, then ANDed
                 into encoded_query as 'field=value'.
         """
-        # --- Mode conflict guards (early-exit) ----------------------------
-        if sys_id and aggregate:
-            return format_response(
-                data=None,
-                correlation_id=correlation_id,
-                status="error",
-                error="Cannot combine sys_id with aggregate; sys_id mode fetches a single record.",
-            )
-        if sys_id and group_by:
-            return format_response(
-                data=None,
-                correlation_id=correlation_id,
-                status="error",
-                error="Cannot combine sys_id with group_by; sys_id mode fetches a single record.",
-            )
-        if group_by and not aggregate:
-            return format_response(
-                data=None,
-                correlation_id=correlation_id,
-                status="error",
-                error="group_by requires aggregate to be set (aggregate mode only).",
-            )
+        # --- Mode conflict guards (early-exit, before table validation) ---
+        conflict = _check_mode_conflicts(sys_id, aggregate, group_by, correlation_id)
+        if conflict:
+            return conflict
 
         # --- Shared policy gates ------------------------------------------
         validate_identifier(table)
@@ -383,40 +446,21 @@ def register_tools(
         warnings: list[str] = []
         augmented_query = encoded_query
         if resolve_labels:
-            pairs_or_error = _parse_label_pairs(resolve_labels)
-            if isinstance(pairs_or_error, str):
-                return format_response(data=None, correlation_id=correlation_id, status="error", error=pairs_or_error)
-            if choices is None:
-                warnings.append(
-                    "resolve_labels supplied but ChoiceRegistry is unavailable; treating each label as a literal value."
-                )
-                for pair in pairs_or_error:
-                    augmented_query = _join_query(augmented_query, f"{pair.field}={pair.label}")
-            else:
-                augmented_query, label_warnings = await _apply_resolve_labels(
-                    table=table,
-                    encoded_query=augmented_query,
-                    pairs=pairs_or_error,
-                    choices=choices,
-                )
-                warnings.extend(label_warnings)
+            result = await _apply_resolve_labels_block(table, augmented_query, resolve_labels, choices, correlation_id)
+            if isinstance(result, str):
+                return result
+            augmented_query, label_warnings = result
+            warnings.extend(label_warnings)
 
         # --- aggregate mode -----------------------------------------------
         if aggregate:
-            plan_or_error = _parse_aggregate(aggregate)
-            if isinstance(plan_or_error, str):
-                return format_response(data=None, correlation_id=correlation_id, status="error", error=plan_or_error)
-            if plan_or_error.is_empty:
-                return format_response(
-                    data=None,
-                    correlation_id=correlation_id,
-                    status="error",
-                    error="aggregate must contain at least one operation (count, avg:<f>, sum:<f>, min:<f>, max:<f>).",
-                )
+            plan = _validate_aggregate_block(aggregate, correlation_id)
+            if isinstance(plan, str):
+                return plan
             return await _run_aggregate_mode(
                 table=table,
                 encoded_query=augmented_query,
-                plan=plan_or_error,
+                plan=plan,
                 group_by=group_by,
                 settings=settings,
                 auth_provider=auth_provider,

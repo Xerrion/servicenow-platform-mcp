@@ -16,6 +16,7 @@ from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.tools._dictionary import (
     DictionaryRegistry,
+    _attributes_admit_heuristic,
     looks_like_template,
 )
 
@@ -120,6 +121,41 @@ class TestHeuristicAdmission:
 
         assert [f.name for f in fields] == ["body"]
         assert fields[0].via_heuristic is True
+
+
+class TestAttributesAdmitHeuristic:
+    """The heuristic parses tokens at comma boundaries, not by substring."""
+
+    def test_empty_string_not_admitted(self) -> None:
+        assert _attributes_admit_heuristic("") is False
+
+    def test_legitimate_flag_admitted(self) -> None:
+        assert _attributes_admit_heuristic("tinymce_allow_all=true") is True
+
+    def test_legitimate_flag_with_other_tokens_admitted(self) -> None:
+        assert _attributes_admit_heuristic("foo=bar,tinymce_allow_all=true,baz=qux") is True
+
+    def test_html_sanitize_false_admitted(self) -> None:
+        assert _attributes_admit_heuristic("html_sanitize=false") is True
+
+    def test_substring_key_rejected(self) -> None:
+        """``my_tinymce_allow_all=true`` must not false-positive."""
+        assert _attributes_admit_heuristic("my_tinymce_allow_all=true,other=x") is False
+        assert _attributes_admit_heuristic("not_html_sanitize=false") is False
+
+    def test_wrong_value_rejected(self) -> None:
+        assert _attributes_admit_heuristic("tinymce_allow_all=false") is False
+        assert _attributes_admit_heuristic("html_sanitize=true") is False
+
+    def test_whitespace_tolerated(self) -> None:
+        assert _attributes_admit_heuristic("foo=bar, tinymce_allow_all = true ") is True
+
+    def test_case_insensitive(self) -> None:
+        assert _attributes_admit_heuristic("TINYMCE_ALLOW_ALL=TRUE") is True
+
+    def test_value_containing_equals_survives(self) -> None:
+        """Split on first ``=`` only; spurious ``=`` in values does not break parsing."""
+        assert _attributes_admit_heuristic("other=a=b,tinymce_allow_all=true") is True
 
 
 # ---------------------------------------------------------------------------

@@ -10,7 +10,7 @@
 
 # servicenow-platform-mcp
 
-A comprehensive [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for ServiceNow. Provides a comprehensive suite of tools across 20 tool groups for platform introspection, change intelligence, debugging, record management, ITSM workflows, CMDB operations, service catalog, automated investigations, documentation generation, and Flow Designer analysis.
+A comprehensive [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for ServiceNow. Provides 12 unified tools for platform introspection, change intelligence, debugging, record management, and automated investigations.
 
 ## Quick Start
 
@@ -108,7 +108,7 @@ uvx servicenow-platform-mcp
 | `SERVICENOW_INSTANCE_URL` | Full URL (must start with `https://`) | - | Yes |
 | `SERVICENOW_USERNAME` | ServiceNow username | - | Yes |
 | `SERVICENOW_PASSWORD` | ServiceNow password | - | Yes |
-| `MCP_TOOL_PACKAGE` | Tool package to load | `full` | No |
+| `MCP_TOOL_PACKAGE` | Tool package to load (`full`, `readonly`, `core_readonly`, `none`) | `full` | No |
 | `SERVICENOW_ENV` | Environment label (`dev`/`test`/`staging`/`prod`) | `dev` | No |
 | `MAX_ROW_LIMIT` | Max rows per query (1-10000) | `100` | No |
 | `LARGE_TABLE_NAMES_CSV` | Tables requiring date filters | `syslog,sys_audit,sys_log_transaction,sys_email_log` | No |
@@ -127,56 +127,58 @@ Install and configure servicenow-platform-mcp by following the instructions here
 https://raw.githubusercontent.com/Xerrion/servicenow-platform-mcp/refs/heads/main/INSTALL.md
 ```
 
-Or read the [Installation Guide](INSTALL.md) directly.
+Or read the [Installation Guide](INSTALL.md) directly. For usage examples and patterns, see [Agent Recipes](docs/agent-recipes.md).
 
 ## Key Features
 
-- **Platform introspection** - describe tables, query records, inspect metadata, compute aggregates
-- **Change intelligence** - update set inspection, artifact diffs, audit trails, release notes
-- **Debug and trace** - event timelines, flow execution, email tracing, import sets, field mutations
-- **Record management** - full CRUD with preview-then-apply safety pattern
-- **Artifact management** - create/update business rules, script includes, and 15+ artifact types with local script file support
-- **ITSM workflows** - incident, change, problem lifecycle management
-- **CMDB operations** - browse CIs, relationships, classes, and health checks
-- **Service catalog** - browse, order, cart management, checkout
-- **Knowledge management** - search, create, update articles and feedback
-- **Investigations** - automated analysis of stale automations, deprecated APIs, ACL conflicts, performance bottlenecks
-- **Documentation generation** - logic maps, artifact summaries, test scenarios, review notes
-- **Flow Designer** - inspect flows, actions, executions, snapshots, migration analysis
+- **Platform Introspection** - Describe table schemas with `describe` and query records with `query` using encoded queries.
+- **Record Management** - Unified `record_write` and `record_apply` tools for create, update, and delete with a mandatory preview-then-apply safety pattern.
+- **Script-Bearing Records** - Write Business Rules, Script Includes, UI Pages, Widgets, UI Macros, ACLs, and any other table whose dictionary fields carry executable script or markup, all via `record_write` with local script file support and per-field targeting (`script_field`). Script fields are discovered at runtime from `sys_dictionary` — no hardcoded artifact catalog. Read the same surface back via `record_read`, or enumerate a table's script fields with `describe(action='list_script_fields', table='<table>')`.
+- **Attachment Operations** - Unified `attachment` for read operations and `attachment_write` for mutations.
+- **Investigations** - Automated analysis of system health, stale automations, performance bottlenecks, and more via `investigate`.
+- **Label Resolution** - Map human-readable choice labels to underlying values automatically with `resolve_choice`.
+- **Service Catalog** - Dispatcher-based `service_catalog` tool for browsing and ordering.
+
+## Example Usage
+
+### Describe a Table
+```python
+await describe(table="incident")
+```
+
+### Query Records
+```python
+# Fetch high priority incidents using an encoded query
+await query(
+    table="incident",
+    encoded_query="active=true^priority=1",
+    fields="number,short_description,priority"
+)
+```
 
 ## Tool Packages
 
-Control which tools are loaded with `MCP_TOOL_PACKAGE`. There are 14 preset packages:
+Control which tools are loaded with `MCP_TOOL_PACKAGE`.
 
-| Package | Groups | Description |
-|---------|--------|-------------|
-| `full` | 20 | All standard tools (default) |
-| `core_readonly` | 4 | Read-only core tools |
-| `none` | 0 | No tools loaded |
-| `itil` | 16 | ITIL process tools |
-| `developer` | 13 | Development-focused tools |
-| `readonly` | 10 | Read-only operations |
-| `analyst` | 8 | Analysis and reporting |
-| `incident_management` | 9 | Incident lifecycle |
-| `change_management` | 8 | Change request tools |
-| `cmdb` | 6 | CMDB management |
-| `problem_management` | 9 | Problem lifecycle |
-| `request_management` | 8 | Request/RITM tools |
-| `knowledge_management` | 6 | Knowledge base tools |
-| `service_catalog` | 6 | Service catalog tools |
+| Package | Tools | Description |
+|---------|-------|-------------|
+| `full` | 13 | All unified tools, including `audit`, `flow`, and the `build_query` helper (default) |
+| `readonly` | 9 | Includes `record_read`, `audit`, `flow`, and `attachment_write` (write_gate blocks in prod) |
+| `core_readonly` | 5 | Minimal read surface (includes `attachment_write`) |
+| `none` | 1 | Just `list_tool_packages` |
 
-You can also create custom packages with comma-separated group names (e.g. `MCP_TOOL_PACKAGE="table,record,debug"`). See the [Wiki](https://github.com/Xerrion/servicenow-platform-mcp/wiki) for full package and tool group details.
+Custom packages are supported via comma-separated tool names: `MCP_TOOL_PACKAGE="query,describe,attachment"`.
 
 ## Safety
 
-- **Table deny list** - blocks access to sensitive system tables (`sys_user_has_password`, `oauth_credential`, `sys_credentials`, etc.)
-- **Sensitive field masking** - password, token, secret, and similar fields are automatically masked
-- **Write gating** - all write operations blocked when `SERVICENOW_ENV` is set to `prod` or `production`
-- **Row limits and large table protection** - prevents runaway queries with configurable caps and mandatory date filters
+- **Table Deny List** - Blocks access to sensitive system tables (`sys_user_has_password`, `sys_credentials`, etc.).
+- **Sensitive Field Masking** - Passwords, tokens, and secrets are automatically masked in responses.
+- **Write Gating** - All mutations are blocked when `SERVICENOW_ENV` is set to `prod` or `production`.
+- **Query Safety** - Enforces row limits and mandatory date filters on high-volume system tables.
 
 These guardrails reduce risk but are not a guarantee - always validate in a sub-production environment.
 
-See the [Safety & Policy](https://github.com/Xerrion/servicenow-platform-mcp/wiki) wiki page for complete details.
+See the [Safety & Policy](https://github.com/Xerrion/servicenow-platform-mcp/wiki/Safety-and-Policy) wiki page for complete details.
 
 ## Development
 

@@ -1,7 +1,7 @@
 """Investigation: detect conflicting or overlapping ACL rules."""
 
 from collections import defaultdict
-from typing import Any
+from typing import Any, Final
 
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.investigation_helpers import build_investigation_result
@@ -11,6 +11,11 @@ from servicenow_mcp.policy import (
     mask_sensitive_fields,
 )
 from servicenow_mcp.utils import ServiceNowQuery, validate_identifier
+
+
+PARAMS: Final[dict[str, dict[str, Any]]] = {
+    "table": {"type": "str", "required": True, "default": None, "description": "Table name to check."},
+}
 
 
 async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any]:

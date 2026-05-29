@@ -155,18 +155,16 @@ The `servicenow_mcp.server` module has `call-arg` error code disabled due to Fas
 
 ### Parsing Tool Output in Tests
 
-All tool output uses TOON format. Always parse with `toon_decode()`:
+All tool output is JSON. Parse with `json.loads()`:
 
 ```python
-from toon_format import decode as toon_decode
+import json
 
 raw = await tools["my_tool"](param="value")
-result = toon_decode(raw)
+result = json.loads(raw)
 assert result["status"] == "success"
 assert result["data"]["field"] == "expected"
 ```
-
-**Never** use `json.loads()` to parse tool output - it will fail on TOON-formatted strings.
 
 ### Standard Test Helper Pattern
 
@@ -292,10 +290,7 @@ Release-please uses conventional commits to determine version bumps:
 | `python-dotenv` (>=1.0.0) | `.env` file loading |
 | `uvicorn` (>=0.30.0) | ASGI server (SSE transport) |
 | `starlette` (>=0.38.0) | ASGI framework (SSE transport) |
-| `toon-format` | LLM-optimized serialization (git dependency) |
 | `sentry-sdk` (>=2.55.0) | Error tracking |
-
-**Note:** `toon-format` is an external git dependency sourced from `https://github.com/toon-format/toon-python.git`. It is not available on PyPI.
 
 ### Dev Dependencies
 

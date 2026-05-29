@@ -5,16 +5,11 @@ import logging
 import re
 import uuid
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING, Any, override
-
-from toon_format import encode as toon_encode
+from typing import Any, override
 
 from servicenow_mcp.errors import ACLError, ForbiddenError
 from servicenow_mcp.sentry import capture_exception as sentry_capture
 
-
-if TYPE_CHECKING:
-    from servicenow_mcp.state import QueryTokenStore
 
 logger = logging.getLogger(__name__)
 
@@ -131,31 +126,16 @@ def generate_correlation_id() -> str:
 
 
 def serialize(data: Any) -> str:
-    """Serialize *data* to TOON format for LLM-friendly output.
-
-    On TOON encoding failure, returns a serialized error envelope rather than
-    leaking the original data through a JSON fallback. This preserves the
-    TOON-only output contract expected by clients while making encoding
-    failures visible (logged + reported to Sentry).
-    """
+    """Serialize *data* to a JSON string suitable for MCP tool output."""
     try:
-        return toon_encode(data)
-    except Exception as e:
-        logger.warning("TOON encoding failed, falling back to error envelope", exc_info=True)
+        return json.dumps(data, default=str, ensure_ascii=False, separators=(",", ":"))
+    except (TypeError, ValueError) as e:
+        logger.warning("JSON serialization failed", exc_info=True)
         sentry_capture(e)
-        error_envelope: dict[str, Any] = {
-            "status": "error",
-            "error": {"message": "Serialization failed"},
-        }
-        # Preserve correlation_id when the caller passed a response envelope dict,
-        # so the failure remains traceable end-to-end.
+        envelope: dict[str, Any] = {"status": "error", "error": {"message": "Serialization failed"}}
         if isinstance(data, dict) and isinstance(data.get("correlation_id"), str):
-            error_envelope["correlation_id"] = data["correlation_id"]
-        # Last-resort: TOON-encode the envelope; if even that fails, JSON-encode it.
-        try:
-            return toon_encode(error_envelope)
-        except Exception:
-            return json.dumps(error_envelope)
+            envelope["correlation_id"] = data["correlation_id"]
+        return json.dumps(envelope)
 
 
 def format_response(
@@ -737,25 +717,6 @@ class ServiceNowQuery:
     def __str__(self) -> str:
         """Return the built query string."""
         return self.build()
-
-
-async def resolve_query_token(query_token: str, query_store: "QueryTokenStore", correlation_id: str) -> str:
-    """Resolve a query token to the encoded query string it represents.
-
-    Args:
-        query_token: The token from build_query, or empty string for no filter.
-        query_store: The shared QueryTokenStore instance.
-        correlation_id: Request correlation ID for error formatting.
-
-    Returns the encoded query string. Raises ValueError if the token is invalid or expired.
-    """
-    _ = correlation_id  # Kept for API consistency across tool helpers
-    if not query_token:
-        return ""
-    payload = await query_store.get(query_token)
-    if payload is None:
-        raise ValueError("Invalid or expired query token. Use the build_query tool to create a query first.")
-    return payload["query"]
 
 
 async def safe_tool_call(

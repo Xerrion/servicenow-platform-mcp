@@ -1,6 +1,6 @@
 [project]
 name = "servicenow-platform-mcp"
-version = "0.9.1"
+version = "0.10.0"
 description = "A comprehensive MCP server for ServiceNow - platform introspection, ITSM workflows, CMDB operations, change intelligence, debugging, investigations, and documentation generation."
 readme = "README.md"
 license = "MIT"
@@ -28,7 +28,6 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "uvicorn>=0.30.0",
     "starlette>=0.38.0",
-    "toon-format",
     "sentry-sdk>=2.55.0",
 ]
 
@@ -159,6 +158,3 @@ reportUnknownArgumentType = false
 reportUnknownVariableType = false
 reportUnknownLambdaType = false
 reportImplicitStringConcatenation = false
-
-[tool.uv.sources]
-toon-format = { git = "https://github.com/toon-format/toon-python.git" }

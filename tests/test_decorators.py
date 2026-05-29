@@ -1,10 +1,9 @@
 """Tests for the tool_handler decorator."""
 
 import inspect
+import json
 import uuid
 from typing import Any
-
-from toon_format import decode as toon_decode
 
 from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.errors import ForbiddenError
@@ -26,7 +25,7 @@ class TestToolHandler:
 
         result = await my_tool("incident")
         assert captured["correlation_id"]  # non-empty UUID
-        parsed = toon_decode(result)
+        parsed = json.loads(result)
         assert isinstance(parsed, dict)
         assert parsed["status"] == "success"
         assert parsed["correlation_id"] == captured["correlation_id"]
@@ -85,7 +84,7 @@ class TestToolHandler:
             raise ValueError("something broke")
 
         result = await my_tool()
-        parsed = toon_decode(result)
+        parsed = json.loads(result)
         assert isinstance(parsed, dict)
         assert parsed["status"] == "error"
         assert "something broke" in parsed["error"]["message"]
@@ -99,7 +98,7 @@ class TestToolHandler:
             raise ForbiddenError("ACL blocked")
 
         result = await my_tool()
-        parsed = toon_decode(result)
+        parsed = json.loads(result)
         assert isinstance(parsed, dict)
         assert parsed["status"] == "error"
         assert "Access denied" in parsed["error"]["message"] or "ACL" in parsed["error"]["message"]
@@ -160,7 +159,7 @@ class TestToolHandler:
 
         # Check calling the tool works
         result = await tool.fn("my_table")
-        parsed = toon_decode(result)
+        parsed = json.loads(result)
         assert isinstance(parsed, dict)
         assert parsed["status"] == "success"
         assert parsed["data"]["table"] == "my_table"

@@ -1,6 +1,6 @@
 """Tests for parse_payload_json shared helper."""
 
-from toon_format import decode as toon_decode
+import json
 
 from servicenow_mcp.tools._payload import MAX_JSON_DEPTH, parse_payload_json
 
@@ -9,8 +9,8 @@ CID = "test-correlation-id"
 
 
 def _decode_error(envelope: str) -> dict:
-    """Decode a TOON error envelope and return the parsed dict."""
-    return toon_decode(envelope)
+    """Decode a JSON error envelope and return the parsed dict."""
+    return json.loads(envelope)
 
 
 def _error_message(envelope: str) -> str:

@@ -102,7 +102,7 @@ Both paths call `capture_exception(e)` before returning the serialized error res
 
 ### `serialize()` (utils.py)
 
-Captures TOON encoding failures to Sentry before falling back to JSON serialization.
+Captures JSON serialization failures to Sentry before returning a JSON error envelope.
 
 ### `_raise_for_status()` (client.py)
 

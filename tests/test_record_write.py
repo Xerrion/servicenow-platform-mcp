@@ -1,7 +1,10 @@
-"""Tests for record-level write tools (record_create, record_update, record_delete, previews, record_apply)."""
+"""Tests for the unified ``record_write`` and ``record_apply`` tools."""
+
+from __future__ import annotations
 
 import json
 from typing import Any
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -10,26 +13,53 @@ import respx
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.policy import DENIED_TABLES
+from servicenow_mcp.tools._artifact import validate_ui_macro_xml
 from tests.helpers import decode_response, get_tool_functions
 
 
 BASE_URL = "https://test.service-now.com"
 METADATA_URL = f"{BASE_URL}/api/now/table/sys_dictionary"
+SYS_DB_OBJECT_URL = f"{BASE_URL}/api/now/table/sys_db_object"
 NO_MANDATORY_RESPONSE = httpx.Response(200, json={"result": []})
 
-# Valid 32-char hex sys_ids for tests (validate_sys_id requires this format)
-SYS_ID_INC001 = "a" * 32  # aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-SYS_ID_MISSING = "b" * 32  # bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+SYS_ID_INC001 = "a" * 32
+SYS_ID_ART001 = "c" * 32
+
+
+# ---------------------------------------------------------------------------
+# Fixtures and helpers
+# ---------------------------------------------------------------------------
 
 
 @pytest.fixture()
 def auth_provider(settings: Settings) -> BasicAuthProvider:
-    """Create a BasicAuthProvider from test settings."""
+    """BasicAuthProvider for the unified record_write test scope."""
     return BasicAuthProvider(settings)
 
 
+@pytest.fixture()
+def script_settings(tmp_path: Any) -> Settings:
+    """Test settings with script_allowed_root pointed at tmp_path."""
+    env = {
+        "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
+        "SERVICENOW_USERNAME": "admin",
+        "SERVICENOW_PASSWORD": "s3cret",  # NOSONAR - test-only dummy credential
+        "SERVICENOW_ENV": "dev",
+        "MCP_TOOL_PACKAGE": "full",
+        "SCRIPT_ALLOWED_ROOT": str(tmp_path),
+    }
+    with patch.dict("os.environ", env, clear=True):
+        return Settings(_env_file=None)
+
+
+@pytest.fixture()
+def script_auth_provider(script_settings: Settings) -> BasicAuthProvider:
+    """BasicAuthProvider matching script_settings."""
+    return BasicAuthProvider(script_settings)
+
+
 def _register_and_get_tools(settings: Settings, auth_provider: BasicAuthProvider) -> dict[str, Any]:
-    """Helper: register record_write tools on a fresh MCP server and return tool map."""
+    """Register the unified record_write tools on a fresh MCP and return callables."""
     from mcp.server.fastmcp import FastMCP
 
     from servicenow_mcp.tools.record_write import register_tools
@@ -39,991 +69,605 @@ def _register_and_get_tools(settings: Settings, auth_provider: BasicAuthProvider
     return get_tool_functions(mcp)
 
 
-# -- record_create -------------------------------------------------------------
+def _mock_dictionary(table: str, fields: list[dict[str, str]]) -> None:
+    """Mock the sys_db_object + sys_dictionary fetch for ``table`` with ``fields``."""
+    # sys_db_object lookup returns no super_class (root table) - the chain stops here.
+    respx.get(SYS_DB_OBJECT_URL).mock(
+        return_value=httpx.Response(200, json={"result": [{"super_class": ""}]}),
+    )
+    # sys_dictionary returns the supplied fields for the requested table name.
+    respx.get(METADATA_URL).mock(
+        return_value=httpx.Response(200, json={"result": fields}),
+    )
+    del table  # respx routes by URL; table is encoded into the query string
 
 
-class TestRecordCreate:
-    """Tests for the record_create tool."""
+# ---------------------------------------------------------------------------
+# Action dispatch
+# ---------------------------------------------------------------------------
+
+
+class TestActionDispatch:
+    """Cross-argument validation that runs before any HTTP call."""
 
     @pytest.mark.asyncio()
-    @respx.mock
-    async def test_creates_record_and_returns_masked(
+    async def test_unknown_action_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["record_write"](action="frobnicate", table="incident")
+        result = decode_response(raw)
+        assert result["status"] == "error"
+        assert "frobnicate" in result["error"]["message"]
+
+    @pytest.mark.asyncio()
+    async def test_create_action_requires_data(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["record_write"](action="create", table="incident")
+        result = decode_response(raw)
+        assert result["status"] == "error"
+        assert "data is required" in result["error"]["message"]
+
+    @pytest.mark.asyncio()
+    async def test_create_with_sys_id_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["record_write"](
+            action="create",
+            table="incident",
+            sys_id=SYS_ID_INC001,
+            data=json.dumps({"short_description": "x"}),
+        )
+        result = decode_response(raw)
+        assert result["status"] == "error"
+        assert "sys_id must be empty" in result["error"]["message"]
+
+    @pytest.mark.asyncio()
+    async def test_update_requires_sys_id_and_data(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        tools = _register_and_get_tools(settings, auth_provider)
+
+        raw = await tools["record_write"](action="update", table="incident", data=json.dumps({"state": "2"}))
+        assert decode_response(raw)["error"]["message"].startswith("sys_id is required")
+
+        raw = await tools["record_write"](action="update", table="incident", sys_id=SYS_ID_INC001)
+        assert decode_response(raw)["error"]["message"].startswith("data is required")
+
+    @pytest.mark.asyncio()
+    async def test_delete_with_data_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["record_write"](
+            action="delete",
+            table="incident",
+            sys_id=SYS_ID_INC001,
+            data=json.dumps({"x": 1}),
+        )
+        result = decode_response(raw)
+        assert result["status"] == "error"
+        assert "data must be empty" in result["error"]["message"]
+
+    @pytest.mark.asyncio()
+    async def test_missing_table_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["record_write"](action="create", data=json.dumps({"x": 1}))
+        result = decode_response(raw)
+        assert result["status"] == "error"
+        assert "table is required" in result["error"]["message"]
+
+    @pytest.mark.asyncio()
+    async def test_script_field_without_script_path_returns_error(
         self, settings: Settings, auth_provider: BasicAuthProvider
     ) -> None:
-        """Creates a record and returns it with sensitive fields masked."""
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["record_write"](
+            action="create",
+            table="sys_script",
+            data=json.dumps({"name": "BR1"}),
+            script_field="script",
+        )
+        result = decode_response(raw)
+        assert result["status"] == "error"
+        assert "script_field requires script_path" in result["error"]["message"]
+
+
+# ---------------------------------------------------------------------------
+# Standard record write (no script_path)
+# ---------------------------------------------------------------------------
+
+
+class TestStandardRecordWrite:
+    """Plain record writes against a non-script-bearing table."""
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_create_preview_returns_token(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         respx.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
-        respx.post(f"{BASE_URL}/api/now/table/incident").mock(
-            return_value=httpx.Response(
-                201,
-                json={
-                    "result": {
-                        "sys_id": "new001",
-                        "short_description": "Test incident",
-                        "state": "1",
-                        "password": "s3cret",  # NOSONAR
-                    }
-                },
-            )
-        )
-
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_create"](
-            table="incident",
-            data=json.dumps({"short_description": "Test incident", "state": "1"}),
-        )
-        result = decode_response(raw)
-
-        assert result["status"] == "success"
-        assert result["data"]["table"] == "incident"
-        assert result["data"]["sys_id"] == "new001"
-        assert result["data"]["record"]["short_description"] == "Test incident"
-        assert result["data"]["record"]["password"] == "***MASKED***"  # NOSONAR
-
-    @pytest.mark.asyncio()
-    async def test_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider) -> None:
-        """Returns error when environment is production."""
-        tools = _register_and_get_tools(prod_settings, prod_auth_provider)
-
-        raw = await tools["record_create"](
-            table="incident",
-            data=json.dumps({"short_description": "Test"}),
-        )
-        result = decode_response(raw)
-
-        assert result["status"] == "error"
-        assert "production" in result["error"]["message"].lower()
-
-    @pytest.mark.asyncio()
-    async def test_denied_table_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """Returns error when table is denied by policy."""
-        denied = next(iter(DENIED_TABLES))
-        tools = _register_and_get_tools(settings, auth_provider)
-
-        raw = await tools["record_create"](
-            table=denied,
-            data=json.dumps({"value": "test"}),
-        )
-        result = decode_response(raw)
-
-        assert result["status"] == "error"
-        assert "denied" in result["error"]["message"].lower()
-
-    @pytest.mark.asyncio()
-    async def test_invalid_json_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """Returns error when data is not valid JSON."""
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_create"](table="incident", data="not valid json")
-        result = decode_response(raw)
-
-        assert result["status"] == "error"
-
-    @pytest.mark.asyncio()
-    @respx.mock
-    async def test_acl_denied_returns_clear_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """Returns clear error when ServiceNow ACL denies the operation."""
-        respx.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
-        respx.post(f"{BASE_URL}/api/now/table/incident").mock(
-            return_value=httpx.Response(403, json={"error": {"message": "ACL denied"}})
-        )
-
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_create"](
-            table="incident",
-            data=json.dumps({"short_description": "Test"}),
-        )
-        result = decode_response(raw)
-
-        assert result["status"] == "error"
-        assert "acl" in result["error"]["message"].lower()
-
-    @pytest.mark.asyncio()
-    @respx.mock
-    async def test_generic_exception(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """Returns error envelope on unexpected exception."""
-        from unittest.mock import AsyncMock, patch
-
-        tools = _register_and_get_tools(settings, auth_provider)
-        with patch(
-            "servicenow_mcp.tools.record_write.ServiceNowClient.__aenter__",
-            new_callable=AsyncMock,
-            side_effect=RuntimeError("connection failed"),
-        ):
-            raw = await tools["record_create"](
-                table="incident",
-                data=json.dumps({"short_description": "Test"}),
-            )
-        result = decode_response(raw)
-        assert result["status"] == "error"
-        assert "connection failed" in result["error"]["message"]
-
-
-# -- record_preview_create -----------------------------------------------------
-
-
-class TestRecordPreviewCreate:
-    """Tests for the record_preview_create tool."""
-
-    @pytest.mark.asyncio()
-    async def test_returns_token_and_data(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """Returns a preview token and the masked data summary."""
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_preview_create"](
-            table="incident",
-            data=json.dumps({"short_description": "Test", "password": "s3cret"}),  # NOSONAR
-        )
-        result = decode_response(raw)
-
-        assert result["status"] == "success"
-        assert "token" in result["data"]
-        assert result["data"]["table"] == "incident"
-        assert result["data"]["action"] == "create"
-        assert result["data"]["data"]["password"] == "***MASKED***"  # NOSONAR
-
-    @pytest.mark.asyncio()
-    async def test_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider) -> None:
-        """Returns error when environment is production."""
-        tools = _register_and_get_tools(prod_settings, prod_auth_provider)
-
-        raw = await tools["record_preview_create"](
-            table="incident",
-            data=json.dumps({"short_description": "Test"}),
-        )
-        result = decode_response(raw)
-        assert result["status"] == "error"
-
-    @pytest.mark.asyncio()
-    async def test_invalid_json_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """Returns error when data is not valid JSON."""
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_preview_create"](table="incident", data="{bad json")
-        result = decode_response(raw)
-        assert result["status"] == "error"
-
-
-# -- record_update -------------------------------------------------------------
-
-
-class TestRecordUpdate:
-    """Tests for the record_update tool."""
-
-    @pytest.mark.asyncio()
-    @respx.mock
-    async def test_updates_record_and_returns_masked(
-        self, settings: Settings, auth_provider: BasicAuthProvider
-    ) -> None:
-        """Updates a record and returns it with sensitive fields masked."""
-        respx.patch(f"{BASE_URL}/api/now/table/incident/{SYS_ID_INC001}").mock(
-            return_value=httpx.Response(
-                200,
-                json={
-                    "result": {
-                        "sys_id": SYS_ID_INC001,
-                        "state": "2",
-                        "password": "s3cret",  # NOSONAR
-                    }
-                },
-            )
-        )
-
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_update"](
-            table="incident",
-            sys_id=SYS_ID_INC001,
-            changes=json.dumps({"state": "2"}),
-        )
-        result = decode_response(raw)
-
-        assert result["status"] == "success"
-        assert result["data"]["sys_id"] == SYS_ID_INC001
-        assert result["data"]["record"]["state"] == "2"
-        assert result["data"]["record"]["password"] == "***MASKED***"  # NOSONAR
-
-    @pytest.mark.asyncio()
-    async def test_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider) -> None:
-        """Returns error in production."""
-        tools = _register_and_get_tools(prod_settings, prod_auth_provider)
-
-        raw = await tools["record_update"](
-            table="incident",
-            sys_id=SYS_ID_INC001,
-            changes=json.dumps({"state": "2"}),
-        )
-        result = decode_response(raw)
-        assert result["status"] == "error"
-
-    @pytest.mark.asyncio()
-    async def test_denied_table_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """Returns error for denied table."""
-        denied = next(iter(DENIED_TABLES))
-        tools = _register_and_get_tools(settings, auth_provider)
-
-        raw = await tools["record_update"](
-            table=denied,
-            sys_id="abc",
-            changes=json.dumps({"value": "x"}),
-        )
-        result = decode_response(raw)
-        assert result["status"] == "error"
-
-    @pytest.mark.asyncio()
-    @respx.mock
-    async def test_not_found_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """Returns error when record doesn't exist."""
-        respx.patch(f"{BASE_URL}/api/now/table/incident/{SYS_ID_MISSING}").mock(
-            return_value=httpx.Response(404, json={"error": {"message": "Not found"}})
-        )
-
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_update"](
-            table="incident",
-            sys_id=SYS_ID_MISSING,
-            changes=json.dumps({"state": "2"}),
-        )
-        result = decode_response(raw)
-        assert result["status"] == "error"
-
-    @pytest.mark.asyncio()
-    @respx.mock
-    async def test_acl_denied_returns_clear_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """Returns clear ACL error."""
-        respx.patch(f"{BASE_URL}/api/now/table/incident/{SYS_ID_INC001}").mock(
-            return_value=httpx.Response(403, json={"error": {"message": "ACL denied"}})
-        )
-
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_update"](
-            table="incident",
-            sys_id=SYS_ID_INC001,
-            changes=json.dumps({"state": "2"}),
-        )
-        result = decode_response(raw)
-        assert result["status"] == "error"
-        assert "acl" in result["error"]["message"].lower()
-
-
-# -- record_preview_update -----------------------------------------------------
-
-
-class TestRecordPreviewUpdate:
-    """Tests for the record_preview_update tool."""
-
-    @pytest.mark.asyncio()
-    @respx.mock
-    async def test_returns_diff_and_token(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """Fetches current record and returns field-level diff with token."""
-        respx.get(f"{BASE_URL}/api/now/table/incident/{SYS_ID_INC001}").mock(
-            return_value=httpx.Response(
-                200,
-                json={
-                    "result": {
-                        "sys_id": SYS_ID_INC001,
-                        "state": "1",
-                        "short_description": "Original",
-                    }
-                },
-            )
-        )
-
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_preview_update"](
-            table="incident",
-            sys_id=SYS_ID_INC001,
-            changes=json.dumps({"state": "2", "short_description": "Updated"}),
-        )
-        result = decode_response(raw)
-
-        assert result["status"] == "success"
-        assert "token" in result["data"]
-        assert result["data"]["diff"]["state"]["old"] == "1"
-        assert result["data"]["diff"]["state"]["new"] == "2"
-        assert result["data"]["diff"]["short_description"]["old"] == "Original"
-        assert result["data"]["diff"]["short_description"]["new"] == "Updated"
-
-    @pytest.mark.asyncio()
-    @respx.mock
-    async def test_masks_sensitive_fields_in_diff(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """Sensitive fields in the diff are masked."""
-        respx.get(f"{BASE_URL}/api/now/table/incident/{SYS_ID_INC001}").mock(
-            return_value=httpx.Response(
-                200,
-                json={
-                    "result": {
-                        "sys_id": SYS_ID_INC001,
-                        "password": "old_password",  # NOSONAR
-                    }
-                },
-            )
-        )
-
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_preview_update"](
-            table="incident",
-            sys_id=SYS_ID_INC001,
-            changes=json.dumps({"password": "new_password"}),  # NOSONAR
-        )
-        result = decode_response(raw)
-
-        assert result["status"] == "success"
-        assert result["data"]["diff"]["password"]["old"] == "***MASKED***"  # NOSONAR
-        assert result["data"]["diff"]["password"]["new"] == "***MASKED***"  # NOSONAR
-
-    @pytest.mark.asyncio()
-    async def test_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider) -> None:
-        """Returns error in production."""
-        tools = _register_and_get_tools(prod_settings, prod_auth_provider)
-
-        raw = await tools["record_preview_update"](
-            table="incident",
-            sys_id=SYS_ID_INC001,
-            changes=json.dumps({"state": "2"}),
-        )
-        result = decode_response(raw)
-        assert result["status"] == "error"
-
-
-# -- record_delete -------------------------------------------------------------
-
-
-class TestRecordDelete:
-    """Tests for the record_delete tool."""
-
-    @pytest.mark.asyncio()
-    @respx.mock
-    async def test_deletes_record(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """Deletes a record and returns confirmation."""
-        respx.delete(f"{BASE_URL}/api/now/table/incident/{SYS_ID_INC001}").mock(return_value=httpx.Response(204))
-
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_delete"](table="incident", sys_id=SYS_ID_INC001)
-        result = decode_response(raw)
-
-        assert result["status"] == "success"
-        assert result["data"]["table"] == "incident"
-        assert result["data"]["sys_id"] == SYS_ID_INC001
-        assert result["data"]["deleted"] is True
-
-    @pytest.mark.asyncio()
-    async def test_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider) -> None:
-        """Returns error in production."""
-        tools = _register_and_get_tools(prod_settings, prod_auth_provider)
-
-        raw = await tools["record_delete"](table="incident", sys_id=SYS_ID_INC001)
-        result = decode_response(raw)
-        assert result["status"] == "error"
-
-    @pytest.mark.asyncio()
-    async def test_denied_table_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """Returns error for denied table."""
-        denied = next(iter(DENIED_TABLES))
-        tools = _register_and_get_tools(settings, auth_provider)
-
-        raw = await tools["record_delete"](table=denied, sys_id="abc")
-        result = decode_response(raw)
-        assert result["status"] == "error"
-
-    @pytest.mark.asyncio()
-    @respx.mock
-    async def test_not_found_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """Returns error when record doesn't exist."""
-        respx.delete(f"{BASE_URL}/api/now/table/incident/{SYS_ID_MISSING}").mock(
-            return_value=httpx.Response(404, json={"error": {"message": "Not found"}})
-        )
-
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_delete"](table="incident", sys_id=SYS_ID_MISSING)
-        result = decode_response(raw)
-        assert result["status"] == "error"
-
-    @pytest.mark.asyncio()
-    @respx.mock
-    async def test_acl_denied_returns_clear_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """Returns clear ACL error on 403."""
-        respx.delete(f"{BASE_URL}/api/now/table/incident/{SYS_ID_INC001}").mock(
-            return_value=httpx.Response(403, json={"error": {"message": "ACL denied"}})
-        )
-
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_delete"](table="incident", sys_id=SYS_ID_INC001)
-        result = decode_response(raw)
-        assert result["status"] == "error"
-        assert "acl" in result["error"]["message"].lower()
-
-
-# -- record_preview_delete -----------------------------------------------------
-
-
-class TestRecordPreviewDelete:
-    """Tests for the record_preview_delete tool."""
-
-    @pytest.mark.asyncio()
-    @respx.mock
-    async def test_returns_snapshot_and_token(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """Fetches record and returns snapshot with preview token."""
-        respx.get(f"{BASE_URL}/api/now/table/incident/{SYS_ID_INC001}").mock(
-            return_value=httpx.Response(
-                200,
-                json={
-                    "result": {
-                        "sys_id": SYS_ID_INC001,
-                        "short_description": "Test incident",
-                        "state": "1",
-                        "password": "s3cret",  # NOSONAR
-                    }
-                },
-            )
-        )
-
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_preview_delete"](table="incident", sys_id=SYS_ID_INC001)
-        result = decode_response(raw)
-
-        assert result["status"] == "success"
-        assert "token" in result["data"]
-        assert result["data"]["table"] == "incident"
-        assert result["data"]["sys_id"] == SYS_ID_INC001
-        assert result["data"]["record_snapshot"]["short_description"] == "Test incident"
-        assert result["data"]["record_snapshot"]["password"] == "***MASKED***"  # NOSONAR
-
-    @pytest.mark.asyncio()
-    async def test_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider) -> None:
-        """Returns error in production."""
-        tools = _register_and_get_tools(prod_settings, prod_auth_provider)
-
-        raw = await tools["record_preview_delete"](table="incident", sys_id=SYS_ID_INC001)
-        result = decode_response(raw)
-        assert result["status"] == "error"
-
-    @pytest.mark.asyncio()
-    @respx.mock
-    async def test_not_found_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """Returns error when record doesn't exist."""
-        respx.get(f"{BASE_URL}/api/now/table/incident/{SYS_ID_MISSING}").mock(
-            return_value=httpx.Response(404, json={"error": {"message": "Not found"}})
-        )
-
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_preview_delete"](table="incident", sys_id=SYS_ID_MISSING)
-        result = decode_response(raw)
-        assert result["status"] == "error"
-
-
-# -- record_apply --------------------------------------------------------------
-
-
-class TestRecordApply:
-    """Tests for the record_apply tool (applies any previewed action)."""
-
-    @pytest.mark.asyncio()
-    @respx.mock
-    async def test_apply_create(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """Applies a previewed create action."""
-        respx.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
-        # Phase 1: Preview
-        tools = _register_and_get_tools(settings, auth_provider)
-        preview_raw = await tools["record_preview_create"](
+        raw = await tools["record_write"](
+            action="create",
             table="incident",
             data=json.dumps({"short_description": "Test", "state": "1"}),
         )
-        token = decode_response(preview_raw)["data"]["token"]
-
-        # Phase 2: Apply
-        respx.post(f"{BASE_URL}/api/now/table/incident").mock(
-            return_value=httpx.Response(
-                201,
-                json={
-                    "result": {
-                        "sys_id": "new001",
-                        "short_description": "Test",
-                        "state": "1",
-                    }
-                },
-            )
-        )
-
-        raw = await tools["record_apply"](preview_token=token)
         result = decode_response(raw)
-
         assert result["status"] == "success"
         assert result["data"]["action"] == "create"
-        assert result["data"]["sys_id"] == "new001"
-        assert result["data"]["record"]["short_description"] == "Test"
+        assert result["data"]["table"] == "incident"
+        assert "preview_token" in result["data"]
+        assert result["data"]["preview"]["data"]["short_description"] == "Test"
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_apply_update(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """Applies a previewed update action."""
-        # Phase 1: Preview (needs GET mock for current record)
-        respx.get(f"{BASE_URL}/api/now/table/incident/{SYS_ID_INC001}").mock(
-            return_value=httpx.Response(
-                200,
-                json={"result": {"sys_id": SYS_ID_INC001, "state": "1"}},
-            )
-        )
-
-        tools = _register_and_get_tools(settings, auth_provider)
-        preview_raw = await tools["record_preview_update"](
-            table="incident",
-            sys_id=SYS_ID_INC001,
-            changes=json.dumps({"state": "2"}),
-        )
-        token = decode_response(preview_raw)["data"]["token"]
-
-        # Phase 2: Apply
-        respx.patch(f"{BASE_URL}/api/now/table/incident/{SYS_ID_INC001}").mock(
-            return_value=httpx.Response(
-                200,
-                json={"result": {"sys_id": SYS_ID_INC001, "state": "2"}},
-            )
-        )
-
-        raw = await tools["record_apply"](preview_token=token)
-        result = decode_response(raw)
-
-        assert result["status"] == "success"
-        assert result["data"]["action"] == "update"
-        assert result["data"]["record"]["state"] == "2"
-
-    @pytest.mark.asyncio()
-    @respx.mock
-    async def test_apply_delete(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """Applies a previewed delete action."""
-        # Phase 1: Preview (needs GET mock)
-        respx.get(f"{BASE_URL}/api/now/table/incident/{SYS_ID_INC001}").mock(
-            return_value=httpx.Response(
-                200,
-                json={
-                    "result": {
-                        "sys_id": SYS_ID_INC001,
-                        "short_description": "To be deleted",
-                    }
-                },
-            )
-        )
-
-        tools = _register_and_get_tools(settings, auth_provider)
-        preview_raw = await tools["record_preview_delete"](table="incident", sys_id=SYS_ID_INC001)
-        token = decode_response(preview_raw)["data"]["token"]
-
-        # Phase 2: Apply
-        respx.delete(f"{BASE_URL}/api/now/table/incident/{SYS_ID_INC001}").mock(return_value=httpx.Response(204))
-
-        raw = await tools["record_apply"](preview_token=token)
-        result = decode_response(raw)
-
-        assert result["status"] == "success"
-        assert result["data"]["action"] == "delete"
-        assert result["data"]["deleted"] is True
-
-    @pytest.mark.asyncio()
-    async def test_invalid_token_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """Returns error for an invalid/unknown token."""
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_apply"](preview_token="nonexistent-token")
-        result = decode_response(raw)
-
-        assert result["status"] == "error"
-        assert "invalid" in result["error"]["message"].lower() or "expired" in result["error"]["message"].lower()
-
-    @pytest.mark.asyncio()
-    @respx.mock
-    async def test_token_consumed_only_once(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """Token is single-use - second apply with same token fails."""
+    async def test_create_direct_commits_immediately(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
         respx.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
-        # Preview a create
-        tools = _register_and_get_tools(settings, auth_provider)
-        preview_raw = await tools["record_preview_create"](
-            table="incident",
-            data=json.dumps({"short_description": "Test"}),
-        )
-        token = decode_response(preview_raw)["data"]["token"]
-
-        # First apply succeeds
         respx.post(f"{BASE_URL}/api/now/table/incident").mock(
             return_value=httpx.Response(
                 201,
                 json={"result": {"sys_id": "new001", "short_description": "Test"}},
             )
         )
-        raw1 = await tools["record_apply"](preview_token=token)
-        result1 = decode_response(raw1)
-        assert result1["status"] == "success"
-
-        # Second apply with same token fails
-        raw2 = await tools["record_apply"](preview_token=token)
-        result2 = decode_response(raw2)
-        assert result2["status"] == "error"
-        assert "invalid" in result2["error"]["message"].lower() or "expired" in result2["error"]["message"].lower()
-
-    @pytest.mark.asyncio()
-    @respx.mock
-    async def test_apply_masks_sensitive_fields(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """Applied create masks sensitive fields in the returned record."""
-        respx.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
         tools = _register_and_get_tools(settings, auth_provider)
-        preview_raw = await tools["record_preview_create"](
+        raw = await tools["record_write"](
+            action="create",
             table="incident",
             data=json.dumps({"short_description": "Test"}),
-        )
-        token = decode_response(preview_raw)["data"]["token"]
-
-        respx.post(f"{BASE_URL}/api/now/table/incident").mock(
-            return_value=httpx.Response(
-                201,
-                json={
-                    "result": {
-                        "sys_id": "new001",
-                        "short_description": "Test",
-                        "password": "s3cret",  # NOSONAR
-                    }
-                },
-            )
-        )
-
-        raw = await tools["record_apply"](preview_token=token)
-        result = decode_response(raw)
-
-        assert result["status"] == "success"
-        assert result["data"]["record"]["password"] == "***MASKED***"  # NOSONAR
-
-    @pytest.mark.asyncio()
-    @respx.mock
-    async def test_apply_acl_denied(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """Returns clear ACL error when ServiceNow denies the apply operation."""
-        respx.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
-        tools = _register_and_get_tools(settings, auth_provider)
-        preview_raw = await tools["record_preview_create"](
-            table="incident",
-            data=json.dumps({"short_description": "Test"}),
-        )
-        token = decode_response(preview_raw)["data"]["token"]
-
-        respx.post(f"{BASE_URL}/api/now/table/incident").mock(
-            return_value=httpx.Response(403, json={"error": {"message": "ACL denied"}})
-        )
-
-        raw = await tools["record_apply"](preview_token=token)
-        result = decode_response(raw)
-
-        assert result["status"] == "error"
-        assert "acl" in result["error"]["message"].lower()
-
-
-# -- mandatory field validation ------------------------------------------------
-
-METADATA_WITH_TWO_MANDATORY = {
-    "result": [
-        {
-            "element": "short_description",
-            "mandatory": "true",
-            "internal_type": "string",
-        },
-        {
-            "element": "category",
-            "mandatory": "true",
-            "internal_type": "string",
-        },
-        {
-            "element": "description",
-            "mandatory": "false",
-            "internal_type": "string",
-        },
-    ]
-}
-
-METADATA_NO_MANDATORY = {
-    "result": [
-        {
-            "element": "short_description",
-            "mandatory": "false",
-            "internal_type": "string",
-        },
-        {
-            "element": "description",
-            "mandatory": "false",
-            "internal_type": "string",
-        },
-    ]
-}
-
-
-class TestMandatoryFieldValidation:
-    """Tests for mandatory field pre-flight validation on record creation."""
-
-    @pytest.mark.asyncio()
-    @respx.mock
-    async def test_record_create_missing_mandatory_fields(
-        self, settings: Settings, auth_provider: BasicAuthProvider
-    ) -> None:
-        """Returns error when mandatory fields are missing from create data."""
-        respx.get(METADATA_URL).mock(return_value=httpx.Response(200, json=METADATA_WITH_TWO_MANDATORY))
-
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_create"](
-            table="incident",
-            data=json.dumps({"short_description": "Test incident"}),
+            preview=False,
         )
         result = decode_response(raw)
-
-        assert result["status"] == "error"
-        assert "missing_fields" in result["data"]
-        assert "category" in result["data"]["missing_fields"]
-        assert "Missing mandatory fields" in result["error"]["message"]
-
-    @pytest.mark.asyncio()
-    @respx.mock
-    async def test_record_create_all_mandatory_present(
-        self, settings: Settings, auth_provider: BasicAuthProvider
-    ) -> None:
-        """Proceeds with create when all mandatory fields are present."""
-        respx.get(METADATA_URL).mock(return_value=httpx.Response(200, json=METADATA_WITH_TWO_MANDATORY))
-        respx.post(f"{BASE_URL}/api/now/table/incident").mock(
-            return_value=httpx.Response(
-                201,
-                json={
-                    "result": {
-                        "sys_id": "new001",
-                        "short_description": "Test",
-                        "category": "software",
-                    }
-                },
-            )
-        )
-
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_create"](
-            table="incident",
-            data=json.dumps({"short_description": "Test", "category": "software"}),
-        )
-        result = decode_response(raw)
-
         assert result["status"] == "success"
         assert result["data"]["sys_id"] == "new001"
+        assert "preview_token" not in result["data"]
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_record_preview_create_missing_mandatory_fields(
-        self, settings: Settings, auth_provider: BasicAuthProvider
-    ) -> None:
-        """Returns error when mandatory fields are missing from preview create data."""
-        respx.get(METADATA_URL).mock(return_value=httpx.Response(200, json=METADATA_WITH_TWO_MANDATORY))
-
+    async def test_update_preview_includes_diff(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        respx.get(f"{BASE_URL}/api/now/table/incident/{SYS_ID_INC001}").mock(
+            return_value=httpx.Response(200, json={"result": {"sys_id": SYS_ID_INC001, "state": "1"}}),
+        )
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_preview_create"](
+        raw = await tools["record_write"](
+            action="update",
             table="incident",
-            data=json.dumps({"short_description": "Test"}),
+            sys_id=SYS_ID_INC001,
+            data=json.dumps({"state": "2"}),
         )
         result = decode_response(raw)
-
-        assert result["status"] == "error"
-        assert "category" in result["data"]["missing_fields"]
-        assert "Missing mandatory fields" in result["error"]["message"]
-
-    @pytest.mark.asyncio()
-    @respx.mock
-    async def test_record_preview_create_all_mandatory_present(
-        self, settings: Settings, auth_provider: BasicAuthProvider
-    ) -> None:
-        """Returns preview token when all mandatory fields are present."""
-        respx.get(METADATA_URL).mock(return_value=httpx.Response(200, json=METADATA_WITH_TWO_MANDATORY))
-
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_preview_create"](
-            table="incident",
-            data=json.dumps({"short_description": "Test", "category": "software"}),
-        )
-        result = decode_response(raw)
-
         assert result["status"] == "success"
-        assert "token" in result["data"]
-        assert result["data"]["action"] == "create"
+        diff = result["data"]["preview"]["diff"]
+        assert diff["state"] == {"old": "1", "new": "2"}
+        assert "preview_token" in result["data"]
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_record_apply_create_missing_mandatory_fields(
-        self, settings: Settings, auth_provider: BasicAuthProvider
-    ) -> None:
-        """record_apply catches newly mandatory fields at apply time."""
-        # Phase 1: Preview succeeds - metadata has only 1 mandatory field
-        respx.get(METADATA_URL).mock(
+    async def test_delete_preview_stores_snapshot(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        respx.get(f"{BASE_URL}/api/now/table/incident/{SYS_ID_INC001}").mock(
             return_value=httpx.Response(
                 200,
                 json={
-                    "result": [
-                        {
-                            "element": "short_description",
-                            "mandatory": "true",
-                            "internal_type": "string",
-                        },
-                    ]
+                    "result": {
+                        "sys_id": SYS_ID_INC001,
+                        "short_description": "doomed",
+                        "password": "s3cret",  # NOSONAR
+                    }
                 },
-            )
+            ),
         )
-
         tools = _register_and_get_tools(settings, auth_provider)
-        preview_raw = await tools["record_preview_create"](
+        raw = await tools["record_write"](action="delete", table="incident", sys_id=SYS_ID_INC001)
+        result = decode_response(raw)
+        assert result["status"] == "success"
+        snap = result["data"]["preview"]["record_snapshot"]
+        assert snap["short_description"] == "doomed"
+        assert snap["password"] == "***MASKED***"  # NOSONAR
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_record_apply_consumes_token(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        # Phase 1: preview create
+        respx.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
+        tools = _register_and_get_tools(settings, auth_provider)
+        preview_raw = await tools["record_write"](
+            action="create",
             table="incident",
-            data=json.dumps({"short_description": "Test"}),
+            data=json.dumps({"short_description": "Apply me"}),
         )
-        token = decode_response(preview_raw)["data"]["token"]
+        token = decode_response(preview_raw)["data"]["preview_token"]
 
-        # Phase 2: Apply - metadata now returns a NEW mandatory field
-        respx.get(METADATA_URL).mock(return_value=httpx.Response(200, json=METADATA_WITH_TWO_MANDATORY))
-
+        # Phase 2: apply
+        respx.post(f"{BASE_URL}/api/now/table/incident").mock(
+            return_value=httpx.Response(
+                201,
+                json={"result": {"sys_id": "new042", "short_description": "Apply me"}},
+            ),
+        )
         raw = await tools["record_apply"](preview_token=token)
         result = decode_response(raw)
+        assert result["status"] == "success"
+        assert result["data"]["sys_id"] == "new042"
 
-        assert result["status"] == "error"
-        assert "category" in result["data"]["missing_fields"]
-        assert "Missing mandatory fields" in result["error"]["message"]
+        # Token is single-use - second call must fail.
+        raw2 = await tools["record_apply"](preview_token=token)
+        assert decode_response(raw2)["status"] == "error"
 
     @pytest.mark.asyncio()
-    @respx.mock
-    async def test_record_create_no_mandatory_fields(
+    async def test_record_apply_unknown_token_returns_error(
         self, settings: Settings, auth_provider: BasicAuthProvider
     ) -> None:
-        """Proceeds normally when table has no mandatory fields."""
-        respx.get(METADATA_URL).mock(return_value=httpx.Response(200, json=METADATA_NO_MANDATORY))
-        respx.post(f"{BASE_URL}/api/now/table/incident").mock(
-            return_value=httpx.Response(
-                201,
-                json={
-                    "result": {
-                        "sys_id": "new002",
-                        "short_description": "Test",
-                    }
-                },
-            )
-        )
-
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_create"](
-            table="incident",
-            data=json.dumps({"short_description": "Test"}),
-        )
+        raw = await tools["record_apply"](preview_token="not-a-real-token")
         result = decode_response(raw)
+        assert result["status"] == "error"
+        assert "Invalid or expired" in result["error"]["message"]
 
-        assert result["status"] == "success"
-        assert result["data"]["sys_id"] == "new002"
+
+# ---------------------------------------------------------------------------
+# Script-path writes (dictionary-driven field detection)
+# ---------------------------------------------------------------------------
+
+
+class TestScriptPathWrite:
+    """``script_path`` writes a file into the resolved script-bearing field."""
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_record_create_metadata_unavailable(
+    async def test_script_path_writes_to_first_detected_field(
+        self,
+        script_settings: Settings,
+        script_auth_provider: BasicAuthProvider,
+        tmp_path: Any,
+    ) -> None:
+        script_file = tmp_path / "br.js"
+        script_file.write_text("gs.info('hello');\n")
+
+        _mock_dictionary(
+            "sys_script",
+            [{"element": "script", "internal_type": "script", "attributes": ""}],
+        )
+        post_mock = respx.post(f"{BASE_URL}/api/now/table/sys_script").mock(
+            return_value=httpx.Response(
+                201,
+                json={"result": {"sys_id": SYS_ID_ART001, "name": "BR1"}},
+            ),
+        )
+        tools = _register_and_get_tools(script_settings, script_auth_provider)
+        raw = await tools["record_write"](
+            action="create",
+            table="sys_script",
+            data=json.dumps({"name": "BR1"}),
+            script_path=str(script_file),
+            preview=False,
+        )
+        result = decode_response(raw)
+        assert result["status"] == "success"
+
+        sent = json.loads(post_mock.calls[0].request.content)
+        assert sent["script"] == "gs.info('hello');\n"
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_script_path_with_override_writes_to_named_field(
+        self,
+        script_settings: Settings,
+        script_auth_provider: BasicAuthProvider,
+        tmp_path: Any,
+    ) -> None:
+        # sp_widget has multiple script fields - override to 'template'
+        script_file = tmp_path / "widget.html"
+        script_file.write_text("<div>{{c.data.msg}}</div>\n")
+
+        _mock_dictionary(
+            "sp_widget",
+            [
+                {"element": "client_script", "internal_type": "script_client", "attributes": ""},
+                {"element": "script", "internal_type": "script", "attributes": ""},
+                {
+                    "element": "template",
+                    "internal_type": "html",
+                    "attributes": "tinymce_allow_all=true",
+                },
+            ],
+        )
+        post_mock = respx.post(f"{BASE_URL}/api/now/table/sp_widget").mock(
+            return_value=httpx.Response(201, json={"result": {"sys_id": SYS_ID_ART001, "name": "W1"}}),
+        )
+        tools = _register_and_get_tools(script_settings, script_auth_provider)
+        raw = await tools["record_write"](
+            action="create",
+            table="sp_widget",
+            data=json.dumps({"name": "W1"}),
+            script_path=str(script_file),
+            script_field="template",
+            preview=False,
+        )
+        assert decode_response(raw)["status"] == "success"
+
+        sent = json.loads(post_mock.calls[0].request.content)
+        assert sent["template"] == "<div>{{c.data.msg}}</div>\n"
+        assert "client_script" not in sent
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_script_path_invalid_field_returns_error(
+        self,
+        script_settings: Settings,
+        script_auth_provider: BasicAuthProvider,
+        tmp_path: Any,
+    ) -> None:
+        script_file = tmp_path / "br.js"
+        script_file.write_text("// noop\n")
+
+        _mock_dictionary(
+            "sys_script",
+            [{"element": "script", "internal_type": "script", "attributes": ""}],
+        )
+        tools = _register_and_get_tools(script_settings, script_auth_provider)
+        raw = await tools["record_write"](
+            action="create",
+            table="sys_script",
+            data=json.dumps({"name": "BR1"}),
+            script_path=str(script_file),
+            script_field="client_script",
+            preview=False,
+        )
+        result = decode_response(raw)
+        assert result["status"] == "error"
+        assert "Invalid script_field" in result["error"]["message"]
+        assert "sys_script" in result["error"]["message"]
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_script_path_no_script_fields_detected_returns_error(
+        self,
+        script_settings: Settings,
+        script_auth_provider: BasicAuthProvider,
+        tmp_path: Any,
+    ) -> None:
+        # Table with no script-bearing fields - file write should fail cleanly.
+        script_file = tmp_path / "x.js"
+        script_file.write_text("// noop\n")
+
+        _mock_dictionary(
+            "incident",
+            [{"element": "short_description", "internal_type": "string", "attributes": ""}],
+        )
+        tools = _register_and_get_tools(script_settings, script_auth_provider)
+        raw = await tools["record_write"](
+            action="create",
+            table="incident",
+            data=json.dumps({"short_description": "x"}),
+            script_path=str(script_file),
+            preview=False,
+        )
+        result = decode_response(raw)
+        assert result["status"] == "error"
+        assert "no script-bearing fields" in result["error"]["message"]
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_script_path_overrides_data_field_with_warning(
+        self,
+        script_settings: Settings,
+        script_auth_provider: BasicAuthProvider,
+        tmp_path: Any,
+    ) -> None:
+        script_file = tmp_path / "br.js"
+        script_file.write_text("FILE_WINS\n")
+
+        _mock_dictionary(
+            "sys_script",
+            [{"element": "script", "internal_type": "script", "attributes": ""}],
+        )
+        post_mock = respx.post(f"{BASE_URL}/api/now/table/sys_script").mock(
+            return_value=httpx.Response(201, json={"result": {"sys_id": SYS_ID_ART001, "name": "BR1"}}),
+        )
+        tools = _register_and_get_tools(script_settings, script_auth_provider)
+        raw = await tools["record_write"](
+            action="create",
+            table="sys_script",
+            data=json.dumps({"name": "BR1", "script": "DATA_LOSES"}),
+            script_path=str(script_file),
+            preview=False,
+        )
+        result = decode_response(raw)
+        assert result["status"] == "success"
+        warnings = result.get("warnings") or []
+        assert any("overridden by script_path" in w for w in warnings)
+
+        sent = json.loads(post_mock.calls[0].request.content)
+        assert sent["script"] == "FILE_WINS\n"
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_script_path_traversal_blocked(
+        self,
+        script_settings: Settings,
+        script_auth_provider: BasicAuthProvider,
+        tmp_path: Any,
+    ) -> None:
+        # File exists outside script_allowed_root -> PermissionError -> error envelope.
+        _mock_dictionary(
+            "sys_script",
+            [{"element": "script", "internal_type": "script", "attributes": ""}],
+        )
+        outside = tmp_path.parent / "outside.js"
+        outside.write_text("nope")
+        try:
+            tools = _register_and_get_tools(script_settings, script_auth_provider)
+            raw = await tools["record_write"](
+                action="create",
+                table="sys_script",
+                data=json.dumps({"name": "BR1"}),
+                script_path=str(outside),
+                preview=False,
+            )
+            result = decode_response(raw)
+            assert result["status"] == "error"
+            assert "outside the allowed root" in result["error"]["message"]
+        finally:
+            outside.unlink(missing_ok=True)
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_script_path_too_large_returns_error(
+        self,
+        script_settings: Settings,
+        script_auth_provider: BasicAuthProvider,
+        tmp_path: Any,
+    ) -> None:
+        from servicenow_mcp.tools._artifact import MAX_SCRIPT_FILE_BYTES
+
+        _mock_dictionary(
+            "sys_script",
+            [{"element": "script", "internal_type": "script", "attributes": ""}],
+        )
+        big = tmp_path / "big.js"
+        big.write_bytes(b"a" * (MAX_SCRIPT_FILE_BYTES + 1))
+
+        tools = _register_and_get_tools(script_settings, script_auth_provider)
+        raw = await tools["record_write"](
+            action="create",
+            table="sys_script",
+            data=json.dumps({"name": "BR1"}),
+            script_path=str(big),
+            preview=False,
+        )
+        result = decode_response(raw)
+        assert result["status"] == "error"
+        assert "too large" in result["error"]["message"]
+
+
+# ---------------------------------------------------------------------------
+# Policy gates
+# ---------------------------------------------------------------------------
+
+
+class TestPolicyGates:
+    """Defense-in-depth checks: denied tables, prod env, sys_id format."""
+
+    @pytest.mark.asyncio()
+    async def test_denied_table_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        denied = next(iter(DENIED_TABLES))
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["record_write"](
+            action="create",
+            table=denied,
+            data=json.dumps({"x": 1}),
+        )
+        result = decode_response(raw)
+        assert result["status"] == "error"
+
+    @pytest.mark.asyncio()
+    async def test_production_blocks_writes_with_proper_settings(
+        self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider
+    ) -> None:
+        tools = _register_and_get_tools(prod_settings, prod_auth_provider)
+        raw = await tools["record_write"](
+            action="create",
+            table="incident",
+            data=json.dumps({"short_description": "x"}),
+        )
+        result = decode_response(raw)
+        assert result["status"] == "error"
+        assert "production" in result["error"]["message"].lower()
+
+    @pytest.mark.asyncio()
+    async def test_invalid_sys_id_format_returns_error(
         self, settings: Settings, auth_provider: BasicAuthProvider
     ) -> None:
-        """Create proceeds when metadata endpoint returns 500 (best-effort)."""
-        respx.get(METADATA_URL).mock(return_value=httpx.Response(500, json={"error": {"message": "Internal error"}}))
-        respx.post(f"{BASE_URL}/api/now/table/incident").mock(
-            return_value=httpx.Response(
-                201,
-                json={
-                    "result": {
-                        "sys_id": "new003",
-                        "short_description": "Test",
-                    }
-                },
-            )
-        )
-
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_create"](
+        raw = await tools["record_write"](
+            action="update",
             table="incident",
-            data=json.dumps({"short_description": "Test"}),
+            sys_id="not-a-real-sys-id",
+            data=json.dumps({"state": "2"}),
         )
         result = decode_response(raw)
-
-        assert result["status"] == "success"
-        assert result["data"]["sys_id"] == "new003"
-
-
-# -- Payload validation via parse_payload_json --------------------------------
-
-
-class TestPayloadValidation:
-    """Tests covering size, key, and shape validation now provided by parse_payload_json."""
-
-    @pytest.mark.asyncio()
-    async def test_oversize_payload_rejected(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """Oversize JSON payload returns an error envelope without hitting the network."""
-        tools = _register_and_get_tools(settings, auth_provider)
-        oversized = json.dumps({"short_description": "x" * 300_000})
-        raw = await tools["record_create"](table="incident", data=oversized)
-        result = decode_response(raw)
-
         assert result["status"] == "error"
-        assert "maximum size" in result["error"]["message"].lower()
-
-    @pytest.mark.asyncio()
-    async def test_invalid_top_level_key_rejected(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """Top-level key with a space fails validate_identifier and returns an error envelope."""
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_create"](
-            table="incident",
-            data=json.dumps({"FOO BAR": "x"}),
-        )
-        result = decode_response(raw)
-
-        assert result["status"] == "error"
-        assert "invalid key" in result["error"]["message"].lower()
-
-    @pytest.mark.asyncio()
-    async def test_non_object_payload_rejected(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """JSON array (non-object) payload returns an error envelope."""
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_create"](table="incident", data="[1,2,3]")
-        result = decode_response(raw)
-
-        assert result["status"] == "error"
-        assert "json object" in result["error"]["message"].lower()
-
-    @pytest.mark.asyncio()
-    async def test_update_changes_validates_keys(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """record_update validates keys in the changes payload."""
-        tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_update"](
-            table="incident",
-            sys_id=SYS_ID_INC001,
-            changes=json.dumps({"BAD KEY": "v"}),
-        )
-        result = decode_response(raw)
-
-        assert result["status"] == "error"
-        assert "invalid key" in result["error"]["message"].lower()
+        assert "sys_id" in result["error"]["message"].lower()
 
 
-# -- _check_mandatory_fields semantics ----------------------------------------
+# ---------------------------------------------------------------------------
+# ui_macro / XML validation
+# ---------------------------------------------------------------------------
 
 
-class TestCheckMandatoryFieldsSemantics:
-    """Direct unit tests for _check_mandatory_fields helper."""
+class TestUIMacroXMLValidation:
+    """XML validation fires when the detected field has ``internal_type == 'xml'``."""
+
+    def test_validate_ui_macro_xml_accepts_jelly_root(self) -> None:
+        jelly = '<j:jelly xmlns:j="jelly:core" xmlns:g="glide" xmlns:g2="null"><g:evaluate>1</g:evaluate></j:jelly>'
+        assert validate_ui_macro_xml(jelly) is None
+
+    def test_validate_ui_macro_xml_rejects_malformed(self) -> None:
+        bad = "<unclosed>"
+        error = validate_ui_macro_xml(bad)
+        assert error is not None
+        assert "XML content is not well-formed" in error
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_empty_string_treated_as_missing(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """An empty string for a mandatory field is treated as missing."""
-        from servicenow_mcp.client import ServiceNowClient
-        from servicenow_mcp.tools.record_write import _check_mandatory_fields
+    async def test_ui_macro_write_accepts_well_formed_xml(
+        self,
+        script_settings: Settings,
+        script_auth_provider: BasicAuthProvider,
+        tmp_path: Any,
+    ) -> None:
+        script_file = tmp_path / "macro.xml"
+        script_file.write_text(
+            '<j:jelly xmlns:j="jelly:core" xmlns:g="glide" xmlns:g2="null"><g:evaluate>1</g:evaluate></j:jelly>\n'
+        )
 
-        respx.get(METADATA_URL).mock(return_value=httpx.Response(200, json=METADATA_WITH_TWO_MANDATORY))
-
-        async with ServiceNowClient(settings, auth_provider) as client:
-            missing = await _check_mandatory_fields(
-                client, "incident", {"short_description": "", "category": "software"}
-            )
-
-        assert missing == ["short_description"]
+        _mock_dictionary(
+            "sys_ui_macro",
+            [
+                {
+                    "element": "xml",
+                    "internal_type": "xml",
+                    "attributes": "tinymce_allow_all=true",
+                }
+            ],
+        )
+        post_mock = respx.post(f"{BASE_URL}/api/now/table/sys_ui_macro").mock(
+            return_value=httpx.Response(201, json={"result": {"sys_id": SYS_ID_ART001, "name": "M1"}}),
+        )
+        tools = _register_and_get_tools(script_settings, script_auth_provider)
+        raw = await tools["record_write"](
+            action="create",
+            table="sys_ui_macro",
+            data=json.dumps({"name": "M1"}),
+            script_path=str(script_file),
+            preview=False,
+        )
+        assert decode_response(raw)["status"] == "success"
+        sent = json.loads(post_mock.calls[0].request.content)
+        assert sent["xml"].startswith("<j:jelly")
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_none_value_treated_as_missing(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """A None value for a mandatory field is treated as missing."""
-        from servicenow_mcp.client import ServiceNowClient
-        from servicenow_mcp.tools.record_write import _check_mandatory_fields
+    async def test_ui_macro_write_rejects_malformed_xml(
+        self,
+        script_settings: Settings,
+        script_auth_provider: BasicAuthProvider,
+        tmp_path: Any,
+    ) -> None:
+        script_file = tmp_path / "macro.xml"
+        script_file.write_text("<not-well-formed>\n")
 
-        respx.get(METADATA_URL).mock(return_value=httpx.Response(200, json=METADATA_WITH_TWO_MANDATORY))
-
-        async with ServiceNowClient(settings, auth_provider) as client:
-            missing = await _check_mandatory_fields(
-                client, "incident", {"short_description": None, "category": "software"}
-            )
-
-        assert missing == ["short_description"]
+        _mock_dictionary(
+            "sys_ui_macro",
+            [
+                {
+                    "element": "xml",
+                    "internal_type": "xml",
+                    "attributes": "tinymce_allow_all=true",
+                }
+            ],
+        )
+        tools = _register_and_get_tools(script_settings, script_auth_provider)
+        raw = await tools["record_write"](
+            action="create",
+            table="sys_ui_macro",
+            data=json.dumps({"name": "M1"}),
+            script_path=str(script_file),
+            preview=False,
+        )
+        result = decode_response(raw)
+        assert result["status"] == "error"
+        assert "not well-formed" in result["error"]["message"]

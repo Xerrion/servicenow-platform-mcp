@@ -1,10 +1,10 @@
 """Shared test helper utilities."""
 
+import json
 from collections.abc import Callable
 from typing import Any, Protocol, cast
 
 from mcp.server.fastmcp import FastMCP
-from toon_format import decode as toon_decode
 
 
 class RegisteredToolLike(Protocol):
@@ -28,14 +28,14 @@ class _FastMCPLike(Protocol):
 
 
 def decode_response(raw: str) -> dict[str, Any]:
-    """Decode a TOON-encoded tool response, asserting it is a dict.
+    """Decode a JSON-encoded tool response, asserting it is a dict.
 
-    All MCP tool responses in this project are TOON-encoded dicts. This helper
-    narrows the return type from toon_decode's broad union to dict[str, Any],
+    All MCP tool responses in this project are JSON-encoded dicts. This helper
+    narrows the return type from json.loads's broad union to dict[str, Any],
     which eliminates mypy index errors throughout the test suite.
 
     Args:
-        raw: TOON-encoded string from a tool call.
+        raw: JSON-encoded string from a tool call.
 
     Returns:
         Decoded response dict with status, data, correlation_id, etc.
@@ -43,8 +43,8 @@ def decode_response(raw: str) -> dict[str, Any]:
     Raises:
         AssertionError: If the decoded value is not a dict.
     """
-    result = toon_decode(raw)
-    assert isinstance(result, dict), f"Expected dict from toon_decode, got {type(result).__name__}"
+    result = json.loads(raw)
+    assert isinstance(result, dict), f"Expected dict from json.loads, got {type(result).__name__}"
     return result
 
 

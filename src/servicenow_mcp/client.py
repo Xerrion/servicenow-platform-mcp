@@ -20,13 +20,11 @@ from servicenow_mcp.errors import (
 )
 from servicenow_mcp.policy import INTERNAL_QUERY_LIMIT
 from servicenow_mcp.sentry import set_sentry_context
-from servicenow_mcp.utils import ServiceNowQuery, validate_identifier, validate_sys_id
+from servicenow_mcp.utils import ServiceNowQuery, sanitize_query_value, validate_identifier, validate_sys_id
 
 
 logger = logging.getLogger(__name__)
 
-
-_ATF_PLUGIN_ERROR = "ATF Cloud Runner plugin (sn_atf_tg) may not be installed"
 
 # Word-boundary matching so unrelated words containing the substring "acl"
 # (e.g. "oracle", "miracle", "barnacle") do not false-positive.
@@ -897,93 +895,363 @@ class ServiceNowClient:
         self._raise_for_status(response)
         return self._extract_result(response.json())
 
-    # ── ATF Cloud Runner API ───────────────────────────────────────────
+    # ── Flow Designer ────────────────────────────────────────────────────
 
-    def _atf_cloud_runner_url(self, endpoint: str) -> str:
-        """Build the ATF Cloud Runner API URL."""
-        return f"{self._settings.servicenow_instance_url}/api/now/sn_atf_tg/{endpoint}"
-
-    async def atf_run(self, test_or_suite_id: str, is_suite: bool = False) -> dict[str, Any]:
-        """Run an ATF test or suite via Cloud Runner.
-
-        Args:
-            test_or_suite_id: The sys_id of the test or suite to run.
-            is_suite: If True, treat test_or_suite_id as a suite ID; otherwise as a test ID.
-
-        Returns:
-            Response dict with at minimum a "snboqId" for tracking the execution.
-        """
+    async def get_flow_by_sys_id(self, sys_id: str) -> dict[str, Any] | None:
+        """Fetch a single ``sys_hub_flow`` record with display values, or None on 404."""
         http = self._ensure_client()
-        data = {"suiteId" if is_suite else "testId": test_or_suite_id}
-
-        try:
-            response = await http.post(
-                self._atf_cloud_runner_url("test_runner"),
-                headers=await self._headers(),
-                json=data,
-            )
-            self._raise_for_status(response)
-        except NotFoundError:
-            raise NotFoundError(_ATF_PLUGIN_ERROR) from None
-
-        response_data = response.json()
-        try:
-            return self._extract_result(response_data)
-        except KeyError:
-            return response_data
-
-    async def atf_progress(self, snboq_id: str) -> dict[str, Any]:
-        """Get progress of an ATF Cloud Runner execution.
-
-        Args:
-            snboq_id: The execution ID returned by atf_run().
-
-        Returns:
-            Progress dict with fields like "progress" and "state".
-        """
-        http = self._ensure_client()
-        params: dict[str, str] = {"snboqId": snboq_id}
-
         try:
             response = await http.get(
-                self._atf_cloud_runner_url("test_runner_progress"),
+                self._table_url("sys_hub_flow", sys_id),
                 headers=await self._headers(),
-                params=params,
+                params={"sysparm_display_value": "all"},
             )
             self._raise_for_status(response)
         except NotFoundError:
-            raise NotFoundError(_ATF_PLUGIN_ERROR) from None
+            return None
+        return self._extract_result(response.json())
 
-        response_data = response.json()
-        try:
-            return self._extract_result(response_data)
-        except KeyError:
-            return response_data
+    async def find_flows_by_name(self, name: str) -> list[dict[str, Any]]:
+        """Find flows whose ``name`` or ``internal_name`` matches *name* (display values resolved)."""
+        http = self._ensure_client()
+        query = ServiceNowQuery().equals("name", name).or_equals("internal_name", name).build()
+        response = await http.get(
+            self._table_url("sys_hub_flow"),
+            headers=await self._headers(),
+            params={
+                "sysparm_query": query,
+                "sysparm_display_value": "all",
+                "sysparm_limit": "25",
+            },
+        )
+        self._raise_for_status(response)
+        return self._extract_result(response.json())
 
-    async def atf_cancel(self, snboq_id: str) -> dict[str, Any]:
-        """Cancel an ATF Cloud Runner execution.
+    async def list_flow_inputs(self, flow_sys_id: str) -> list[dict[str, Any]]:
+        """List declared inputs for a flow (``sys_hub_flow_input``)."""
+        http = self._ensure_client()
+        response = await http.get(
+            self._table_url("sys_hub_flow_input"),
+            headers=await self._headers(),
+            params={
+                "sysparm_query": f"model={flow_sys_id}^ORDERBYorder",
+                "sysparm_display_value": "all",
+            },
+        )
+        self._raise_for_status(response)
+        return self._extract_result(response.json())
 
-        Args:
-            snboq_id: The execution ID returned by atf_run().
+    async def list_flow_outputs(self, flow_sys_id: str) -> list[dict[str, Any]]:
+        """List declared outputs for a flow (``sys_hub_flow_output``)."""
+        http = self._ensure_client()
+        response = await http.get(
+            self._table_url("sys_hub_flow_output"),
+            headers=await self._headers(),
+            params={
+                "sysparm_query": f"model={flow_sys_id}^ORDERBYorder",
+                "sysparm_display_value": "all",
+            },
+        )
+        self._raise_for_status(response)
+        return self._extract_result(response.json())
 
-        Returns:
-            Result dict confirming cancellation.
+    async def list_flow_variables(self, flow_sys_id: str) -> list[dict[str, Any]]:
+        """List flow-scoped variables (``sys_hub_flow_variable``)."""
+        http = self._ensure_client()
+        response = await http.get(
+            self._table_url("sys_hub_flow_variable"),
+            headers=await self._headers(),
+            params={
+                "sysparm_query": f"flow={flow_sys_id}^ORDERBYorder",
+                "sysparm_display_value": "all",
+            },
+        )
+        self._raise_for_status(response)
+        return self._extract_result(response.json())
+
+    async def list_action_instances_v2(self, flow_sys_id: str) -> list[dict[str, Any]]:
+        """List V2 action instances for a flow (``sys_hub_action_instance_v2``)."""
+        http = self._ensure_client()
+        response = await http.get(
+            self._table_url("sys_hub_action_instance_v2"),
+            headers=await self._headers(),
+            params={
+                "sysparm_query": f"flow={flow_sys_id}^ORDERBYorder",
+                "sysparm_display_value": "all",
+                "sysparm_limit": "1000",
+            },
+        )
+        self._raise_for_status(response)
+        return self._extract_result(response.json())
+
+    async def list_action_instances_v1(self, flow_sys_id: str) -> list[dict[str, Any]]:
+        """List V1 action instances for a flow (``sys_hub_action_instance``)."""
+        http = self._ensure_client()
+        response = await http.get(
+            self._table_url("sys_hub_action_instance"),
+            headers=await self._headers(),
+            params={
+                "sysparm_query": f"flow={flow_sys_id}^ORDERBYorder",
+                "sysparm_display_value": "all",
+                "sysparm_limit": "1000",
+            },
+        )
+        self._raise_for_status(response)
+        return self._extract_result(response.json())
+
+    async def list_logic_instances_v2(self, flow_sys_id: str) -> list[dict[str, Any]]:
+        """List V2 flow-logic instances (``sys_hub_flow_logic_instance_v2``)."""
+        http = self._ensure_client()
+        response = await http.get(
+            self._table_url("sys_hub_flow_logic_instance_v2"),
+            headers=await self._headers(),
+            params={
+                "sysparm_query": f"flow={flow_sys_id}^ORDERBYorder",
+                "sysparm_display_value": "all",
+                "sysparm_limit": "1000",
+            },
+        )
+        self._raise_for_status(response)
+        return self._extract_result(response.json())
+
+    async def list_logic_instances_v1(self, flow_sys_id: str) -> list[dict[str, Any]]:
+        """List V1 flow-logic instances (``sys_hub_flow_logic``)."""
+        http = self._ensure_client()
+        response = await http.get(
+            self._table_url("sys_hub_flow_logic"),
+            headers=await self._headers(),
+            params={
+                "sysparm_query": f"flow={flow_sys_id}^ORDERBYorder",
+                "sysparm_display_value": "all",
+                "sysparm_limit": "1000",
+            },
+        )
+        self._raise_for_status(response)
+        return self._extract_result(response.json())
+
+    async def list_trigger_instances_v2(self, flow_sys_id: str) -> list[dict[str, Any]]:
+        """List V2 trigger instances for a flow (``sys_hub_trigger_instance_v2``)."""
+        http = self._ensure_client()
+        response = await http.get(
+            self._table_url("sys_hub_trigger_instance_v2"),
+            headers=await self._headers(),
+            params={
+                "sysparm_query": f"flow={flow_sys_id}",
+                "sysparm_display_value": "all",
+            },
+        )
+        self._raise_for_status(response)
+        return self._extract_result(response.json())
+
+    async def list_trigger_instances_v1(self, flow_sys_id: str) -> list[dict[str, Any]]:
+        """List V1 trigger instances for a flow (``sys_hub_trigger_instance``)."""
+        http = self._ensure_client()
+        response = await http.get(
+            self._table_url("sys_hub_trigger_instance"),
+            headers=await self._headers(),
+            params={
+                "sysparm_query": f"flow={flow_sys_id}",
+                "sysparm_display_value": "all",
+            },
+        )
+        self._raise_for_status(response)
+        return self._extract_result(response.json())
+
+    async def list_record_triggers(self, remote_trigger_ids: list[str]) -> list[dict[str, Any]]:
+        """Bulk-fetch ``sys_flow_record_trigger`` rows for V2 record-trigger conditions."""
+        if not remote_trigger_ids:
+            return []
+        http = self._ensure_client()
+        ids_csv = ",".join(remote_trigger_ids)
+        limit = min(len(remote_trigger_ids), INTERNAL_QUERY_LIMIT)
+        response = await http.get(
+            self._table_url("sys_flow_record_trigger"),
+            headers=await self._headers(),
+            params={
+                "sysparm_query": f"sys_idIN{ids_csv}",
+                "sysparm_display_value": "all",
+                "sysparm_limit": str(limit),
+            },
+        )
+        self._raise_for_status(response)
+        return self._extract_result(response.json())
+
+    async def get_action_type_definitions(self, action_type_sys_ids: list[str]) -> list[dict[str, Any]]:
+        """Bulk-fetch action-type metadata from ``sys_hub_action_type_base``."""
+        if not action_type_sys_ids:
+            return []
+        http = self._ensure_client()
+        ids_csv = ",".join(action_type_sys_ids)
+        limit = min(len(action_type_sys_ids), INTERNAL_QUERY_LIMIT)
+        response = await http.get(
+            self._table_url("sys_hub_action_type_base"),
+            headers=await self._headers(),
+            params={
+                "sysparm_query": f"sys_idIN{ids_csv}",
+                "sysparm_fields": "sys_id,name,internal_name,sys_scope,category,sys_class_name",
+                "sysparm_display_value": "all",
+                "sysparm_limit": str(limit),
+            },
+        )
+        self._raise_for_status(response)
+        return self._extract_result(response.json())
+
+    async def list_v1_variable_values(self, action_instance_sys_ids: list[str]) -> list[dict[str, Any]]:
+        """Bulk-fetch ``sys_variable_value`` rows for V1 action instance inputs."""
+        if not action_instance_sys_ids:
+            return []
+        http = self._ensure_client()
+        ids_csv = ",".join(action_instance_sys_ids)
+        limit = min(len(action_instance_sys_ids) * 10, 5000)
+        response = await http.get(
+            self._table_url("sys_variable_value"),
+            headers=await self._headers(),
+            params={
+                "sysparm_query": f"document=sys_hub_action_instance^document_keyIN{ids_csv}",
+                "sysparm_display_value": "all",
+                "sysparm_limit": str(limit),
+            },
+        )
+        self._raise_for_status(response)
+        return self._extract_result(response.json())
+
+    async def find_record_triggers_by_table(self, table: str) -> list[dict[str, Any]]:
+        """Find ``sys_flow_record_trigger`` rows for a given table."""
+        validate_identifier(table)
+        http = self._ensure_client()
+        response = await http.get(
+            self._table_url("sys_flow_record_trigger"),
+            headers=await self._headers(),
+            params={
+                "sysparm_query": f"table={table}",
+                "sysparm_display_value": "all",
+                "sysparm_limit": str(INTERNAL_QUERY_LIMIT),
+            },
+        )
+        self._raise_for_status(response)
+        return self._extract_result(response.json())
+
+    async def list_v2_triggers_by_remote_ids(self, remote_trigger_ids: list[str]) -> list[dict[str, Any]]:
+        """Find V2 trigger instances linked to the given record-trigger sys_ids.
+
+        Some V2 trigger instances reference the record-trigger via
+        ``remote_trigger_id``; others reuse the same sys_id. Query both
+        relationships in a single OR condition.
+        """
+        if not remote_trigger_ids:
+            return []
+        http = self._ensure_client()
+        ids_csv = ",".join(remote_trigger_ids)
+        limit = min(len(remote_trigger_ids), INTERNAL_QUERY_LIMIT)
+        response = await http.get(
+            self._table_url("sys_hub_trigger_instance_v2"),
+            headers=await self._headers(),
+            params={
+                "sysparm_query": f"remote_trigger_idIN{ids_csv}^ORsys_idIN{ids_csv}",
+                "sysparm_display_value": "all",
+                "sysparm_limit": str(limit),
+            },
+        )
+        self._raise_for_status(response)
+        return self._extract_result(response.json())
+
+    async def list_v1_triggers_by_table(self, table: str) -> list[dict[str, Any]]:
+        """Find V1 trigger instances directly bound to a given table."""
+        validate_identifier(table)
+        http = self._ensure_client()
+        response = await http.get(
+            self._table_url("sys_hub_trigger_instance"),
+            headers=await self._headers(),
+            params={
+                "sysparm_query": f"table={table}",
+                "sysparm_display_value": "all",
+                "sysparm_limit": str(INTERNAL_QUERY_LIMIT),
+            },
+        )
+        self._raise_for_status(response)
+        return self._extract_result(response.json())
+
+    async def list_triggers_filtered(
+        self,
+        *,
+        trigger_type: str = "",
+        table: str = "",
+        active: str = "",
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        """List trigger instances across V1 and V2 with optional filters.
+
+        Returns a dict ``{"v2": [...], "v1": [...]}``. Each side is capped at
+        *limit*. Display values are resolved so ``flow`` references include
+        the linked flow's name.
         """
         http = self._ensure_client()
-        data = {"snboqId": snboq_id}
+        capped = max(1, min(limit, INTERNAL_QUERY_LIMIT))
 
-        try:
-            response = await http.post(
-                self._atf_cloud_runner_url("cancel_test_runner"),
-                headers=await self._headers(),
-                json=data,
-            )
-            self._raise_for_status(response)
-        except NotFoundError:
-            raise NotFoundError(_ATF_PLUGIN_ERROR) from None
+        v2_parts: list[str] = []
+        v1_parts: list[str] = []
+        if trigger_type:
+            safe_type = sanitize_query_value(trigger_type)
+            v2_parts.append(f"type={safe_type}")
+            v1_parts.append(f"type={safe_type}")
+        if active in {"true", "false"}:
+            safe_active = sanitize_query_value(active)
+            v2_parts.append(f"active={safe_active}")
+            v1_parts.append(f"active={safe_active}")
+        if table:
+            # V1 trigger has ``table`` directly; V2 typically goes via
+            # sys_flow_record_trigger but we still allow a table filter on V2
+            # rows that store ``table`` (record-update/insert variants do).
+            # ``table`` is validated as an identifier upstream; safe to interpolate.
+            v2_parts.append(f"table={table}")
+            v1_parts.append(f"table={table}")
 
-        response_data = response.json()
-        try:
-            return self._extract_result(response_data)
-        except KeyError:
-            return response_data
+        v2_query = "^".join(v2_parts)
+        v1_query = "^".join(v1_parts)
+
+        v2_response = await http.get(
+            self._table_url("sys_hub_trigger_instance_v2"),
+            headers=await self._headers(),
+            params={
+                "sysparm_query": v2_query,
+                "sysparm_display_value": "all",
+                "sysparm_limit": str(capped),
+            },
+        )
+        self._raise_for_status(v2_response)
+
+        v1_response = await http.get(
+            self._table_url("sys_hub_trigger_instance"),
+            headers=await self._headers(),
+            params={
+                "sysparm_query": v1_query,
+                "sysparm_display_value": "all",
+                "sysparm_limit": str(capped),
+            },
+        )
+        self._raise_for_status(v1_response)
+
+        return {
+            "v2": self._extract_result(v2_response.json()),
+            "v1": self._extract_result(v1_response.json()),
+        }
+
+    async def get_flows_bulk(self, flow_sys_ids: list[str]) -> list[dict[str, Any]]:
+        """Bulk-fetch ``sys_hub_flow`` headers for a set of sys_ids."""
+        if not flow_sys_ids:
+            return []
+        http = self._ensure_client()
+        ids_csv = ",".join(flow_sys_ids)
+        limit = min(len(flow_sys_ids), INTERNAL_QUERY_LIMIT)
+        response = await http.get(
+            self._table_url("sys_hub_flow"),
+            headers=await self._headers(),
+            params={
+                "sysparm_query": f"sys_idIN{ids_csv}",
+                "sysparm_fields": "sys_id,name,internal_name,type,active,sys_scope,description",
+                "sysparm_display_value": "all",
+                "sysparm_limit": str(limit),
+            },
+        )
+        self._raise_for_status(response)
+        return self._extract_result(response.json())

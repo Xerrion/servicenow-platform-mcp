@@ -40,7 +40,11 @@ Thumbs.db
 # Sisyphus
 .sisyphus/
 
+# Agent deliverables
+.deliverables/
+
 # uv
-uv.lock
+# uv.lock is tracked; build artifacts only:
+.uv/
 
 .ruff_cache

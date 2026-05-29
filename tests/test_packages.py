@@ -1,689 +1,235 @@
-"""Tests for tool package system."""
+"""Tests for the unified tool package registry.
+
+Phase 3b collapsed 14 legacy presets into 4 (``full``, ``readonly``,
+``core_readonly``, ``none``) and 21 legacy tool groups into 7 unified
+groups under ``servicenow_mcp.tools.*``.
+"""
+
+import importlib
 
 import pytest
 
+from servicenow_mcp.packages import (
+    _TOOL_GROUP_MODULES,
+    PACKAGE_REGISTRY,
+    get_package,
+    list_packages,
+)
+
+
+EXPECTED_PRESETS = {"full", "readonly", "core_readonly", "none"}
+EXPECTED_GROUPS = {
+    "query",
+    "describe",
+    "record_write",
+    "record_read",
+    "attachment",
+    "investigate",
+    "resolve_choice",
+    "service_catalog",
+    "build_query",
+    "flow",
+    "audit",
+}
+
 
 class TestPackageRegistry:
-    """Test package registry and loading."""
+    """Shape of the preset registry."""
 
-    def test_registry_contains_full(self) -> None:
-        """full package is defined in the registry."""
-        from servicenow_mcp.packages import PACKAGE_REGISTRY
+    def test_registry_has_exactly_four_presets(self) -> None:
+        assert set(PACKAGE_REGISTRY.keys()) == EXPECTED_PRESETS
 
-        assert "full" in PACKAGE_REGISTRY
+    def test_full_contains_ten_unified_groups(self) -> None:
+        assert set(PACKAGE_REGISTRY["full"]) == EXPECTED_GROUPS
+        assert len(PACKAGE_REGISTRY["full"]) == 11
 
-    def test_registry_contains_none(self) -> None:
-        """'none' package is defined in the registry."""
-        from servicenow_mcp.packages import PACKAGE_REGISTRY
+    def test_readonly_is_strict_subset_of_full(self) -> None:
+        readonly = set(PACKAGE_REGISTRY["readonly"])
+        full = set(PACKAGE_REGISTRY["full"])
+        assert readonly < full
+        # readonly excludes mutating groups and the build_query helper
+        assert "record_write" not in readonly
+        assert "service_catalog" not in readonly
+        assert "build_query" not in readonly
+        # record_read is read-only and included
+        assert "record_read" in readonly
 
-        assert "none" in PACKAGE_REGISTRY
+    def test_core_readonly_is_strict_subset_of_readonly(self) -> None:
+        core = set(PACKAGE_REGISTRY["core_readonly"])
+        readonly = set(PACKAGE_REGISTRY["readonly"])
+        assert core < readonly
+        assert core == {"query", "describe", "attachment"}
+        assert "build_query" not in core
 
-    def test_registry_contains_core_readonly(self) -> None:
-        """core_readonly package is defined."""
-        from servicenow_mcp.packages import PACKAGE_REGISTRY
-
-        assert "core_readonly" in PACKAGE_REGISTRY
-
-    def test_full_includes_table(self) -> None:
-        """full package includes table tools."""
-        from servicenow_mcp.packages import PACKAGE_REGISTRY
-
-        assert "table" in PACKAGE_REGISTRY["full"]
-
-    def test_full_includes_metadata(self) -> None:
-        """full package includes metadata tools."""
-        from servicenow_mcp.packages import PACKAGE_REGISTRY
-
-        assert "metadata" in PACKAGE_REGISTRY["full"]
-
-    def test_full_includes_record(self) -> None:
-        """full package includes record tools."""
-        from servicenow_mcp.packages import PACKAGE_REGISTRY
-
-        assert "record" in PACKAGE_REGISTRY["full"]
-
-    def test_none_package_is_empty(self) -> None:
-        """'none' package has no tool groups."""
-        from servicenow_mcp.packages import PACKAGE_REGISTRY
-
+    def test_none_is_empty(self) -> None:
         assert PACKAGE_REGISTRY["none"] == []
 
-    def test_get_package_valid(self) -> None:
-        """get_package returns tool groups for a valid package."""
-        from servicenow_mcp.packages import get_package
+    def test_legacy_presets_removed(self) -> None:
+        for legacy in (
+            "itil",
+            "developer",
+            "analyst",
+            "incident_management",
+            "change_management",
+            "cmdb",
+            "problem_management",
+            "request_management",
+            "knowledge_management",
+            "service_catalog",  # was a preset; now a tool group name
+        ):
+            assert legacy not in PACKAGE_REGISTRY
 
+
+class TestToolGroupModules:
+    """Shape and importability of ``_TOOL_GROUP_MODULES``."""
+
+    def test_groups_match_expected_set(self) -> None:
+        assert set(_TOOL_GROUP_MODULES.keys()) == EXPECTED_GROUPS
+
+    def test_all_paths_under_unified_namespace(self) -> None:
+        for group, path in _TOOL_GROUP_MODULES.items():
+            assert path == f"servicenow_mcp.tools.{group}"
+
+    @pytest.mark.parametrize("group", sorted(EXPECTED_GROUPS))
+    def test_each_group_module_is_importable(self, group: str) -> None:
+        module = importlib.import_module(_TOOL_GROUP_MODULES[group])
+        assert hasattr(module, "register_tools"), f"Module {_TOOL_GROUP_MODULES[group]} must export register_tools()"
+
+
+class TestGetPackage:
+    """``get_package`` resolves preset names and validates inputs."""
+
+    @pytest.mark.parametrize("preset", sorted(EXPECTED_PRESETS))
+    def test_known_preset_round_trips(self, preset: str) -> None:
+        assert get_package(preset) == PACKAGE_REGISTRY[preset]
+
+    def test_returns_a_copy(self) -> None:
         groups = get_package("full")
-        assert isinstance(groups, list)
-        assert len(groups) > 0
+        groups.append("not_a_real_group")
+        fresh = get_package("full")
+        assert "not_a_real_group" not in fresh
 
-    def test_get_package_invalid_raises(self) -> None:
-        """get_package raises ValueError for unknown package."""
-        from servicenow_mcp.packages import get_package
-
+    def test_unknown_package_raises(self) -> None:
         with pytest.raises(ValueError, match="Unknown"):
             get_package("nonexistent_package")
 
-    def test_full_includes_changes(self) -> None:
-        """full package includes change intelligence tools."""
-        from servicenow_mcp.packages import PACKAGE_REGISTRY
 
-        assert "changes" in PACKAGE_REGISTRY["full"]
+class TestListPackages:
+    """``list_packages`` exposes the registry safely."""
 
-    def test_full_includes_debug(self) -> None:
-        """full package includes debug/trace tools."""
-        from servicenow_mcp.packages import PACKAGE_REGISTRY
+    def test_returns_all_presets(self) -> None:
+        assert set(list_packages().keys()) == EXPECTED_PRESETS
 
-        assert "debug" in PACKAGE_REGISTRY["full"]
-
-    def test_list_packages_returns_all(self) -> None:
-        """list_packages returns all registered packages."""
-        from servicenow_mcp.packages import list_packages
-
+    def test_returns_deep_copy(self) -> None:
         packages = list_packages()
-        assert "none" in packages
-        assert "full" in packages
-        assert "core_readonly" in packages
-
-    def test_dev_debug_not_in_registry(self) -> None:
-        """dev_debug package has been removed from the registry."""
-        from servicenow_mcp.packages import PACKAGE_REGISTRY
-
-        assert "dev_debug" not in PACKAGE_REGISTRY
-
-    def test_get_package_returns_copy(self) -> None:
-        """get_package returns a copy — mutating it does not affect the registry."""
-        from servicenow_mcp.packages import get_package
-
-        groups = get_package("full")
-        groups.append("should_not_persist")
-        fresh = get_package("full")
-        assert "should_not_persist" not in fresh
-
-    def test_list_packages_returns_copies(self) -> None:
-        """list_packages returns deep copies of value lists."""
-        from servicenow_mcp.packages import list_packages
-
-        packages = list_packages()
-        packages["full"].append("should_not_persist")
+        packages["full"].append("not_a_real_group")
         fresh = list_packages()
-        assert "should_not_persist" not in fresh["full"]
+        assert "not_a_real_group" not in fresh["full"]
 
-    def test_get_package_itil(self) -> None:
-        """get_package returns correct groups for itil preset."""
-        from servicenow_mcp.packages import get_package
 
-        groups = get_package("itil")
-        expected = [
-            "table",
-            "record",
+class TestCommaSyntax:
+    """Custom comma-separated tool packages."""
+
+    def test_single_group(self) -> None:
+        assert get_package("query") == ["query"]
+
+    def test_multiple_groups_preserve_order(self) -> None:
+        assert get_package("query,describe,attachment") == [
+            "query",
+            "describe",
             "attachment",
-            "record_write",
-            "attachment_write",
-            "metadata",
-            "artifact_write",
-            "changes",
-            "debug",
-            "documentation",
-            "workflow",
-            "flow_designer",
-            "domain_incident",
-            "domain_change",
-            "domain_problem",
-            "domain_request",
         ]
-        assert groups == expected
-        assert len(groups) == 16
 
-    def test_get_package_developer(self) -> None:
-        """get_package returns correct groups for developer preset."""
-        from servicenow_mcp.packages import get_package
-
-        groups = get_package("developer")
-        expected = [
-            "table",
-            "record",
+    def test_strips_whitespace(self) -> None:
+        assert get_package("query, describe ,attachment") == [
+            "query",
+            "describe",
             "attachment",
-            "record_write",
-            "attachment_write",
-            "metadata",
-            "artifact_write",
-            "changes",
-            "debug",
-            "investigations",
-            "documentation",
-            "workflow",
-            "flow_designer",
         ]
-        assert groups == expected
-        assert len(groups) == 13
 
-    def test_get_package_readonly(self) -> None:
-        """get_package returns correct groups for readonly preset."""
-        from servicenow_mcp.packages import get_package
+    def test_deduplicates(self) -> None:
+        assert get_package("query,describe,query,describe") == ["query", "describe"]
 
-        groups = get_package("readonly")
-        expected = [
-            "table",
-            "record",
-            "attachment",
-            "metadata",
-            "changes",
-            "debug",
-            "investigations",
-            "documentation",
-            "workflow",
-            "flow_designer",
-        ]
-        assert groups == expected
-        assert len(groups) == 10
-
-    def test_get_package_analyst(self) -> None:
-        """get_package returns correct groups for analyst preset."""
-        from servicenow_mcp.packages import get_package
-
-        groups = get_package("analyst")
-        expected = [
-            "table",
-            "record",
-            "attachment",
-            "metadata",
-            "investigations",
-            "documentation",
-            "workflow",
-            "flow_designer",
-        ]
-        assert groups == expected
-        assert len(groups) == 8
-
-    def test_list_packages_includes_itil(self) -> None:
-        """list_packages includes itil preset."""
-        from servicenow_mcp.packages import list_packages
-
-        packages = list_packages()
-        assert "itil" in packages
-
-    def test_list_packages_includes_developer(self) -> None:
-        """list_packages includes developer preset."""
-        from servicenow_mcp.packages import list_packages
-
-        packages = list_packages()
-        assert "developer" in packages
-
-    def test_list_packages_includes_readonly(self) -> None:
-        """list_packages includes readonly preset."""
-        from servicenow_mcp.packages import list_packages
-
-        packages = list_packages()
-        assert "readonly" in packages
-
-    def test_list_packages_includes_analyst(self) -> None:
-        """list_packages includes analyst preset."""
-        from servicenow_mcp.packages import list_packages
-
-        packages = list_packages()
-        assert "analyst" in packages
-
-    def test_full_package_unchanged(self) -> None:
-        """full package returns all groups including attachment support."""
-        from servicenow_mcp.packages import get_package
-
-        groups = get_package("full")
-        assert "table" in groups
-        assert "record" in groups
-        assert "attachment" in groups
-        assert "record_write" in groups
-        assert "attachment_write" in groups
-        assert "metadata" in groups
-        assert "changes" in groups
-        assert "debug" in groups
-        assert "investigations" in groups
-        assert "documentation" in groups
-        assert "workflow" in groups
-        assert "flow_designer" in groups
-        assert "artifact_write" in groups
-        assert "testing" not in groups
-        assert len(groups) == 20
-
-
-class TestCommaSeparatedGroups:
-    """Test comma-separated group syntax for custom tool packages."""
-
-    def test_comma_separated_valid_groups(self) -> None:
-        """get_package accepts comma-separated group names and returns list."""
-        from servicenow_mcp.packages import get_package
-
-        groups = get_package("table,debug,record")
-        assert groups == ["table", "debug", "record"]
-
-    def test_comma_separated_with_spaces(self) -> None:
-        """get_package strips whitespace from comma-separated groups."""
-        from servicenow_mcp.packages import get_package
-
-        groups = get_package("table, debug, record")
-        assert groups == ["table", "debug", "record"]
-
-    def test_comma_separated_deduplicates(self) -> None:
-        """get_package deduplicates repeated group names."""
-        from servicenow_mcp.packages import get_package
-
-        groups = get_package("debug,debug,debug")
-        assert groups == ["debug"]
-
-    def test_comma_separated_mixed_duplicates(self) -> None:
-        """get_package deduplicates mixed repeated groups."""
-        from servicenow_mcp.packages import get_package
-
-        groups = get_package("table,debug,table,record,debug")
-        assert groups == ["table", "debug", "record"]
-
-    def test_comma_separated_invalid_group_raises(self) -> None:
-        """get_package raises ValueError for unknown group names."""
-        from servicenow_mcp.packages import get_package
-
+    def test_unknown_group_raises(self) -> None:
         with pytest.raises(ValueError, match="Unknown group"):
-            get_package("table,invalid_group")
+            get_package("query,not_a_real_group")
 
-    def test_comma_separated_multiple_invalid_groups_raises(self) -> None:
-        """get_package mentions all invalid group names in error."""
-        from servicenow_mcp.packages import get_package
+    def test_unknown_group_lists_valid_groups(self) -> None:
+        with pytest.raises(ValueError, match="Unknown") as exc_info:
+            get_package("nope_not_real_group")
+        message = str(exc_info.value)
+        # Validates against the unified group catalog.
+        assert "query" in message
+        assert "describe" in message
 
-        with pytest.raises(ValueError, match="invalid_group"):
-            get_package("table,invalid_group,debug,fake_group")
-
-    def test_comma_separated_empty_groups_raises(self) -> None:
-        """get_package raises ValueError for empty group names."""
-        from servicenow_mcp.packages import get_package
-
+    def test_empty_segment_raises(self) -> None:
         with pytest.raises(ValueError, match="empty"):
             get_package(",,,")
 
-    def test_comma_separated_trailing_comma_raises(self) -> None:
-        """get_package raises ValueError for trailing commas."""
-        from servicenow_mcp.packages import get_package
-
+    def test_trailing_comma_raises(self) -> None:
         with pytest.raises(ValueError, match="empty"):
-            get_package("debug,table,")
+            get_package("query,describe,")
 
-    def test_comma_separated_leading_comma_raises(self) -> None:
-        """get_package raises ValueError for leading commas."""
-        from servicenow_mcp.packages import get_package
-
+    def test_leading_comma_raises(self) -> None:
         with pytest.raises(ValueError, match="empty"):
-            get_package(",debug,table")
+            get_package(",query,describe")
 
-    def test_preset_name_still_works(self) -> None:
-        """get_package still returns preset when name is in PACKAGE_REGISTRY."""
-        from servicenow_mcp.packages import get_package
-
-        groups = get_package("itil")
-        assert isinstance(groups, list)
-        assert "table" in groups
-
-    def test_comma_separated_cannot_use_preset_names(self) -> None:
-        """get_package rejects preset names in comma syntax."""
-        from servicenow_mcp.packages import get_package
-
+    @pytest.mark.parametrize("preset", sorted(EXPECTED_PRESETS))
+    def test_preset_name_in_comma_list_is_rejected(self, preset: str) -> None:
         with pytest.raises(ValueError, match="Cannot use preset package names"):
-            get_package("table,itil,debug")
-
-    def test_comma_separated_single_group(self) -> None:
-        """get_package accepts single group name."""
-        from servicenow_mcp.packages import get_package
-
-        groups = get_package("debug")
-        assert groups == ["debug"]
-
-    def test_comma_separated_preserves_order(self) -> None:
-        """get_package preserves order while deduplicating."""
-        from servicenow_mcp.packages import get_package
-
-        groups = get_package("record,debug,table,debug")
-        assert groups == ["record", "debug", "table"]
-
-    def test_comma_separated_duplicate_preset_skipped(self) -> None:
-        """get_package skips repeated preset names already flagged as collisions."""
-        from servicenow_mcp.packages import get_package
-
-        with pytest.raises(ValueError, match="Cannot use preset package names"):
-            get_package("table,itil,itil,debug")
-
-    def test_comma_separated_duplicate_unknown_skipped(self) -> None:
-        """get_package skips repeated unknown names already flagged."""
-        from servicenow_mcp.packages import get_package
-
-        with pytest.raises(ValueError, match="Unknown group"):
-            get_package("table,bogus,bogus,debug")
-
-
-class TestDomainPackages:
-    """Test domain-specific packages."""
-
-    def test_incident_management_package(self) -> None:
-        """incident_management package includes correct groups."""
-        from servicenow_mcp.packages import get_package
-
-        groups = get_package("incident_management")
-        assert "domain_incident" in groups
-        assert "table" in groups
-        assert "record" in groups
-        assert "attachment" in groups
-        assert "record_write" in groups
-        assert "attachment_write" in groups
-        assert "debug" in groups
-        assert "workflow" in groups
-        assert "flow_designer" in groups
-        assert len(groups) == 9
-
-    def test_change_management_package(self) -> None:
-        """change_management package includes correct groups."""
-        from servicenow_mcp.packages import get_package
-
-        groups = get_package("change_management")
-        assert "domain_change" in groups
-        assert "table" in groups
-        assert "record" in groups
-        assert "attachment" in groups
-        assert "record_write" in groups
-        assert "attachment_write" in groups
-        assert "changes" in groups
-        assert "flow_designer" in groups
-        assert len(groups) == 8
-
-    def test_cmdb_package(self) -> None:
-        """cmdb package includes correct groups."""
-        from servicenow_mcp.packages import get_package
-
-        groups = get_package("cmdb")
-        assert "domain_cmdb" in groups
-        assert "table" in groups
-        assert "record" in groups
-        assert "attachment" in groups
-        assert "record_write" in groups
-        assert "attachment_write" in groups
-        assert len(groups) == 6
-
-    def test_problem_management_package(self) -> None:
-        """problem_management package includes correct groups."""
-        from servicenow_mcp.packages import get_package
-
-        groups = get_package("problem_management")
-        assert "domain_problem" in groups
-        assert "table" in groups
-        assert "record" in groups
-        assert "attachment" in groups
-        assert "record_write" in groups
-        assert "attachment_write" in groups
-        assert "debug" in groups
-        assert "workflow" in groups
-        assert "flow_designer" in groups
-        assert len(groups) == 9
-
-    def test_request_management_package(self) -> None:
-        """request_management package includes correct groups."""
-        from servicenow_mcp.packages import get_package
-
-        groups = get_package("request_management")
-        assert "domain_request" in groups
-        assert "table" in groups
-        assert "record" in groups
-        assert "attachment" in groups
-        assert "record_write" in groups
-        assert "attachment_write" in groups
-        assert "workflow" in groups
-        assert "flow_designer" in groups
-        assert len(groups) == 8
-
-    def test_knowledge_management_package(self) -> None:
-        """knowledge_management package includes correct groups."""
-        from servicenow_mcp.packages import get_package
-
-        groups = get_package("knowledge_management")
-        assert "domain_knowledge" in groups
-        assert "table" in groups
-        assert "record" in groups
-        assert "attachment" in groups
-        assert "record_write" in groups
-        assert "attachment_write" in groups
-        assert len(groups) == 6
-
-    def test_full_package_includes_all_domain_groups(self) -> None:
-        """full package includes exactly 7 domain groups."""
-        from servicenow_mcp.packages import get_package
-
-        groups = get_package("full")
-        domain_groups = [g for g in groups if g.startswith("domain_")]
-        assert len(domain_groups) == 7
-        assert "domain_incident" in domain_groups
-        assert "domain_change" in domain_groups
-        assert "domain_cmdb" in domain_groups
-        assert "domain_problem" in domain_groups
-        assert "domain_request" in domain_groups
-        assert "domain_knowledge" in domain_groups
-        assert "domain_service_catalog" in domain_groups
-
-    def test_itil_package_includes_four_domain_groups(self) -> None:
-        """itil package includes 4 domain groups (incident, change, problem, request)."""
-        from servicenow_mcp.packages import get_package
-
-        groups = get_package("itil")
-        domain_groups = [g for g in groups if g.startswith("domain_")]
-        assert len(domain_groups) == 4
-        assert "domain_incident" in domain_groups
-        assert "domain_change" in domain_groups
-        assert "domain_problem" in domain_groups
-        assert "domain_request" in domain_groups
-
-    def test_list_packages_includes_all_domain_packages(self) -> None:
-        """list_packages includes all 7 domain-specific packages."""
-        from servicenow_mcp.packages import list_packages
-
-        packages = list_packages()
-        assert "incident_management" in packages
-        assert "change_management" in packages
-        assert "cmdb" in packages
-        assert "problem_management" in packages
-        assert "request_management" in packages
-        assert "knowledge_management" in packages
-        assert "service_catalog" in packages
-
-    def test_comma_syntax_with_domain_groups(self) -> None:
-        """get_package accepts comma-separated syntax with domain groups."""
-        from servicenow_mcp.packages import get_package
-
-        groups = get_package("table,domain_incident,record")
-        assert groups == ["table", "domain_incident", "record"]
-
-    def test_comma_syntax_multiple_domain_groups(self) -> None:
-        """get_package accepts multiple domain groups in comma syntax."""
-        from servicenow_mcp.packages import get_package
-
-        groups = get_package("domain_incident,domain_change,record")
-        assert groups == ["domain_incident", "domain_change", "record"]
-
-    def test_backward_compatibility_full_package_count(self) -> None:
-        """full package has 20 total groups including attachment support."""
-        from servicenow_mcp.packages import get_package
-
-        groups = get_package("full")
-        assert len(groups) == 20
-
-    def test_backward_compatibility_itil_package_count(self) -> None:
-        """itil package has 16 total groups including attachment support."""
-        from servicenow_mcp.packages import get_package
-
-        groups = get_package("itil")
-        assert len(groups) == 16
-
-    def test_developer_package_unchanged(self) -> None:
-        """developer package has 13 groups and no domain groups."""
-        from servicenow_mcp.packages import get_package
-
-        groups = get_package("developer")
-        assert len(groups) == 13
-        domain_groups = [g for g in groups if g.startswith("domain_")]
-        assert len(domain_groups) == 0
-
-    def test_readonly_package_unchanged(self) -> None:
-        """readonly package has 10 groups and no domain groups."""
-        from servicenow_mcp.packages import get_package
-
-        groups = get_package("readonly")
-        assert len(groups) == 10
-        domain_groups = [g for g in groups if g.startswith("domain_")]
-        assert len(domain_groups) == 0
-
-    def test_analyst_package_unchanged(self) -> None:
-        """analyst package has 8 groups and no domain groups."""
-        from servicenow_mcp.packages import get_package
-
-        groups = get_package("analyst")
-        assert len(groups) == 8
-        domain_groups = [g for g in groups if g.startswith("domain_")]
-        assert len(domain_groups) == 0
-
-
-class TestToolNameUniqueness:
-    """Integration tests verifying tool name uniqueness across packages."""
-
-    def _load_tools_for_package(self, package_name: str) -> dict[str, list[str]]:
-        """Load all tools for a package and return tool names grouped by module.
-
-        Returns:
-            Dict mapping module names to list of tool names.
-        """
-        import importlib
-
-        from servicenow_mcp.packages import _TOOL_GROUP_MODULES, get_package
-
-        tool_groups = get_package(package_name)
-        tools_by_module: dict[str, list[str]] = {}
-
-        for group_name in tool_groups:
-            module_path = _TOOL_GROUP_MODULES.get(group_name)
-            if module_path:
-                module = importlib.import_module(module_path)
-                assert hasattr(module, "TOOL_NAMES"), (
-                    f"Module {module_path} (group '{group_name}') must export a TOOL_NAMES list"
-                )
-                tools_by_module[group_name] = module.TOOL_NAMES
-
-        return tools_by_module
-
-    def _get_all_tool_names(self, tools_by_module: dict[str, list[str]]) -> list[str]:
-        """Flatten tool names from all modules."""
-        all_tools = []
-        for tools in tools_by_module.values():
-            all_tools.extend(tools)
-        return all_tools
-
-    def test_full_package_tool_uniqueness(self) -> None:
-        """full package has no duplicate tool names."""
-        tools_by_module = self._load_tools_for_package("full")
-        all_tools = self._get_all_tool_names(tools_by_module)
-
-        seen = set()
-        duplicates = set()
-        for tool in all_tools:
-            if tool in seen:
-                duplicates.add(tool)
-            seen.add(tool)
-
-        assert len(duplicates) == 0, f"Duplicate tools in 'full' package: {duplicates}"
-
-    def test_itil_package_tool_uniqueness(self) -> None:
-        """itil package has no duplicate tool names."""
-        tools_by_module = self._load_tools_for_package("itil")
-        all_tools = self._get_all_tool_names(tools_by_module)
-
-        seen = set()
-        duplicates = set()
-        for tool in all_tools:
-            if tool in seen:
-                duplicates.add(tool)
-            seen.add(tool)
-
-        assert len(duplicates) == 0, f"Duplicate tools in 'itil' package: {duplicates}"
-
-    def test_incident_management_package_tool_uniqueness(self) -> None:
-        """incident_management package has no duplicate tool names."""
-        tools_by_module = self._load_tools_for_package("incident_management")
-        all_tools = self._get_all_tool_names(tools_by_module)
-
-        seen = set()
-        duplicates = set()
-        for tool in all_tools:
-            if tool in seen:
-                duplicates.add(tool)
-            seen.add(tool)
-
-        assert len(duplicates) == 0, f"Duplicate tools in 'incident_management' package: {duplicates}"
-
-    def test_change_management_package_tool_uniqueness(self) -> None:
-        """change_management package has no duplicate tool names."""
-        tools_by_module = self._load_tools_for_package("change_management")
-        all_tools = self._get_all_tool_names(tools_by_module)
-
-        seen = set()
-        duplicates = set()
-        for tool in all_tools:
-            if tool in seen:
-                duplicates.add(tool)
-            seen.add(tool)
-
-        assert len(duplicates) == 0, f"Duplicate tools in 'change_management' package: {duplicates}"
-
-    def test_cmdb_package_tool_uniqueness(self) -> None:
-        """cmdb package has no duplicate tool names."""
-        tools_by_module = self._load_tools_for_package("cmdb")
-        all_tools = self._get_all_tool_names(tools_by_module)
-
-        seen = set()
-        duplicates = set()
-        for tool in all_tools:
-            if tool in seen:
-                duplicates.add(tool)
-            seen.add(tool)
-
-        assert len(duplicates) == 0, f"Duplicate tools in 'cmdb' package: {duplicates}"
-
-    def test_problem_management_package_tool_uniqueness(self) -> None:
-        """problem_management package has no duplicate tool names."""
-        tools_by_module = self._load_tools_for_package("problem_management")
-        all_tools = self._get_all_tool_names(tools_by_module)
-
-        seen = set()
-        duplicates = set()
-        for tool in all_tools:
-            if tool in seen:
-                duplicates.add(tool)
-            seen.add(tool)
-
-        assert len(duplicates) == 0, f"Duplicate tools in 'problem_management' package: {duplicates}"
-
-    def test_request_management_package_tool_uniqueness(self) -> None:
-        """request_management package has no duplicate tool names."""
-        tools_by_module = self._load_tools_for_package("request_management")
-        all_tools = self._get_all_tool_names(tools_by_module)
-
-        seen = set()
-        duplicates = set()
-        for tool in all_tools:
-            if tool in seen:
-                duplicates.add(tool)
-            seen.add(tool)
-
-        assert len(duplicates) == 0, f"Duplicate tools in 'request_management' package: {duplicates}"
-
-    def test_knowledge_management_package_tool_uniqueness(self) -> None:
-        """knowledge_management package has no duplicate tool names."""
-        tools_by_module = self._load_tools_for_package("knowledge_management")
-        all_tools = self._get_all_tool_names(tools_by_module)
-
-        seen = set()
-        duplicates = set()
-        for tool in all_tools:
-            if tool in seen:
-                duplicates.add(tool)
-            seen.add(tool)
-
-        assert len(duplicates) == 0, f"Duplicate tools in 'knowledge_management' package: {duplicates}"
+            get_package(f"query,{preset},describe")
+
+    def test_service_catalog_resolves_as_group_now_that_preset_is_gone(self) -> None:
+        """The legacy ``service_catalog`` preset is gone, so the bare name now
+        resolves via the comma-syntax path to the single unified tool group of
+        the same name. This is a documented semantics change."""
+        assert get_package("service_catalog") == ["service_catalog"]
+
+
+def test_domain_groups_not_in_unified_registry() -> None:
+    """Phase 3b: legacy ``domain_*`` groups were removed from ``_TOOL_GROUP_MODULES``.
+
+    Phase 4 then deleted the domain modules from disk. This test pins the
+    new shape so we notice if domain entries accidentally come back.
+    """
+    domain_groups = [g for g in _TOOL_GROUP_MODULES if g.startswith("domain_")]
+    assert domain_groups == [], (
+        f"Legacy domain_* groups should not appear in the unified registry, found: {domain_groups}"
+    )
+
+
+def test_build_query_only_in_full() -> None:
+    """``build_query`` is a ``full``-only helper.
+
+    It assembles encoded query strings client-side. Read-only presets pass
+    raw encoded queries straight to ``query`` and have no need for the
+    builder; gating it to ``full`` keeps the readonly surface minimal.
+    """
+    assert "build_query" in PACKAGE_REGISTRY["full"]
+    for preset in ("readonly", "core_readonly", "none"):
+        assert "build_query" not in PACKAGE_REGISTRY[preset], f"build_query should not appear in the '{preset}' preset"
+
+
+def test_flow_in_full_and_readonly_only() -> None:
+    """``flow`` is a Flow Designer inspection group.
+
+    It is read-only (no write tools) so it appears in ``full`` and
+    ``readonly``. It is excluded from ``core_readonly`` (which is the
+    minimum useful surface) and from ``none`` (empty by definition).
+    """
+    assert "flow" in PACKAGE_REGISTRY["full"]
+    assert "flow" in PACKAGE_REGISTRY["readonly"]
+    for preset in ("core_readonly", "none"):
+        assert "flow" not in PACKAGE_REGISTRY[preset], f"flow should not appear in the '{preset}' preset"
+
+
+def test_audit_in_full_and_readonly_only() -> None:
+    """``audit`` is a read-only audit-posture / change-trail inspection group.
+
+    Membership mirrors ``flow``: present in ``full`` and ``readonly``,
+    absent from ``core_readonly`` and ``none``.
+    """
+    assert "audit" in PACKAGE_REGISTRY["full"]
+    assert "audit" in PACKAGE_REGISTRY["readonly"]
+    for preset in ("core_readonly", "none"):
+        assert "audit" not in PACKAGE_REGISTRY[preset], f"audit should not appear in the '{preset}' preset"

@@ -1,9 +1,9 @@
 """Tests for policy engine."""
 
+import json
 import logging
 
 import pytest
-from toon_format import decode as toon_decode
 
 from servicenow_mcp.config import Settings
 from servicenow_mcp.errors import PolicyError, QuerySafetyError
@@ -360,7 +360,7 @@ class TestGateWrite:
 
         result = gate_write("sys_user_has_password", settings, "cid-2")
         assert isinstance(result, str)
-        decoded = toon_decode(result)
+        decoded = json.loads(result)
         assert decoded["status"] == "error"
         assert "denied" in decoded["error"]["message"]
         assert decoded["correlation_id"] == "cid-2"
@@ -371,7 +371,7 @@ class TestGateWrite:
 
         result = gate_write("incident", prod_settings, "cid-3")
         assert isinstance(result, str)
-        decoded = toon_decode(result)
+        decoded = json.loads(result)
         assert decoded["status"] == "error"
         # Error strings are serialized via format_response as {"message": "..."}
         assert "production" in decoded["error"]["message"]
@@ -383,7 +383,7 @@ class TestGateWrite:
 
         result = gate_write("bad table name!", settings, "cid-4")
         assert isinstance(result, str)
-        decoded = toon_decode(result)
+        decoded = json.loads(result)
         assert decoded["status"] == "error"
         assert "Invalid table identifier" in decoded["error"]["message"]
         assert decoded["correlation_id"] == "cid-4"

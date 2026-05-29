@@ -1,16 +1,16 @@
 # Tool Reference
 
-Complete reference for all tools provided by the ServiceNow Platform MCP server. Tools are organized into groups that can be selectively loaded via [[Tool-Packages]].
+Complete reference for all tools provided by the ServiceNow Platform MCP server. The surface has been unified into 13 core tools that use dispatcher patterns and ServiceNow encoded queries.
 
-All tools return responses in TOON format (not JSON) with a standardized envelope containing `correlation_id`, `status`, `data`, and optionally `pagination` and `warnings`. See [[Architecture]] for details on the response format.
+All tools return responses as JSON strings with a standardized envelope containing `correlation_id`, `status`, `data`, and optionally `pagination` and `warnings`. See [[Architecture]] for details on the response format.
 
-For security guardrails that apply across all tools, see [[Safety-and-Policy]].
+For security guardrails that apply across all tools, see [[Safety-and-Policy]]. For worked examples of complex queries and multi-tool workflows, see [Agent Recipes](../../docs/agent-recipes.md).
 
 ---
 
 ## Always-On Tool
 
-The `list_tool_packages` tool is always available, regardless of which tool package is configured - even with `MCP_TOOL_PACKAGE="none"`.
+The `list_tool_packages` tool is always available, regardless of which tool package is configured.
 
 | Tool | Description | Key Parameters |
 |---|---|---|
@@ -18,306 +18,254 @@ The `list_tool_packages` tool is always available, regardless of which tool pack
 
 ---
 
-## Table (4 tools)
+## Introspection Tools
 
-Describe table schemas with enriched metadata, query records with encoded queries, compute aggregate statistics, and build structured queries. The `build_query` tool returns a reusable `query_token` that can be passed to other query-accepting tools.
+### `query`
+Search and retrieve records from any table using ServiceNow encoded query strings.
 
-| Tool | Description | Key Parameters |
-|---|---|---|
-| `table_describe` | Describe a table's schema with enriched metadata from sys_db_object and sys_documentation | `table` |
-| `table_query` | Query records from a table using an encoded query | `table`, `query_token`, `fields`, `limit`, `offset`, `order_by`, `display_values` |
-| `table_aggregate` | Compute aggregate statistics (count, avg, min, max, sum) for a table | `table`, `query_token`, `group_by`, `avg_fields`, `min_fields`, `max_fields`, `sum_fields` |
-| `build_query` | Build a structured query from conditions and return a reusable query_token | `conditions` (JSON array) |
+- **Purpose:** Primary tool for finding records, auditing history (`sys_audit`), or checking logs (`syslog`).
+- **Key Parameters:**
+  - `table`: Target table name (e.g., `incident`).
+  - `encoded_query`: ServiceNow query string (e.g., `active=true^priority=1`).
+  - `fields`: Comma-separated field names to return.
+  - `resolve_labels`: Optional label-to-value resolution (e.g., `state=open`).
+  - `display_values`: If `true`, returns human-readable labels in a `_display` object.
+  - `limit`, `offset`, `order_by`: Pagination and sorting.
+- **Example:**
+  ```python
+  await query(table="incident", encoded_query="active=true^priority=1", fields="number,short_description")
+  ```
 
----
+### `build_query`
+Stateless helper that compiles a JSON array of condition objects into a ServiceNow encoded query string. The result is returned in `data.query` for the caller to forward to `query`.
 
-## Record (3 tools)
+- **Purpose:** Let agents express filters as structured JSON without learning the encoded-query mini-language. The tool touches no ServiceNow APIs; it is a pure transform.
+- **Availability:** `full` package only - readonly presets pass encoded queries to `query` directly.
+- **Key Parameters:**
+  - `conditions`: JSON-encoded array of condition objects. Each object carries an `operator`, a `field` (omitted for `new_query`), and operator-specific keys (`value`, `start`/`end`, `other_field`, `part`/`dp_operator`/`dp_value`, `related_table`/`related_field`/`rl_operator`, `descending`).
+- **Operator groups:**
+  - **Comparison:** `equals`, `not_equals`, `greater_than`, `greater_or_equal`, `less_than`, `less_or_equal`
+  - **String:** `contains`, `starts_with`, `like`, `ends_with`, `not_like`, `does_not_contain`
+  - **Null / special:** `is_empty`, `is_not_empty`, `anything`, `empty_string`
+  - **Time:** `hours_ago`, `minutes_ago`, `days_ago`, `older_than_days`
+  - **Date:** `on`, `not_on`, `relative_gt`, `relative_lt`, `more_than`
+  - **Date part:** `datepart`
+  - **Range:** `between`
+  - **Field comparison:** `gt_field`, `lt_field`, `gt_or_equals_field`, `lt_or_equals_field`, `same_as`, `not_same_as`
+  - **Reference:** `dynamic`, `in_hierarchy`
+  - **Change detection:** `val_changes`, `changes_from`, `changes_to`
+  - **Logical:** `new_query` (inserts `^NQ` separator)
+  - **Related list:** `rl_query`
+  - **List:** `in_list`, `not_in_list` (value is a list of strings)
+  - **OR:** `or_equals`, `or_starts_with`
+  - **Ordering:** `order_by` (optional `descending: true`)
+- **Example:**
+  ```python
+  built = await build_query(conditions=json.dumps([
+      {"operator": "equals",     "field": "active",         "value": "true"},
+      {"operator": "less_or_equal", "field": "priority",    "value": "2"},
+      {"operator": "hours_ago",  "field": "sys_created_on", "value": 24},
+      {"operator": "order_by",   "field": "sys_created_on", "descending": True},
+  ]))
+  # built["data"]["query"] -> "active=true^priority<=2^sys_created_on>=javascript:gs.hoursAgoStart(24)^ORDERBYDESCsys_created_on"
+  await query(table="incident", encoded_query=built["data"]["query"], fields="number,priority")
+  ```
 
-Fetch records by sys_id and explore referential relationships in both directions.
+### `describe`
+Retrieve schema and metadata for a table, or enumerate its script-bearing fields.
 
-| Tool | Description | Key Parameters |
-|---|---|---|
-| `record_get` | Fetch a single record by sys_id with optional field selection | `table`, `sys_id`, `fields`, `display_values` |
-| `rel_references_to` | Find all records that reference a given record (inbound references) | `table`, `sys_id` |
-| `rel_references_from` | Find all records that a given record references (outbound references) | `table`, `sys_id` |
-
----
-
-## Attachment (4 tools)
-
-List attachment metadata, fetch individual attachment records, and download attachment content as base64.
-
-| Tool | Description | Key Parameters |
-|---|---|---|
-| `attachment_list` | List attachments for a table or record with filtering and pagination | `table_name`, `table_sys_id`, `file_name`, `limit`, `offset`, `order_by` |
-| `attachment_get` | Fetch a single attachment metadata record by sys_id | `sys_id` |
-| `attachment_download` | Download attachment content as base64 by sys_id | `sys_id` |
-| `attachment_download_by_name` | Download attachment content as base64 by table, record, and file name | `table_name`, `table_sys_id`, `file_name` |
-
----
-
-## Attachment Write (2 tools)
-
-Upload attachments with base64-encoded content and delete attachments by sys_id. Write operations are subject to [[Safety-and-Policy|write gating]].
-
-| Tool | Description | Key Parameters |
-|---|---|---|
-| `attachment_upload` | Upload an attachment with base64-encoded content | `table_name`, `table_sys_id`, `file_name`, `content_base64`, `content_type`, `encryption_context`, `creation_time` |
-| `attachment_delete` | Delete an attachment by sys_id | `sys_id` |
-
----
-
-## Metadata (4 tools)
-
-List and inspect platform artifacts (business rules, script includes, client scripts, etc.), find cross-references across script tables, and discover which automations write to a table.
-
-| Tool | Description | Key Parameters |
-|---|---|---|
-| `meta_list_artifacts` | List platform artifacts of a given type with optional query filtering | `artifact_type`, `query_token`, `limit` |
-| `meta_get_artifact` | Fetch a single platform artifact by type and sys_id | `artifact_type`, `sys_id` |
-| `meta_find_references` | Find cross-references to a target across script tables | `target`, `limit` |
-| `meta_what_writes` | Find automations that write to a specific table and field | `table`, `field` |
-
----
-
-## Artifact Write (2 tools)
-
-Create and update platform artifacts (business rules, script includes, client scripts, etc.) with optional local script file injection via `script_path`. Write operations are subject to [[Safety-and-Policy|write gating]].
-
-| Tool | Description | Key Parameters |
-|---|---|---|
-| `artifact_create` | Create a new platform artifact with optional local script file | `artifact_type`, `data`, `script_path` |
-| `artifact_update` | Update an existing platform artifact with optional local script file | `artifact_type`, `sys_id`, `changes`, `script_path` |
+- **Purpose:** Understand a table's structure before querying or writing; discover dictionary-driven script fields at runtime.
+- **Key Parameters:**
+  - `action`: Optional. `describe_table` (default) or `list_script_fields`. When `list_script_fields`, returns the resolved super_class `chain` and the script-bearing fields (`name`, `internal_type`, `inherited_from`, `via_heuristic`) for the supplied `table`.
+  - `table`: Target table name (required for both actions).
+  - `verbose`: If `true`, returns all platform metadata (otherwise returns a slim 8-key summary per field).
+- **Example:**
+  ```python
+  await describe(table="incident")
+  await describe(action="list_script_fields", table="sys_script")
+  ```
 
 ---
 
-## Change Intelligence (4 tools)
+## Record Management
 
-Inspect update sets, diff artifact versions, view audit trails, and generate release notes.
+The system uses a two-stage preview/apply flow for all record mutations.
 
-| Tool | Description | Key Parameters |
-|---|---|---|
-| `changes_updateset_inspect` | Inspect an update set and list its customer updates | `update_set_id` |
-| `changes_diff_artifact` | Diff an artifact's current version against its update set version | `table`, `sys_id` |
-| `changes_last_touched` | View the audit trail of recent changes to a record | `table`, `sys_id`, `limit` |
-| `changes_release_notes` | Generate release notes from an update set's contents | `update_set_id`, `format` |
+### `record_write`
+Unified tool for staging `create`, `update`, or `delete` actions.
 
----
+- **Purpose:** Perform mutations with built-in safety checks and preview flow.
+- **Key Parameters:**
+  - `action`: One of `create`, `update`, or `delete`.
+  - `table`: Target table name.
+  - `sys_id`: Required for `update` and `delete`.
+  - `data`: JSON string of field-value pairs for `create`/`update`.
+  - `script_path`: Local path to a script file. Allowed on any table that has at least one script-bearing field (resolved via `DictionaryRegistry` from `sys_dictionary`). Resolved strictly under `SCRIPT_ALLOWED_ROOT`; capped at 1 MB; UTF-8.
+  - `script_field`: Optional. Target a specific script-bearing field on tables with more than one (e.g. `sys_ui_policy.script_true`/`script_false`, `sp_widget.client_script`/`template`/`css`, `sys_ui_page.html`/`processing_script`). Defaults to the first field returned by `DictionaryRegistry.get_script_fields(table)`. Setting `script_field` without `script_path` is rejected.
+  - `preview`: If `true` (default), stores the change in `PreviewTokenStore` and returns a `preview_token`.
+- **Notes:** When the resolved script field has `internal_type == 'xml'` (e.g. `sys_ui_macro.xml`), `record_write` validates the rendered XML (`xml.etree.ElementTree.fromstring`) before any platform call; malformed content is rejected with a structured error.
+- **Example:**
+  ```python
+  # Stage a create
+  preview = await record_write(action="create", table="incident", data='{"short_description": "New issue"}')
+  # Returns: {"data": {"preview_token": "uuid-token-here", ...}}
+  ```
 
-## Debug and Trace (6 tools)
+### `record_read`
+Read-only counterpart to `record_write` for any table.
 
-Build event timelines, inspect flow executions, trace email delivery, check integration health, inspect import sets, and trace field-level mutations.
+- **Purpose:** Inspect an existing record (and learn its script-bearing fields) before composing a multi-field update via `record_write` + `script_field`.
+- **Key Parameters:**
+  - `table`: Target table name.
+  - `sys_id` **or** `name`: Exactly one must be supplied. Ambiguous names (more than one match) and missing records return a structured error.
+- **Response:** Masked record fields plus the `script_fields` list resolved from `sys_dictionary` for the table.
+- **Availability:** Included in both the `full` and `readonly` packages.
+- **Example:**
+  ```python
+  await record_read(table="sys_script", name="Validate priority on insert")
+  ```
 
-| Tool | Description | Key Parameters |
-|---|---|---|
-| `debug_trace` | Build an event timeline for a record from system logs | `record_sys_id`, `table`, `minutes` |
-| `debug_flow_execution` | Inspect a flow execution context and its action outputs | `context_id` |
-| `debug_email_trace` | Trace email delivery for a record | `record_sys_id` |
-| `debug_integration_health` | Check integration health by inspecting ECC queue errors | `kind`, `hours` |
-| `debug_importset_run` | Inspect an import set run and its row-level results | `import_set_sys_id` |
-| `debug_field_mutation_story` | Trace field-level mutations from sys_audit | `table`, `sys_id`, `field`, `limit` |
+### `record_apply`
+Commits a write operation previously staged with `record_write(preview=true)`.
 
----
-
-## Record Write (7 tools)
-
-Create, update, and delete records directly or via a preview-then-apply confirmation pattern. The preview tools return a `preview_token` that can be passed to `record_apply` for confirmation. Write operations are subject to [[Safety-and-Policy|write gating]].
-
-| Tool | Description | Key Parameters |
-|---|---|---|
-| `record_create` | Create a record directly (no preview) | `table`, `data` |
-| `record_preview_create` | Preview a record creation and return a preview_token | `table`, `data` |
-| `record_update` | Update a record directly (no preview) | `table`, `sys_id`, `changes` |
-| `record_preview_update` | Preview a record update and return a preview_token | `table`, `sys_id`, `changes` |
-| `record_delete` | Delete a record directly (no preview) | `table`, `sys_id` |
-| `record_preview_delete` | Preview a record deletion and return a preview_token | `table`, `sys_id` |
-| `record_apply` | Apply a previously previewed operation using its preview_token | `preview_token` |
-
----
-
-## Investigations (2 tools)
-
-Run automated investigations and explain individual findings. Seven investigation modules are available: `stale_automations`, `deprecated_apis`, `table_health`, `acl_conflicts`, `error_analysis`, `slow_transactions`, and `performance_bottlenecks`.
-
-| Tool | Description | Key Parameters |
-|---|---|---|
-| `investigate_run` | Run an automated investigation module with parameters | `investigation`, `params` |
-| `investigate_explain` | Explain a specific finding from an investigation result | `investigation`, `element_id` |
+- **Purpose:** Finalize a mutation after inspecting the preview.
+- **Key Parameters:**
+  - `preview_token`: The token returned by `record_write`.
+- **Example:**
+  ```python
+  await record_apply(preview_token="uuid-token-here")
+  ```
 
 ---
 
-## Documentation (4 tools)
+## Specialized Dispatchers
 
-Generate automation maps, artifact summaries with dependency analysis, test scenario suggestions, and code review findings.
+### `attachment`
+Unified dispatcher for reading and downloading record attachments.
 
-| Tool | Description | Key Parameters |
-|---|---|---|
-| `docs_logic_map` | Generate an automation map for a table (business rules, client scripts, etc.) | `table` |
-| `docs_artifact_summary` | Generate a summary of a platform artifact with dependency analysis | `artifact_type`, `sys_id` |
-| `docs_test_scenarios` | Generate test scenario suggestions for a platform artifact | `artifact_type`, `sys_id` |
-| `docs_review_notes` | Generate code review findings for a platform artifact | `artifact_type`, `sys_id` |
+- **Actions:**
+  - `list`: List metadata for all attachments on a record.
+  - `get`: Fetch metadata for a specific attachment by sys_id.
+  - `download`: Download attachment content as base64.
+- **Example:**
+  ```python
+  await attachment(action="list", table_name="incident", table_sys_id="...")
+  ```
 
----
+### `attachment_write`
+Dispatcher for attachment mutations. Included in all packages; blocked in production via write gating.
 
-## Workflow Analysis (5 tools)
+- **Actions:**
+  - `upload`: Upload a base64-encoded file.
+  - `delete`: Delete an attachment by sys_id.
 
-List workflow contexts for a record, map workflow structures, inspect execution status, view activity details, and list workflow versions.
+### `investigate`
+Runs pre-defined diagnostic and health check modules.
 
-| Tool | Description | Key Parameters |
-|---|---|---|
-| `workflow_contexts` | List workflow contexts for a record | `record_sys_id`, `table`, `state`, `limit` |
-| `workflow_map` | Map the structure of a workflow version (activities and transitions) | `workflow_version_sys_id` |
-| `workflow_status` | Inspect execution status of a workflow context | `context_sys_id` |
-| `workflow_activity_detail` | View details of a specific workflow activity | `activity_sys_id` |
-| `workflow_version_list` | List workflow versions with optional filtering | `table`, `active_only`, `limit` |
+- **Actions:**
+  - `run`: Execute a module (e.g., `stale_automations`, `table_health`).
+  - `explain`: Interpret a specific finding from a previous run.
+- **Modules:** `stale_automations`, `deprecated_apis`, `table_health`, `acl_conflicts`, `error_analysis`, `slow_transactions`, `performance_bottlenecks`.
 
----
+### `audit`
 
-## Flow Designer (8 tools)
+Inspect ServiceNow field-level auditing posture and masked history.
 
-List, inspect, and map Flow Designer flows. View action details, execution history, published snapshots, and analyze legacy workflows for migration readiness.
+- **Purpose:** Resolve whether a `(table, field)` pair is actually audited (walking `super_class` and `sys_dictionary`), survey a table's audit posture, and fetch a masked, date-bounded audit trail for one record.
+- **Availability:** Included in the `full` and `readonly` packages.
+- **Actions:**
+  - `check_field`: Resolve the combined audit verdict for one `(table, field)` pair. Returns the chain-walked dictionary flag, the `no_audit` attribute veto, the table-level flag, and a positive-control count from `sys_audit` within `window_days`.
+  - `check_fields`: Batch variant of `check_field`. Accepts `fields_csv` (max 50) and returns one verdict per field plus a single shared `table_change_count`.
+  - `check_table`: Table-level posture - the table default plus the list of fields whose resolved audit flag differs from that default.
+  - `history`: Masked, date-bounded audit trail for one record. Queries `sys_audit` by `tablename` + `documentkey` and masks sensitive fields via `mask_audit_entry`.
+  - `describe`: Return the action registry without platform I/O.
+- **Key Parameters:**
+  - `action`: One of `check_field`, `check_fields`, `check_table`, `history`, or `describe`.
+  - `table`: Target table name (required for all actions except `describe`).
+  - `field`: Field name (required for `check_field`).
+  - `fields_csv`: Comma-separated field names, max 50 (required for `check_fields`).
+  - `sys_id`: Document sys_id for `history`.
+  - `window_days`: Override the default 90-day window for `sys_audit` queries. Wider windows risk timeouts.
+  - `since`: Explicit ISO date floor for `history` (overrides `window_days`).
+- **Notes:** `sys_audit` is one of the largest tables on the platform; every action that touches it applies a default 90-day window. Responses include the `window_days` actually used and a `window_note` describing it. `no_audit=true` in the `attributes` blob vetoes the boolean `audit` column. The positive-control count distinguishes "no field activity in window" (`audited_but_inactive`) from "audit not configured" (`inconclusive`).
+- **Example:**
 
-| Tool | Description | Key Parameters |
-|---|---|---|
-| `flow_list` | List Flow Designer flows with filtering | `table`, `flow_type`, `status`, `active_only`, `limit` |
-| `flow_get` | Fetch a Flow Designer flow by sys_id | `flow_sys_id` |
-| `flow_map` | Map the structure of a flow (trigger, actions, conditions) | `flow_sys_id` |
-| `flow_action_detail` | View details of a specific flow action instance | `action_instance_sys_id` |
-| `flow_execution_list` | List flow executions with filtering | `flow_sys_id`, `source_record`, `state`, `limit` |
-| `flow_execution_detail` | View detailed execution results for a flow context | `context_id` |
-| `flow_snapshot_list` | List published snapshots (versions) of a flow | `flow_sys_id`, `limit` |
-| `workflow_migration_analysis` | Analyze a legacy workflow version for Flow Designer migration readiness | `workflow_version_sys_id` |
+  ```python
+  await audit(action="check_field", table="incident", field="state")
+  await audit(action="check_fields", table="incident", fields_csv="state,priority,assigned_to")
+  await audit(action="check_table", table="incident")
+  await audit(action="history", table="incident", sys_id="<sys_id>", window_days=30)
+  ```
 
----
+### `flow`
 
-## Incident Management (6 tools)
+Inspect ServiceNow Flow Designer artifacts from documented Table API records.
 
-Full incident lifecycle: list, fetch, create, update, resolve, and add comments or work notes. State and priority parameters accept human-readable labels (e.g., "open", "high") which are automatically resolved to ServiceNow values via the ChoiceRegistry.
+- **Purpose:** Read Flow Designer flows and subflows, including triggers, declared inputs/outputs/variables, decoded V2 action and logic configuration, canvas structure, and published snapshot drift.
+- **Availability:** Included in the `full` and `readonly` packages. Custom packages can include it with `MCP_TOOL_PACKAGE=flow,query,describe`.
+- **Actions:**
+  - `inspect`: Assemble one flow/subflow. Requires exactly one of `sys_id` or `name`.
+  - `find_by_table`: Find flows with a record trigger on `table`.
+  - `decode_values`: Decode a gzip+base64+JSON `values` blob from a `sys_hub_*_v2` row. Requires `value`.
+  - `list_triggers`: List record triggers across flows. Optional filters: `table`, `trigger_type`, `active` (`true`/`false`), `limit`.
+  - `describe`: Return the action registry with names, descriptions, and parameters.
+- **Key Parameters:**
+  - `action`: One of `inspect`, `find_by_table`, `decode_values`, `list_triggers`, or `describe`.
+  - `sys_id`: 32-character flow sys_id for `inspect`; mutually exclusive with `name`.
+  - `name`: Flow name or `internal_name` for `inspect`; must resolve to exactly one flow.
+  - `table`: Target record table for `find_by_table`; optional filter for `list_triggers`.
+  - `trigger_type`: Optional trigger filter for `list_triggers`, such as `record_update`.
+  - `active`: Optional `true`/`false` filter for `list_triggers`.
+  - `value`: Raw compressed `values` field content for `decode_values`.
+  - `limit`: Optional page size for `list_triggers`; defaults to 100 when omitted or `0`.
+- **Examples:**
+  ```python
+  await flow(action="inspect", sys_id="9e858befc3340f105cf89fcd2b01317d")
+  await flow(action="inspect", name="My Flow")
+  await flow(action="find_by_table", table="incident")
+  await flow(action="decode_values", value="H4sIA...")
+  await flow(action="list_triggers", trigger_type="record_update", active="true", limit=50)
+  await flow(action="describe")
+  ```
+- **`inspect` response highlights:** `data` contains `header`, `triggers`, `inputs`, `outputs`, `variables`, `canvas`, `published_state`, `v1_count`, `v2_count`, `v1_logic_count`, and `v1_variable_values`.
+  - `header`: Flow metadata (`sys_id`, `name`, `internal_name`, `type`, `active`, `description`, `sys_scope`).
+  - `published_state`: `{master_snapshot, latest_snapshot, drift}`. `drift` is `true` when the published snapshot differs from the latest authored snapshot.
+  - `canvas`: Nested V2 tree. Root nodes have an empty `parent_ui_id`; children are sorted by `order`. Each node includes `kind` (`action` or `logic`), `ui_id`, `parent_ui_id`, `order`, `decoded_values`, and recursive `children`.
+  - `warnings`: Returned in the standard response envelope for mixed V1/V2 flows, snapshot drift, IntegrationHub spoke heuristics, or V1 logic that cannot be woven into the V2 canvas tree.
+- **Notes:** The tool reads both V1 (`sys_hub_action_instance`, `sys_hub_flow_logic`, `sys_hub_trigger_instance`) and V2 (`sys_hub_action_instance_v2`, `sys_hub_flow_logic_instance_v2`, `sys_hub_trigger_instance_v2`) records. Record-trigger conditions are joined through `sys_flow_record_trigger`. It does not use the undocumented `/api/now/processflow/flow/{sys_id}` endpoint or the opaque `sys_hub_flow_snapshot` compiled cache. A bad per-node `values` blob adds `decode_error` to that node; the rest of `inspect` still succeeds.
 
-| Tool | Description | Key Parameters |
-|---|---|---|
-| `incident_list` | List incidents with filtering by state, priority, assignment | `state`, `priority`, `assigned_to`, `assignment_group`, `fields`, `limit` |
-| `incident_get` | Fetch a single incident by number | `number` |
-| `incident_create` | Create a new incident | `short_description`, `urgency`, `impact`, `priority`, `description`, `caller_id`, `assignment_group`, `assigned_to`, `category`, `subcategory` |
-| `incident_update` | Update an existing incident | `number`, `short_description`, `urgency`, `impact`, `priority`, `state`, `description`, `assignment_group`, `assigned_to`, `category`, `subcategory` |
-| `incident_resolve` | Resolve an incident with close code and notes | `number`, `close_code`, `close_notes` |
-| `incident_add_comment` | Add a comment or work note to an incident | `number`, `comment`, `work_note` |
+### `resolve_choice`
+Resolves human-readable labels to underlying ServiceNow values using the `sys_choice` table.
 
----
+- **Key Parameters:**
+  - `table`: Table name.
+  - `field`: Field name.
+  - `label`: Human label (e.g., "In Progress"). If omitted, returns all choices for the field.
+- **Example:**
+  ```python
+  await resolve_choice(table="incident", field="state", label="New")
+  ```
 
-## Change Management (6 tools)
+### `service_catalog`
+Unified dispatcher for Service Catalog operations.
 
-Manage change requests: list, fetch, create, update, view associated tasks, and add comments or work notes.
-
-| Tool | Description | Key Parameters |
-|---|---|---|
-| `change_list` | List change requests with filtering by state, type, risk, assignment | `state`, `type`, `risk`, `assignment_group`, `fields`, `limit` |
-| `change_get` | Fetch a single change request by number | `number` |
-| `change_create` | Create a new change request | `short_description`, `description`, `type`, `risk`, `assignment_group`, `start_date`, `end_date` |
-| `change_update` | Update an existing change request | `number`, `short_description`, `description`, `type`, `risk`, `assignment_group`, `state` |
-| `change_tasks` | List tasks associated with a change request | `number` |
-| `change_add_comment` | Add a comment or work note to a change request | `number`, `comment`, `work_note` |
-
----
-
-## Problem Management (5 tools)
-
-Problem lifecycle: list, fetch, create, update, and document root cause analysis.
-
-| Tool | Description | Key Parameters |
-|---|---|---|
-| `problem_list` | List problems with filtering by state, priority, assignment | `state`, `priority`, `assigned_to`, `assignment_group`, `fields`, `limit` |
-| `problem_get` | Fetch a single problem by number | `number` |
-| `problem_create` | Create a new problem | `short_description`, `urgency`, `impact`, `priority`, `description`, `assigned_to`, `assignment_group`, `category`, `subcategory` |
-| `problem_update` | Update an existing problem | `number`, `short_description`, `urgency`, `impact`, `priority`, `state`, `description`, `assigned_to`, `assignment_group`, `category`, `subcategory` |
-| `problem_root_cause` | Document root cause analysis for a problem | `number`, `cause_notes`, `fix` |
-
----
-
-## CMDB (5 tools)
-
-Browse configuration items, inspect relationships, list CI classes, and check CMDB health by operational status.
-
-| Tool | Description | Key Parameters |
-|---|---|---|
-| `cmdb_list` | List configuration items with filtering by class and operational status | `ci_class`, `operational_status`, `fields`, `limit` |
-| `cmdb_get` | Fetch a single CI by name or sys_id | `name_or_sys_id`, `ci_class` |
-| `cmdb_relationships` | Inspect CI relationships (parent, child, upstream, downstream) | `name_or_sys_id`, `direction`, `ci_class` |
-| `cmdb_classes` | List available CI classes | `limit` |
-| `cmdb_health` | Check CMDB health by analyzing operational status distribution | `ci_class` |
-
----
-
-## Request Management (5 tools)
-
-Manage service requests and requested items (RITMs): list, fetch, view items, and update request items.
-
-| Tool | Description | Key Parameters |
-|---|---|---|
-| `request_list` | List service requests with filtering | `state`, `requested_for`, `assignment_group`, `fields`, `limit` |
-| `request_get` | Fetch a single service request by number | `number` |
-| `request_items` | List requested items (RITMs) for a service request | `number`, `fields`, `limit` |
-| `request_item_get` | Fetch a single requested item by number | `number` |
-| `request_item_update` | Update a requested item | `number`, `state`, `assignment_group`, `assigned_to` |
-
----
-
-## Knowledge Management (5 tools)
-
-Search, read, create, and update knowledge articles and submit feedback or ratings.
-
-| Tool | Description | Key Parameters |
-|---|---|---|
-| `knowledge_search` | Search knowledge articles by query text | `query`, `workflow_state`, `fields`, `limit` |
-| `knowledge_get` | Fetch a single knowledge article by number or sys_id | `number_or_sys_id` |
-| `knowledge_create` | Create a new knowledge article | `short_description`, `text`, `kb_knowledge_base`, `kb_category`, `workflow_state` |
-| `knowledge_update` | Update an existing knowledge article | `number_or_sys_id`, `short_description`, `text`, `workflow_state`, `kb_knowledge_base`, `kb_category` |
-| `knowledge_feedback` | Submit feedback or a rating for a knowledge article | `number_or_sys_id`, `rating`, `comment` |
+- **Actions:** `list_catalogs`, `get_catalog`, `list_categories`, `get_category`, `list_items`, `get_item`, `get_variables`, `order_now`, `add_to_cart`, `get_cart`, `submit_cart`, `checkout`.
+- **Example:**
+  ```python
+  await service_catalog(action="list_items", text="laptop")
+  ```
 
 ---
 
-## Service Catalog (12 tools)
+## Migration Note
 
-Browse catalogs, categories, and items. View item variables, order items directly, manage cart contents, and checkout.
+The following specialized tool families from v0.9.x have been **deleted** and replaced by the unified tools above:
+- ATF tools (Deleted entirely)
+- Specialized domain tools (`incident_*`, `change_*`, etc. — Use `query`, `record_write`, and `resolve_choice`)
+- Change Intelligence and Debug families (`changes_*`, `debug_*` — Use `query` against system tables like `sys_update_xml` or `syslog`)
+- Documentation and Workflow families (`docs_*`, `workflow_*`, legacy `flow_*` - Use `flow` for Flow Designer inspection, or `query`/`describe` against platform tables)
+- `artifact_create`/`artifact_update` (Folded into `record_write`)
 
-| Tool | Description | Key Parameters |
-|---|---|---|
-| `sc_catalogs_list` | List available service catalogs | `limit`, `text` |
-| `sc_catalog_get` | Fetch a single catalog by sys_id | `sys_id` |
-| `sc_categories_list` | List categories in a catalog | `catalog_sys_id`, `limit`, `offset`, `top_level_only` |
-| `sc_category_get` | Fetch a single category by sys_id | `sys_id` |
-| `sc_items_list` | List catalog items with filtering | `limit`, `offset`, `text`, `catalog`, `category` |
-| `sc_item_get` | Fetch a single catalog item by sys_id | `sys_id` |
-| `sc_item_variables` | List variables (form fields) for a catalog item | `sys_id` |
-| `sc_order_now` | Order a catalog item directly (bypasses cart) | `item_sys_id`, `variables` |
-| `sc_add_to_cart` | Add a catalog item to the cart | `item_sys_id`, `variables` |
-| `sc_cart_get` | View current cart contents | - |
-| `sc_cart_submit` | Submit the current cart as a request | - |
-| `sc_cart_checkout` | Checkout the current cart (two-step ordering) | - |
+`build_query` is retained from v0.9.x but reshaped to be stateless and scoped to the `full` package. The `QueryTokenStore` is gone - `build_query` returns the encoded query string directly in `data.query` for the caller to forward to `query`. Agents may also bypass `build_query` entirely and pass encoded queries to `query` directly.
 
----
-
-## Testing (7 tools)
-
-> **Note:** The testing group is disabled in the `full` package. To use these tools, configure a custom package that includes `testing` (e.g., `MCP_TOOL_PACKAGE="full,testing"` or `MCP_TOOL_PACKAGE="table,record,testing"`).
-
-Automated Test Framework (ATF) tools for listing, running, and analyzing tests and test suites.
-
-| Tool | Description | Key Parameters |
-|---|---|---|
-| `atf_list_tests` | List ATF tests with optional query filtering | `query_token`, `limit`, `fields` |
-| `atf_get_test` | Fetch a single ATF test by sys_id | `test_id` |
-| `atf_list_suites` | List ATF test suites with optional query filtering | `query_token`, `limit` |
-| `atf_get_results` | Fetch test or suite execution results | `test_id`, `suite_id`, `limit` |
-| `atf_run_test` | Run an ATF test with optional polling for results | `test_id`, `poll`, `poll_interval`, `max_poll_duration` |
-| `atf_run_suite` | Run an ATF test suite with optional polling for results | `suite_id`, `poll`, `poll_interval`, `max_poll_duration` |
-| `atf_test_health` | Analyze test or suite execution health over time | `test_id`, `suite_id`, `days`, `limit` |
-
----
-
-## Next Steps
-
-- [[Tool-Packages]] - Choose the right tool package for your workflow
-- [[Safety-and-Policy]] - Security guardrails, table deny list, write gating
-- [[Configuration]] - Environment variables and settings reference
-- [[Architecture]] - Server internals and data flow patterns
+For detailed mapping of old workflows to new tools, see [Agent Recipes](../../docs/agent-recipes.md).

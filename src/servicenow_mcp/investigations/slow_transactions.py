@@ -1,6 +1,6 @@
 """Investigation: find slow transactions via ServiceNow performance pattern tables."""
 
-from typing import Any
+from typing import Any, Final
 
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.investigation_helpers import (
@@ -24,6 +24,13 @@ PERFORMANCE_TABLES = [
 ]
 
 _ALLOWED_TABLES = {t[0] for t in PERFORMANCE_TABLES}
+
+
+PARAMS: Final[dict[str, dict[str, Any]]] = {
+    "hours": {"type": "int", "default": 24, "description": "Lookback window for syslog_cancellation."},
+    "limit": {"type": "int", "default": 20, "description": "Max findings per table."},
+    "categories": {"type": "csv", "default": None, "description": "Comma-separated category filter."},
+}
 
 
 async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any]:

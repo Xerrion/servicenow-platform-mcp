@@ -1379,50 +1379,142 @@ class TestUrlBuilderValidation:
             client._attachment_file_by_name_url("bad-id", "hello.txt")
 
 
-class TestATFCloudRunner404:
-    """Test ATF Cloud Runner methods raise NotFoundError with plugin hint on 404."""
+class TestServiceNowClientFlowDesigner:
+    """Flow Designer client methods (Phase 3)."""
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_atf_run_not_found(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """404 from atf_run raises NotFoundError with plugin hint."""
+    async def test_get_flow_by_sys_id_success(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        """Returns the flow record on a 200."""
         from servicenow_mcp.client import ServiceNowClient
-        from servicenow_mcp.errors import NotFoundError
 
-        respx.post(f"{BASE_URL}/api/now/sn_atf_tg/test_runner").mock(
-            return_value=httpx.Response(404),
+        respx.get(f"{BASE_URL}/api/now/table/sys_hub_flow/abc123").mock(
+            return_value=httpx.Response(200, json={"result": {"sys_id": "abc123", "name": "My Flow"}}),
         )
 
         async with ServiceNowClient(settings, auth_provider) as client:
-            with pytest.raises(NotFoundError, match="ATF Cloud Runner"):
-                await client.atf_run("test_sys_id_123")
+            record = await client.get_flow_by_sys_id("abc123")
+
+        assert record == {"sys_id": "abc123", "name": "My Flow"}
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_atf_progress_not_found(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """404 from atf_progress raises NotFoundError with plugin hint."""
+    async def test_get_flow_by_sys_id_404_returns_none(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """A 404 from the table API surfaces as ``None`` (not an exception)."""
         from servicenow_mcp.client import ServiceNowClient
-        from servicenow_mcp.errors import NotFoundError
 
-        respx.get(f"{BASE_URL}/api/now/sn_atf_tg/test_runner_progress").mock(
-            return_value=httpx.Response(404),
+        respx.get(f"{BASE_URL}/api/now/table/sys_hub_flow/missing").mock(
+            return_value=httpx.Response(404, json={"error": {"message": "no record"}}),
         )
 
         async with ServiceNowClient(settings, auth_provider) as client:
-            with pytest.raises(NotFoundError, match="ATF Cloud Runner"):
-                await client.atf_progress("snboq_id_123")
+            record = await client.get_flow_by_sys_id("missing")
+
+        assert record is None
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_atf_cancel_not_found(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-        """404 from atf_cancel raises NotFoundError with plugin hint."""
+    async def test_find_flows_by_name_builds_or_query(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """Encoded query joins ``name=`` and ``internal_name=`` with ``^OR``."""
         from servicenow_mcp.client import ServiceNowClient
-        from servicenow_mcp.errors import NotFoundError
 
-        respx.post(f"{BASE_URL}/api/now/sn_atf_tg/cancel_test_runner").mock(
-            return_value=httpx.Response(404),
+        route = respx.get(f"{BASE_URL}/api/now/table/sys_hub_flow").mock(
+            return_value=httpx.Response(200, json={"result": []}),
         )
 
         async with ServiceNowClient(settings, auth_provider) as client:
-            with pytest.raises(NotFoundError, match="ATF Cloud Runner"):
-                await client.atf_cancel("snboq_id_123")
+            await client.find_flows_by_name("My Flow")
+
+        params = route.calls.last.request.url.params
+        query = params["sysparm_query"]
+        assert "name=My Flow" in query
+        assert "^ORinternal_name=My Flow" in query
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_find_flows_by_name_sanitizes_caret(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """A caret in the search term is escaped to ``^^`` so it cannot terminate the clause."""
+        from servicenow_mcp.client import ServiceNowClient
+
+        route = respx.get(f"{BASE_URL}/api/now/table/sys_hub_flow").mock(
+            return_value=httpx.Response(200, json={"result": []}),
+        )
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            await client.find_flows_by_name("foo^ORactive=true")
+
+        query = route.calls.last.request.url.params["sysparm_query"]
+        # Caret is doubled in the value; the clause boundary remains a single '^'.
+        assert "name=foo^^ORactive=true" in query
+        assert "^ORinternal_name=foo^^ORactive=true" in query
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_list_record_triggers_empty_input_no_http_call(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """Empty input short-circuits to ``[]`` without touching the network."""
+        from servicenow_mcp.client import ServiceNowClient
+
+        # No respx route registered: any HTTP call would raise.
+        async with ServiceNowClient(settings, auth_provider) as client:
+            result = await client.list_record_triggers([])
+
+        assert result == []
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_list_triggers_filtered_sanitizes_trigger_type(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """A trigger_type containing ``^OR`` is sanitized so it cannot break the clause boundary."""
+        from servicenow_mcp.client import ServiceNowClient
+
+        v2_route = respx.get(f"{BASE_URL}/api/now/table/sys_hub_trigger_instance_v2").mock(
+            return_value=httpx.Response(200, json={"result": []}),
+        )
+        respx.get(f"{BASE_URL}/api/now/table/sys_hub_trigger_instance").mock(
+            return_value=httpx.Response(200, json={"result": []}),
+        )
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            await client.list_triggers_filtered(trigger_type="record_update^ORactive=true", active="true")
+
+        query = v2_route.calls.last.request.url.params["sysparm_query"]
+        # The literal ^OR inside the type value must be escaped to ^^OR.
+        assert "type=record_update^^ORactive=true" in query
+        # The active=true clause we explicitly added is joined with a single ^.
+        assert "^active=true" in query
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_get_flows_bulk_builds_sys_id_in(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        """``get_flows_bulk`` builds a comma-separated ``sys_idIN...`` clause."""
+        from servicenow_mcp.client import ServiceNowClient
+
+        route = respx.get(f"{BASE_URL}/api/now/table/sys_hub_flow").mock(
+            return_value=httpx.Response(200, json={"result": []}),
+        )
+
+        ids = ["a" * 32, "b" * 32, "c" * 32]
+        async with ServiceNowClient(settings, auth_provider) as client:
+            await client.get_flows_bulk(ids)
+
+        query = route.calls.last.request.url.params["sysparm_query"]
+        assert query == f"sys_idIN{','.join(ids)}"
+
+    @pytest.mark.asyncio()
+    async def test_get_flows_bulk_empty_input_no_http_call(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """Empty input short-circuits to ``[]`` without an HTTP call."""
+        from servicenow_mcp.client import ServiceNowClient
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            assert await client.get_flows_bulk([]) == []

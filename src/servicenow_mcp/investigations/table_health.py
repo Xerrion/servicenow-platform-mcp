@@ -1,7 +1,7 @@
 """Investigation: comprehensive health report for a single table."""
 
 import asyncio
-from typing import Any
+from typing import Any, Final
 
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.investigation_helpers import build_investigation_result
@@ -11,6 +11,16 @@ from servicenow_mcp.policy import (
     mask_sensitive_fields,
 )
 from servicenow_mcp.utils import ServiceNowQuery, validate_identifier
+
+
+PARAMS: Final[dict[str, dict[str, Any]]] = {
+    "table": {"type": "str", "required": True, "default": None, "description": "Table name to analyze."},
+    "hours": {
+        "type": "int|None",
+        "default": None,
+        "description": "Lookback window in hours; omit to query all history.",
+    },
+}
 
 
 async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any]:

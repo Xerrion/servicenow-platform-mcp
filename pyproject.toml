@@ -115,12 +115,6 @@ ignore = [
     "ERA001", # commented-out code OK in tests
     "PT019",  # underscore-prefixed fixtures are used for @patch and side-effect injection
 ]
-"src/servicenow_mcp/tools/domains/*.py" = [
-    "A002",   # shadowing built-in "type" used as ServiceNow parameter name
-]
-"src/servicenow_mcp/tools/changes.py" = [
-    "A002",   # same - "format" parameter from ServiceNow API
-]
 
 [tool.ruff.lint.isort]
 known-first-party = ["servicenow_mcp"]

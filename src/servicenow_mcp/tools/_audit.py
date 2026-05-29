@@ -35,8 +35,9 @@ logger = logging.getLogger(__name__)
 # never produce a false positive. The right boundary tolerates trailing
 # whitespace before EOL (``foo, no_audit = true `` must match).
 _NO_AUDIT_RE: Final[re.Pattern[str]] = re.compile(
-    r"(?:^|,)\s*no_audit\s*=\s*true(?:\s*,|\s*$)", re.IGNORECASE
-)  # NOSONAR(S5850) - alternations are non-capturing groups; precedence is explicit.
+    r"(?:^|,)\s*no_audit\s*=\s*true(?:\s*,|\s*$)",  # NOSONAR(S5850) - alternations are grouped; precedence explicit.
+    re.IGNORECASE,
+)
 
 
 def attribute_has_no_audit(attributes: str) -> bool:

@@ -921,7 +921,10 @@ class ServiceNowClient:
         carries a label of the form ``"<step label>\u279b<field>"``. We
         strip the field suffix from both sides so the returned map can
         resolve orphan datapill producers by ui_id alone. Returns ``{}``
-        when the snapshot or its ``label_cache`` is absent.
+        for any non-recoverable shape mismatch (missing snapshot_sys_id,
+        404, blank ``label_cache`` column, malformed JSON, non-list root,
+        non-dict entries, non-string ``name``/``label``, or empty parts
+        after partitioning on ``.`` / ``\u279b``).
         """
         if not snapshot_sys_id:
             return {}

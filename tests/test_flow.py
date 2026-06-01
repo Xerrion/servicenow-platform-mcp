@@ -804,10 +804,9 @@ async def test_inspect_unresolved_datapill_emits_warning(settings: Settings, aut
     matches = [w for w in data["warnings"] if "unresolved_datapill_ref" in w]
     assert len(matches) == 1
     warning = matches[0]
-    assert _UUID_GHOST in warning
-    assert f"producer_ui_id={_UUID_GHOST!r}" in warning
-    assert "orders 11, 12" in warning
-    assert "fields: status, message" in warning
+    assert warning == (
+        f"unresolved_datapill_ref: producer_ui_id={_UUID_GHOST!r} referenced by orders 11, 12 (fields: status, message)"
+    )
 
 
 @pytest.mark.asyncio()
@@ -830,10 +829,36 @@ async def test_inspect_unresolved_datapill_uses_snapshot_label(
     matches = [w for w in data["warnings"] if "unresolved_datapill_ref" in w]
     assert len(matches) == 1
     warning = matches[0]
-    assert "producer '10 - Provision AD Group Membership'" in warning
-    assert f"(deleted; ui_id={_UUID_GHOST!r})" in warning
-    assert "orders 11" in warning
-    assert "fields: status" in warning
+    assert warning == (
+        f"unresolved_datapill_ref: producer '10 - Provision AD Group Membership' "
+        f"(deleted; ui_id={_UUID_GHOST!r}) referenced by orders 11 (fields: status)"
+    )
+
+
+@pytest.mark.asyncio()
+async def test_inspect_unresolved_datapill_keeps_cross_node_duplicate_fields(
+    settings: Settings, auth_provider: BasicAuthProvider
+) -> None:
+    """Two distinct consumers referencing the same ghost field both surface in ``fields:``."""
+    tools = _register_and_get_tools(settings, auth_provider)
+    blob_a = _encode_values([{"target": f"{{{{{_UUID_GHOST}.message}}}}"}])
+    blob_b = _encode_values([{"target": f"{{{{{_UUID_GHOST}.message}}}}"}])
+    actions_v2 = [
+        _action_row(sys_id="a1", ui_id=_UUID_A, order="12", values=blob_a),
+        _action_row(sys_id="a2", ui_id=_UUID_B, order="15", values=blob_b),
+    ]
+    kwargs = _empty_inspect_kwargs()
+    kwargs["list_action_instances_v2"] = actions_v2
+    client = _make_client_mock(**kwargs)
+
+    with _patch_client(client):
+        raw = await tools["flow"](action="inspect", sys_id=SYS_ID_FLOW)
+    data = decode_response(raw)["data"]
+
+    matches = [w for w in data["warnings"] if "unresolved_datapill_ref" in w]
+    assert len(matches) == 1
+    assert "orders 12, 15" in matches[0]
+    assert "fields: message, message" in matches[0]
 
 
 # ---------------------------------------------------------------------------

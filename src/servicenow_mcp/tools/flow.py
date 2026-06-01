@@ -45,7 +45,7 @@ _VALID_ACTIONS: Final[frozenset[str]] = frozenset(
 _DEFAULT_TRIGGER_LIMIT: Final[int] = 100
 
 # Datapills in Flow Designer ``values`` payloads are stored as
-# ``{{<ui_uuid>.<dotted.field.path>}}`` where ui_uuid is the producer step's
+# ``{{<ui_id>.<dotted.field.path>}}`` where ui_id is the producer step's
 # canvas UUID (lowercase hex with dashes, 36 chars). The field part may
 # contain dots, brackets, and underscores; we capture lazily up to the
 # closing braces.
@@ -184,23 +184,64 @@ def _walk_strings(value: Any) -> Iterator[str]:
 # ---------------------------------------------------------------------------
 
 
+def _resolve_node_label(
+    row: dict[str, Any],
+    *,
+    kind: str,
+    action_type_lookup: dict[str, dict[str, Any]],
+    logic_definition_lookup: dict[str, dict[str, Any]],
+) -> str:
+    """Derive the user-visible label for a V2 canvas node.
+
+    Action nodes have no ``name``/``label`` column on the instance row; the
+    label lives on the referenced ``sys_hub_action_type_base`` row. Logic
+    nodes follow the same pattern via ``sys_hub_flow_logic_definition``.
+    Fall back to the inline display value of the ref column when the
+    lookup is empty (mostly a test/mock convenience).
+    """
+    if kind == "action":
+        atype_id = _v(row.get("action_type"))
+        meta = action_type_lookup.get(atype_id) if atype_id else None
+        if meta:
+            return _d(meta.get("name"))
+        return _d(row.get("action_type"))
+    if kind == "logic":
+        ldef_id = _v(row.get("logic_definition"))
+        meta = logic_definition_lookup.get(ldef_id) if ldef_id else None
+        if meta:
+            return _d(meta.get("name"))
+        return _d(row.get("logic_definition"))
+    return ""
+
+
 def _build_v2_node(
     row: dict[str, Any],
     *,
     kind: str,
-    action_type_lookup: dict[str, dict[str, Any]] | None = None,
+    action_type_lookup: dict[str, dict[str, Any]],
+    logic_definition_lookup: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
-    """Build a canvas node for a V2 action or logic instance."""
+    """Build a canvas node for a V2 action or logic instance.
+
+    V2 instance rows expose ``ui_id``/``parent_ui_id``; they have no
+    ``name``/``label``/``active`` columns. The visible label is derived
+    from the referenced action-type or logic-definition row.
+    """
     decoded, decode_error = _maybe_decode(row.get("values"))
+    label = _resolve_node_label(
+        row,
+        kind=kind,
+        action_type_lookup=action_type_lookup,
+        logic_definition_lookup=logic_definition_lookup,
+    )
     node: dict[str, Any] = {
         "kind": kind,
         "version": "v2",
         "sys_id": _v(row.get("sys_id")),
-        "ui_uuid": _v(row.get("ui_uuid")),
-        "parent_ui_id": _v(row.get("parent_ui_uuid")),
+        "ui_id": _v(row.get("ui_id")),
+        "parent_ui_id": _v(row.get("parent_ui_id")),
         "order": _v(row.get("order")),
-        "label": _d(row.get("label")),
-        "name": _v(row.get("name")),
+        "label": label,
         "comment": _v(row.get("comment")),
         "values_decoded": decoded,
         "children": [],
@@ -209,10 +250,10 @@ def _build_v2_node(
         action_type_id = _v(row.get("action_type"))
         node["action_type"] = {
             "sys_id": action_type_id,
-            "name": _d(row.get("action_type")),
+            "name": label,
         }
-        if action_type_lookup and action_type_id in action_type_lookup:
-            meta = action_type_lookup[action_type_id]
+        meta = action_type_lookup.get(action_type_id)
+        if meta:
             node["action_type"].update(
                 {
                     "internal_name": _v(meta.get("internal_name")),
@@ -223,7 +264,7 @@ def _build_v2_node(
     if kind == "logic":
         node["logic_definition"] = {
             "sys_id": _v(row.get("logic_definition")),
-            "name": _d(row.get("logic_definition")),
+            "name": label,
         }
     if decode_error is not None:
         node["decode_error"] = decode_error
@@ -231,44 +272,99 @@ def _build_v2_node(
 
 
 def _assemble_canvas(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Build a nested canvas tree by linking each node to its parent_ui_uuid.
+    """Build a nested canvas tree by linking each node to its parent_ui_id.
 
     Roots (``parent_ui_id == ""``) are returned at the top level; children
     are attached to their parent's ``children`` list in the order they
     appear in *nodes* (already sorted by ``order`` upstream).
     """
-    by_uuid: dict[str, dict[str, Any]] = {}
+    by_id: dict[str, dict[str, Any]] = {}
     for node in nodes:
-        uuid = node["ui_uuid"]
-        if uuid:
-            by_uuid[uuid] = node
+        uid = node["ui_id"]
+        if uid:
+            by_id[uid] = node
 
     roots: list[dict[str, Any]] = []
     for node in nodes:
         parent = node["parent_ui_id"]
-        if parent and parent in by_uuid:
-            by_uuid[parent]["children"].append(node)
+        if parent and parent in by_id:
+            by_id[parent]["children"].append(node)
         else:
             roots.append(node)
     return roots
 
 
-def _v2_trigger_entry(
-    row: dict[str, Any],
-    *,
-    condition_lookup: dict[str, str],
-) -> dict[str, Any]:
-    """Build a trigger entry from a V2 ``sys_hub_trigger_instance_v2`` row."""
-    remote_id = _v(row.get("remote_trigger_id"))
-    decoded, decode_error = _maybe_decode(row.get("values"))
+# Schedule extraction is keyed by ``trigger_type``: each scheduled kind
+# stores its single relevant parameter under a fixed ``name`` in the
+# decoded ``trigger_inputs`` list. ``service_catalog`` and the record
+# triggers have no schedule field.
+_SCHEDULE_INPUT_BY_TRIGGER_TYPE: Final[dict[str, str]] = {
+    "daily": "time",
+    "repeat": "repeat",
+    "run_once": "run_in",
+}
+
+
+def _index_trigger_inputs(decoded: Any) -> dict[str, dict[str, Any]]:
+    """Index a decoded ``trigger_inputs`` list by each entry's ``name``."""
+    if not isinstance(decoded, list):
+        return {}
+    indexed: dict[str, dict[str, Any]] = {}
+    for entry in decoded:
+        if isinstance(entry, dict):
+            key = entry.get("name")
+            if isinstance(key, str) and key:
+                indexed[key] = entry
+    return indexed
+
+
+def _project_trigger_inputs(decoded: Any, trigger_type: str) -> dict[str, Any]:
+    """Extract structured trigger fields from a decoded ``trigger_inputs`` list.
+
+    The blob is a list of ``{name, value, displayValue, ...}`` dicts.
+    Record triggers carry ``table`` and ``condition`` entries; scheduled
+    triggers carry a single kind-specific schedule entry. Everything else
+    (``service_catalog``, undefined types) returns empty strings.
+    """
+    by_name = _index_trigger_inputs(decoded)
+    table_entry = by_name.get("table") or {}
+    condition_entry = by_name.get("condition") or {}
+
+    schedule: dict[str, str] = {}
+    schedule_field = _SCHEDULE_INPUT_BY_TRIGGER_TYPE.get(trigger_type)
+    if schedule_field:
+        schedule_entry = by_name.get(schedule_field) or {}
+        schedule_value = schedule_entry.get("value", "")
+        if schedule_value:
+            schedule[schedule_field] = str(schedule_value)
+
+    return {
+        "table": str(table_entry.get("value", "")),
+        "table_display": str(table_entry.get("displayValue", "")),
+        "condition": str(condition_entry.get("value", "")),
+        "schedule": schedule,
+    }
+
+
+def _v2_trigger_entry(row: dict[str, Any]) -> dict[str, Any]:
+    """Build a trigger entry from a V2 ``sys_hub_trigger_instance_v2`` row.
+
+    Trigger metadata (``table``, ``condition``, schedule) lives inside the
+    gzip+base64+JSON ``trigger_inputs`` blob - the V2 row does not expose
+    ``type``/``table``/``active``/``remote_trigger_id`` as columns.
+    """
+    decoded, decode_error = _maybe_decode(row.get("trigger_inputs"))
+    trigger_type = _v(row.get("trigger_type"))
+    projection = _project_trigger_inputs(decoded, trigger_type)
     entry: dict[str, Any] = {
         "version": "v2",
         "sys_id": _v(row.get("sys_id")),
-        "type": _v(row.get("type")),
-        "active": _v(row.get("active")) == "true",
-        "table": _v(row.get("table")),
-        "remote_trigger_id": remote_id,
-        "condition": condition_lookup.get(remote_id, ""),
+        "type": trigger_type,
+        "name": _v(row.get("name")),
+        "table": projection["table"],
+        "table_display": projection["table_display"],
+        "condition": projection["condition"],
+        "schedule": projection["schedule"],
         "values_decoded": decoded,
     }
     if decode_error is not None:
@@ -294,21 +390,22 @@ def _v1_trigger_entry(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _build_canvas_map(flat_nodes: list[dict[str, Any]]) -> dict[str, dict[str, str]]:
-    """Map each canvas node's ``ui_uuid`` to its identifying metadata.
+    """Map each canvas node's ``ui_id`` to its identifying metadata.
 
     Built from the flat node list (pre-nesting) so all nodes are included
-    regardless of branch depth.
+    regardless of branch depth. Keys are lowercased for case-insensitive
+    datapill resolution.
     """
     canvas_map: dict[str, dict[str, str]] = {}
     for node in flat_nodes:
-        uuid = node["ui_uuid"]
-        if not uuid:
+        uid = node["ui_id"]
+        if not uid:
             continue
         action_type = node.get("action_type")
         action_type_name = action_type.get("name", "") if isinstance(action_type, dict) else ""
-        canvas_map[uuid.lower()] = {
+        canvas_map[uid.lower()] = {
             "sys_id": node["sys_id"],
-            "name": node["label"] or node["name"],
+            "name": node["label"],
             "action_type_name": action_type_name,
         }
     return canvas_map
@@ -317,8 +414,8 @@ def _build_canvas_map(flat_nodes: list[dict[str, Any]]) -> dict[str, dict[str, s
 def _find_datapill_refs_in(decoded: Any) -> list[tuple[str, str, str]]:
     """Find every ``{{uuid.field}}`` ref in a decoded payload.
 
-    Returns ``[(raw_ref, producer_ui_uuid, field), ...]`` preserving order
-    of first appearance, deduplicated by ``(producer_ui_uuid, field)``.
+    Returns ``[(raw_ref, producer_ui_id, field), ...]`` preserving order
+    of first appearance, deduplicated by ``(producer_ui_id, field)``.
     """
     refs: list[tuple[str, str, str]] = []
     seen: set[tuple[str, str]] = set()
@@ -341,13 +438,13 @@ def _resolve_refs_for_node(
     if decoded is None:
         return []
     resolved: list[dict[str, Any]] = []
-    for raw, producer_uuid, field in _find_datapill_refs_in(decoded):
-        producer = canvas_map.get(producer_uuid.lower())
+    for raw, producer_uid, field in _find_datapill_refs_in(decoded):
+        producer = canvas_map.get(producer_uid.lower())
         resolved.append(
             {
                 "ref": raw,
                 "field": field,
-                "producer_ui_uuid": producer_uuid,
+                "producer_ui_id": producer_uid,
                 "producer_sys_id": producer["sys_id"] if producer else "",
                 "producer_name": producer["name"] if producer else "",
                 "resolved": producer is not None,
@@ -361,31 +458,8 @@ def _resolve_refs_for_node(
 # ---------------------------------------------------------------------------
 
 
-def _detect_order_gaps(roots: list[dict[str, Any]]) -> bool:
-    """Return True if any sibling group on the canvas has a discontinuous order sequence.
-
-    A "gap" is detected at any nesting level with at least three sibling
-    nodes when the consecutive order deltas are not uniform (max delta
-    exceeds min delta). This catches both classic Flow spacing skips
-    (100 -> 200 -> 400) and tight sequences (...9 -> 11...).
-    """
-    if not roots:
-        return False
-
-    def _level_has_gap(siblings: list[dict[str, Any]]) -> bool:
-        orders = sorted({_safe_int(n["order"]) for n in siblings})
-        if len(orders) >= 3:
-            deltas = [orders[i + 1] - orders[i] for i in range(len(orders) - 1)]
-            if min(deltas) > 0 and max(deltas) > min(deltas):
-                return True
-        return any(_level_has_gap(n.get("children", [])) for n in siblings)
-
-    return _level_has_gap(roots)
-
-
 def _build_warnings(
     *,
-    flow_active: bool,
     drift: bool,
     master: str,
     latest: str,
@@ -396,11 +470,10 @@ def _build_warnings(
     logic_v2: list[dict[str, Any]],
     triggers_v2_entries: list[dict[str, Any]],
     action_type_lookup: dict[str, dict[str, Any]],
-    canvas: list[dict[str, Any]],
     unresolved_refs: dict[str, str],
     decode_failure_count: int,
 ) -> list[str]:
-    """Assemble the full warning list shared by ``inspect`` and ``summary``."""
+    """Assemble the warning list shared by ``inspect`` and ``summary``."""
     warnings: list[str] = []
 
     if drift:
@@ -427,22 +500,9 @@ def _build_warnings(
             f"{len(spoke_actions)} spoke action type(s) referenced; their decoded values may depend on scoped types."
         )
 
-    if flow_active and triggers_v2_entries and not any(t["active"] for t in triggers_v2_entries):
-        warnings.append("flow_active_with_inactive_trigger: flow.active=true but no V2 trigger is active.")
-
-    for entry in triggers_v2_entries:
-        if entry["remote_trigger_id"] and not entry["condition"]:
-            warnings.append(
-                f"missing_record_trigger_condition: V2 trigger {entry['sys_id']!r} has remote_trigger_id "
-                f"{entry['remote_trigger_id']!r} but the stitched condition is empty."
-            )
-
-    if _detect_order_gaps(canvas):
-        warnings.append("canvas_order_nonuniform: sibling step orders are not uniformly spaced on at least one branch.")
-
-    for producer_uuid, consumer_sys_id in unresolved_refs.items():
+    for producer_uid, consumer_sys_id in unresolved_refs.items():
         warnings.append(
-            f"unresolved_datapill_ref: producer_ui_uuid={producer_uuid!r} is referenced by step "
+            f"unresolved_datapill_ref: producer_ui_id={producer_uid!r} is referenced by step "
             f"{consumer_sys_id!r} but is not present on the canvas."
         )
 
@@ -512,24 +572,36 @@ async def _load_flow_bundle(
     triggers_v2 = await client.list_trigger_instances_v2(resolved_sys_id)
     triggers_v1 = await client.list_trigger_instances_v1(resolved_sys_id)
 
-    remote_ids = sorted({_v(t.get("remote_trigger_id")) for t in triggers_v2 if _v(t.get("remote_trigger_id"))})
-    record_triggers = await client.list_record_triggers(remote_ids) if remote_ids else []
-
     action_type_ids = sorted({_v(a.get("action_type")) for a in actions_v2 if _v(a.get("action_type"))})
     action_type_rows = await client.get_action_type_definitions(action_type_ids) if action_type_ids else []
+
+    logic_definition_ids = sorted({_v(le.get("logic_definition")) for le in logic_v2 if _v(le.get("logic_definition"))})
+    logic_definition_rows = await client.get_logic_definitions(logic_definition_ids) if logic_definition_ids else []
 
     v1_action_ids = sorted({_v(a.get("sys_id")) for a in actions_v1 if _v(a.get("sys_id"))})
     v1_variable_values = await client.list_v1_variable_values(v1_action_ids) if v1_action_ids else []
 
     action_type_lookup = _index_by_sys_id(action_type_rows)
-    condition_lookup: dict[str, str] = {
-        _v(row.get("sys_id")): _v(row.get("condition")) for row in record_triggers if _v(row.get("sys_id"))
-    }
+    logic_definition_lookup = _index_by_sys_id(logic_definition_rows)
 
     flat_nodes: list[dict[str, Any]] = [
-        _build_v2_node(row, kind="action", action_type_lookup=action_type_lookup) for row in actions_v2
+        _build_v2_node(
+            row,
+            kind="action",
+            action_type_lookup=action_type_lookup,
+            logic_definition_lookup=logic_definition_lookup,
+        )
+        for row in actions_v2
     ]
-    flat_nodes.extend(_build_v2_node(row, kind="logic") for row in logic_v2)
+    flat_nodes.extend(
+        _build_v2_node(
+            row,
+            kind="logic",
+            action_type_lookup=action_type_lookup,
+            logic_definition_lookup=logic_definition_lookup,
+        )
+        for row in logic_v2
+    )
     flat_nodes.sort(key=lambda n: _safe_int(n["order"]))
 
     canvas_map = _build_canvas_map(flat_nodes)
@@ -545,14 +617,12 @@ async def _load_flow_bundle(
         if refs:
             node["datapill_refs"] = refs
             for ref in refs:
-                if not ref["resolved"] and ref["producer_ui_uuid"] not in unresolved_refs:
-                    unresolved_refs[ref["producer_ui_uuid"]] = node["sys_id"]
+                if not ref["resolved"] and ref["producer_ui_id"] not in unresolved_refs:
+                    unresolved_refs[ref["producer_ui_id"]] = node["sys_id"]
 
     canvas = _assemble_canvas(flat_nodes)
 
-    triggers_v2_entries: list[dict[str, Any]] = [
-        _v2_trigger_entry(row, condition_lookup=condition_lookup) for row in triggers_v2
-    ]
+    triggers_v2_entries: list[dict[str, Any]] = [_v2_trigger_entry(row) for row in triggers_v2]
     triggers_v1_entries: list[dict[str, Any]] = [_v1_trigger_entry(row) for row in triggers_v1]
 
     return {
@@ -568,6 +638,7 @@ async def _load_flow_bundle(
         "triggers_v2_rows": triggers_v2,
         "v1_variable_values": v1_variable_values,
         "action_type_lookup": action_type_lookup,
+        "logic_definition_lookup": logic_definition_lookup,
         "flat_nodes": flat_nodes,
         "canvas_map": canvas_map,
         "canvas": canvas,
@@ -629,7 +700,6 @@ async def _action_inspect(
     triggers.extend(bundle["triggers_v1_entries"])
 
     warnings = _build_warnings(
-        flow_active=flow_payload["active"],
         drift=drift,
         master=master,
         latest=latest,
@@ -640,7 +710,6 @@ async def _action_inspect(
         logic_v2=bundle["logic_v2"],
         triggers_v2_entries=bundle["triggers_v2_entries"],
         action_type_lookup=bundle["action_type_lookup"],
-        canvas=bundle["canvas"],
         unresolved_refs=bundle["unresolved_refs"],
         decode_failure_count=bundle["decode_failure_count"],
     )
@@ -680,16 +749,25 @@ def _summary_trigger(triggers_v2_entries: list[dict[str, Any]]) -> dict[str, Any
 
     Real flows have one trigger; the array shape on ``inspect`` exists to
     cover edge cases. ``summary`` always returns the same flat object,
-    using sentinel values when no V2 trigger exists.
+    using empty values when no V2 trigger exists.
     """
     if not triggers_v2_entries:
-        return {"type": "", "table": "", "active": False, "condition": ""}
+        return {
+            "type": "",
+            "name": "",
+            "table": "",
+            "table_display": "",
+            "condition": "",
+            "schedule": {},
+        }
     first = triggers_v2_entries[0]
     return {
         "type": first["type"],
+        "name": first["name"],
         "table": first["table"],
-        "active": first["active"],
+        "table_display": first["table_display"],
         "condition": first["condition"],
+        "schedule": first["schedule"],
     }
 
 
@@ -699,27 +777,24 @@ def _summary_steps(
 ) -> list[dict[str, Any]]:
     """Project the flat node list down to summary step rows.
 
-    Each step carries enough identity (``sys_id``, ``ui_uuid``, ``order``,
-    ``kind``, ``name``, ``label``, ``comment``) and branch context
-    (``branch_parent_ui_uuid``, ``branch_label``) to be useful on its own
+    Each step carries enough identity (``sys_id``, ``ui_id``, ``order``,
+    ``kind``, ``label``, ``comment``) and branch context
+    (``branch_parent_ui_id``, ``branch_label``) to be useful on its own
     without the heavy ``values_decoded`` payload.
     """
     steps: list[dict[str, Any]] = []
     for node in flat_nodes:
-        action_type = node.get("action_type") or {}
-        resolved_name = action_type.get("name", "") if isinstance(action_type, dict) else ""
         parent_id = node["parent_ui_id"]
         parent = parent_lookup.get(parent_id)
         steps.append(
             {
                 "order": _safe_int(node["order"]),
                 "sys_id": node["sys_id"],
-                "ui_uuid": node["ui_uuid"],
+                "ui_id": node["ui_id"],
                 "kind": node["kind"],
-                "name": resolved_name or node["name"],
                 "label": node["label"],
                 "comment": node["comment"],
-                "branch_parent_ui_uuid": parent_id,
+                "branch_parent_ui_id": parent_id,
                 "branch_label": parent["label"] if parent else "",
             }
         )
@@ -730,10 +805,10 @@ def _summary_branches(canvas: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Strip decoded values + datapill refs from the canvas tree, keep structure only."""
     return [
         {
-            "ui_uuid": node["ui_uuid"],
+            "ui_id": node["ui_id"],
             "sys_id": node["sys_id"],
             "order": _safe_int(node["order"]),
-            "name": node["label"] or node["name"],
+            "label": node["label"],
             "children": _summary_branches(node.get("children", [])),
         }
         for node in canvas
@@ -748,12 +823,12 @@ def _summary_datapill_graph(
     graph: list[dict[str, Any]] = []
     for node in flat_nodes:
         for ref in node.get("datapill_refs", []):
-            producer = canvas_map.get(ref["producer_ui_uuid"].lower())
+            producer = canvas_map.get(ref["producer_ui_id"].lower())
             graph.append(
                 {
                     "consumer_step_sys_id": node["sys_id"],
                     "consumer_field": ref["field"],
-                    "producer_ui_uuid": ref["producer_ui_uuid"],
+                    "producer_ui_id": ref["producer_ui_id"],
                     "producer_sys_id_if_resolved": producer["sys_id"] if producer else "",
                     "producer_name_if_resolved": producer["name"] if producer else "",
                     "raw_reference": ref["ref"],
@@ -791,14 +866,11 @@ async def _action_summary(
     drift = bool(master and latest and master != latest)
     flow_payload = _flow_header_payload(header)
 
-    parent_lookup: dict[str, dict[str, Any]] = {
-        node["ui_uuid"]: node for node in bundle["flat_nodes"] if node["ui_uuid"]
-    }
+    parent_lookup: dict[str, dict[str, Any]] = {node["ui_id"]: node for node in bundle["flat_nodes"] if node["ui_id"]}
 
     actions_v2 = bundle["actions_v2"]
     logic_v2 = bundle["logic_v2"]
     warnings = _build_warnings(
-        flow_active=flow_payload["active"],
         drift=drift,
         master=master,
         latest=latest,
@@ -809,7 +881,6 @@ async def _action_summary(
         logic_v2=logic_v2,
         triggers_v2_entries=bundle["triggers_v2_entries"],
         action_type_lookup=bundle["action_type_lookup"],
-        canvas=bundle["canvas"],
         unresolved_refs=bundle["unresolved_refs"],
         decode_failure_count=bundle["decode_failure_count"],
     )

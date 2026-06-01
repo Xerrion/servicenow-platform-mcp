@@ -348,7 +348,7 @@ Dispatched via the read-only `flow` tool. Available in the `full` and `readonly`
 | `describe` | Return the action registry without platform I/O. |
 
 - Reads both V1 (`sys_hub_action_instance`, `sys_hub_flow_logic`, `sys_hub_trigger_instance`) and V2 (`sys_hub_action_instance_v2`, `sys_hub_flow_logic_instance_v2`, `sys_hub_trigger_instance_v2`) Flow Designer tables.
-- Joins V2 record-trigger conditions through `sys_flow_record_trigger.sys_id == trigger_v2.remote_trigger_id`.
+- V2 rows expose `ui_id` and `parent_ui_id` (no `name`/`label`/`active` columns). Node display labels are resolved through the referenced `sys_hub_action_type_base.name` (for actions) or `sys_hub_flow_logic_definition.name` (for logic). Trigger row parameters (`table`, `condition`, schedule fields) come from the decoded `trigger_inputs` gzip+base64+JSON blob - the V2 trigger row itself does not carry them as columns, and `sys_flow_record_trigger` is not joined.
 - `sys_hub_flow_variable` is filtered by `model=<flow_sys_id>` (not `flow=`). The `flow` column does not exist on that table; using it makes ServiceNow silently ignore the filter and return every variable declared by every action_type on the platform (hundreds of unrelated rows).
 - Pure decoder lives in `tools/_flow_values.py` as `decode_values()` and `looks_compressed()`. Decompression is bounded: `MAX_COMPRESSED_BYTES = 1 MiB` (wire cap, checked before allocating the decompressor) and `MAX_DECOMPRESSED_BYTES = 4 MiB`. Truncated streams and trailing garbage are rejected with `ValueError`.
 - Deliberately does not use undocumented `/api/now/processflow/*` endpoints.
@@ -357,7 +357,7 @@ Dispatched via the read-only `flow` tool. Available in the `full` and `readonly`
 
 ### Datapill resolution
 
-`inspect` builds a `ui_uuid -> {sys_id, name, action_type_name}` map from the canvas, then scans every node's `values_decoded` payload for `{{<uuid>.<field>}}` references (regex `\{\{([0-9a-f-]{36})\.([^}]+)\}\}`). Resolved refs are attached as a `datapill_refs: [{ref, field, producer_ui_uuid, producer_sys_id, producer_name, resolved}]` sibling on each consuming node. `summary` reshapes the same data into a flat `datapill_graph` (one edge per consumer field), keyed by `consumer_step_sys_id`.
+`inspect` builds a `ui_id -> {sys_id, name, action_type_name}` map from the canvas, then scans every node's `values_decoded` payload for `{{<uuid>.<field>}}` references (regex `\{\{([0-9a-f-]{36})\.([^}]+)\}\}`). Resolved refs are attached as a `datapill_refs: [{ref, field, producer_ui_id, producer_sys_id, producer_name, resolved}]` sibling on each consuming node. `summary` reshapes the same data into a flat `datapill_graph` (one edge per consumer field), keyed by `consumer_step_sys_id`.
 
 ### Payload trims (`inspect`)
 
@@ -366,12 +366,11 @@ Dispatched via the read-only `flow` tool. Available in the `full` and `readonly`
 
 ### Warnings (`inspect` and `summary`)
 
-In addition to the original four (snapshot drift, V1+V2 coexistence, V1-logic presence, spoke-action-type references), the warning list now emits:
-
-- `flow_active_with_inactive_trigger` - flow header is `active=true` but no V2 trigger is `active=true`.
-- `missing_record_trigger_condition` - a V2 trigger has a `remote_trigger_id` but the stitched `condition` is empty (the joined `sys_flow_record_trigger` row is missing or has no condition).
-- `canvas_order_nonuniform` - some sibling group on the canvas has a non-uniform consecutive order delta (e.g. 100 -> 200 -> 400, or 9 -> 11 elsewhere).
-- `unresolved_datapill_ref` - one per unique `producer_ui_uuid` referenced in any decoded payload that does not exist on the canvas. The message names the producer UUID and an example consumer step.
+- `snapshot_drift` - the published snapshot's hash differs from the live flow definition.
+- `v1_v2_coexistence` - both V1 and V2 action/logic rows exist for the same flow.
+- `v1_logic_present` - V1 `sys_hub_flow_logic` rows exist (legacy logic on an otherwise-migrated flow).
+- `spoke_action_types_referenced` - the canvas references one or more spoke-provided action types.
+- `unresolved_datapill_ref` - one per unique `producer_ui_id` referenced in any decoded payload that does not exist on the canvas. The message names the producer UUID and an example consumer step.
 - `step_decode_failure` - aggregate count of canvas nodes whose `values` blob failed to decode (a single warning, not one per node).
 
 ## 🛡 Audit Inspection

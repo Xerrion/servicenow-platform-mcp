@@ -1456,15 +1456,67 @@ class TestServiceNowClientFlowDesigner:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_list_record_triggers_empty_input_no_http_call(
+    async def test_get_action_type_definitions_targets_base_table(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """Action-type metadata is fetched from ``sys_hub_action_type_base``.
+
+        The ``_definition`` table does not exist on this platform and
+        responds 404; ``_base`` is the correct ref target.
+        """
+        from servicenow_mcp.client import ServiceNowClient
+
+        route = respx.get(f"{BASE_URL}/api/now/table/sys_hub_action_type_base").mock(
+            return_value=httpx.Response(200, json={"result": []}),
+        )
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            await client.get_action_type_definitions(["aaa", "bbb"])
+
+        query = route.calls.last.request.url.params["sysparm_query"]
+        assert query == "sys_idINaaa,bbb"
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_get_action_type_definitions_empty_input_no_http_call(
         self, settings: Settings, auth_provider: BasicAuthProvider
     ) -> None:
         """Empty input short-circuits to ``[]`` without touching the network."""
         from servicenow_mcp.client import ServiceNowClient
 
-        # No respx route registered: any HTTP call would raise.
         async with ServiceNowClient(settings, auth_provider) as client:
-            result = await client.list_record_triggers([])
+            result = await client.get_action_type_definitions([])
+
+        assert result == []
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_get_logic_definitions_targets_logic_definition_table(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """Logic-definition metadata is fetched from ``sys_hub_flow_logic_definition``."""
+        from servicenow_mcp.client import ServiceNowClient
+
+        route = respx.get(f"{BASE_URL}/api/now/table/sys_hub_flow_logic_definition").mock(
+            return_value=httpx.Response(200, json={"result": []}),
+        )
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            await client.get_logic_definitions(["if_def", "else_def"])
+
+        query = route.calls.last.request.url.params["sysparm_query"]
+        assert query == "sys_idINif_def,else_def"
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_get_logic_definitions_empty_input_no_http_call(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """Empty input short-circuits to ``[]`` without touching the network."""
+        from servicenow_mcp.client import ServiceNowClient
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            result = await client.get_logic_definitions([])
 
         assert result == []
 

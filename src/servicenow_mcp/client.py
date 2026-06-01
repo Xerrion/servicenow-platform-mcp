@@ -1064,27 +1064,14 @@ class ServiceNowClient:
         self._raise_for_status(response)
         return self._extract_result(response.json())
 
-    async def list_record_triggers(self, remote_trigger_ids: list[str]) -> list[dict[str, Any]]:
-        """Bulk-fetch ``sys_flow_record_trigger`` rows for V2 record-trigger conditions."""
-        if not remote_trigger_ids:
-            return []
-        http = self._ensure_client()
-        ids_csv = ",".join(remote_trigger_ids)
-        limit = min(len(remote_trigger_ids), INTERNAL_QUERY_LIMIT)
-        response = await http.get(
-            self._table_url("sys_flow_record_trigger"),
-            headers=await self._headers(),
-            params={
-                "sysparm_query": f"sys_idIN{ids_csv}",
-                "sysparm_display_value": "all",
-                "sysparm_limit": str(limit),
-            },
-        )
-        self._raise_for_status(response)
-        return self._extract_result(response.json())
-
     async def get_action_type_definitions(self, action_type_sys_ids: list[str]) -> list[dict[str, Any]]:
-        """Bulk-fetch action-type metadata from ``sys_hub_action_type_base``."""
+        """Bulk-fetch action-type metadata from ``sys_hub_action_type_base``.
+
+        The concrete action-type rows actually live in child class
+        ``sys_hub_action_type_snapshot``, but they extend ``_base``;
+        querying ``sys_hub_action_type_definition`` returns 404 on this
+        platform - that table does not exist.
+        """
         if not action_type_sys_ids:
             return []
         http = self._ensure_client()
@@ -1096,6 +1083,30 @@ class ServiceNowClient:
             params={
                 "sysparm_query": f"sys_idIN{ids_csv}",
                 "sysparm_fields": "sys_id,name,internal_name,sys_scope,category,sys_class_name",
+                "sysparm_display_value": "all",
+                "sysparm_limit": str(limit),
+            },
+        )
+        self._raise_for_status(response)
+        return self._extract_result(response.json())
+
+    async def get_logic_definitions(self, logic_definition_sys_ids: list[str]) -> list[dict[str, Any]]:
+        """Bulk-fetch logic-definition metadata from ``sys_hub_flow_logic_definition``.
+
+        Each row's ``name`` is the kind label (``If``, ``Else``, ``For Each``,
+        ``End``, ...) that the canvas surfaces as a logic node's label.
+        """
+        if not logic_definition_sys_ids:
+            return []
+        http = self._ensure_client()
+        ids_csv = ",".join(logic_definition_sys_ids)
+        limit = min(len(logic_definition_sys_ids), INTERNAL_QUERY_LIMIT)
+        response = await http.get(
+            self._table_url("sys_hub_flow_logic_definition"),
+            headers=await self._headers(),
+            params={
+                "sysparm_query": f"sys_idIN{ids_csv}",
+                "sysparm_fields": "sys_id,name,internal_name,sys_scope,category",
                 "sysparm_display_value": "all",
                 "sysparm_limit": str(limit),
             },

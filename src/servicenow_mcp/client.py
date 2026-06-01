@@ -956,13 +956,20 @@ class ServiceNowClient:
         return self._extract_result(response.json())
 
     async def list_flow_variables(self, flow_sys_id: str) -> list[dict[str, Any]]:
-        """List flow-scoped variables (``sys_hub_flow_variable``)."""
+        """List flow-scoped variables (``sys_hub_flow_variable``).
+
+        Filters on ``model`` (the owning flow/subflow/action_type sys_id),
+        not ``flow``. A ``flow`` column does not exist on
+        ``sys_hub_flow_variable``; using it makes ServiceNow silently
+        ignore the filter and return the entire table (every variable
+        declared by every action_type on the platform).
+        """
         http = self._ensure_client()
         response = await http.get(
             self._table_url("sys_hub_flow_variable"),
             headers=await self._headers(),
             params={
-                "sysparm_query": f"flow={flow_sys_id}^ORDERBYorder",
+                "sysparm_query": f"model={flow_sys_id}^ORDERBYorder",
                 "sysparm_display_value": "all",
             },
         )

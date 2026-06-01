@@ -1518,3 +1518,26 @@ class TestServiceNowClientFlowDesigner:
 
         async with ServiceNowClient(settings, auth_provider) as client:
             assert await client.get_flows_bulk([]) == []
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_list_flow_variables_filters_by_model_not_flow(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """``list_flow_variables`` must filter on ``model=``, not ``flow=``.
+
+        Using ``flow=`` makes ServiceNow silently ignore the filter and
+        return every row in ``sys_hub_flow_variable`` (hundreds across all
+        action_types), which is the bug this assertion guards.
+        """
+        from servicenow_mcp.client import ServiceNowClient
+
+        route = respx.get(f"{BASE_URL}/api/now/table/sys_hub_flow_variable").mock(
+            return_value=httpx.Response(200, json={"result": []}),
+        )
+        flow_id = "f" * 32
+        async with ServiceNowClient(settings, auth_provider) as client:
+            await client.list_flow_variables(flow_id)
+
+        query = route.calls.last.request.url.params["sysparm_query"]
+        assert query == f"model={flow_id}^ORDERBYorder"

@@ -609,3 +609,333 @@ async def test_inspect_rejects_invalid_sys_id_without_io(settings: Settings, aut
     # Validation must happen BEFORE opening the client; no flow methods should be called.
     client.get_flow_by_sys_id.assert_not_called()
     client.find_flows_by_name.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# inspect: payload trim (boilerplate calculation, empty v1 omission)
+# ---------------------------------------------------------------------------
+
+
+_CALC_BOILERPLATE = (
+    "(function calculatedFieldValue(current) {\n\n\t// Add your code here"
+    "\n\treturn '';  // return the calculated value\n\n})(current);"
+)
+
+
+@pytest.mark.asyncio()
+async def test_inspect_strips_boilerplate_calculation(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    """Verbatim ``calculation`` boilerplate is dropped; custom calculation is preserved."""
+    tools = _register_and_get_tools(settings, auth_provider)
+    inputs = [
+        {"sys_id": _ref("in1"), "name": _ref("a"), "calculation": _ref(_CALC_BOILERPLATE)},
+        {"sys_id": _ref("in2"), "name": _ref("b"), "calculation": _ref("return current.number;")},
+    ]
+    kwargs = _empty_inspect_kwargs()
+    kwargs["list_flow_inputs"] = inputs
+    client = _make_client_mock(**kwargs)
+
+    with _patch_client(client):
+        raw = await tools["flow"](action="inspect", sys_id=SYS_ID_FLOW)
+    data = decode_response(raw)["data"]
+
+    assert "calculation" not in data["inputs"][0]
+    assert data["inputs"][1]["calculation"] == "return current.number;"
+
+
+@pytest.mark.asyncio()
+async def test_inspect_omits_empty_v1_arrays(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    """``v1_actions`` / ``v1_variable_values`` are dropped from the response when both are empty."""
+    tools = _register_and_get_tools(settings, auth_provider)
+    client = _make_client_mock(**_empty_inspect_kwargs())
+
+    with _patch_client(client):
+        raw = await tools["flow"](action="inspect", sys_id=SYS_ID_FLOW)
+    data = decode_response(raw)["data"]
+
+    assert "v1_actions" not in data
+    assert "v1_variable_values" not in data
+
+
+@pytest.mark.asyncio()
+async def test_inspect_includes_v1_when_present(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    """``v1_actions`` is surfaced when the flow has at least one V1 action."""
+    tools = _register_and_get_tools(settings, auth_provider)
+    kwargs = _empty_inspect_kwargs()
+    kwargs["list_action_instances_v1"] = [{"sys_id": _ref("av1"), "name": _ref("legacy")}]
+    client = _make_client_mock(**kwargs)
+
+    with _patch_client(client):
+        raw = await tools["flow"](action="inspect", sys_id=SYS_ID_FLOW)
+    data = decode_response(raw)["data"]
+
+    assert data["v1_actions"][0]["sys_id"] == "av1"
+
+
+# ---------------------------------------------------------------------------
+# inspect: datapill ref resolution
+# ---------------------------------------------------------------------------
+
+
+_UUID_A = "11111111-1111-1111-1111-111111111111"
+_UUID_B = "22222222-2222-2222-2222-222222222222"
+_UUID_GHOST = "ffffffff-ffff-ffff-ffff-ffffffffffff"
+
+
+def _action_row(
+    *,
+    sys_id: str,
+    ui_uuid: str,
+    order: str,
+    label: str = "",
+    values: Any = "",
+    parent_ui_uuid: str = "",
+    action_type: str = "atype_x",
+) -> dict[str, Any]:
+    """Build a minimal V2 action-instance row for tests."""
+    return {
+        "sys_id": _ref(sys_id),
+        "ui_uuid": _ref(ui_uuid),
+        "parent_ui_uuid": _ref(parent_ui_uuid),
+        "order": _ref(order),
+        "label": _ref(label),
+        "name": _ref(""),
+        "comment": _ref(""),
+        "action_type": _ref(action_type, "Create Record"),
+        "values": _ref(values),
+    }
+
+
+@pytest.mark.asyncio()
+async def test_inspect_attaches_resolved_datapill_refs(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    """A consumer node's decoded payload referencing a producer's ui_uuid yields a resolved ref."""
+    tools = _register_and_get_tools(settings, auth_provider)
+    producer_blob = _encode_values([{"k": "static"}])
+    consumer_blob = _encode_values([{"target": f"{{{{{_UUID_A}.number}}}}"}])
+    actions_v2 = [
+        _action_row(sys_id="a1", ui_uuid=_UUID_A, order="100", label="Producer", values=producer_blob),
+        _action_row(sys_id="a2", ui_uuid=_UUID_B, order="200", label="Consumer", values=consumer_blob),
+    ]
+    kwargs = _empty_inspect_kwargs()
+    kwargs["list_action_instances_v2"] = actions_v2
+    client = _make_client_mock(**kwargs)
+
+    with _patch_client(client):
+        raw = await tools["flow"](action="inspect", sys_id=SYS_ID_FLOW)
+    data = decode_response(raw)["data"]
+
+    consumer = next(n for n in data["canvas"] if n["sys_id"] == "a2")
+    refs = consumer["datapill_refs"]
+    assert len(refs) == 1
+    assert refs[0]["resolved"] is True
+    assert refs[0]["producer_ui_uuid"] == _UUID_A
+    assert refs[0]["producer_sys_id"] == "a1"
+    assert refs[0]["producer_name"] == "Producer"
+    assert refs[0]["field"] == "number"
+
+
+@pytest.mark.asyncio()
+async def test_inspect_unresolved_datapill_emits_warning(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    """A reference to a producer not on the canvas emits one ``unresolved_datapill_ref`` warning."""
+    tools = _register_and_get_tools(settings, auth_provider)
+    consumer_blob = _encode_values([{"target": f"{{{{{_UUID_GHOST}.foo}}}}"}])
+    actions_v2 = [_action_row(sys_id="a2", ui_uuid=_UUID_B, order="100", values=consumer_blob)]
+    kwargs = _empty_inspect_kwargs()
+    kwargs["list_action_instances_v2"] = actions_v2
+    client = _make_client_mock(**kwargs)
+
+    with _patch_client(client):
+        raw = await tools["flow"](action="inspect", sys_id=SYS_ID_FLOW)
+    data = decode_response(raw)["data"]
+
+    consumer = data["canvas"][0]
+    assert consumer["datapill_refs"][0]["resolved"] is False
+    matches = [w for w in data["warnings"] if "unresolved_datapill_ref" in w]
+    assert len(matches) == 1
+    assert _UUID_GHOST in matches[0]
+
+
+# ---------------------------------------------------------------------------
+# inspect: new warnings
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio()
+async def test_inspect_flow_active_with_inactive_trigger(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    """Active flow with only inactive V2 triggers emits ``flow_active_with_inactive_trigger``."""
+    tools = _register_and_get_tools(settings, auth_provider)
+    kwargs = _empty_inspect_kwargs()
+    kwargs["list_trigger_instances_v2"] = [
+        {
+            "sys_id": _ref("t1"),
+            "type": _ref("record_update"),
+            "active": _ref("false"),
+            "table": _ref("incident"),
+            "remote_trigger_id": _ref(""),
+            "values": _ref(""),
+        }
+    ]
+    client = _make_client_mock(**kwargs)
+
+    with _patch_client(client):
+        raw = await tools["flow"](action="inspect", sys_id=SYS_ID_FLOW)
+    data = decode_response(raw)["data"]
+    assert any("flow_active_with_inactive_trigger" in w for w in data["warnings"])
+
+
+@pytest.mark.asyncio()
+async def test_inspect_missing_record_trigger_condition(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    """V2 trigger with a remote_trigger_id but no stitched condition emits a warning."""
+    tools = _register_and_get_tools(settings, auth_provider)
+    kwargs = _empty_inspect_kwargs()
+    kwargs["list_trigger_instances_v2"] = [
+        {
+            "sys_id": _ref("t1"),
+            "type": _ref("record_update"),
+            "active": _ref("true"),
+            "table": _ref("incident"),
+            "remote_trigger_id": _ref("rt_orphan"),
+            "values": _ref(""),
+        }
+    ]
+    # No matching record-trigger row -> empty condition.
+    kwargs["list_record_triggers"] = []
+    client = _make_client_mock(**kwargs)
+
+    with _patch_client(client):
+        raw = await tools["flow"](action="inspect", sys_id=SYS_ID_FLOW)
+    data = decode_response(raw)["data"]
+    assert any("missing_record_trigger_condition" in w for w in data["warnings"])
+
+
+@pytest.mark.asyncio()
+async def test_inspect_canvas_order_gap_warning(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    """A non-uniform sibling order sequence (100, 200, 400) emits ``canvas_order_gap``."""
+    tools = _register_and_get_tools(settings, auth_provider)
+    actions_v2 = [
+        _action_row(sys_id="a1", ui_uuid="u1", order="100"),
+        _action_row(sys_id="a2", ui_uuid="u2", order="200"),
+        _action_row(sys_id="a3", ui_uuid="u3", order="400"),
+    ]
+    kwargs = _empty_inspect_kwargs()
+    kwargs["list_action_instances_v2"] = actions_v2
+    client = _make_client_mock(**kwargs)
+
+    with _patch_client(client):
+        raw = await tools["flow"](action="inspect", sys_id=SYS_ID_FLOW)
+    data = decode_response(raw)["data"]
+    assert any("canvas_order_gap" in w for w in data["warnings"])
+
+
+@pytest.mark.asyncio()
+async def test_inspect_step_decode_failure_warning(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    """At least one node with ``decode_error`` aggregates into a ``step_decode_failure`` warning."""
+    tools = _register_and_get_tools(settings, auth_provider)
+    actions_v2 = [_action_row(sys_id="a1", ui_uuid="u1", order="100", values="H4sIA!!!bad!!!")]
+    kwargs = _empty_inspect_kwargs()
+    kwargs["list_action_instances_v2"] = actions_v2
+    client = _make_client_mock(**kwargs)
+
+    with _patch_client(client):
+        raw = await tools["flow"](action="inspect", sys_id=SYS_ID_FLOW)
+    data = decode_response(raw)["data"]
+    assert any("step_decode_failure: 1" in w for w in data["warnings"])
+
+
+# ---------------------------------------------------------------------------
+# summary
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio()
+async def test_summary_happy_path_compact_projection(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    """``summary`` returns compact projection with single trigger, steps, branches, counts."""
+    tools = _register_and_get_tools(settings, auth_provider)
+    actions_v2 = [
+        _action_row(sys_id="a1", ui_uuid=_UUID_A, order="100", label="Producer"),
+        _action_row(sys_id="a2", ui_uuid=_UUID_B, order="200", label="Consumer"),
+    ]
+    triggers_v2 = [
+        {
+            "sys_id": _ref("t1"),
+            "type": _ref("record_update"),
+            "active": _ref("true"),
+            "table": _ref("incident"),
+            "remote_trigger_id": _ref("rt1"),
+            "values": _ref(""),
+        }
+    ]
+    kwargs = _empty_inspect_kwargs()
+    kwargs["list_action_instances_v2"] = actions_v2
+    kwargs["list_trigger_instances_v2"] = triggers_v2
+    kwargs["list_record_triggers"] = [{"sys_id": _ref("rt1"), "condition": _ref("active=true")}]
+    client = _make_client_mock(**kwargs)
+
+    with _patch_client(client):
+        raw = await tools["flow"](action="summary", sys_id=SYS_ID_FLOW)
+    data = decode_response(raw)["data"]
+
+    # trigger is a single object, not a list
+    assert data["trigger"] == {
+        "type": "record_update",
+        "table": "incident",
+        "active": True,
+        "condition": "active=true",
+    }
+    # steps are flat, ordered, no values_decoded
+    assert [s["sys_id"] for s in data["steps"]] == ["a1", "a2"]
+    assert all("values_decoded" not in s for s in data["steps"])
+    # branches keep structure only
+    assert {n["sys_id"] for n in data["branches"]} == {"a1", "a2"}
+    assert all(set(n.keys()) == {"ui_uuid", "sys_id", "order", "name", "children"} for n in data["branches"])
+    # counts match
+    assert data["counts"]["steps"] == 2
+    assert data["counts"]["actions"] == 2
+    assert data["counts"]["triggers"] == 1
+
+
+@pytest.mark.asyncio()
+async def test_summary_datapill_graph_emits_resolved_and_unresolved(
+    settings: Settings, auth_provider: BasicAuthProvider
+) -> None:
+    """``datapill_graph`` lists one edge per consumer ref, with producer fields populated when resolved."""
+    tools = _register_and_get_tools(settings, auth_provider)
+    consumer_blob = _encode_values(
+        [
+            {"a": f"{{{{{_UUID_A}.number}}}}", "b": f"{{{{{_UUID_GHOST}.foo}}}}"},
+        ]
+    )
+    actions_v2 = [
+        _action_row(sys_id="a1", ui_uuid=_UUID_A, order="100", label="Producer"),
+        _action_row(sys_id="a2", ui_uuid=_UUID_B, order="200", values=consumer_blob),
+    ]
+    kwargs = _empty_inspect_kwargs()
+    kwargs["list_action_instances_v2"] = actions_v2
+    client = _make_client_mock(**kwargs)
+
+    with _patch_client(client):
+        raw = await tools["flow"](action="summary", sys_id=SYS_ID_FLOW)
+    data = decode_response(raw)["data"]
+
+    graph = data["datapill_graph"]
+    by_uuid = {edge["producer_ui_uuid"]: edge for edge in graph}
+    assert by_uuid[_UUID_A]["producer_sys_id_if_resolved"] == "a1"
+    assert by_uuid[_UUID_A]["consumer_step_sys_id"] == "a2"
+    assert by_uuid[_UUID_GHOST]["producer_sys_id_if_resolved"] == ""
+
+
+@pytest.mark.asyncio()
+async def test_summary_rejects_neither_sys_id_nor_name(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    """``summary`` validates the identifier contract the same way as ``inspect``."""
+    tools = _register_and_get_tools(settings, auth_provider)
+    raw = await tools["flow"](action="summary")
+    result = decode_response(raw)
+    assert result["status"] == "error"
+    assert "required" in result["error"]["message"].lower()
+
+
+@pytest.mark.asyncio()
+async def test_describe_now_includes_summary(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    """``describe`` advertises the new ``summary`` action."""
+    tools = _register_and_get_tools(settings, auth_provider)
+    raw = await tools["flow"](action="describe")
+    assert "summary" in decode_response(raw)["data"]["actions"]

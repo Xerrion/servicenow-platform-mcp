@@ -1,5 +1,6 @@
 """Async ServiceNow REST API client."""
 
+import json
 import logging
 import re
 import uuid
@@ -910,6 +911,59 @@ class ServiceNowClient:
         except NotFoundError:
             return None
         return self._extract_result(response.json())
+
+    async def get_flow_snapshot_label_cache(self, snapshot_sys_id: str) -> dict[str, str]:
+        """Map producer ``ui_id`` to its last-known step label from a published snapshot.
+
+        ``sys_hub_flow_snapshot.label_cache`` is a plain-JSON column (NOT
+        gzip+base64 like ``values`` / ``trigger_inputs``); decode with
+        ``json.loads``. Each entry is keyed ``"<ui_id>.<field>"`` and
+        carries a label of the form ``"<step label>\u279b<field>"``. We
+        strip the field suffix from both sides so the returned map can
+        resolve orphan datapill producers by ui_id alone. Returns ``{}``
+        when the snapshot or its ``label_cache`` is absent.
+        """
+        if not snapshot_sys_id:
+            return {}
+        http = self._ensure_client()
+        try:
+            response = await http.get(
+                self._table_url("sys_hub_flow_snapshot", snapshot_sys_id),
+                headers=await self._headers(),
+                params={"sysparm_fields": "label_cache"},
+            )
+            self._raise_for_status(response)
+        except NotFoundError:
+            return {}
+        record = self._extract_result(response.json())
+        raw = record.get("label_cache") if isinstance(record, dict) else None
+        if not raw or not isinstance(raw, str):
+            return {}
+        try:
+            parsed = json.loads(raw)
+        except (TypeError, ValueError):
+            return {}
+        if not isinstance(parsed, list):
+            return {}
+
+        label_map: dict[str, str] = {}
+        for entry in parsed:
+            if not isinstance(entry, dict):
+                continue
+            name = entry.get("name")
+            label = entry.get("label")
+            if not isinstance(name, str) or not isinstance(label, str):
+                continue
+            uid, _, _ = name.partition(".")
+            uid = uid.strip().lower()
+            if not uid:
+                continue
+            step_label, _, _ = label.partition("\u279b")
+            step_label = step_label.strip()
+            if not step_label:
+                continue
+            label_map.setdefault(uid, step_label)
+        return label_map
 
     async def find_flows_by_name(self, name: str) -> list[dict[str, Any]]:
         """Find flows whose ``name`` or ``internal_name`` matches *name* (display values resolved)."""

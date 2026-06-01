@@ -1416,6 +1416,74 @@ class TestServiceNowClientFlowDesigner:
 
     @pytest.mark.asyncio()
     @respx.mock
+    async def test_get_flow_snapshot_label_cache_parses_plain_json(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """``label_cache`` is plain JSON; entries collapse to ``ui_id -> step label``."""
+        import json as _json
+
+        from servicenow_mcp.client import ServiceNowClient
+
+        producer = "40fe31e9-c64d-4ea3-8a03-03615894a2f4"
+        payload = _json.dumps(
+            [
+                {"name": f"{producer}.status", "label": "10 - Provision AD Group Membership\u279bstatus"},
+                {"name": f"{producer}.message", "label": "10 - Provision AD Group Membership\u279bmessage"},
+            ]
+        )
+        snap_id = "d55117088715cb508643202cbbbb3567"
+        route = respx.get(f"{BASE_URL}/api/now/table/sys_hub_flow_snapshot/{snap_id}").mock(
+            return_value=httpx.Response(200, json={"result": {"label_cache": payload}}),
+        )
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            label_map = await client.get_flow_snapshot_label_cache(snap_id)
+
+        assert route.calls.last.request.url.params["sysparm_fields"] == "label_cache"
+        assert label_map == {producer: "10 - Provision AD Group Membership"}
+
+    @pytest.mark.asyncio()
+    async def test_get_flow_snapshot_label_cache_empty_sys_id_no_http_call(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """An empty sys_id short-circuits to ``{}`` without an HTTP call."""
+        from servicenow_mcp.client import ServiceNowClient
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            assert await client.get_flow_snapshot_label_cache("") == {}
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_get_flow_snapshot_label_cache_404_returns_empty(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """A missing snapshot row yields ``{}`` instead of raising."""
+        from servicenow_mcp.client import ServiceNowClient
+
+        respx.get(f"{BASE_URL}/api/now/table/sys_hub_flow_snapshot/missing").mock(
+            return_value=httpx.Response(404, json={"error": {"message": "no record"}}),
+        )
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            assert await client.get_flow_snapshot_label_cache("missing") == {}
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_get_flow_snapshot_label_cache_blank_column_returns_empty(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """An empty ``label_cache`` column yields ``{}`` without raising."""
+        from servicenow_mcp.client import ServiceNowClient
+
+        respx.get(f"{BASE_URL}/api/now/table/sys_hub_flow_snapshot/snap1").mock(
+            return_value=httpx.Response(200, json={"result": {"label_cache": ""}}),
+        )
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            assert await client.get_flow_snapshot_label_cache("snap1") == {}
+
+    @pytest.mark.asyncio()
+    @respx.mock
     async def test_find_flows_by_name_builds_or_query(
         self, settings: Settings, auth_provider: BasicAuthProvider
     ) -> None:

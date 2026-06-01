@@ -217,6 +217,7 @@ def _empty_inspect_kwargs(header_sys_id: str = SYS_ID_FLOW) -> dict[str, Any]:
         "get_action_type_definitions": [],
         "get_logic_definitions": [],
         "list_v1_variable_values": [],
+        "get_flow_snapshot_label_cache": {},
     }
 
 
@@ -782,10 +783,14 @@ async def test_inspect_resolves_datapill_ref_case_insensitively(
 
 @pytest.mark.asyncio()
 async def test_inspect_unresolved_datapill_emits_warning(settings: Settings, auth_provider: BasicAuthProvider) -> None:
-    """A reference to a producer not on the canvas emits one ``unresolved_datapill_ref`` warning."""
+    """A reference to a missing producer emits one aggregated ``unresolved_datapill_ref`` warning."""
     tools = _register_and_get_tools(settings, auth_provider)
-    consumer_blob = _encode_values([{"target": f"{{{{{_UUID_GHOST}.foo}}}}"}])
-    actions_v2 = [_action_row(sys_id="a2", ui_id=_UUID_B, order="100", values=consumer_blob)]
+    blob_a = _encode_values([{"target": f"{{{{{_UUID_GHOST}.status}}}}"}])
+    blob_b = _encode_values([{"target": f"{{{{{_UUID_GHOST}.message}}}}", "other": f"{{{{{_UUID_GHOST}.message}}}}"}])
+    actions_v2 = [
+        _action_row(sys_id="a1", ui_id=_UUID_A, order="11", values=blob_a),
+        _action_row(sys_id="a2", ui_id=_UUID_B, order="12", values=blob_b),
+    ]
     kwargs = _empty_inspect_kwargs()
     kwargs["list_action_instances_v2"] = actions_v2
     client = _make_client_mock(**kwargs)
@@ -794,11 +799,41 @@ async def test_inspect_unresolved_datapill_emits_warning(settings: Settings, aut
         raw = await tools["flow"](action="inspect", sys_id=SYS_ID_FLOW)
     data = decode_response(raw)["data"]
 
-    consumer = data["canvas"][0]
+    consumer = next(n for n in data["canvas"] if n["sys_id"] == "a1")
     assert consumer["datapill_refs"][0]["resolved"] is False
     matches = [w for w in data["warnings"] if "unresolved_datapill_ref" in w]
     assert len(matches) == 1
-    assert _UUID_GHOST in matches[0]
+    warning = matches[0]
+    assert _UUID_GHOST in warning
+    assert f"producer_ui_id={_UUID_GHOST!r}" in warning
+    assert "orders 11, 12" in warning
+    assert "fields: status, message" in warning
+
+
+@pytest.mark.asyncio()
+async def test_inspect_unresolved_datapill_uses_snapshot_label(
+    settings: Settings, auth_provider: BasicAuthProvider
+) -> None:
+    """When ``label_cache`` carries the deleted producer, the warning names it."""
+    tools = _register_and_get_tools(settings, auth_provider)
+    consumer_blob = _encode_values([{"target": f"{{{{{_UUID_GHOST}.status}}}}"}])
+    actions_v2 = [_action_row(sys_id="a1", ui_id=_UUID_B, order="11", values=consumer_blob)]
+    kwargs = _empty_inspect_kwargs()
+    kwargs["list_action_instances_v2"] = actions_v2
+    kwargs["get_flow_snapshot_label_cache"] = {_UUID_GHOST: "10 - Provision AD Group Membership"}
+    client = _make_client_mock(**kwargs)
+
+    with _patch_client(client):
+        raw = await tools["flow"](action="inspect", sys_id=SYS_ID_FLOW)
+    data = decode_response(raw)["data"]
+
+    matches = [w for w in data["warnings"] if "unresolved_datapill_ref" in w]
+    assert len(matches) == 1
+    warning = matches[0]
+    assert "producer '10 - Provision AD Group Membership'" in warning
+    assert f"(deleted; ui_id={_UUID_GHOST!r})" in warning
+    assert "orders 11" in warning
+    assert "fields: status" in warning
 
 
 # ---------------------------------------------------------------------------

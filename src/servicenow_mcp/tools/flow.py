@@ -15,7 +15,9 @@ Six actions:
 
 The decoder lives in :mod:`servicenow_mcp.tools._flow_values`; canvas-tree
 assembly stays inline. We deliberately do not touch ``/api/now/processflow/*``
-endpoints (undocumented) or ``sys_hub_flow_snapshot`` (opaque cache).
+endpoints (undocumented). ``sys_hub_flow_snapshot`` itself is opaque, but
+its plain-JSON ``label_cache`` column is read to enrich the
+``unresolved_datapill_ref`` warning with last-known producer step labels.
 """
 
 from __future__ import annotations
@@ -470,7 +472,8 @@ def _build_warnings(
     logic_v2: list[dict[str, Any]],
     triggers_v2_entries: list[dict[str, Any]],
     action_type_lookup: dict[str, dict[str, Any]],
-    unresolved_refs: dict[str, str],
+    unresolved_refs: dict[str, list[tuple[int, str]]],
+    snapshot_label_map: dict[str, str],
     decode_failure_count: int,
 ) -> list[str]:
     """Assemble the warning list shared by ``inspect`` and ``summary``."""
@@ -500,11 +503,13 @@ def _build_warnings(
             f"{len(spoke_actions)} spoke action type(s) referenced; their decoded values may depend on scoped types."
         )
 
-    for producer_uid, consumer_sys_id in unresolved_refs.items():
-        warnings.append(
-            f"unresolved_datapill_ref: producer_ui_id={producer_uid!r} is referenced by step "
-            f"{consumer_sys_id!r} but is not present on the canvas."
-        )
+    for producer_uid, consumers in unresolved_refs.items():
+        consumers_sorted = sorted(consumers, key=lambda c: c[0])
+        orders = ", ".join(str(order) for order, _ in consumers_sorted)
+        fields = ", ".join(field for _, field in consumers_sorted)
+        label = snapshot_label_map.get(producer_uid.lower())
+        head = f"producer {label!r} (deleted; ui_id={producer_uid!r})" if label else f"producer_ui_id={producer_uid!r}"
+        warnings.append(f"unresolved_datapill_ref: {head} referenced by orders {orders} (fields: {fields})")
 
     if decode_failure_count:
         warnings.append(
@@ -562,6 +567,14 @@ async def _load_flow_bundle(
     if header is None:
         return None
 
+    # Fetch the published snapshot's label_cache (plain JSON column,
+    # unlike the gzip+base64 ``values`` blobs). It preserves last-known
+    # step labels and so resolves the names of producers that have since
+    # been deleted from the canvas - the only data point that lets us
+    # enrich ``unresolved_datapill_ref`` warnings with a human name.
+    latest_snapshot_id = _v(header.get("latest_snapshot"))
+    snapshot_label_map = await client.get_flow_snapshot_label_cache(latest_snapshot_id) if latest_snapshot_id else {}
+
     inputs = await client.list_flow_inputs(resolved_sys_id)
     outputs = await client.list_flow_outputs(resolved_sys_id)
     variables = await client.list_flow_variables(resolved_sys_id)
@@ -607,8 +620,10 @@ async def _load_flow_bundle(
     canvas_map = _build_canvas_map(flat_nodes)
 
     # Attach datapill refs before nesting so we can walk the flat list and
-    # collect the global unresolved-producer set in one pass.
-    unresolved_refs: dict[str, str] = {}
+    # collect the global unresolved-producer set in one pass. Each entry
+    # in ``unresolved_refs`` records every consumer (order, field) pair so
+    # the warning can name them all.
+    unresolved_refs: dict[str, list[tuple[int, str]]] = {}
     decode_failure_count = 0
     for node in flat_nodes:
         if "decode_error" in node:
@@ -617,8 +632,10 @@ async def _load_flow_bundle(
         if refs:
             node["datapill_refs"] = refs
             for ref in refs:
-                if not ref["resolved"] and ref["producer_ui_id"] not in unresolved_refs:
-                    unresolved_refs[ref["producer_ui_id"]] = node["sys_id"]
+                if not ref["resolved"]:
+                    unresolved_refs.setdefault(ref["producer_ui_id"], []).append(
+                        (_safe_int(node["order"]), ref["field"])
+                    )
 
     canvas = _assemble_canvas(flat_nodes)
 
@@ -645,6 +662,7 @@ async def _load_flow_bundle(
         "triggers_v2_entries": triggers_v2_entries,
         "triggers_v1_entries": triggers_v1_entries,
         "unresolved_refs": unresolved_refs,
+        "snapshot_label_map": snapshot_label_map,
         "decode_failure_count": decode_failure_count,
     }
 
@@ -711,6 +729,7 @@ async def _action_inspect(
         triggers_v2_entries=bundle["triggers_v2_entries"],
         action_type_lookup=bundle["action_type_lookup"],
         unresolved_refs=bundle["unresolved_refs"],
+        snapshot_label_map=bundle["snapshot_label_map"],
         decode_failure_count=bundle["decode_failure_count"],
     )
 
@@ -882,6 +901,7 @@ async def _action_summary(
         triggers_v2_entries=bundle["triggers_v2_entries"],
         action_type_lookup=bundle["action_type_lookup"],
         unresolved_refs=bundle["unresolved_refs"],
+        snapshot_label_map=bundle["snapshot_label_map"],
         decode_failure_count=bundle["decode_failure_count"],
     )
 

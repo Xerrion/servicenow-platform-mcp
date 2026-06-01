@@ -352,7 +352,7 @@ Dispatched via the read-only `flow` tool. Available in the `full` and `readonly`
 - `sys_hub_flow_variable` is filtered by `model=<flow_sys_id>` (not `flow=`). The `flow` column does not exist on that table; using it makes ServiceNow silently ignore the filter and return every variable declared by every action_type on the platform (hundreds of unrelated rows).
 - Pure decoder lives in `tools/_flow_values.py` as `decode_values()` and `looks_compressed()`. Decompression is bounded: `MAX_COMPRESSED_BYTES = 1 MiB` (wire cap, checked before allocating the decompressor) and `MAX_DECOMPRESSED_BYTES = 4 MiB`. Truncated streams and trailing garbage are rejected with `ValueError`.
 - Deliberately does not use undocumented `/api/now/processflow/*` endpoints.
-- Deliberately skips `sys_hub_flow_snapshot` because it is an opaque compiled cache.
+- `sys_hub_flow_snapshot` itself is an opaque compiled cache and is not parsed - but its `label_cache` column is plain JSON and IS read for the `latest_snapshot` to recover last-known step labels for producers that have since been deleted from the canvas (used to enrich the `unresolved_datapill_ref` warning).
 - Per-node decode failures add `decode_error` to that node only; the enclosing `inspect` response still succeeds.
 
 ### Datapill resolution
@@ -370,7 +370,7 @@ Dispatched via the read-only `flow` tool. Available in the `full` and `readonly`
 - `v1_v2_coexistence` - both V1 and V2 action/logic rows exist for the same flow.
 - `v1_logic_present` - V1 `sys_hub_flow_logic` rows exist (legacy logic on an otherwise-migrated flow).
 - `spoke_action_types_referenced` - the canvas references one or more spoke-provided action types.
-- `unresolved_datapill_ref` - one per unique `producer_ui_id` referenced in any decoded payload that does not exist on the canvas. The message names the producer UUID and an example consumer step.
+- `unresolved_datapill_ref` - one per unique `producer_ui_id` referenced in any decoded payload that does not exist on the canvas. The message aggregates every consumer (order, field) pair and, when the published snapshot's `label_cache` carries the producer, names the deleted step (`producer 'Step Label' (deleted; ui_id=...)`); otherwise falls back to the bare `producer_ui_id=...` form.
 - `step_decode_failure` - aggregate count of canvas nodes whose `values` blob failed to decode (a single warning, not one per node).
 
 ## 🛡 Audit Inspection

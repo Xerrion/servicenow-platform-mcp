@@ -734,6 +734,37 @@ async def test_inspect_attaches_resolved_datapill_refs(settings: Settings, auth_
 
 
 @pytest.mark.asyncio()
+async def test_inspect_resolves_datapill_ref_case_insensitively(
+    settings: Settings, auth_provider: BasicAuthProvider
+) -> None:
+    """An uppercase-UUID reference resolves against a lowercase canvas ``ui_uuid`` without warning."""
+    tools = _register_and_get_tools(settings, auth_provider)
+    upper_ref = _UUID_A.upper()
+    producer_blob = _encode_values([{"k": "static"}])
+    consumer_blob = _encode_values([{"target": f"{{{{{upper_ref}.number}}}}"}])
+    actions_v2 = [
+        _action_row(sys_id="a1", ui_uuid=_UUID_A, order="100", label="Producer", values=producer_blob),
+        _action_row(sys_id="a2", ui_uuid=_UUID_B, order="200", label="Consumer", values=consumer_blob),
+    ]
+    kwargs = _empty_inspect_kwargs()
+    kwargs["list_action_instances_v2"] = actions_v2
+    client = _make_client_mock(**kwargs)
+
+    with _patch_client(client):
+        raw = await tools["flow"](action="inspect", sys_id=SYS_ID_FLOW)
+    data = decode_response(raw)["data"]
+
+    consumer = next(n for n in data["canvas"] if n["sys_id"] == "a2")
+    refs = consumer["datapill_refs"]
+    assert len(refs) == 1
+    assert refs[0]["resolved"] is True
+    assert refs[0]["producer_sys_id"] == "a1"
+    # Original-case literal is preserved in the returned ``ref`` field.
+    assert upper_ref in refs[0]["ref"]
+    assert not any("unresolved_datapill_ref" in w for w in data["warnings"])
+
+
+@pytest.mark.asyncio()
 async def test_inspect_unresolved_datapill_emits_warning(settings: Settings, auth_provider: BasicAuthProvider) -> None:
     """A reference to a producer not on the canvas emits one ``unresolved_datapill_ref`` warning."""
     tools = _register_and_get_tools(settings, auth_provider)
@@ -808,8 +839,8 @@ async def test_inspect_missing_record_trigger_condition(settings: Settings, auth
 
 
 @pytest.mark.asyncio()
-async def test_inspect_canvas_order_gap_warning(settings: Settings, auth_provider: BasicAuthProvider) -> None:
-    """A non-uniform sibling order sequence (100, 200, 400) emits ``canvas_order_gap``."""
+async def test_inspect_canvas_order_nonuniform_warning(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    """A non-uniform sibling order sequence (100, 200, 400) emits ``canvas_order_nonuniform``."""
     tools = _register_and_get_tools(settings, auth_provider)
     actions_v2 = [
         _action_row(sys_id="a1", ui_uuid="u1", order="100"),
@@ -823,7 +854,7 @@ async def test_inspect_canvas_order_gap_warning(settings: Settings, auth_provide
     with _patch_client(client):
         raw = await tools["flow"](action="inspect", sys_id=SYS_ID_FLOW)
     data = decode_response(raw)["data"]
-    assert any("canvas_order_gap" in w for w in data["warnings"])
+    assert any("canvas_order_nonuniform" in w for w in data["warnings"])
 
 
 @pytest.mark.asyncio()

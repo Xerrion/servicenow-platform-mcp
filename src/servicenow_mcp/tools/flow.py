@@ -49,7 +49,7 @@ _DEFAULT_TRIGGER_LIMIT: Final[int] = 100
 # canvas UUID (lowercase hex with dashes, 36 chars). The field part may
 # contain dots, brackets, and underscores; we capture lazily up to the
 # closing braces.
-_DATAPILL_PATTERN: Final[re.Pattern[str]] = re.compile(r"\{\{([0-9a-f-]{36})\.([^}]+)\}\}")
+_DATAPILL_PATTERN: Final[re.Pattern[str]] = re.compile(r"\{\{([0-9a-fA-F-]{36})\.([^}]+)\}\}")
 
 # Verbatim "Add your code here" stub Flow Designer drops into every new
 # calculated-field input/output/variable. Stripping it keeps real custom
@@ -306,7 +306,7 @@ def _build_canvas_map(flat_nodes: list[dict[str, Any]]) -> dict[str, dict[str, s
             continue
         action_type = node.get("action_type")
         action_type_name = action_type.get("name", "") if isinstance(action_type, dict) else ""
-        canvas_map[uuid] = {
+        canvas_map[uuid.lower()] = {
             "sys_id": node["sys_id"],
             "name": node["label"] or node["name"],
             "action_type_name": action_type_name,
@@ -342,7 +342,7 @@ def _resolve_refs_for_node(
         return []
     resolved: list[dict[str, Any]] = []
     for raw, producer_uuid, field in _find_datapill_refs_in(decoded):
-        producer = canvas_map.get(producer_uuid)
+        producer = canvas_map.get(producer_uuid.lower())
         resolved.append(
             {
                 "ref": raw,
@@ -438,7 +438,7 @@ def _build_warnings(
             )
 
     if _detect_order_gaps(canvas):
-        warnings.append("canvas_order_gap: sibling step orders are not uniformly spaced on at least one branch.")
+        warnings.append("canvas_order_nonuniform: sibling step orders are not uniformly spaced on at least one branch.")
 
     for producer_uuid, consumer_sys_id in unresolved_refs.items():
         warnings.append(
@@ -748,7 +748,7 @@ def _summary_datapill_graph(
     graph: list[dict[str, Any]] = []
     for node in flat_nodes:
         for ref in node.get("datapill_refs", []):
-            producer = canvas_map.get(ref["producer_ui_uuid"])
+            producer = canvas_map.get(ref["producer_ui_uuid"].lower())
             graph.append(
                 {
                     "consumer_step_sys_id": node["sys_id"],

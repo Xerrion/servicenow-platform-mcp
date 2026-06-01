@@ -370,7 +370,7 @@ In addition to the original four (snapshot drift, V1+V2 coexistence, V1-logic pr
 
 - `flow_active_with_inactive_trigger` - flow header is `active=true` but no V2 trigger is `active=true`.
 - `missing_record_trigger_condition` - a V2 trigger has a `remote_trigger_id` but the stitched `condition` is empty (the joined `sys_flow_record_trigger` row is missing or has no condition).
-- `canvas_order_gap` - some sibling group on the canvas has a non-uniform consecutive order delta (e.g. 100 -> 200 -> 400, or 9 -> 11 elsewhere).
+- `canvas_order_nonuniform` - some sibling group on the canvas has a non-uniform consecutive order delta (e.g. 100 -> 200 -> 400, or 9 -> 11 elsewhere).
 - `unresolved_datapill_ref` - one per unique `producer_ui_uuid` referenced in any decoded payload that does not exist on the canvas. The message names the producer UUID and an example consumer step.
 - `step_decode_failure` - aggregate count of canvas nodes whose `values` blob failed to decode (a single warning, not one per node).
 

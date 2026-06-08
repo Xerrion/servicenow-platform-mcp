@@ -1,5 +1,6 @@
 """Async ServiceNow REST API client."""
 
+import json
 import logging
 import re
 import uuid
@@ -911,6 +912,62 @@ class ServiceNowClient:
             return None
         return self._extract_result(response.json())
 
+    async def get_flow_snapshot_label_cache(self, snapshot_sys_id: str) -> dict[str, str]:
+        """Map producer ``ui_id`` to its last-known step label from a published snapshot.
+
+        ``sys_hub_flow_snapshot.label_cache`` is a plain-JSON column (NOT
+        gzip+base64 like ``values`` / ``trigger_inputs``); decode with
+        ``json.loads``. Each entry is keyed ``"<ui_id>.<field>"`` and
+        carries a label of the form ``"<step label>\u279b<field>"``. We
+        strip the field suffix from both sides so the returned map can
+        resolve orphan datapill producers by ui_id alone. Returns ``{}``
+        for any non-recoverable shape mismatch (missing snapshot_sys_id,
+        404, blank ``label_cache`` column, malformed JSON, non-list root,
+        non-dict entries, non-string ``name``/``label``, or empty parts
+        after partitioning on ``.`` / ``\u279b``).
+        """
+        if not snapshot_sys_id:
+            return {}
+        http = self._ensure_client()
+        try:
+            response = await http.get(
+                self._table_url("sys_hub_flow_snapshot", snapshot_sys_id),
+                headers=await self._headers(),
+                params={"sysparm_fields": "label_cache"},
+            )
+            self._raise_for_status(response)
+        except NotFoundError:
+            return {}
+        record = self._extract_result(response.json())
+        raw = record.get("label_cache") if isinstance(record, dict) else None
+        if not raw or not isinstance(raw, str):
+            return {}
+        try:
+            parsed = json.loads(raw)
+        except (TypeError, ValueError):
+            return {}
+        if not isinstance(parsed, list):
+            return {}
+
+        label_map: dict[str, str] = {}
+        for entry in parsed:
+            if not isinstance(entry, dict):
+                continue
+            name = entry.get("name")
+            label = entry.get("label")
+            if not isinstance(name, str) or not isinstance(label, str):
+                continue
+            uid, _, _ = name.partition(".")
+            uid = uid.strip().lower()
+            if not uid:
+                continue
+            step_label, _, _ = label.partition("\u279b")
+            step_label = step_label.strip()
+            if not step_label:
+                continue
+            label_map.setdefault(uid, step_label)
+        return label_map
+
     async def find_flows_by_name(self, name: str) -> list[dict[str, Any]]:
         """Find flows whose ``name`` or ``internal_name`` matches *name* (display values resolved)."""
         http = self._ensure_client()
@@ -956,13 +1013,20 @@ class ServiceNowClient:
         return self._extract_result(response.json())
 
     async def list_flow_variables(self, flow_sys_id: str) -> list[dict[str, Any]]:
-        """List flow-scoped variables (``sys_hub_flow_variable``)."""
+        """List flow-scoped variables (``sys_hub_flow_variable``).
+
+        Filters on ``model`` (the owning flow/subflow/action_type sys_id),
+        not ``flow``. A ``flow`` column does not exist on
+        ``sys_hub_flow_variable``; using it makes ServiceNow silently
+        ignore the filter and return the entire table (every variable
+        declared by every action_type on the platform).
+        """
         http = self._ensure_client()
         response = await http.get(
             self._table_url("sys_hub_flow_variable"),
             headers=await self._headers(),
             params={
-                "sysparm_query": f"flow={flow_sys_id}^ORDERBYorder",
+                "sysparm_query": f"model={flow_sys_id}^ORDERBYorder",
                 "sysparm_display_value": "all",
             },
         )
@@ -1057,27 +1121,14 @@ class ServiceNowClient:
         self._raise_for_status(response)
         return self._extract_result(response.json())
 
-    async def list_record_triggers(self, remote_trigger_ids: list[str]) -> list[dict[str, Any]]:
-        """Bulk-fetch ``sys_flow_record_trigger`` rows for V2 record-trigger conditions."""
-        if not remote_trigger_ids:
-            return []
-        http = self._ensure_client()
-        ids_csv = ",".join(remote_trigger_ids)
-        limit = min(len(remote_trigger_ids), INTERNAL_QUERY_LIMIT)
-        response = await http.get(
-            self._table_url("sys_flow_record_trigger"),
-            headers=await self._headers(),
-            params={
-                "sysparm_query": f"sys_idIN{ids_csv}",
-                "sysparm_display_value": "all",
-                "sysparm_limit": str(limit),
-            },
-        )
-        self._raise_for_status(response)
-        return self._extract_result(response.json())
-
     async def get_action_type_definitions(self, action_type_sys_ids: list[str]) -> list[dict[str, Any]]:
-        """Bulk-fetch action-type metadata from ``sys_hub_action_type_base``."""
+        """Bulk-fetch action-type metadata from ``sys_hub_action_type_base``.
+
+        The concrete action-type rows actually live in child class
+        ``sys_hub_action_type_snapshot``, but they extend ``_base``;
+        querying ``sys_hub_action_type_definition`` returns 404 on this
+        platform - that table does not exist.
+        """
         if not action_type_sys_ids:
             return []
         http = self._ensure_client()
@@ -1089,6 +1140,30 @@ class ServiceNowClient:
             params={
                 "sysparm_query": f"sys_idIN{ids_csv}",
                 "sysparm_fields": "sys_id,name,internal_name,sys_scope,category,sys_class_name",
+                "sysparm_display_value": "all",
+                "sysparm_limit": str(limit),
+            },
+        )
+        self._raise_for_status(response)
+        return self._extract_result(response.json())
+
+    async def get_logic_definitions(self, logic_definition_sys_ids: list[str]) -> list[dict[str, Any]]:
+        """Bulk-fetch logic-definition metadata from ``sys_hub_flow_logic_definition``.
+
+        Each row's ``name`` is the kind label (``If``, ``Else``, ``For Each``,
+        ``End``, ...) that the canvas surfaces as a logic node's label.
+        """
+        if not logic_definition_sys_ids:
+            return []
+        http = self._ensure_client()
+        ids_csv = ",".join(logic_definition_sys_ids)
+        limit = min(len(logic_definition_sys_ids), INTERNAL_QUERY_LIMIT)
+        response = await http.get(
+            self._table_url("sys_hub_flow_logic_definition"),
+            headers=await self._headers(),
+            params={
+                "sysparm_query": f"sys_idIN{ids_csv}",
+                "sysparm_fields": "sys_id,name,internal_name,sys_scope,category",
                 "sysparm_display_value": "all",
                 "sysparm_limit": str(limit),
             },

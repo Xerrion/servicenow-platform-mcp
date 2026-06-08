@@ -19,6 +19,7 @@ from servicenow_mcp.packages import (
 
 EXPECTED_PRESETS = {"full", "readonly", "core_readonly", "none"}
 EXPECTED_GROUPS = {
+    "code_search",
     "query",
     "describe",
     "record_write",
@@ -39,9 +40,9 @@ class TestPackageRegistry:
     def test_registry_has_exactly_four_presets(self) -> None:
         assert set(PACKAGE_REGISTRY.keys()) == EXPECTED_PRESETS
 
-    def test_full_contains_ten_unified_groups(self) -> None:
+    def test_full_contains_twelve_unified_groups(self) -> None:
         assert set(PACKAGE_REGISTRY["full"]) == EXPECTED_GROUPS
-        assert len(PACKAGE_REGISTRY["full"]) == 11
+        assert len(PACKAGE_REGISTRY["full"]) == 12
 
     def test_readonly_is_strict_subset_of_full(self) -> None:
         readonly = set(PACKAGE_REGISTRY["readonly"])

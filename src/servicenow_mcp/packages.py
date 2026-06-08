@@ -1,9 +1,9 @@
 """Tool package registry and loader for the ServiceNow MCP server.
 
-The unified tool surface exposes 11 tool groups across 4 preset packages:
+The unified tool surface exposes 12 tool groups across 4 preset packages:
 
 Groups (registered modules under ``servicenow_mcp.tools``):
-    ``query``, ``describe``, ``record_write``, ``record_read``,
+    ``code_search``, ``query``, ``describe``, ``record_write``, ``record_read``,
     ``attachment``, ``investigate``, ``resolve_choice``,
     ``service_catalog``, ``build_query``, ``audit``, ``flow``.
     The ``build_query`` group is
@@ -18,8 +18,8 @@ separate ``attachment_write`` group - read and write live in one
 module and write paths are gated by ``write_gate``/``can_write``.
 
 Presets:
-    ``full``           - every group (full surface).
-    ``readonly``       - query + describe + record_read + attachment +
+    ``full``           - every group (full surface, includes code_search).
+    ``readonly``       - code_search + query + describe + record_read + attachment +
                        investigate + resolve_choice + audit + flow
                        (still loads attachment which carries write tools;
                        those are blocked at runtime in production by
@@ -37,6 +37,7 @@ tool only.
 """
 
 _TOOL_GROUP_MODULES: dict[str, str] = {
+    "code_search": "servicenow_mcp.tools.code_search",
     "query": "servicenow_mcp.tools.query",
     "describe": "servicenow_mcp.tools.describe",
     "record_write": "servicenow_mcp.tools.record_write",
@@ -60,6 +61,7 @@ _TOOL_GROUP_MODULES: dict[str, str] = {
 # to be split into separate read / write groups.
 PACKAGE_REGISTRY: dict[str, list[str]] = {
     "full": [
+        "code_search",
         "query",
         "describe",
         "record_write",
@@ -73,6 +75,7 @@ PACKAGE_REGISTRY: dict[str, list[str]] = {
         "flow",
     ],
     "readonly": [
+        "code_search",
         "query",
         "describe",
         "record_read",

@@ -619,6 +619,21 @@ async def _load_flow_bundle(
 
     canvas_map = _build_canvas_map(flat_nodes)
 
+    # Index V1 action instances by ui_uuid so that datapill
+    # references to subflow-call nodes (which are stored as V1 rows
+    # on the instance) resolve correctly.
+    for v1_row in actions_v1:
+        uid = _v(v1_row.get("ui_uuid"))
+        if not uid:
+            continue
+        # V2 wins if there's a conflict (unlikely but safe)
+        if uid.lower() not in canvas_map:
+            canvas_map[uid.lower()] = {
+                "sys_id": _v(v1_row.get("sys_id")),
+                "name": _d(v1_row.get("name")),
+                "action_type_name": _d(v1_row.get("action_type")),
+            }
+
     # Attach datapill refs before nesting so we can walk the flat list and
     # collect the global unresolved-producer set in one pass. Each entry
     # in ``unresolved_refs`` records every consumer (order, field) pair so

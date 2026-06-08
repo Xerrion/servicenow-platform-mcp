@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0](https://github.com/Xerrion/servicenow-platform-mcp/compare/v0.10.0...v0.11.0) (2026-06-08)
+
+
+### Features
+
+* add code_search tool for searching scripts across ServiceNow tables ([#97](https://github.com/Xerrion/servicenow-platform-mcp/issues/97)) ([3c8a6d4](https://github.com/Xerrion/servicenow-platform-mcp/commit/3c8a6d47a84ce2be73d5c38bd83a2fe2597c1a68))
+
 ## [0.10.0](https://github.com/Xerrion/servicenow-platform-mcp/compare/v0.9.1...v0.10.0) (2026-05-29)
 
 

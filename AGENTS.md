@@ -336,22 +336,42 @@ Dispatched via the `investigate` tool with `action='run'`, `action='explain'`, o
 
 Dispatched via the read-only `flow` tool. Available in the `full` and `readonly` packages, or through custom packages such as `MCP_TOOL_PACKAGE=flow,query,describe`.
 
-### 5 Flow Actions
+### 6 Flow Actions
 
 | Action | Purpose |
 | ------ | ------- |
-| `inspect` | Assemble one flow/subflow by `sys_id` or `name`: header, triggers, inputs, outputs, variables, decoded V2 action/logic nodes, canvas tree, published snapshot drift, and warnings. |
+| `inspect` | Assemble one flow/subflow by `sys_id` or `name`: header, triggers, inputs, outputs, variables, decoded V2 action/logic nodes with resolved datapill refs, canvas tree, published snapshot drift, and warnings. |
+| `summary` | Compact projection of `inspect`: single flattened trigger, flat ordered `steps` (no `values_decoded`), structure-only `branches` tree, global `datapill_graph`, `counts`, and the same `warnings`. Same input contract as `inspect`. |
 | `find_by_table` | Find flows with record triggers on a given table. |
 | `decode_values` | Stateless decode for gzip+base64+JSON `values` blobs from `sys_hub_*_v2` rows. |
 | `list_triggers` | List V1 and V2 trigger rows with optional `table`, `trigger_type`, `active`, and `limit` filters. |
 | `describe` | Return the action registry without platform I/O. |
 
 - Reads both V1 (`sys_hub_action_instance`, `sys_hub_flow_logic`, `sys_hub_trigger_instance`) and V2 (`sys_hub_action_instance_v2`, `sys_hub_flow_logic_instance_v2`, `sys_hub_trigger_instance_v2`) Flow Designer tables.
-- Joins V2 record-trigger conditions through `sys_flow_record_trigger.sys_id == trigger_v2.remote_trigger_id`.
+- V2 rows expose `ui_id` and `parent_ui_id` (no `name`/`label`/`active` columns). Node display labels are resolved through the referenced `sys_hub_action_type_base.name` (for actions) or `sys_hub_flow_logic_definition.name` (for logic). Trigger row parameters (`table`, `condition`, schedule fields) come from the decoded `trigger_inputs` gzip+base64+JSON blob - the V2 trigger row itself does not carry them as columns, and `sys_flow_record_trigger` is not joined.
+- `sys_hub_flow_variable` is filtered by `model=<flow_sys_id>` (not `flow=`). The `flow` column does not exist on that table; using it makes ServiceNow silently ignore the filter and return every variable declared by every action_type on the platform (hundreds of unrelated rows).
 - Pure decoder lives in `tools/_flow_values.py` as `decode_values()` and `looks_compressed()`. Decompression is bounded: `MAX_COMPRESSED_BYTES = 1 MiB` (wire cap, checked before allocating the decompressor) and `MAX_DECOMPRESSED_BYTES = 4 MiB`. Truncated streams and trailing garbage are rejected with `ValueError`.
 - Deliberately does not use undocumented `/api/now/processflow/*` endpoints.
-- Deliberately skips `sys_hub_flow_snapshot` because it is an opaque compiled cache.
+- `sys_hub_flow_snapshot` itself is an opaque compiled cache and is not parsed - but its `label_cache` column is plain JSON and IS read for the `latest_snapshot` to recover last-known step labels for producers that have since been deleted from the canvas (used to enrich the `unresolved_datapill_ref` warning).
 - Per-node decode failures add `decode_error` to that node only; the enclosing `inspect` response still succeeds.
+
+### Datapill resolution
+
+`inspect` builds a `ui_id -> {sys_id, name, action_type_name}` map from the canvas, then scans every node's `values_decoded` payload for `{{<uuid>.<field>}}` references (regex `\{\{([0-9a-f-]{36})\.([^}]+)\}\}`). Resolved refs are attached as a `datapill_refs: [{ref, field, producer_ui_id, producer_sys_id, producer_name, resolved}]` sibling on each consuming node. `summary` reshapes the same data into a flat `datapill_graph` (one edge per consumer field), keyed by `consumer_step_sys_id`.
+
+### Payload trims (`inspect`)
+
+- The verbatim "Add your code here" `calculation` boilerplate Flow Designer drops into every new input/output/variable is stripped from `inputs[]`, `outputs[]`, and `variables[]`. Customised calculations survive untouched.
+- `v1_actions` and `v1_variable_values` are omitted from the response when the underlying lists are empty (the common case on modern V2-only flows).
+
+### Warnings (`inspect` and `summary`)
+
+- `snapshot_drift` - the published snapshot's hash differs from the live flow definition.
+- `v1_v2_coexistence` - both V1 and V2 action/logic rows exist for the same flow.
+- `v1_logic_present` - V1 `sys_hub_flow_logic` rows exist (legacy logic on an otherwise-migrated flow).
+- `spoke_action_types_referenced` - the canvas references one or more spoke-provided action types.
+- `unresolved_datapill_ref` - one per unique `producer_ui_id` referenced in any decoded payload that does not exist on the canvas. The message aggregates every consumer (order, field) pair and, when the published snapshot's `label_cache` carries the producer, names the deleted step (`producer 'Step Label' (deleted; ui_id=...)`); otherwise falls back to the bare `producer_ui_id=...` form.
+- `step_decode_failure` - aggregate count of canvas nodes whose `values` blob failed to decode (a single warning, not one per node).
 
 ## 🛡 Audit Inspection
 

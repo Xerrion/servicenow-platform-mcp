@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     max_row_limit: int
     large_table_names_csv: str
     script_allowed_root: str
+    httpx_timeout_seconds: float
     sentry_dsn: str
     sentry_environment: str
     def __init__(
@@ -30,6 +31,7 @@ class Settings(BaseSettings):
         max_row_limit: int = ...,
         large_table_names_csv: str = ...,
         script_allowed_root: str = ...,
+        httpx_timeout_seconds: float = ...,
         sentry_dsn: str = ...,
         sentry_environment: str = ...,
         _env_file: EnvFileValue = ...,
@@ -38,6 +40,8 @@ class Settings(BaseSettings):
     def strip_trailing_slash(cls, v: str) -> str: ...
     @classmethod
     def validate_max_row_limit(cls, v: int) -> int: ...
+    @classmethod
+    def validate_httpx_timeout(cls, v: float) -> float: ...
     @classmethod
     def validate_mcp_tool_package(cls, v: str) -> str: ...
     @property

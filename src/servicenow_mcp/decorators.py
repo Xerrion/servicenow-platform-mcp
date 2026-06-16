@@ -10,6 +10,62 @@ from servicenow_mcp.types import SignatureMutableCallable
 from servicenow_mcp.utils import generate_correlation_id, safe_tool_call
 
 
+# Arg names whose values may carry credentials, PII, or large untrusted payloads.
+# Values for these keys are replaced with a constant placeholder before being
+# attached to the Sentry "tool" context. Matched case-insensitively on the arg
+# name. See SECURITY: do not narrow this set without an explicit review.
+_SENSITIVE_ARG_KEYS: frozenset[str] = frozenset(
+    {
+        "data",
+        "content_base64",
+        "value",
+        "script_path",
+        "encoded_query",
+        "params",
+        "password",
+        "token",
+        "secret",
+        "api_key",
+        "authorization",
+        # User-supplied content surfaces that may carry PII, credentials, or
+        # other sensitive material. ``variables`` (service_catalog catalog-item
+        # variables) often holds names, addresses, license keys. ``conditions``
+        # (build_query) holds untrusted value lists. ``text`` is free-form
+        # search input.
+        "variables",
+        "conditions",
+        "text",
+        "term",
+    }
+)
+
+_REDACTED: str = "***REDACTED***"
+
+
+def _redact_args(kwargs: dict[str, Any]) -> dict[str, Any]:
+    """Return a shallow copy of ``kwargs`` with sensitive values replaced.
+
+    ``correlation_id`` is dropped (it is sent as a separate context field).
+    Keys are matched case-insensitively against ``_SENSITIVE_ARG_KEYS``.
+
+    Shallow redaction is sufficient because every current tool arg is either
+    a primitive or a JSON-encoded string; JSON-shaped args (``data``,
+    ``params``, ``variables``, ``conditions``) arrive here as unparsed
+    strings and are redacted whole. Revisit if a tool ever accepts a
+    ``dict``/``list`` parameter directly - nested sensitive values inside
+    such a structure would not be reached by this pass.
+    """
+    redacted: dict[str, Any] = {}
+    for k, v in kwargs.items():
+        if k == "correlation_id":
+            continue
+        if k.lower() in _SENSITIVE_ARG_KEYS:
+            redacted[k] = _REDACTED
+        else:
+            redacted[k] = v
+    return redacted
+
+
 def tool_handler(
     fn: Callable[..., Coroutine[Any, Any, str]],
 ) -> Callable[..., Coroutine[Any, Any, str]]:
@@ -40,7 +96,7 @@ def tool_handler(
             {
                 "name": fn.__name__,
                 "correlation_id": correlation_id,
-                "args": {k: v for k, v in kwargs.items() if k != "correlation_id"},
+                "args": _redact_args(kwargs),
             },
         )
 

@@ -1,4 +1,4 @@
-# AGENTS.md - servicenow-devtools-mcp
+# AGENTS.md - servicenow-platform-mcp
 
 ## 📋 Project Overview
 
@@ -6,14 +6,13 @@
 - Package manager: **uv** (not pip/poetry). Build system: hatchling.
 - Source layout: `src/servicenow_mcp/` (src-layout). Entry point: `servicenow_mcp.server:main`.
 - Config via `pydantic-settings` loading env vars from `.env` / `.env.local`.
-- Version: 0.9.0. Supported Python: 3.12, 3.13, 3.14.
+- Version: 0.10.0. Supported Python: 3.12, 3.13, 3.14.
 
 ### Dependencies
 
 | Type          | Packages                                                                   |
 | ------------- | -------------------------------------------------------------------------- |
 | Core          | `mcp`, `httpx`, `pydantic`, `pydantic-settings`, `python-dotenv`, `uvicorn`, `starlette` |
-| Serialization | `toon-format` (external git dep from `github.com/toon-format/toon-python.git`) |
 | Sentry        | `sentry-sdk>=2.55.0`                                                              |
 | Dev           | `pytest`, `pytest-asyncio`, `respx`, `ruff`, `mypy`, `basedpyright`, `pytest-cov`          |
 
@@ -52,6 +51,7 @@ mypy override: `servicenow_mcp.server` has `call-arg` error code disabled.
 - Default addopts: `-m 'not integration' --cov=servicenow_mcp --cov-report=xml --cov-report=term-missing`
 - `asyncio_mode = "auto"` - no manual event loop configuration needed.
 - **ALWAYS** test changes before considering a task complete; check console output for warnings/errors.
+- `tests/test_packages.py` contains the `test_domain_groups_not_in_unified_registry` guard.
 
 ## 📐 Code Style & Formatting
 
@@ -80,7 +80,7 @@ mypy override: `servicenow_mcp.server` has `call-arg` error code disabled.
 
 | Category                    | Convention                 | Examples                                                            |
 | --------------------------- | -------------------------- | ------------------------------------------------------------------- |
-| Functions/methods/variables | `snake_case`                 | `check_table_access`, `query_store`                                     |
+| Functions/methods/variables | `snake_case`                 | `check_table_access`, `gate_write`                                      |
 | Classes                     | `PascalCase`                 | `ServiceNowClient`, `BasicAuthProvider`, `ChoiceRegistry`                 |
 | Constants                   | `UPPER_SNAKE_CASE`           | `DENIED_TABLES`, `MASK_VALUE`, `PACKAGE_REGISTRY`, `INVESTIGATION_REGISTRY` |
 | Private                     | Single underscore `_` prefix | `_table_url`, `_http_client`, `_ensure_client`                            |
@@ -165,30 +165,9 @@ What `@tool_handler` does:
 3. Hides `correlation_id` from the FastMCP tool schema by overriding `__signature__` and deleting `__wrapped__`.
 4. Sets Sentry tags (`tool.name`, `tool.correlation_id`) and context with tool name, correlation_id, and args.
 
-## 📄 TOON Serialization
-
-All tool output uses **TOON format**, not raw JSON. This is a critical difference from typical MCP servers.
-
-- `toon-format` is an external dep from git: `github.com/toon-format/toon-python.git`
-- `utils.py:serialize(data)` uses `toon_encode()` with JSON fallback
-- `format_response()` returns a serialized TOON string (not a dict) - it calls `serialize()` internally
-- Error strings are wrapped as `{"message": error}` dicts before serialization
-
-### Parsing Tool Output
-
-```python
-# CORRECT - use toon_decode
-from toon_format import decode as toon_decode
-result = toon_decode(raw_output)
-
-# WRONG - do NOT use json.loads
-import json
-result = json.loads(raw_output)  # This will fail on TOON-formatted output
-```
-
 ## 📊 Response Format
 
-All tools return a serialized TOON string via `format_response()`:
+All tools return a serialized JSON string via `format_response()`:
 
 ```python
 format_response(
@@ -198,7 +177,7 @@ format_response(
     error=None,             # str | dict | None
     pagination=None,        # dict | None
     warnings=None,          # list | None
-) -> str                    # Returns serialized TOON string
+) -> str                    # Returns serialized JSON string
 ```
 
 Error response example:
@@ -206,13 +185,6 @@ Error response example:
 ```python
 return format_response(data=None, correlation_id=correlation_id, status="error", error="Something failed")
 ```
-
-### Attachment Payloads
-
-- Attachment tool set: `attachment_list`, `attachment_get`, `attachment_download`, `attachment_download_by_name`, `attachment_upload`, `attachment_delete`.
-- `attachment_upload` accepts `content_base64` and decodes it before upload.
-- `attachment_download` and `attachment_download_by_name` return attachment metadata plus `content_base64`.
-- Attachment transfers are limited by `MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024`.
 
 ## 🛡 Policy Layer
 
@@ -224,7 +196,7 @@ return format_response(data=None, correlation_id=correlation_id, status="error",
 ### Field Sensitivity
 
 - `is_sensitive_field(field_name) -> bool` - 6 regex patterns
-- `mask_sensitive_fields(record) -> dict` - masks values with `MASK_VALUE = '***MASKED***'`
+- `mask_record(table, record) -> dict` - masks values with `MASK_VALUE = '***MASKED***'`
 - `mask_audit_entry(entry) -> dict` - separate masking for `sys_audit` records
 
 ### Query Safety
@@ -235,39 +207,35 @@ return format_response(data=None, correlation_id=correlation_id, status="error",
 
 ## 🔑 State Management
 
-Two token store classes built on a common base:
+Only the `PreviewTokenStore` remains for staging write operations:
 
 ```text
 _BaseTokenStore(ttl_seconds=300, max_size=1000)
-  ├── PreviewTokenStore    # Single-use tokens (has consume() method)
-  └── QueryTokenStore      # Reusable tokens (no consume method)
+  └── PreviewTokenStore    # Single-use tokens (has consume() method)
 ```
 
 - `create(payload) -> str` - stores data, returns UUID key
-- `get(token) -> dict | None` - retrieves data (both stores)
+- `get(token) -> dict | None` - retrieves data
 - `consume(token) -> dict | None` - retrieves and deletes (PreviewTokenStore only)
 - `_sweep_expired()` - TTL-based cleanup
 
-**Note:** There is no `SeededRecordTracker` in this codebase.
+## 🔍 Encoded Queries
 
-## 🔗 build_query + QueryTokenStore Workflow
-
-The `build_query` tool creates structured queries and stores them in `QueryTokenStore`. Other tools receive the `query_token` and resolve it via:
-
-```python
-resolved_query = resolve_query_token(token, store, correlation_id)
-# Returns the encoded query string
-```
-
-This bridges structured query building with query-consuming tools, allowing complex queries to be built once and reused across multiple tool calls.
+Agents pass ServiceNow encoded query strings directly to the `query` tool. Refer to `docs/agent-recipes.md` for the encoded query cheat sheet and worked examples of how the unified surface composes.
 
 ## 🏗 Tool Registration
 
-### Standard Tools
+The server bootstrap uses an unconditional 4-argument registration pattern for all tool groups.
 
 ```python
-def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthProvider) -> None:
-    query_store = mcp._sn_query_store  # Access shared state from FastMCP instance
+def register_tools(
+    mcp: FastMCP,
+    settings: Settings,
+    auth_provider: BasicAuthProvider,
+    choices: ChoiceRegistry | None = None,
+) -> None:
+    # Modules that do not require the ChoiceRegistry explicitly ignore it
+    del choices  # unused; signature retained for loader parity
 
     @mcp.tool()
     @tool_handler
@@ -279,106 +247,52 @@ def register_tools(mcp: FastMCP, settings: Settings, auth_provider: BasicAuthPro
         return format_response(data=result, correlation_id=correlation_id)
 ```
 
-### Domain Tools (extra `choices` kwarg)
+## ✏️ Platform Artifacts
 
-Domain tool modules (with `domain_` prefix) receive an additional `choices` parameter:
+Script-bearing artifacts (Business Rules, Script Includes, UI Macros, etc.) are written via the `record_write` tool using the standard `table` parameter — there is no `artifact_type` enum. The set of script-bearing fields per table is discovered at runtime from `sys_dictionary` rather than encoded in a hardcoded catalog.
 
-```python
-def register_tools(
-    mcp: FastMCP,
-    settings: Settings,
-    auth_provider: BasicAuthProvider,
-    choices: ChoiceRegistry | None = None,
-) -> None:
-    @mcp.tool()
-    @tool_handler
-    async def incident_list(state: str = "", correlation_id: str = "") -> str:
-        # Use choices.resolve() for label-to-value mapping
-        if state and choices:
-            state = await choices.resolve("incident", "state", state)
-        # Use ServiceNowQuery fluent builder
-        query = ServiceNowQuery()
-        if state:
-            query.equals("state", state)
-        ...
-```
+### Script-Field Discovery
 
-### Write Operations in Domain Tools
+`DictionaryRegistry` (in `tools/_dictionary.py`) resolves which fields on a table carry executable script or markup content:
 
-```python
-# Always check write_gate before mutations
-gate = write_gate("incident", settings, correlation_id)
-if gate:
-    return gate  # Pre-formatted error envelope
-```
+1. Walks `sys_db_object.super_class` child-first, bounded at depth 8, with a cycle guard.
+2. Fetches active `sys_dictionary` rows for each table in the chain.
+3. Admits a field when its `internal_type` is in `UNAMBIGUOUS_SCRIPT_TYPES` (`script`, `script_plain`, `script_server`, `script_client`, `email_script`, `html_script`, `html_template`, `css`).
+4. For ambiguous types (`html`, `xml`), admits the field only when `attributes` contains `tinymce_allow_all=true` or `html_sanitize=false`.
+5. Drops anything in `EXCLUDED_ELEMENTS` (`translated_html`, `template_value`, `glide_var`, `json`, `conditions`, `condition_string`, `glide_action_list`, `variable_conditions`, `snapshot_template_value`, `variable_template_value`).
+6. Caches per-table results for the registry lifetime; `flush(table=None)` invalidates everything or a single table.
 
-## ✏️ Artifact Write Tools
+The `looks_like_template(content)` helper (regex `\${[^}]+}`) is exposed for record-level template detection but is not consulted during dictionary discovery.
 
-Located in `tools/artifact_write.py`. Provides `artifact_create` and `artifact_update` tools with local script file support.
+Discover the script fields for any table at runtime via `describe(action='list_script_fields', table='<table>')`, which returns the resolved super_class chain and a list of `{name, internal_type, inherited_from, via_heuristic}` entries.
 
-### WRITABLE_ARTIFACT_TABLES (17 types)
+### script_path Security
 
-Superset of `metadata.py:ARTIFACT_TABLES` (7 types). All 17 artifact types:
+`record_write` accepts an optional `script_path` for any table that has at least one script-bearing field:
 
-| Artifact Type | ServiceNow Table |
-|---|---|
-| `business_rule` | `sys_script` |
-| `script_include` | `sys_script_include` |
-| `ui_policy` | `sys_ui_policy` |
-| `ui_action` | `sys_ui_action` |
-| `client_script` | `sys_script_client` |
-| `scheduled_job` | `sysauto_script` |
-| `fix_script` | `sys_script_fix` |
-| `scripted_rest_resource` | `sys_ws_operation` |
-| `ui_script` | `sys_ui_script` |
-| `processor` | `sys_processor` |
-| `widget` | `sp_widget` |
-| `ui_page` | `sys_ui_page` |
-| `ui_macro` | `sys_ui_macro` |
-| `script_action` | `sysevent_script_action` |
-| `mid_script_include` | `ecc_agent_script_include` |
-| `scripted_rest_api` | `sys_web_service` |
-| `notification_script` | `sysevent_email_action` |
+- Path is resolved via `Path.resolve(strict=True)` to prevent symlink/traversal attacks.
+- The resolved path must be under the directory defined by the `script_allowed_root` setting.
+- File is read as UTF-8; maximum size is 1 MB (`MAX_SCRIPT_FILE_BYTES`).
+- Content is written to the first script-bearing field detected by `DictionaryRegistry` (child-first, sys_dictionary row order), unless `script_field` overrides it.
+- When the resolved field has `internal_type == 'xml'`, the content is validated as well-formed XML (`xml.etree.ElementTree.fromstring`) before any platform call; malformed content yields a structured error.
+- `record_write` uses the `PreviewTokenStore` flow (preview/apply) by default for these operations.
 
-### script_path Pattern
+### script_field parameter
 
-Both tools accept an optional `script_path` parameter:
+`record_write` accepts an optional `script_field` parameter when `script_path` is set. It selects which script-bearing field receives the file contents:
 
-- Path is resolved via `Path.resolve(strict=True)` to prevent symlink/traversal attacks
-- When `script_allowed_root` setting is configured, the resolved path must be under that root directory
-- File is read synchronously as UTF-8
-- Maximum size: 1 MB (`MAX_SCRIPT_FILE_BYTES = 1_048_576`)
-- Content is written to the artifact-specific script field via `SCRIPT_FIELD_MAP` (defaults to `"script"`)
-- If the target field already exists in the data/changes JSON, a warning is emitted but the file content wins
-- JSON payload keys are validated with `validate_identifier()` before submission
+- Empty (default): writes to the first field returned by `DictionaryRegistry.get_script_fields(table)`.
+- Non-empty: must match a field name returned by the registry for that table; otherwise the call returns a structured error listing the allowed fields.
+- Setting `script_field` without `script_path` is rejected.
 
-### SCRIPT_FIELD_MAP
+### record_read
 
-Per-artifact field override for `script_path` content. Types not listed default to `"script"`:
-
-| Artifact Type | Script Field |
-|---|---|
-| `ui_policy` | `script_true` |
-| `scripted_rest_resource` | `operation_script` |
-| `widget` | `client_script` |
-| `ui_page` | `html` |
-| `ui_macro` | `xml` |
-| `notification_script` | `advanced_condition` |
-
-### Key Differences from record_write
-
-- No preview/apply token flow - direct create/update only
-- Uses `_resolve_writable_artifact_table()` instead of raw table names
-- JSON payload validated: type must be dict, all keys pass `validate_identifier()`
-- Path security: `script_allowed_root` setting + `resolve(strict=True)` prevents traversal
-- Standard tool registration signature (not domain)
-- Package membership: `full`, `developer`, `itil`
+Read-only counterpart. `record_read(table, sys_id=..., name=...)` returns the masked record plus the `script_fields` list resolved by `DictionaryRegistry` for the table, enabling discovery-driven multi-field edits. Exactly one of `sys_id` or `name` must be supplied; ambiguous names (>1 match) and missing records return structured errors. Included in both `full` and `readonly` packages.
 
 ## 🔄 ChoiceRegistry
 
 - `ChoiceRegistry(settings, auth_provider)` - lazy-loaded from `sys_choice` table.
-- Uses `asyncio.Lock` with double-check pattern on first access.
-- Falls back to `_DEFAULTS` on fetch failure.
+- Exposed as the `resolve_choice` tool for agents to map labels to values.
 - Labels normalized: lowercase, spaces to underscores.
 
 ### 6 Default Mappings
@@ -392,16 +306,9 @@ Per-artifact field override for `script_path` content. Types not listed default 
 | `sc_request`     | `state`              |
 | `sc_req_item`    | `state`              |
 
-### API
-
-```python
-await choices.resolve("incident", "state", "open")  # Returns mapped value or passthrough
-await choices.get_choices("incident", "state")       # Returns dict of all choices
-```
-
 ## 🔍 Investigation Modules
 
-Located in `investigations/*.py`, registered in `INVESTIGATION_REGISTRY`.
+Dispatched via the `investigate` tool with `action='run'` or `action='explain'`. The `explain` action trial-dispatches across registered modules. Bare-table forms are not supported.
 
 ### 7 Available Investigations
 
@@ -415,46 +322,66 @@ Located in `investigations/*.py`, registered in `INVESTIGATION_REGISTRY`.
 | `slow_transactions`       | Identify slow-running transactions       |
 | `performance_bottlenecks` | Find performance issues                  |
 
-### Module Contract
+## 🔎 Flow Designer Inspection
 
-Each module exports:
+Dispatched via the read-only `flow` tool. Available in the `full` and `readonly` packages, or through custom packages such as `MCP_TOOL_PACKAGE=flow,query,describe`.
 
-```python
-async def run(client, params) -> dict:
-    ...
+### 5 Flow Actions
 
-async def explain(client, element_id) -> dict:
-    ...
-```
+| Action | Purpose |
+| ------ | ------- |
+| `inspect` | Assemble one flow/subflow by `sys_id` or `name`: header, triggers, inputs, outputs, variables, decoded V2 action/logic nodes, canvas tree, published snapshot drift, and warnings. |
+| `find_by_table` | Find flows with record triggers on a given table. |
+| `decode_values` | Stateless decode for gzip+base64+JSON `values` blobs from `sys_hub_*_v2` rows. |
+| `list_triggers` | List V1 and V2 trigger rows with optional `table`, `trigger_type`, `active`, and `limit` filters. |
+| `describe` | Return the action registry without platform I/O. |
 
-### Shared Helpers (`investigation_helpers.py`)
+- Reads both V1 (`sys_hub_action_instance`, `sys_hub_flow_logic`, `sys_hub_trigger_instance`) and V2 (`sys_hub_action_instance_v2`, `sys_hub_flow_logic_instance_v2`, `sys_hub_trigger_instance_v2`) Flow Designer tables.
+- Joins V2 record-trigger conditions through `sys_flow_record_trigger.sys_id == trigger_v2.remote_trigger_id`.
+- Pure decoder lives in `tools/_flow_values.py` as `decode_values()` and `looks_compressed()`.
+- Deliberately does not use undocumented `/api/now/processflow/*` endpoints.
+- Deliberately skips `sys_hub_flow_snapshot` because it is an opaque compiled cache.
+- Per-node decode failures add `decode_error` to that node only; the enclosing `inspect` response still succeeds.
 
-| Helper                                                                           | Purpose                        |
-| -------------------------------------------------------------------------------- | ------------------------------ |
-| `parse_int_param(params, key, default) -> int`                                     | Safe integer parameter parsing |
-| `parse_element_id(element_id, allowed_tables) -> tuple[str, str]`                  | Parse `'table:sys_id'` format    |
-| `build_investigation_result(name, findings, **extra) -> dict`                      | Standard result envelope       |
-| `fetch_and_explain(client, element_id, allowed_tables, build_explanation) -> dict` | Common explain pattern         |
+## 🛡 Audit Inspection
+
+Dispatched via the read-only `audit` tool. Available in the `full` and `readonly` packages, or through custom packages such as `MCP_TOOL_PACKAGE=audit,query,describe`. Backed by `AuditRegistry` (in `tools/_audit.py`), which composes `DictionaryRegistry` for the `super_class` chain walk rather than reimplementing it.
+
+### 5 Audit Actions
+
+| Action | Purpose |
+| ------ | ------- |
+| `check_field` | Resolve the combined audit verdict for one `(table, field)` pair: chain-walked `sys_db_object.sys_audit`, chain-walked `sys_dictionary.audit`, `no_audit` attribute veto, and a positive-control count from `sys_audit`. |
+| `check_fields` | Batch variant of `check_field`. Accepts a comma-separated `fields_csv` (max 50) and returns one verdict per field plus a single shared `table_change_count`. |
+| `check_table` | Table-level posture: table default, super_class chain, and the list of fields whose resolved audit flag differs from that default. |
+| `history` | Masked, date-bounded audit trail for one record. Queries `sys_audit` with the real column names (`tablename`, `documentkey`, `fieldname`) and masks entries via `mask_audit_entry`. |
+| `describe` | Return the action registry without platform I/O. |
+
+- `verdict` enum: `audited`, `not_audited_field_flag` (with `reason` of `audit_flag` or `no_audit_attribute`), `not_audited_table_flag`, `audited_but_inactive`, `inconclusive`.
+- The `sys_audit` table is one of the largest tables on the platform. Every action that reads it applies a default 90-day window. Callers MAY override the window via `window_days` (or an explicit `since` on `history`) but SHOULD keep the default - wider windows cause slow queries and risk timeouts. Responses include both the `window_days` actually used and a `window_note` describing it.
+- Field-level audit is resolved child-first along `super_class`; the first `sys_dictionary` row found wins, and `inherited_from` names the source table (or is `null` when the queried table declared its own row).
+- `no_audit=true` in the `attributes` blob is an absolute veto over the boolean `audit` column. It is matched at comma boundaries so substrings like `my_no_audit=true` do not false-positive.
+- Positive control disambiguates "no field activity in window" from "audit not configured": zero field rows with non-zero table rows means `audited_but_inactive`; zero on both means `inconclusive`.
+- `AuditRegistry` caches table-level posture and per-(table, field) resolution for the server lifetime; `sys_audit` row counts are NEVER cached.
+- Deliberately does not inspect `sys_audit_delete`, `sys_audit_relation`, or `sys_history_line` - those are distinct stores with different schemas.
 
 ## 🖥 Server Bootstrap
 
 `create_mcp_server()` performs the following:
 
 1. Creates `Settings` and auth via `create_auth()`.
-2. Calls `setup_sentry(settings)` and sets Sentry context with instance URL, environment, and tool package.
-3. Creates `FastMCP('servicenow-dev-debug')`.
-4. Calls `attach_servicenow_state(mcp, settings, auth_provider, query_store, choices)` to attach shared state.
+2. Calls `setup_sentry(settings)` and sets Sentry context.
+3. Creates `FastMCP('servicenow-platform-mcp')`.
+4. Calls `attach_servicenow_state(...)` to attach shared state.
 5. Always registers the `list_tool_packages` tool.
-6. Loads tool groups via `importlib`; `domain_` prefix modules get `choices=choices` kwarg.
-7. `main()` runs with stdio transport; `mcp.run()` is wrapped in `try/finally` with `shutdown_sentry()` in the finally block.
+6. Loads tool groups via `importlib` and calls an unconditional 4-argument `register_tools(...)`.
+7. `main()` runs with stdio transport; `shutdown_sentry()` is called in a finally block.
 
 ## 🌐 Client
 
 - `ServiceNowClient(settings, auth_provider)` - async context manager.
-- `_ensure_client() -> httpx.AsyncClient` - raises `RuntimeError` if not initialized (not assert).
-- Timeout: 30s.
-- Uses `validate_identifier()` for table/field names.
-- 30+ API methods covering: records, attachments, metadata, aggregation, CRUD, CMDB, email, import sets, reports, code search, service catalog, ATF.
+- ATF methods have been deleted.
+- Retains `list_reports`, `get_email`, `get_import_set_record`, and `sc_*` methods per ADR §2.3.
 
 ## ⚙️ Configuration (Settings)
 
@@ -471,45 +398,23 @@ async def explain(client, element_id) -> dict:
 | `sentry_dsn`              | `str`       | `""`                                                     | `SENTRY_DSN`              |
 | `sentry_environment`      | `str`       | `""`                                                     | `SENTRY_ENVIRONMENT`      |
 
-### Computed Properties
-
-- `large_table_names` - `@cached_property`, returns `frozenset` from CSV
-- `is_production` - `@property`, checks if `servicenow_env` equals `'prod'` or `'production'` (case-insensitive)
-
-### Validators
-
-- `instance_url` must start with `https://`, trailing slash stripped.
-- `mcp_tool_package` validated against `get_package()`.
-- `model_config`: `env_file=['.env', '.env.local']`, `extra='ignore'`.
-
 ## 📦 Packages & Tool Groups
 
-14 named packages with 19 tool groups total (21 registered modules, but `testing` is disabled in `full`).
+The registry contains 4 preset packages. Tool groups are loaded from `servicenow_mcp.tools.*`.
 
 ### Preset Packages
 
-| Package              | Groups | Description                                     |
-| -------------------- | ------ | ----------------------------------------------- |
-| `full`                 | 19     | Default - all standard tool groups              |
-| `core_readonly`        | 4      | Read-only core tools (table, record, attachment, metadata) |
-| `none`                 | 0      | No tools loaded                                 |
-| `itil`                 | 16     | ITIL process tools                              |
-| `developer`            | 13     | Development-focused tools                       |
-| `readonly`             | 10     | Read-only operations                            |
-| `analyst`              | 8      | Analysis and reporting                          |
-| `incident_management`  | 9      | Incident lifecycle tools                        |
-| `change_management`    | 8      | Change request tools                            |
-| `cmdb`                 | 6      | CMDB management tools                           |
-| `problem_management`   | 9      | Problem lifecycle tools                         |
-| `request_management`   | 8      | Request/RITM tools                              |
-| `knowledge_management` | 6      | Knowledge base tools                            |
-| `service_catalog`      | 6      | Service catalog tools                           |
+| Package | Tools | Description |
+|---|---|---|
+| `full` | 13 | Every group (full surface, includes `build_query`) |
+| `readonly` | 9 | Read tools + investigate + resolve_choice |
+| `core_readonly` | 5 | Query + describe + attachment only |
+| `none` | 1 | Only `list_tool_packages` loaded |
 
-### Custom Packages
-
-Comma-separated group names are supported as a custom package value. Validated to ensure no collisions with preset package names.
-
-Readonly-style packages include only `attachment`. Write-capable packages include both `attachment` and `attachment_write`.
+- **Custom Packages:** Comma-separated group names are supported (e.g., `MCP_TOOL_PACKAGE=query,describe`).
+- **Tool Group Shadowing:** `MCP_TOOL_PACKAGE=service_catalog` resolves via the custom-package path to the single tool group.
+- **Write Gating:** The `attachment` group registers both read and write tools; write tools are blocked at runtime in production by `write_gate`.
+- **`build_query`:** Stateless helper that complements `query`. Accepts a JSON array of condition objects and returns the encoded query string in `data.query` for the caller to pass straight to `query`. `full` package only - the readonly presets pass encoded queries to `query` directly.
 
 ## 🔀 Async Patterns
 
@@ -520,65 +425,17 @@ Readonly-style packages include only `attachment`. Write-capable packages includ
 
 ## 🔒 Sentry Module
 
-Located in `sentry.py`. Opt-in error tracking with graceful no-op when `sentry-sdk` is not installed.
-
-MCP servers run as child processes of AI agents via stdio - the user never sees stdout/stderr. Sentry is the primary way to get error visibility.
-
-### Import Guard
-
-```python
-try:
-    import sentry_sdk
-    HAS_SENTRY = True
-except ImportError:
-    HAS_SENTRY = False
-```
-
-When `HAS_SENTRY` is False, all public functions no-op immediately - zero overhead.
+Opt-in error tracking. `tool.name` tag values were updated in v0.10.0 to reflect the unified tool surface.
 
 ### Key Functions
 
 | Function | Purpose |
 |---|---|
-| `setup_sentry(settings)` | Initializes Sentry SDK with DSN gating; no-ops if no DSN or no package |
-| `capture_exception(exc)` | Captures exception to Sentry (or current `sys.exc_info()` if `None`) |
-| `set_sentry_tag(key, value)` | Sets indexed key-value tag on current isolation scope |
-| `set_sentry_context(key, data)` | Sets structured context dict on current isolation scope |
-| `shutdown_sentry()` | Flushes pending events and closes the Sentry client |
-
-### Integration Points
-
-- **`server.py` (bootstrap)** - calls `setup_sentry(settings)` at startup, `shutdown_sentry()` in finally block; sets `"server"` context with `instance_url`, `environment`, `is_production`, `tool_package`
-- **`decorators.py` (`@tool_handler`)** - sets `tool.name` and `tool.correlation_id` tags; sets `"tool"` context with name, correlation_id, and args
-- **`utils.py` (`safe_tool_call()`)** - calls `sentry_capture(e)` in both `ForbiddenError` and generic `Exception` catch blocks
-- **`utils.py` (`serialize()`)** - captures TOON encoding failures
-- **`client.py` (`_raise_for_status()`)** - sets `"http"` context with `status_code`, `method`, `url` before raising
-- **`choices.py`** - captures persistent `sys_choice` fetch failures
-- **`server.py` (tool loading)** - captures broken tool group `ImportError` exceptions
-
-### Gating
-
-Sentry activation requires two conditions:
-
-1. `sentry-sdk` package is installed (core dependency, always available)
-2. `SENTRY_DSN` environment variable is non-empty
-
-There is no separate `SENTRY_ENABLED` flag - the DSN presence is the gate. Performance monitoring is enabled (`traces_sample_rate=1.0`). Profiling is disabled (`profiles_sample_rate=None`).
-
-### SDK Configuration
-
-- Conditionally loads `MCPIntegration` from `sentry_sdk.integrations.mcp` if available
-- `send_default_pii=True` is set
-- Release version is dynamically determined from `importlib.metadata`
-
-### Config Fields
-
-| Field                 | Type  | Default | Env Var               |
-| --------------------- | ----- | ------- | --------------------- |
-| `sentry_dsn`            | `str`   | `""`      | `SENTRY_DSN`            |
-| `sentry_environment`    | `str`   | `""`      | `SENTRY_ENVIRONMENT`    |
-
-When `sentry_environment` is empty, `setup_sentry()` falls back to `settings.servicenow_env`.
+| `setup_sentry(settings)` | Initializes Sentry SDK |
+| `capture_exception(exc)` | Captures exception |
+| `set_sentry_tag(key, value)` | Sets indexed tag |
+| `set_sentry_context(key, data)` | Sets structured context |
+| `shutdown_sentry()` | Flushes and closes client |
 
 ## 🧪 Testing Patterns
 
@@ -586,22 +443,9 @@ When `sentry_environment` is empty, `setup_sentry()` falls back to `settings.ser
 
 Use **respx** library with `@respx.mock` decorator on async test methods.
 
-### Fixtures
+### Tool Test Helpers
 
-- `tests/conftest.py` provides `settings` and `prod_settings` using `patch.dict("os.environ", ...)`.
-- `tests/domains/conftest.py` provides domain-specific fixtures (same pattern, separate scope).
-- Always construct `Settings(_env_file=None)` in tests to avoid loading real env files.
-
-### Standard Tool Test Helper
-
-```python
-def _register_and_get_tools(settings, auth_provider):
-    mcp = FastMCP("test")
-    register_tools(mcp, settings, auth_provider)
-    return {t.name: t.fn for t in mcp._tool_manager._tools.values()}
-```
-
-### Domain Tool Test Helper
+Tool tests live alongside the rest of the suite in `tests/`. Standard tool registration for tests uses the 4-argument signature:
 
 ```python
 def _register_and_get_tools(settings, auth_provider, choices=None):
@@ -613,15 +457,12 @@ def _register_and_get_tools(settings, auth_provider, choices=None):
 ### Parsing Tool Output in Tests
 
 ```python
-from toon_format import decode as toon_decode
+import json
 
-raw = await tools["my_tool"](param="value")
-result = toon_decode(raw)
+raw = await tools["query"](table="incident")
+result = json.loads(raw)
 assert result["status"] == "success"
-assert result["data"]["field"] == "expected"
 ```
-
-**Critical:** Use `toon_decode(raw)`, **NOT** `json.loads(raw)`.
 
 ### Integration Tests
 
@@ -635,8 +476,6 @@ assert result["data"]["field"] == "expected"
 - **NEVER** work on main/master - always create feature branches.
 - **Conventional commits**: `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, etc.
 - **Small commits** - atomic, focused changes.
-- **release-please** automates versioning and releases on push to main.
-- **Use `gh` CLI** for all GitHub operations (PRs, issues, etc.).
 - CI runs lint, type-check, and tests on Python 3.12/3.13/3.14 for every PR.
 - Always test changes before considering a task complete.
 - Always check console output during runs and fix any errors/warnings.

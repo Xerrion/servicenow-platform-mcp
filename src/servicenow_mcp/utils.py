@@ -5,16 +5,11 @@ import logging
 import re
 import uuid
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING, Any, override
+from typing import Any, override
 
-from toon_format import encode as toon_encode
-
-from servicenow_mcp.errors import ForbiddenError
+from servicenow_mcp.errors import ACLError, ForbiddenError, ServiceNowMCPError
 from servicenow_mcp.sentry import capture_exception as sentry_capture
 
-
-if TYPE_CHECKING:
-    from servicenow_mcp.state import QueryTokenStore
 
 logger = logging.getLogger(__name__)
 
@@ -131,16 +126,16 @@ def generate_correlation_id() -> str:
 
 
 def serialize(data: Any) -> str:
-    """Serialize *data* to TOON format for LLM-friendly output.
-
-    Falls back to JSON if TOON encoding fails.
-    """
+    """Serialize *data* to a JSON string suitable for MCP tool output."""
     try:
-        return toon_encode(data)
-    except Exception as e:
-        logger.warning("TOON encoding failed, falling back to JSON", exc_info=True)
+        return json.dumps(data, default=str, ensure_ascii=False, separators=(",", ":"))
+    except (TypeError, ValueError) as e:
+        logger.warning("JSON serialization failed", exc_info=True)
         sentry_capture(e)
-        return json.dumps(data, indent=2)
+        envelope: dict[str, Any] = {"status": "error", "error": {"message": "Serialization failed"}}
+        if isinstance(data, dict) and isinstance(data.get("correlation_id"), str):
+            envelope["correlation_id"] = data["correlation_id"]
+        return json.dumps(envelope)
 
 
 def format_response(
@@ -724,37 +719,18 @@ class ServiceNowQuery:
         return self.build()
 
 
-def resolve_query_token(query_token: str, query_store: "QueryTokenStore", correlation_id: str) -> str:
-    """Resolve a query token to the encoded query string it represents.
-
-    Args:
-        query_token: The token from build_query, or empty string for no filter.
-        query_store: The shared QueryTokenStore instance.
-        correlation_id: Request correlation ID for error formatting.
-
-    Returns the encoded query string. Raises ValueError if the token is invalid or expired.
-    """
-    _ = correlation_id  # Kept for API consistency across tool helpers
-    if not query_token:
-        return ""
-    payload = query_store.get(query_token)
-    if payload is None:
-        raise ValueError("Invalid or expired query token. Use the build_query tool to create a query first.")
-    return payload["query"]
-
-
 async def safe_tool_call(
     fn: Callable[[], Awaitable[str]],
     correlation_id: str,
 ) -> str:
     """Wrap an MCP tool body with standard error handling.
 
-    Catches ForbiddenError (ACL denial) and generic exceptions,
-    returning consistent JSON error envelopes via format_response.
+    Catches ServiceNow ACL denials, generic forbidden errors, and generic
+    exceptions, returning consistent JSON error envelopes via format_response.
     """
     try:
         return await fn()
-    except ForbiddenError as e:
+    except ACLError as e:
         sentry_capture(e)
         return format_response(
             data=None,
@@ -762,11 +738,49 @@ async def safe_tool_call(
             status="error",
             error=f"Access denied by ServiceNow ACL: {e}",
         )
-    except Exception as e:
+    except ForbiddenError as e:
+        sentry_capture(e)
+        return format_response(
+            data=None,
+            correlation_id=correlation_id,
+            status="error",
+            error=f"Access forbidden by ServiceNow: {e}",
+        )
+    except ServiceNowMCPError as e:
+        # Domain errors (PolicyError, QuerySafetyError, NotFoundError, ServerError,
+        # AuthError, ...) carry curated, caller-actionable messages and are safe
+        # to surface verbatim.
         sentry_capture(e)
         return format_response(
             data=None,
             correlation_id=correlation_id,
             status="error",
             error=str(e),
+        )
+    except ValueError as e:
+        # Project convention: ValueError is the signal for "rejected user input"
+        # raised by validators like ``validate_identifier``. Messages are curated
+        # and safe to surface (they quote the caller's own input).
+        sentry_capture(e)
+        return format_response(
+            data=None,
+            correlation_id=correlation_id,
+            status="error",
+            error=str(e),
+        )
+    except Exception as e:
+        # Truly unclassified failure (RuntimeError, OSError, httpx errors, ...).
+        # Log full detail locally for operators but return an opaque message to
+        # the caller so we do not leak internal hostnames, file paths, or
+        # platform stack fragments.
+        logger.exception(
+            "Unhandled exception in tool",
+            extra={"correlation_id": correlation_id},
+        )
+        sentry_capture(e)
+        return format_response(
+            data=None,
+            correlation_id=correlation_id,
+            status="error",
+            error=f"Internal error (correlation_id={correlation_id})",
         )

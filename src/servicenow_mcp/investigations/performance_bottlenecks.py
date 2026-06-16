@@ -1,7 +1,7 @@
 """Investigation: find performance bottlenecks — heavy automation, frequent jobs, long flows."""
 
 from collections import Counter
-from typing import Any
+from typing import Any, Final
 
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.investigation_helpers import (
@@ -18,6 +18,16 @@ from servicenow_mcp.utils import ServiceNowQuery, validate_identifier
 
 
 HEAVY_AUTOMATION_THRESHOLD = 10
+
+
+PARAMS: Final[dict[str, dict[str, Any]]] = {
+    "hours": {
+        "type": "int|None",
+        "default": None,
+        "description": "Lookback window in hours; omit to query all history.",
+    },
+    "limit": {"type": "int", "default": 20, "description": "Max findings per category."},
+}
 
 
 async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any]:
@@ -102,12 +112,12 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
         )
 
     # 3. Long-running flows (still IN_PROGRESS)
-    check_table_access("flow_context")
+    check_table_access("sys_flow_context")
     flow_query = ServiceNowQuery().equals("state", "IN_PROGRESS")
     if hours is not None:
         flow_query.hours_ago("sys_created_on", hours)
     flow_result = await client.query_records(
-        "flow_context",
+        "sys_flow_context",
         flow_query.build(),
         fields=["sys_id", "name", "state", "sys_created_on"],
         limit=limit,
@@ -117,7 +127,7 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
         findings.append(
             {
                 "category": "long_running_flow",
-                "element_id": f"flow_context:{masked_rec.get('sys_id', '')}",
+                "element_id": f"sys_flow_context:{masked_rec.get('sys_id', '')}",
                 "name": masked_rec.get("name", ""),
                 "detail": f"Flow in progress since {masked_rec.get('sys_created_on', '')}",
             }

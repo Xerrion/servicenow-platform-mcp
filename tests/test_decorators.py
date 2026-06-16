@@ -1,12 +1,12 @@
 """Tests for the tool_handler decorator."""
 
 import inspect
+import json
 import uuid
 from typing import Any
+from unittest.mock import patch
 
-from toon_format import decode as toon_decode
-
-from servicenow_mcp.decorators import tool_handler
+from servicenow_mcp.decorators import _REDACTED, _redact_args, tool_handler
 from servicenow_mcp.errors import ForbiddenError
 from servicenow_mcp.utils import format_response
 from tests.helpers import get_registered_tools
@@ -26,7 +26,7 @@ class TestToolHandler:
 
         result = await my_tool("incident")
         assert captured["correlation_id"]  # non-empty UUID
-        parsed = toon_decode(result)
+        parsed = json.loads(result)
         assert isinstance(parsed, dict)
         assert parsed["status"] == "success"
         assert parsed["correlation_id"] == captured["correlation_id"]
@@ -77,18 +77,26 @@ class TestToolHandler:
         assert not hasattr(my_tool, "__wrapped__")
 
     async def test_catches_generic_exception(self) -> None:
-        """Exceptions in the tool body are caught and returned as error envelopes."""
+        """Exceptions in the tool body are caught and returned as opaque envelopes.
+
+        The wire-level message MUST NOT contain ``str(exc)`` — that would leak
+        internal hostnames, paths, and platform stack fragments. The full
+        exception is logged locally (see SECURITY in utils.safe_tool_call).
+        """
 
         @tool_handler
         async def my_tool(*, correlation_id: str) -> str:
             _ = correlation_id
-            raise ValueError("something broke")
+            raise RuntimeError("something broke")
 
         result = await my_tool()
-        parsed = toon_decode(result)
+        parsed = json.loads(result)
         assert isinstance(parsed, dict)
         assert parsed["status"] == "error"
-        assert "something broke" in parsed["error"]["message"]
+        message = parsed["error"]["message"]
+        assert "something broke" not in message
+        assert message.startswith("Internal error")
+        assert parsed["correlation_id"] in message
 
     async def test_catches_forbidden_error(self) -> None:
         """ForbiddenError is caught and returned as an ACL denial error envelope."""
@@ -99,7 +107,7 @@ class TestToolHandler:
             raise ForbiddenError("ACL blocked")
 
         result = await my_tool()
-        parsed = toon_decode(result)
+        parsed = json.loads(result)
         assert isinstance(parsed, dict)
         assert parsed["status"] == "error"
         assert "Access denied" in parsed["error"]["message"] or "ACL" in parsed["error"]["message"]
@@ -160,7 +168,95 @@ class TestToolHandler:
 
         # Check calling the tool works
         result = await tool.fn("my_table")
-        parsed = toon_decode(result)
+        parsed = json.loads(result)
         assert isinstance(parsed, dict)
         assert parsed["status"] == "success"
         assert parsed["data"]["table"] == "my_table"
+
+
+class TestRedactArgs:
+    """Sensitive arg names are redacted before being attached to Sentry context."""
+
+    def test_drops_correlation_id(self) -> None:
+        """``correlation_id`` is dropped (sent as a separate context field)."""
+        out = _redact_args({"correlation_id": "abc", "table": "incident"})
+        assert "correlation_id" not in out
+        assert out == {"table": "incident"}
+
+    def test_redacts_known_sensitive_keys(self) -> None:
+        """All canonical sensitive keys are replaced with the redaction marker."""
+        sensitive = {
+            "data": '{"name": "alice"}',
+            "params": "anything",
+            "password": "hunter2",  # NOSONAR(S2068) - test fixture asserting redaction; not a credential.
+            "token": "deadbeef",
+            "secret": "shh",
+            "api_key": "k",
+            "authorization": "Bearer x",
+            "script_path": "/etc/passwd",
+            "encoded_query": "active=true",
+            "content_base64": "AAAA",
+            "value": "raw",
+        }
+        out = _redact_args(sensitive)
+        for key in sensitive:
+            assert out[key] == _REDACTED, f"{key} was not redacted"
+
+    def test_redacts_user_supplied_content_keys(self) -> None:
+        """``variables``, ``conditions``, ``text`` carry user content and must redact."""
+        out = _redact_args(
+            {
+                "variables": '{"email": "alice@example.com"}',
+                "conditions": '[{"field": "x", "op": "=", "value": "secret"}]',
+                "text": "search for something private",
+            }
+        )
+        assert out["variables"] == _REDACTED
+        assert out["conditions"] == _REDACTED
+        assert out["text"] == _REDACTED
+
+    def test_passes_through_non_sensitive(self) -> None:
+        """Non-sensitive keys retain their original values."""
+        out = _redact_args({"table": "incident", "limit": 10, "sys_id": "abc"})
+        assert out == {"table": "incident", "limit": 10, "sys_id": "abc"}
+
+    def test_key_match_is_case_insensitive(self) -> None:
+        """Sensitive key matching ignores case."""
+        out = _redact_args({"DATA": "x", "Token": "y"})
+        assert out["DATA"] == _REDACTED
+        assert out["Token"] == _REDACTED
+
+    async def test_wrapper_pipes_redacted_args_into_sentry_context(self) -> None:
+        """``tool_handler`` must attach the *redacted* kwargs dict to Sentry.
+
+        ``_redact_args`` is exercised in isolation by the tests above; this
+        test pins the wiring at decorators.py so that a future refactor
+        cannot accidentally hand raw kwargs (including ``password``,
+        ``data``, etc.) to ``set_sentry_context``.
+        """
+        with patch("servicenow_mcp.decorators.set_sentry_context") as mock_ctx:
+
+            @tool_handler
+            async def my_tool(
+                table: str,
+                data: str = "",
+                password: str = "",
+                *,
+                correlation_id: str,
+            ) -> str:
+                return format_response(data=None, correlation_id=correlation_id)
+
+            await my_tool(
+                table="incident",
+                data='{"password":"hunter2"}',
+                password="hunter2",  # NOSONAR(S2068) - test fixture, not a credential
+            )
+
+            tool_calls = [c for c in mock_ctx.call_args_list if c.args and c.args[0] == "tool"]
+            assert tool_calls, "set_sentry_context('tool', ...) was never called"
+            ctx_payload = tool_calls[-1].args[1]
+            recorded_args = ctx_payload["args"]
+
+            assert recorded_args["data"] == _REDACTED
+            assert recorded_args["password"] == _REDACTED
+            assert recorded_args["table"] == "incident"

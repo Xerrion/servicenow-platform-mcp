@@ -80,9 +80,9 @@ class TestSetupSentry:
         call_kwargs = mock_init.call_args[1]
         assert call_kwargs["dsn"] == "https://key@sentry.io/123"
         assert call_kwargs["environment"] == "staging"
-        assert call_kwargs["send_default_pii"] is True
+        assert call_kwargs["send_default_pii"] is False
         assert call_kwargs["integrations"] == []
-        assert call_kwargs["traces_sample_rate"] == pytest.approx(1.0)
+        assert call_kwargs["traces_sample_rate"] == pytest.approx(0.1)
         assert call_kwargs["profiles_sample_rate"] is None
 
     def test_falls_back_to_servicenow_env(self) -> None:

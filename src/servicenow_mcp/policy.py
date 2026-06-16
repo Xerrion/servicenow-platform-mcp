@@ -69,12 +69,30 @@ def is_sensitive_field(field_name: str) -> bool:
 
 
 def mask_sensitive_fields(record: dict[str, Any]) -> dict[str, Any]:
-    """Return a copy of the record with sensitive fields masked."""
-    masked = dict(record)
-    for key in masked:
+    """Return a copy of the record with sensitive fields masked.
+
+    Recurses into nested dicts and lists so sensitive keys are masked at any depth.
+    """
+    masked: dict[str, Any] = {}
+    for key, value in record.items():
         if is_sensitive_field(key):
             masked[key] = MASK_VALUE
+        elif isinstance(value, dict):
+            masked[key] = mask_sensitive_fields(value)
+        elif isinstance(value, list):
+            masked[key] = [_mask_value(v) for v in value]
+        else:
+            masked[key] = value
     return masked
+
+
+def _mask_value(value: Any) -> Any:
+    """Recursively mask sensitive fields inside arbitrary nested values."""
+    if isinstance(value, dict):
+        return mask_sensitive_fields(value)
+    if isinstance(value, list):
+        return [_mask_value(v) for v in value]
+    return value
 
 
 def mask_audit_entry(entry: dict[str, Any]) -> dict[str, Any]:
@@ -167,6 +185,34 @@ def write_gate(table: str, settings: Settings, correlation_id: str) -> str | Non
     return None
 
 
+def production_write_blocked(settings: Settings, correlation_id: str) -> str | None:
+    """Return an error envelope if writes are blocked by environment, else None.
+
+    This is the env-level half of ``write_gate``, callable when the target
+    table is not yet known (e.g. ``attachment_delete`` must fetch metadata
+    to learn the owning table). Firing this gate before the metadata fetch
+    prevents network round-trips - and any associated telemetry leakage -
+    when production writes are forbidden.
+
+    Callers MUST still apply table-specific gating (``gate_write`` or
+    ``check_table_access``) once the table is known. The error string is
+    kept identical to ``write_blocked_reason``'s production branch so the
+    user-facing message is consistent across pre- and post-fetch paths.
+    """
+    # Local import mirrors the pattern in ``write_gate``: ``utils`` imports
+    # from this module, so we defer to break the cycle at module load time.
+    from servicenow_mcp.utils import format_response
+
+    if not settings.is_production:
+        return None
+    return format_response(
+        data=None,
+        correlation_id=correlation_id,
+        status="error",
+        error="Write operations are blocked in production environments",
+    )
+
+
 def can_write(
     table: str,
     settings: Settings,
@@ -196,3 +242,49 @@ def write_blocked_reason(table: str, settings: Settings) -> str | None:
     if settings.is_production:
         return "Write operations are blocked in production environments"
     return None
+
+
+def gate_write(table: str, settings: Settings, correlation_id: str) -> str | None:
+    """Combined identifier validation + table access check + write gate.
+
+    Returns a serialized error envelope (str) when the write must be blocked,
+    or None when the caller may proceed. Never raises - callers can rely on
+    the return value alone to decide whether to proceed. This keeps the
+    error-pathway contract uniform: identifier errors, deny-list hits, and
+    production blocks all surface as serialized envelopes (no Sentry noise
+    from caught exceptions for expected policy outcomes).
+    """
+    # Imported locally to avoid a circular import at module load time
+    # (utils -> errors/sentry/state, but utils is the canonical home of validate_identifier).
+    from servicenow_mcp.utils import format_response, validate_identifier
+
+    try:
+        validate_identifier(table)
+    except ValueError as e:
+        return format_response(
+            data=None,
+            correlation_id=correlation_id,
+            status="error",
+            error=f"Invalid table identifier: {e}",
+        )
+    try:
+        check_table_access(table)
+    except PolicyError as e:
+        return format_response(
+            data=None,
+            correlation_id=correlation_id,
+            status="error",
+            error=str(e),
+        )
+    return write_gate(table, settings, correlation_id)
+
+
+def mask_record(table: str, record: dict[str, Any]) -> dict[str, Any]:
+    """Dispatch masking based on table.
+
+    ``sys_audit`` rows use audit-specific masking (the field name is stored
+    in a metadata key); all other tables use plain sensitive-field masking.
+    """
+    if table == "sys_audit":
+        return mask_audit_entry(record)
+    return mask_sensitive_fields(record)

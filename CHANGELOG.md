@@ -1,5 +1,55 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+* `flow` unified tool for read-only Flow Designer inspection (Washington DC V2 + V1 fallback). Five actions: `inspect`, `find_by_table`, `decode_values`, `list_triggers`, `describe`. Available in `full` and `readonly` presets.
+
+## [0.10.0](https://github.com/Xerrion/servicenow-platform-mcp/compare/v0.9.1...v0.10.0) (2026-05-08)
+
+
+### Breaking Changes
+
+* **tool surface consolidation**: ~50 specialized tools collapsed into 12 unified action-dispatchers: `list_tool_packages`, `query`, `build_query`, `describe`, `record_read`, `record_write`, `record_apply`, `attachment`, `attachment_write`, `investigate`, `resolve_choice`, `service_catalog`. All previous domain-specific tools (`incident_*`, `change_*`, `problem_*`, `cmdb_*`, `sc_req_*`, `knowledge_*`, etc.) and helper tool families (`changes_*`, `debug_*`, `docs_*`, `workflow_*`, `flow_*`, `meta_*`) were removed.
+* **artifact tools folded into `record_write`**: the standalone `artifact_create` and `artifact_update` tools were removed; create/update script-bearing records (Business Rules, Script Includes, UI Policies, etc.) by calling `record_write` with the standard `table` parameter and optional `script_path`.
+* **encoded queries are now first-class**: the `QueryTokenStore` was removed. `build_query` is retained but reshaped to be stateless - it returns the encoded query string directly in `data.query`, which agents pass straight to the `query` tool. Agents may also pass ServiceNow encoded query strings directly to `query` without going through `build_query` (e.g. `active=true^priority<=2`).
+* **wire format change**: TOON serialization replaced with JSON. `serialize()` in `utils.py` now returns JSON; `resolve_query_token` was deleted.
+* **package registry collapse**: 14 preset packages reduced to 4: `full`, `readonly`, `core_readonly`, `none`. Custom packages remain supported via comma-syntax (`MCP_TOOL_PACKAGE=query,describe,attachment`). Note that `service_catalog` is now a tool group name rather than a package — `MCP_TOOL_PACKAGE=service_catalog` resolves through the custom-package code path.
+* **ATF removed**: all Automated Test Framework tools and the corresponding `ServiceNowClient` ATF methods were deleted.
+* **Sentry tag values changed**: `tool.name` tag values now reflect the unified tool surface (e.g. `query`, `record_write`) instead of the previous specialized tool names.
+* **loader simplification**: every tool group module now uses the unconditional 4-arg `register_tools(mcp, settings, auth_provider, choices=choices)` signature. The `domain_` prefix branching in `server.py` was removed.
+* **state management**: `QueryTokenStore` was removed; only `PreviewTokenStore` and `_BaseTokenStore` remain in `state.py`.
+
+Migration: see [`docs/agent-recipes.md`](docs/agent-recipes.md) for the canonical migration patterns and 10 worked recipes covering the new 12-tool surface.
+
+
+### Added
+
+* unified action-dispatcher tools: `query`, `describe`, `record_read`, `record_write`, `record_apply`, `attachment`, `attachment_write`, `investigate`, `resolve_choice`, `service_catalog`, `list_tool_packages`.
+* `docs/agent-recipes.md` with 10 worked recipes covering common ServiceNow workflows on the unified tool surface.
+* `script_path` parameter on `record_write` for writing local script files to any table that has at least one script-bearing field (Business Rules, Script Includes, UI Policies, UI Actions, Client Scripts, Widgets, UI Pages, UI Macros, ACLs, etc.). Script fields are discovered at runtime from `sys_dictionary` via the new `DictionaryRegistry` — there is no hardcoded `artifact_type` enum or `SCRIPT_FIELD_MAP`. The registry walks the `sys_db_object.super_class` chain so fields inherited from parent tables (e.g. `catalog_script_client` inheriting from `sys_script_client`) are admitted automatically.
+* `script_field` parameter on `record_write` for tables with multiple script-bearing fields (e.g. `sys_ui_policy.script_true`/`script_false`, `sp_widget.client_script`/`template`/`css`, `sys_ui_page.html`/`client_script`/`processing_script`). Defaults to the first field returned by `DictionaryRegistry.get_script_fields(table)`.
+* `record_read` tool - read-only counterpart to `record_write`. Returns the masked record plus the `script_fields` list resolved from `sys_dictionary` for discovery-driven multi-field edits. Included in both the `full` and `readonly` presets.
+* `describe(action='list_script_fields', table='<table>')` - returns the resolved super_class chain and the dictionary-driven script-bearing fields for any table at runtime.
+* When the resolved script field has `internal_type == 'xml'` (e.g. `sys_ui_macro.xml`), `record_write` validates that the rendered XML parses (`xml.etree.ElementTree.fromstring`) before any platform call; malformed content is rejected with a structured error.
+
+
+### Changed
+
+* `build_query` retained from v0.9.x but scoped to the `full` package only and reshaped to be stateless — returns the encoded query string directly in `data.query`, no token store. Agents pass that string as the `query` parameter to the `query` tool on the next call.
+
+
+### Removed
+
+* ~50 specialized domain and helper tools (`incident_*`, `change_*`, `problem_*`, `cmdb_*`, `sc_req_*`, `knowledge_*`, `changes_*`, `debug_*`, `docs_*`, `workflow_*`, `flow_*`, `meta_*`).
+* `artifact_create` and `artifact_update` tools (use `record_write` with `table` and `script_path`).
+* `QueryTokenStore` (pass encoded queries directly to `query`, or use the stateless `build_query` helper in the `full` package).
+* All ATF tools and `ServiceNowClient` ATF methods.
+* TOON serialization helpers and `resolve_query_token`.
+* 10 preset packages (kept: `full`, `readonly`, `core_readonly`, `none`).
+* `domain_` prefix branching in `server.py` loader.
+
 ## [0.9.1](https://github.com/Xerrion/servicenow-devtools-mcp/compare/v0.9.0...v0.9.1) (2026-03-26)
 
 

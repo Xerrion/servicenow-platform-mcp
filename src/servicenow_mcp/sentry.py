@@ -22,9 +22,9 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 try:
-    _RELEASE = f"servicenow-devtools-mcp@{pkg_version('servicenow-devtools-mcp')}"
+    _RELEASE = f"servicenow-platform-mcp@{pkg_version('servicenow-platform-mcp')}"
 except Exception:
-    _RELEASE = "servicenow-devtools-mcp@unknown"
+    _RELEASE = "servicenow-platform-mcp@unknown"
 
 # ---------------------------------------------------------------------------
 # Try-import sentry-sdk
@@ -94,9 +94,9 @@ def setup_sentry(settings: "Settings") -> None:
         dsn=dsn,
         environment=environment,
         release=_RELEASE,
-        send_default_pii=True,
+        send_default_pii=False,
         integrations=integrations,
-        traces_sample_rate=1.0,
+        traces_sample_rate=0.1,
         profiles_sample_rate=None,
     )
 

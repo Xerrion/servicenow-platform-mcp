@@ -95,35 +95,77 @@ class TestFormatResponse:
 
 
 class TestSerialize:
-    """Test serialize function with TOON fallback to JSON."""
+    """Test serialize function with JSON output and error-envelope fallback."""
 
-    def test_serialize_returns_toon_by_default(self) -> None:
-        """When toon_encode succeeds, serialize returns TOON output."""
+    def test_serialize_returns_json_by_default(self) -> None:
+        """When json.dumps succeeds, serialize returns parseable JSON output."""
         result = serialize({"key": "value"})
-        # Should be parseable by toon_decode
         parsed = decode_response(result)
         assert parsed["key"] == "value"
 
-    def test_serialize_falls_back_to_json_on_toon_failure(self) -> None:
-        """When toon_encode raises, serialize falls back to json.dumps."""
-        with patch(
-            "servicenow_mcp.utils.toon_encode",
-            side_effect=TypeError("unsupported type"),
-        ):
-            result = serialize({"key": "value"})
-        parsed = json.loads(result)
-        assert parsed["key"] == "value"
+    def test_serialize_falls_back_to_error_envelope_on_json_failure(self) -> None:
+        """When json.dumps raises on the original data, serialize returns a JSON-encoded error envelope.
 
-    def test_serialize_fallback_json_is_indented(self) -> None:
-        """The JSON fallback uses indent=2."""
-        with patch(
-            "servicenow_mcp.utils.toon_encode",
-            side_effect=RuntimeError("boom"),
-        ):
-            result = serialize({"a": 1})
-        # indent=2 means the output should have newlines and spaces
-        assert "\n" in result
-        assert "  " in result
+        The original payload is intentionally NOT leaked through; the failure is
+        made visible via the error envelope (logged + reported to Sentry).
+        """
+        # An arbitrary object that json cannot encode (default=str converts it,
+        # so we patch json.dumps to force a TypeError on the first call only).
+        original_dumps = json.dumps
+        call_count = {"n": 0}
+
+        def faulty_dumps(*args: object, **kwargs: object) -> str:
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                raise TypeError("unsupported type")
+            return original_dumps(*args, **kwargs)  # type: ignore[arg-type]
+
+        with patch("servicenow_mcp.utils.json.dumps", side_effect=faulty_dumps):
+            result = serialize({"key": "value"})
+
+        parsed = json.loads(result)
+        assert parsed["status"] == "error"
+        assert parsed["error"] == {"message": "Serialization failed"}
+        # Original data must NOT appear in the output.
+        assert "value" not in result
+
+    def test_serialize_fallback_preserves_correlation_id(self) -> None:
+        """When the input dict carries a correlation_id, the error envelope must
+        retain it so failures stay traceable end-to-end."""
+        original_dumps = json.dumps
+        call_count = {"n": 0}
+
+        def faulty_dumps(*args: object, **kwargs: object) -> str:
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                raise TypeError("unsupported type")
+            return original_dumps(*args, **kwargs)  # type: ignore[arg-type]
+
+        envelope = {"correlation_id": "corr-xyz-123", "status": "success", "data": {"k": "v"}}
+        with patch("servicenow_mcp.utils.json.dumps", side_effect=faulty_dumps):
+            result = serialize(envelope)
+
+        parsed = json.loads(result)
+        assert parsed["status"] == "error"
+        assert parsed["correlation_id"] == "corr-xyz-123"
+        assert parsed["error"] == {"message": "Serialization failed"}
+
+    def test_serialize_fallback_omits_correlation_id_when_absent(self) -> None:
+        """When the input has no correlation_id, the envelope must not invent one."""
+        original_dumps = json.dumps
+        call_count = {"n": 0}
+
+        def faulty_dumps(*args: object, **kwargs: object) -> str:
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                raise TypeError("unsupported type")
+            return original_dumps(*args, **kwargs)  # type: ignore[arg-type]
+
+        with patch("servicenow_mcp.utils.json.dumps", side_effect=faulty_dumps):
+            result = serialize({"key": "value"})
+
+        parsed = json.loads(result)
+        assert "correlation_id" not in parsed
 
 
 class TestServiceNowQuery:
@@ -964,31 +1006,55 @@ class TestSafeToolCall:
         result = await safe_tool_call(fn, "test-corr-id")
         assert result == '{"status": "ok"}'
 
-    async def test_forbidden_error_returns_acl_envelope(self) -> None:
-        """ForbiddenError is caught and formatted as ACL denial."""
+    async def test_acl_error_returns_acl_envelope(self) -> None:
+        """ACLError is caught and formatted as ACL denial."""
+        from servicenow_mcp.errors import ACLError
 
         async def fn() -> str:
-            raise ForbiddenError("no access to incident")
+            raise ACLError("ACL blocked incident")
 
         result = await safe_tool_call(fn, "test-corr-id")
         parsed = decode_response(result)
         assert parsed["status"] == "error"
         assert isinstance(parsed["error"], dict)
         assert "Access denied by ServiceNow ACL" in parsed["error"]["message"]
-        assert "no access to incident" in parsed["error"]["message"]
+        assert "ACL blocked incident" in parsed["error"]["message"]
         assert parsed["correlation_id"] == "test-corr-id"
 
-    async def test_generic_exception_returns_error_envelope(self) -> None:
-        """Generic exceptions are caught and formatted as error envelope."""
+    async def test_forbidden_error_returns_forbidden_envelope(self) -> None:
+        """ForbiddenError is caught and formatted as generic forbidden."""
 
         async def fn() -> str:
-            raise ValueError("something broke")
+            raise ForbiddenError("insufficient role")
 
         result = await safe_tool_call(fn, "test-corr-id")
         parsed = decode_response(result)
         assert parsed["status"] == "error"
         assert isinstance(parsed["error"], dict)
-        assert "something broke" in parsed["error"]["message"]
+        assert "Access forbidden by ServiceNow" in parsed["error"]["message"]
+        assert "insufficient role" in parsed["error"]["message"]
+        assert "Access denied by ServiceNow ACL" not in parsed["error"]["message"]
+        assert parsed["correlation_id"] == "test-corr-id"
+
+    async def test_generic_exception_returns_error_envelope(self) -> None:
+        """Truly unclassified exceptions are returned as an opaque envelope.
+
+        The original ``str(exc)`` is NOT exposed to the caller — it could leak
+        internal hostnames, paths, and stack fragments. The full exception is
+        logged locally instead. ``ValueError`` and ``ServiceNowMCPError`` have
+        their own arms with verbose messages — see the curated-error tests.
+        """
+
+        async def fn() -> str:
+            raise RuntimeError("something broke")
+
+        result = await safe_tool_call(fn, "test-corr-id")
+        parsed = decode_response(result)
+        assert parsed["status"] == "error"
+        assert isinstance(parsed["error"], dict)
+        message = parsed["error"]["message"]
+        assert "something broke" not in message
+        assert message == "Internal error (correlation_id=test-corr-id)"
         assert parsed["correlation_id"] == "test-corr-id"
 
 

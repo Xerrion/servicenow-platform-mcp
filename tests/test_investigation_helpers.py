@@ -56,8 +56,8 @@ class TestParseElementId:
 
     def test_parses_valid_table_sys_id_format(self) -> None:
         """Splits a well-formed 'table:sys_id' into components."""
-        table, sys_id = parse_element_id("flow_context:fc001")
-        assert table == "flow_context"
+        table, sys_id = parse_element_id("sys_flow_context:fc001")
+        assert table == "sys_flow_context"
         assert sys_id == "fc001"
 
     def test_raises_for_missing_colon(self) -> None:
@@ -104,7 +104,7 @@ class TestBuildInvestigationResult:
 
     def test_builds_correct_envelope_with_findings(self) -> None:
         """Creates the standard envelope structure with findings."""
-        findings = [{"category": "stuck_flow", "element_id": "flow_context:fc001"}]
+        findings = [{"category": "stuck_flow", "element_id": "sys_flow_context:fc001"}]
         result = build_investigation_result("stale_automations", findings)
 
         assert result["investigation"] == "stale_automations"
@@ -167,12 +167,12 @@ class TestFetchAndExplain:
 
         result = await fetch_and_explain(
             client=client,
-            element_id="flow_context:fc001",
-            allowed_tables={"flow_context"},
+            element_id="sys_flow_context:fc001",
+            allowed_tables={"sys_flow_context"},
             build_explanation=build_explanation,
         )
 
-        assert result["element"] == "flow_context:fc001"
+        assert result["element"] == "sys_flow_context:fc001"
         assert result["explanation"] == "Flow 'Test Flow' is stuck."
         assert result["record"] is test_record
 

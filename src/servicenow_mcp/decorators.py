@@ -35,6 +35,7 @@ _SENSITIVE_ARG_KEYS: frozenset[str] = frozenset(
         "variables",
         "conditions",
         "text",
+        "term",
     }
 )
 

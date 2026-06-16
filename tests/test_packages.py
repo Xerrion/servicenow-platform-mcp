@@ -30,6 +30,7 @@ EXPECTED_GROUPS = {
     "build_query",
     "flow",
     "audit",
+    "code_search",
 }
 
 
@@ -39,9 +40,9 @@ class TestPackageRegistry:
     def test_registry_has_exactly_four_presets(self) -> None:
         assert set(PACKAGE_REGISTRY.keys()) == EXPECTED_PRESETS
 
-    def test_full_contains_ten_unified_groups(self) -> None:
+    def test_full_contains_all_unified_groups(self) -> None:
         assert set(PACKAGE_REGISTRY["full"]) == EXPECTED_GROUPS
-        assert len(PACKAGE_REGISTRY["full"]) == 11
+        assert len(PACKAGE_REGISTRY["full"]) == 12
 
     def test_readonly_is_strict_subset_of_full(self) -> None:
         readonly = set(PACKAGE_REGISTRY["readonly"])
@@ -233,3 +234,15 @@ def test_audit_in_full_and_readonly_only() -> None:
     assert "audit" in PACKAGE_REGISTRY["readonly"]
     for preset in ("core_readonly", "none"):
         assert "audit" not in PACKAGE_REGISTRY[preset], f"audit should not appear in the '{preset}' preset"
+
+
+def test_code_search_in_full_and_readonly_only() -> None:
+    """``code_search`` is a read-only developer inspection group.
+
+    Membership mirrors ``flow`` and ``audit``: present in ``full`` and
+    ``readonly``, absent from ``core_readonly`` and ``none``.
+    """
+    assert "code_search" in PACKAGE_REGISTRY["full"]
+    assert "code_search" in PACKAGE_REGISTRY["readonly"]
+    for preset in ("core_readonly", "none"):
+        assert "code_search" not in PACKAGE_REGISTRY[preset], f"code_search should not appear in the '{preset}' preset"

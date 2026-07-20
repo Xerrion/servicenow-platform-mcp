@@ -11,6 +11,8 @@ exclusive modes, in precedence order:
 Old tools stay registered alongside this one until Phase 3b retires them.
 """
 
+import logging
+import re
 from dataclasses import dataclass, field
 from typing import Final
 
@@ -30,9 +32,38 @@ from servicenow_mcp.tools._dictionary import DictionaryRegistry
 from servicenow_mcp.utils import format_response, validate_identifier, validate_sys_id
 
 
+logger = logging.getLogger(__name__)
+
 TOOL_NAMES: list[str] = ["query"]
 
 _VALID_AGGREGATE_OPS: Final[frozenset[str]] = frozenset({"count", "avg", "sum", "min", "max"})
+
+# Universal system fields present on every table. Never warn on these even if a
+# dictionary fetch comes back incomplete.
+_UNIVERSAL_FIELDS: Final[frozenset[str]] = frozenset(
+    {
+        "sys_id",
+        "sys_created_on",
+        "sys_created_by",
+        "sys_updated_on",
+        "sys_updated_by",
+        "sys_mod_count",
+        "sys_tags",
+    }
+)
+
+# Clause-join keyword that prefixes a condition after a '^' split (e.g. the
+# 'OR' in 'a=1^ORb=2', or 'NQ' for a new query). Stripped before field parsing.
+_JOIN_PREFIX_RE: Final[re.Pattern[str]] = re.compile(r"^(?:NQ|OR|EQ)")
+
+# Order directives carry a bare field name and no operator/value.
+_ORDER_PREFIXES: Final[tuple[str, ...]] = ("ORDERBYDESC", "ORDERBY")
+
+# Leading field token of a condition: a lowercase element name, optionally
+# dot-walked. Element names are always lowercase, so this naturally stops at
+# uppercase textual operators (LIKE, STARTSWITH, ISEMPTY, ...) and at symbolic
+# operators (=, !=, >, <).
+_FIELD_TOKEN_RE: Final[re.Pattern[str]] = re.compile(r"^[a-z][a-z0-9_]*(?:\.[a-z0-9_]+)*")
 
 
 # ---------------------------------------------------------------------------
@@ -150,6 +181,111 @@ def _join_query(existing: str, fragment: str) -> str:
     if not fragment:
         return existing
     return f"{existing}^{fragment}"
+
+
+# ---------------------------------------------------------------------------
+# Encoded-query field validation (advisory)
+# ---------------------------------------------------------------------------
+
+
+def _order_field(clause: str) -> str | None:
+    """Return the field of an ORDERBY clause, or ``None`` when not one.
+
+    Returns the empty string for a malformed order directive (no field token),
+    which the caller treats as "nothing to validate".
+    """
+    for prefix in _ORDER_PREFIXES:
+        if clause.startswith(prefix):
+            match = _FIELD_TOKEN_RE.match(clause[len(prefix) :])
+            return match.group(0) if match else ""
+    return None
+
+
+def _condition_field(clause: str) -> str:
+    """Return the leading field token of a ``field<op>value`` clause.
+
+    Empty string when the clause has no recognizable leading field or no
+    trailing operator (a bare lowercase word is not a trustworthy condition).
+    """
+    match = _FIELD_TOKEN_RE.match(clause)
+    if not match:
+        return ""
+    if match.end() == len(clause):
+        return ""
+    return match.group(0)
+
+
+def _extract_query_fields(encoded_query: str) -> list[str]:
+    """Extract the root field names an encoded query filters on.
+
+    Best-effort parse: split on ``^``, strip clause-join keywords, handle
+    ORDERBY directives, and read the leading lowercase element token of each
+    condition. Dot-walked references contribute their root segment only -
+    traversing reference fields is out of scope. Clauses whose leading token is
+    not a recognizable field (exotic operators, subqueries, uppercase keywords)
+    are skipped rather than guessed at, which keeps false positives out of the
+    warning path. Order is preserved and duplicates removed.
+    """
+    roots: list[str] = []
+    seen: set[str] = set()
+    for raw_clause in encoded_query.split("^"):
+        if not raw_clause:
+            continue
+        order_field = _order_field(raw_clause)
+        if order_field is not None:
+            token = order_field
+        else:
+            token = _condition_field(_JOIN_PREFIX_RE.sub("", raw_clause, count=1))
+        if not token:
+            continue
+        root = token.split(".", 1)[0]
+        if root not in seen:
+            seen.add(root)
+            roots.append(root)
+    return roots
+
+
+async def _validate_query_fields(
+    table: str,
+    encoded_query: str,
+    dictionary: DictionaryRegistry,
+) -> list[str]:
+    """Warn when an encoded query references fields absent from the table.
+
+    ServiceNow silently ignores conditions on non-existent columns, so a typo
+    like ``name=Foo`` on a table without a ``name`` column returns the *entire*
+    table instead of an error. This surfaces that footgun as a warning without
+    blocking the query.
+
+    The check is advisory and must never break a working query: when the
+    dictionary cannot be loaded (network, auth, or an unknown table) it is
+    skipped. An empty field set is also treated as "could not introspect" and
+    skipped, so a table we failed to read never produces spurious warnings.
+    """
+    candidates = _extract_query_fields(encoded_query)
+    if not candidates:
+        return []
+
+    try:
+        known = await dictionary.get_all_fields(table)
+    except Exception:  # advisory only; a lookup failure must not fail the query
+        logger.warning("field validation skipped for table=%s: dictionary lookup failed", table, exc_info=True)
+        return []
+
+    known_names = {entry.name for entry in known}
+    if not known_names:
+        return []
+
+    unknown = [name for name in candidates if name not in known_names and name not in _UNIVERSAL_FIELDS]
+    if not unknown:
+        return []
+
+    field_list = ", ".join(unknown)
+    return [
+        f"Query references field(s) not found on table '{table}': {field_list}. "
+        "ServiceNow silently ignores conditions on unknown fields, so the result is "
+        "NOT filtered by them. Verify the field names against the table dictionary."
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -380,9 +516,10 @@ def register_tools(
 
     Mirrors the domain-tool registration signature so ``server.py`` can inject
     the shared ``ChoiceRegistry``. ``choices`` may be ``None`` in tests; when
-    it is, ``resolve_labels`` degrades to passthrough with a warning.
+    it is, ``resolve_labels`` degrades to passthrough with a warning. The
+    ``dictionary`` registry, when supplied, drives advisory validation of the
+    fields referenced in ``encoded_query``.
     """
-    del dictionary  # unused; signature retained for loader parity
 
     @mcp.tool()
     @tool_handler
@@ -451,6 +588,10 @@ def register_tools(
                 return result
             augmented_query, label_warnings = result
             warnings.extend(label_warnings)
+
+        # --- advisory field validation (catches silently-dropped filters) -
+        if dictionary is not None:
+            warnings.extend(await _validate_query_fields(table, augmented_query, dictionary))
 
         # --- aggregate mode -----------------------------------------------
         if aggregate:

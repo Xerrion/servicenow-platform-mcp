@@ -29,6 +29,50 @@ class TestSettings:
         assert settings.servicenow_instance_url == "https://test.service-now.com"
         assert settings.servicenow_username == "admin"
         assert settings.servicenow_password.get_secret_value() == "password123"
+        assert settings.servicenow_api_key.get_secret_value() == ""
+
+    def test_api_key_only_config_is_valid(self) -> None:
+        """A non-empty API key does not require Basic credentials."""
+        from servicenow_mcp.config import Settings
+
+        env = {
+            "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
+            "SERVICENOW_API_KEY": "api-key-secret",
+        }
+        with patch.dict("os.environ", env, clear=True):
+            settings = Settings(_env_file=None)
+
+        assert settings.servicenow_username == ""
+        assert settings.servicenow_password.get_secret_value() == ""
+        assert settings.servicenow_api_key.get_secret_value() == "api-key-secret"
+
+    def test_empty_api_key_requires_basic_credentials(self) -> None:
+        """An empty API key falls back to Basic credential validation."""
+        env = {
+            "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
+            "SERVICENOW_API_KEY": "",
+        }
+        from servicenow_mcp.config import Settings
+
+        with (
+            patch.dict("os.environ", env, clear=True),
+            pytest.raises(ValueError, match="servicenow_username and servicenow_password are required"),
+        ):
+            Settings(_env_file=None)
+
+    def test_whitespace_api_key_requires_basic_credentials(self) -> None:
+        """A whitespace-only API key is not usable authentication."""
+        env = {
+            "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
+            "SERVICENOW_API_KEY": "   ",
+        }
+        from servicenow_mcp.config import Settings
+
+        with (
+            patch.dict("os.environ", env, clear=True),
+            pytest.raises(ValueError, match="servicenow_username and servicenow_password are required"),
+        ):
+            Settings(_env_file=None)
 
     def test_missing_instance_url_raises(self) -> None:
         """Missing SERVICENOW_INSTANCE_URL raises validation error."""

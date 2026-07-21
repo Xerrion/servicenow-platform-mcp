@@ -33,6 +33,10 @@ Version 0.10.0 introduced a unified 12-tool surface. Most tools are implemented 
 
 The server entry point is `server.py`.
 
+### Authentication
+
+Bootstrap selects the authentication provider from configuration. When `SERVICENOW_API_KEY` is set, requests use API-key authentication and include the key in the `x-sn-apikey` header. Otherwise, the server uses Basic Auth with `SERVICENOW_USERNAME` and `SERVICENOW_PASSWORD`. API-key configuration takes precedence over username and password when both are present.
+
 ### Registration Pattern
 
 The loader uses an unconditional 4-argument `register_tools()` pattern for all tool groups:

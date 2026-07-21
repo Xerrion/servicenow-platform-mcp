@@ -4,7 +4,7 @@ import math
 from functools import cached_property
 from typing import ClassVar
 
-from pydantic import SecretStr, field_validator
+from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -15,8 +15,9 @@ class Settings(BaseSettings):
     """ServiceNow MCP server configuration loaded from environment variables."""
 
     servicenow_instance_url: str
-    servicenow_username: str
-    servicenow_password: SecretStr
+    servicenow_username: str = ""
+    servicenow_password: SecretStr = SecretStr("")
+    servicenow_api_key: SecretStr = SecretStr("")
     mcp_tool_package: str = "full"
     servicenow_env: str = "dev"
     max_row_limit: int = 100
@@ -41,6 +42,17 @@ class Settings(BaseSettings):
         if not v.startswith("https://"):
             raise ValueError("servicenow_instance_url must start with https://")
         return v.rstrip("/")
+
+    @model_validator(mode="after")
+    def validate_auth_credentials(self) -> "Settings":
+        """Require Basic credentials unless a usable API key is configured."""
+        if self.servicenow_api_key.get_secret_value().strip():
+            return self
+        if not self.servicenow_username or not self.servicenow_password.get_secret_value():
+            raise ValueError(
+                "servicenow_username and servicenow_password are required when servicenow_api_key is empty"
+            )
+        return self
 
     @field_validator("max_row_limit")
     @classmethod

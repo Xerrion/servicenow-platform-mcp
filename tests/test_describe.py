@@ -372,3 +372,100 @@ class TestListScriptFields:
         result = decode_response(raw)
         assert result["status"] == "error"
         assert "table is required" in result["error"]["message"]
+
+
+class TestListTables:
+    """``describe(action='list_tables')`` lists tables from sys_db_object."""
+
+    @staticmethod
+    def _mock_tables(rows: list[dict[str, str]], total: int | None = None) -> None:
+        """Mock the sys_db_object query to return ``rows`` with a total-count header."""
+        respx.get(f"{BASE_URL}/api/now/table/sys_db_object").mock(
+            return_value=httpx.Response(
+                200,
+                json={"result": rows},
+                headers={"X-Total-Count": str(total if total is not None else len(rows))},
+            ),
+        )
+
+    @respx.mock
+    @pytest.mark.asyncio()
+    async def test_lists_filtered_tables(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        self._mock_tables(
+            [
+                {"name": "incident", "label": "Incident", "super_class": "task", "sys_scope": "Global"},
+                {"name": "incident_alert", "label": "Incident Alert", "super_class": "task", "sys_scope": "Global"},
+            ]
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["describe"](action="list_tables", name_filter="incident")
+        result = decode_response(raw)
+
+        assert result["status"] == "success"
+        data = result["data"]
+        assert data["count"] == 2
+        assert [t["name"] for t in data["tables"]] == ["incident", "incident_alert"]
+        assert data["tables"][0] == {
+            "name": "incident",
+            "label": "Incident",
+            "super_class": "task",
+            "sys_scope": "Global",
+        }
+
+    @respx.mock
+    @pytest.mark.asyncio()
+    async def test_coerces_display_value_dicts(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        """Reference fields returned as display-value dicts are flattened to strings."""
+        self._mock_tables(
+            [
+                {
+                    "name": "incident",
+                    "label": "Incident",
+                    "super_class": {"display_value": "Task", "value": "abc"},
+                    "sys_scope": {"display_value": "Global", "value": "global"},
+                },
+            ]
+        )
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["describe"](action="list_tables", name_filter="incident")
+        result = decode_response(raw)
+
+        assert result["status"] == "success"
+        row = result["data"]["tables"][0]
+        assert row["super_class"] == "Task"
+        assert row["sys_scope"] == "Global"
+
+    @respx.mock
+    @pytest.mark.asyncio()
+    async def test_no_filter_lists_all(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        """Empty name_filter still returns rows (no filter clause)."""
+        self._mock_tables([{"name": "task", "label": "Task", "super_class": "", "sys_scope": "Global"}])
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["describe"](action="list_tables")
+        result = decode_response(raw)
+
+        assert result["status"] == "success"
+        assert result["data"]["count"] == 1
+
+    @respx.mock
+    @pytest.mark.asyncio()
+    async def test_truncation_warning(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        """Hitting the result cap emits a truncation warning."""
+        from servicenow_mcp.tools.describe import _LIST_TABLES_LIMIT
+
+        rows = [
+            {"name": f"t{i:04d}", "label": f"T{i}", "super_class": "", "sys_scope": "Global"}
+            for i in range(_LIST_TABLES_LIMIT)
+        ]
+        self._mock_tables(rows, total=_LIST_TABLES_LIMIT * 2)
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["describe"](action="list_tables")
+        result = decode_response(raw)
+
+        assert result["status"] == "success"
+        assert result["data"]["count"] == _LIST_TABLES_LIMIT
+        assert any("truncated" in w for w in result.get("warnings", []))

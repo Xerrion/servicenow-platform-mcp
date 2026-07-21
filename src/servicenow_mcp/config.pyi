@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     servicenow_instance_url: str
     servicenow_username: str
     servicenow_password: SecretStr
+    servicenow_api_key: SecretStr
     mcp_tool_package: str
     servicenow_env: str
     max_row_limit: int
@@ -26,6 +27,7 @@ class Settings(BaseSettings):
         servicenow_instance_url: str = ...,
         servicenow_username: str = ...,
         servicenow_password: SecretStr = ...,
+        servicenow_api_key: SecretStr = ...,
         mcp_tool_package: str = ...,
         servicenow_env: str = ...,
         max_row_limit: int = ...,
@@ -38,6 +40,7 @@ class Settings(BaseSettings):
     ) -> None: ...
     @classmethod
     def strip_trailing_slash(cls, v: str) -> str: ...
+    def validate_auth_credentials(self) -> Settings: ...
     @classmethod
     def validate_max_row_limit(cls, v: int) -> int: ...
     @classmethod

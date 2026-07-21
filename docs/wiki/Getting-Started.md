@@ -8,7 +8,7 @@ This guide walks you through installing and configuring the ServiceNow Platform 
 
 - **Python 3.12 or later** - The server requires Python 3.12+ (3.12, 3.13, and 3.14 are supported)
 - **A ServiceNow instance** - Developer, test, or production (note: write operations are blocked on production instances)
-- **ServiceNow credentials** - A user account with appropriate roles. Admin is recommended for full access to all tools
+- **ServiceNow authentication** - Either an API key or a user account with appropriate roles. Admin is recommended for full access when using Basic Auth
 - **An MCP-compatible AI client** - [OpenCode](https://opencode.ai), [Claude Desktop](https://claude.ai/download), [VS Code Copilot](https://code.visualstudio.com/), [Cursor](https://cursor.sh/), or any client supporting the [Model Context Protocol](https://modelcontextprotocol.io/)
 
 ---
@@ -39,13 +39,14 @@ uv add servicenow-platform-mcp
 
 ## Environment Variables
 
-Three environment variables are required. These are passed to the server by your MCP client configuration.
+Set `SERVICENOW_INSTANCE_URL` and choose one authentication method. These variables are passed to the server by your MCP client configuration.
 
 | Variable | Required | Description |
 |---|---|---|
 | `SERVICENOW_INSTANCE_URL` | Yes | Full instance URL, must start with `https://` |
-| `SERVICENOW_USERNAME` | Yes | ServiceNow username for Basic Auth |
-| `SERVICENOW_PASSWORD` | Yes | ServiceNow password |
+| `SERVICENOW_API_KEY` | Conditional | ServiceNow API key. When set, it replaces Basic Auth. |
+| `SERVICENOW_USERNAME` | Conditional | ServiceNow username for Basic Auth; required when no API key is set |
+| `SERVICENOW_PASSWORD` | Conditional | ServiceNow password for Basic Auth; required when no API key is set |
 | `MCP_TOOL_PACKAGE` | No | Tool package to load (default: `"full"`). See [[Tool-Packages]] |
 | `SERVICENOW_ENV` | No | Environment label (default: `"dev"`). Write ops blocked on `"prod"` / `"production"` |
 
@@ -53,11 +54,13 @@ The server also loads variables from `.env` and `.env.local` files in the workin
 
 See [[Configuration]] for the full reference of all environment variables.
 
+When `SERVICENOW_API_KEY` is set, the server sends it as the `x-sn-apikey` header and ignores `SERVICENOW_USERNAME` and `SERVICENOW_PASSWORD`.
+
 ---
 
 ## MCP Client Configuration
 
-Configure your MCP client to launch the server with the required environment variables. Below are configuration examples for popular clients.
+Configure your MCP client to launch the server with the required environment variables. The examples below use API-key authentication. For Basic Auth, omit `SERVICENOW_API_KEY` and provide both `SERVICENOW_USERNAME` and `SERVICENOW_PASSWORD` instead.
 
 ### OpenCode
 
@@ -71,8 +74,7 @@ File: `~/.config/opencode/opencode.json`
       "command": ["uvx", "servicenow-platform-mcp"],
       "environment": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_USERNAME": "admin",
-        "SERVICENOW_PASSWORD": "your-password"
+        "SERVICENOW_API_KEY": "<your-api-key>"
       }
     }
   }
@@ -91,8 +93,7 @@ File: `claude_desktop_config.json`
       "args": ["servicenow-platform-mcp"],
       "env": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_USERNAME": "admin",
-        "SERVICENOW_PASSWORD": "your-password"
+        "SERVICENOW_API_KEY": "<your-api-key>"
       }
     }
   }
@@ -111,8 +112,7 @@ File: `.vscode/mcp.json`
       "args": ["servicenow-platform-mcp"],
       "env": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_USERNAME": "admin",
-        "SERVICENOW_PASSWORD": "your-password"
+        "SERVICENOW_API_KEY": "<your-api-key>"
       }
     }
   }
@@ -125,8 +125,7 @@ For any client that supports stdio transport, launch the server with inline envi
 
 ```bash
 SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com \
-SERVICENOW_USERNAME=admin \
-SERVICENOW_PASSWORD=your-password \
+SERVICENOW_API_KEY=<your-api-key> \
 uvx servicenow-platform-mcp
 ```
 
@@ -161,9 +160,10 @@ For copy-paste installation instructions optimized for AI agents, see [INSTALL.m
 
 ### Authentication errors
 
-- Confirm `SERVICENOW_USERNAME` and `SERVICENOW_PASSWORD` are correct
-- The user account needs appropriate ServiceNow roles. Admin is recommended for full tool access
-- Check if your instance requires MFA or SSO - Basic Auth must be enabled for the user
+- If using an API key, confirm `SERVICENOW_API_KEY` is present in the MCP client environment and that the key is valid for the instance.
+- If using Basic Auth, leave `SERVICENOW_API_KEY` unset and confirm both `SERVICENOW_USERNAME` and `SERVICENOW_PASSWORD` are correct.
+- The API key or user account needs appropriate ServiceNow roles. Admin is recommended for full tool access when using Basic Auth.
+- For Basic Auth, check whether the instance requires MFA or SSO and whether Basic Auth is enabled for the user.
 
 ### No tools appearing in your AI client
 

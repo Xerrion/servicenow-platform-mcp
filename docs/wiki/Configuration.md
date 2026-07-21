@@ -9,8 +9,9 @@ All configuration is handled through environment variables, loaded via [pydantic
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `SERVICENOW_INSTANCE_URL` | Yes | - | Full URL (must start with `https://`) |
-| `SERVICENOW_USERNAME` | Yes | - | ServiceNow username |
-| `SERVICENOW_PASSWORD` | Yes | - | ServiceNow password |
+| `SERVICENOW_API_KEY` | Conditional | - | ServiceNow API key. When set, API-key authentication is used instead of Basic Auth. |
+| `SERVICENOW_USERNAME` | Conditional | - | ServiceNow username for Basic Auth. Required when `SERVICENOW_API_KEY` is not set. |
+| `SERVICENOW_PASSWORD` | Conditional | - | ServiceNow password for Basic Auth. Required when `SERVICENOW_API_KEY` is not set. |
 | `MCP_TOOL_PACKAGE` | No | `"full"` | Tool package (`full`, `readonly`, `core_readonly`, `none`) or comma-separated tools |
 | `SERVICENOW_ENV` | No | `"dev"` | Set to `"prod"` or `"production"` to block all write operations |
 | `MAX_ROW_LIMIT` | No | `100` | Max records per query (1-10000) |
@@ -18,6 +19,17 @@ All configuration is handled through environment variables, loaded via [pydantic
 | `SCRIPT_ALLOWED_ROOT` | No | `""` | Root directory for `script_path` in `record_write` |
 | `SENTRY_DSN` | No | `""` | Sentry DSN for error tracking |
 | `SENTRY_ENVIRONMENT` | No | - | Grouping label for Sentry (defaults to `SERVICENOW_ENV`) |
+
+---
+
+## Authentication
+
+Choose one authentication method:
+
+- **API key:** Set `SERVICENOW_API_KEY`. The server sends it in the `x-sn-apikey` request header and does not use `SERVICENOW_USERNAME` or `SERVICENOW_PASSWORD`, even if they are also set.
+- **Basic Auth:** Leave `SERVICENOW_API_KEY` unset and set both `SERVICENOW_USERNAME` and `SERVICENOW_PASSWORD`.
+
+Keep credentials and API keys out of version control. Store local values in `.env.local` or in your MCP client's secret or environment-variable configuration.
 
 ---
 

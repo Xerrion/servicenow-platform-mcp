@@ -29,6 +29,7 @@ def _register_and_get_tools(
     settings: Settings,
     auth_provider: BasicAuthProvider,
     choices: ChoiceRegistry | None = None,
+    dictionary: Any = None,
 ) -> dict[str, Any]:
     """Register the unified ``query`` tool on a fresh MCP and return callables."""
     from mcp.server.fastmcp import FastMCP
@@ -36,7 +37,7 @@ def _register_and_get_tools(
     from servicenow_mcp.tools.query import register_tools
 
     mcp = FastMCP("test")
-    register_tools(mcp, settings, auth_provider, choices=choices)
+    register_tools(mcp, settings, auth_provider, choices=choices, dictionary=dictionary)
     return get_tool_functions(mcp)
 
 
@@ -339,3 +340,110 @@ class TestModeConflicts:
         message = result["error"]["message"].lower()
         assert "sys_id" in message
         assert "aggregate" in message
+
+
+# ---------------------------------------------------------------------------
+# Encoded-query field extraction (pure)
+# ---------------------------------------------------------------------------
+
+
+class TestExtractQueryFields:
+    """Best-effort parse of field references out of an encoded query."""
+
+    @pytest.mark.parametrize(
+        ("encoded_query", "expected"),
+        [
+            ("", []),
+            ("name=Vinklubben", ["name"]),
+            ("state=1^priority=2", ["state", "priority"]),
+            ("active=true^ORstate=2", ["active", "state"]),
+            ("short_descriptionLIKEfoo", ["short_description"]),
+            ("descriptionISEMPTY", ["description"]),
+            ("assigned_to.name=Bob", ["assigned_to"]),
+            ("state=1^ORDERBYDESCsys_created_on", ["state", "sys_created_on"]),
+            ("priority=1^NQstate=2", ["priority", "state"]),
+            ("state=1^priority=2^state=3", ["state", "priority"]),
+        ],
+    )
+    def test_extracts_root_fields(self, encoded_query: str, expected: list[str]) -> None:
+        """Root field names are pulled out, deduped, and order-preserved."""
+        from servicenow_mcp.tools.query import _extract_query_fields
+
+        assert _extract_query_fields(encoded_query) == expected
+
+
+# ---------------------------------------------------------------------------
+# Advisory field validation through the query tool
+# ---------------------------------------------------------------------------
+
+
+class TestFieldValidation:
+    """Unknown fields in encoded_query produce a warning, not a hard error."""
+
+    def _stub_dictionary(
+        self,
+        settings: Settings,
+        auth_provider: BasicAuthProvider,
+        field_names: list[str],
+    ) -> Any:
+        from servicenow_mcp.tools._dictionary import DictionaryField, DictionaryRegistry
+
+        dictionary = DictionaryRegistry(settings, auth_provider)
+        fields = [
+            DictionaryField(name=name, internal_type="string", attributes="", inherited_from=None)
+            for name in field_names
+        ]
+        dictionary.get_all_fields = AsyncMock(return_value=fields)  # type: ignore[method-assign]
+        return dictionary
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_unknown_field_warns(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        """A filter on a non-existent column warns that results are unfiltered."""
+        respx.get(f"{BASE_URL}/api/now/table/u_custom").mock(
+            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        )
+        dictionary = self._stub_dictionary(settings, auth_provider, ["u_samaccountname", "u_member"])
+
+        tools = _register_and_get_tools(settings, auth_provider, dictionary=dictionary)
+        raw = await tools["query"](table="u_custom", encoded_query="name=Vinklubben")
+        result = decode_response(raw)
+
+        assert result["status"] == "success"
+        warnings = result.get("warnings", [])
+        assert any("name" in w and "not found" in w for w in warnings)
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_known_field_no_warning(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        """A filter on a real column produces no field-validation warning."""
+        respx.get(f"{BASE_URL}/api/now/table/u_custom").mock(
+            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        )
+        dictionary = self._stub_dictionary(settings, auth_provider, ["u_samaccountname", "u_member"])
+
+        tools = _register_and_get_tools(settings, auth_provider, dictionary=dictionary)
+        raw = await tools["query"](table="u_custom", encoded_query="u_samaccountname=ACL_X")
+        result = decode_response(raw)
+
+        assert result["status"] == "success"
+        assert not any("not found" in w for w in result.get("warnings", []))
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_lookup_failure_skips_validation(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        """A dictionary lookup error is swallowed; the query still succeeds."""
+        respx.get(f"{BASE_URL}/api/now/table/u_custom").mock(
+            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        )
+        from servicenow_mcp.tools._dictionary import DictionaryRegistry
+
+        dictionary = DictionaryRegistry(settings, auth_provider)
+        dictionary.get_all_fields = AsyncMock(side_effect=RuntimeError("boom"))  # type: ignore[method-assign]
+
+        tools = _register_and_get_tools(settings, auth_provider, dictionary=dictionary)
+        raw = await tools["query"](table="u_custom", encoded_query="name=Vinklubben")
+        result = decode_response(raw)
+
+        assert result["status"] == "success"
+        assert not any("not found" in w for w in result.get("warnings", []))

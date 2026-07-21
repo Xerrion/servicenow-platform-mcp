@@ -1,5 +1,48 @@
 # Changelog
 
+## [0.11.0](https://github.com/Xerrion/servicenow-platform-mcp/compare/v0.10.0...v0.11.0) (2026-07-21)
+
+
+### Features
+
+* add API key auth and safer table querying ([#122](https://github.com/Xerrion/servicenow-platform-mcp/issues/122)) ([fb1394a](https://github.com/Xerrion/servicenow-platform-mcp/commit/fb1394a38c04cd578c5d32f5a11e26a901ec44f7))
+* add artifact_create and artifact_update tools with script_path support ([#69](https://github.com/Xerrion/servicenow-platform-mcp/issues/69)) ([58327a8](https://github.com/Xerrion/servicenow-platform-mcp/commit/58327a8f5ea8940103757de6ea752eb3900952a3))
+* add attachment MCP tools ([#64](https://github.com/Xerrion/servicenow-platform-mcp/issues/64)) ([aadfc20](https://github.com/Xerrion/servicenow-platform-mcp/commit/aadfc2099a0c5c5c7df79111dd187990cbf819c0))
+* add domain-specific tool packages with composable presets ([#45](https://github.com/Xerrion/servicenow-platform-mcp/issues/45)) ([29ff75e](https://github.com/Xerrion/servicenow-platform-mcp/commit/29ff75e0d76ea782bdbc95f6c6c79af54387ded4))
+* add legacy workflow introspection tools ([#50](https://github.com/Xerrion/servicenow-platform-mcp/issues/50)) ([f211fef](https://github.com/Xerrion/servicenow-platform-mcp/commit/f211fef4530556c77f108180357f813ea2df118d))
+* add Service Catalog API domain tools ([#48](https://github.com/Xerrion/servicenow-platform-mcp/issues/48)) ([9a81b28](https://github.com/Xerrion/servicenow-platform-mcp/commit/9a81b281614dce00184833515981bac754e96e80))
+* add ServiceNowQuery builder and wire time-filtering across all modules ([#35](https://github.com/Xerrion/servicenow-platform-mcp/issues/35)) ([ef9ffe4](https://github.com/Xerrion/servicenow-platform-mcp/commit/ef9ffe4a955916748ba35101aa38fa50ee7fc08d))
+* **atf:** add ServiceNow ATF testing tool group ([#43](https://github.com/Xerrion/servicenow-platform-mcp/issues/43)) ([6777254](https://github.com/Xerrion/servicenow-platform-mcp/commit/67772542a5eece47f04308c1f303f9b83e4a0ed5))
+* Phase 3 — developer actions, investigations, and documentation tools ([5749dd8](https://github.com/Xerrion/servicenow-platform-mcp/commit/5749dd85740772248afe1a5534e9613af0bc0fca))
+* record CRUD tools, shared safe_tool_call, mandatory field validation ([#39](https://github.com/Xerrion/servicenow-platform-mcp/issues/39)) ([dd05435](https://github.com/Xerrion/servicenow-platform-mcp/commit/dd054359117c5c8680fddae1e69d0eae71ed1f1f))
+* ServiceNow MCP server Phase 1+2 complete ([cd67149](https://github.com/Xerrion/servicenow-platform-mcp/commit/cd6714977083c78701478dde27a0a6b5aa533e6d))
+* structured error format and workflow hardening ([#52](https://github.com/Xerrion/servicenow-platform-mcp/issues/52)) ([3bc3302](https://github.com/Xerrion/servicenow-platform-mcp/commit/3bc3302482b234e60cf8cd39280d26ab1421ccc5))
+
+
+### Bug Fixes
+
+* align release-please workflow with manifest config and correct token ([#20](https://github.com/Xerrion/servicenow-platform-mcp/issues/20)) ([84cf1a9](https://github.com/Xerrion/servicenow-platform-mcp/commit/84cf1a99b6b52a9f58c3fbe6be849054f5b6bb45))
+* exhaustive security, correctness, and performance improvements ([#29](https://github.com/Xerrion/servicenow-platform-mcp/issues/29)) ([5fac553](https://github.com/Xerrion/servicenow-platform-mcp/commit/5fac5537791854de4356f082006d17a8b7d5aab9))
+* harden input validation in utility, documentation, and knowledge tools ([#61](https://github.com/Xerrion/servicenow-platform-mcp/issues/61)) ([05cbebc](https://github.com/Xerrion/servicenow-platform-mcp/commit/05cbebc3313e4ea1a7e335211fda1068b4699cf5))
+* migrate release-please to manifest config for semver tags ([#18](https://github.com/Xerrion/servicenow-platform-mcp/issues/18)) ([cd6b6ed](https://github.com/Xerrion/servicenow-platform-mcp/commit/cd6b6ed371c095444f037b328c17c8635b09eb48))
+* pass display_values through to query_records and table_query tool ([#41](https://github.com/Xerrion/servicenow-platform-mcp/issues/41)) ([ade440d](https://github.com/Xerrion/servicenow-platform-mcp/commit/ade440d817c9f444c93e6f1f9cbaa62b20e5433f))
+* remvoe the workflow_dispatch that came in by mistake ([#23](https://github.com/Xerrion/servicenow-platform-mcp/issues/23)) ([67f058d](https://github.com/Xerrion/servicenow-platform-mcp/commit/67f058d65d69377b9c135be205606f71d6d8989e))
+* resolve 22 SonarQube quick-win issues ([#59](https://github.com/Xerrion/servicenow-platform-mcp/issues/59)) ([6399ba2](https://github.com/Xerrion/servicenow-platform-mcp/commit/6399ba264b8959c6b27ea097aab60d0f71de662d))
+* resolve flow map snapshot linkage ([8e5ce9f](https://github.com/Xerrion/servicenow-platform-mcp/commit/8e5ce9f8bfd7c4c367f120f2179921414b35e898))
+* update publish step to use uv publish command with environment variable ([#25](https://github.com/Xerrion/servicenow-platform-mcp/issues/25)) ([1fc8b5c](https://github.com/Xerrion/servicenow-platform-mcp/commit/1fc8b5ceae31189e0ab85b152a6544a2b5440157))
+* use token in command ([#27](https://github.com/Xerrion/servicenow-platform-mcp/issues/27)) ([07b6efe](https://github.com/Xerrion/servicenow-platform-mcp/commit/07b6efe5c8caf865ff02c3ccc527e05c2fb7d03c))
+
+
+### Documentation
+
+* add GitHub Copilot custom instructions ([#15](https://github.com/Xerrion/servicenow-platform-mcp/issues/15)) ([7b18159](https://github.com/Xerrion/servicenow-platform-mcp/commit/7b181595aebbf41ebe4b4d71a5776d39326ee4e3))
+* add safety disclaimer, AI install playbook, and raw URL fetch pattern ([#74](https://github.com/Xerrion/servicenow-platform-mcp/issues/74)) ([592008b](https://github.com/Xerrion/servicenow-platform-mcp/commit/592008be8bbbd1fbc6cca14349c2dcbd59de4867))
+* complete documentation overhaul ([#72](https://github.com/Xerrion/servicenow-platform-mcp/issues/72)) ([5f385d9](https://github.com/Xerrion/servicenow-platform-mcp/commit/5f385d933d697539dd387daeb06360ea325a581b))
+* complete rewrite of AGENTS.md from codebase audit ([#53](https://github.com/Xerrion/servicenow-platform-mcp/issues/53)) ([46f526b](https://github.com/Xerrion/servicenow-platform-mcp/commit/46f526b402902781e7495e7a489455c37a16dbbb))
+* comprehensive README.md rewrite with all 86 tools ([#55](https://github.com/Xerrion/servicenow-platform-mcp/issues/55)) ([ab5c498](https://github.com/Xerrion/servicenow-platform-mcp/commit/ab5c4987ef340118d1eb51b4e9668dabbaa78c88))
+* update README and add banner SVG for improved presentation ([#16](https://github.com/Xerrion/servicenow-platform-mcp/issues/16)) ([37b1213](https://github.com/Xerrion/servicenow-platform-mcp/commit/37b1213a4564dbbff46f5daf9e7254a996d7b560))
+* update README for artifact_write tools, remove OTel section, refresh counts ([#71](https://github.com/Xerrion/servicenow-platform-mcp/issues/71)) ([7980d38](https://github.com/Xerrion/servicenow-platform-mcp/commit/7980d38d518b6dbc62b7598b44a9153f3c78afea))
+
 ## [0.10.0](https://github.com/Xerrion/servicenow-platform-mcp/compare/v0.9.1...v0.10.0) (2026-07-20)
 
 

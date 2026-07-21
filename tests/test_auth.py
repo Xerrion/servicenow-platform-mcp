@@ -82,6 +82,21 @@ class TestBasicAuthProvider:
         assert headers["Content-Type"] == "application/json"
         assert headers["Accept"] == "application/json"
 
+    @pytest.mark.asyncio()
+    async def test_api_key_replaces_basic_authorization(self) -> None:
+        """A configured API key is sent without a Basic Authorization header."""
+        from servicenow_mcp.auth import BasicAuthProvider
+
+        settings = self._make_settings(SERVICENOW_API_KEY="api-key-secret")
+        provider = BasicAuthProvider(settings)
+        headers = await provider.get_headers()
+
+        assert headers == {
+            "x-sn-apikey": "api-key-secret",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+
 
 class TestCreateAuth:
     """Test auth factory function."""

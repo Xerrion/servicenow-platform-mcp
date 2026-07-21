@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/Xerrion/servicenow-platform-mcp/compare/v0.9.1...v0.10.0) (2026-07-20)
+
+
+### Features
+
+* add API key auth and safer table querying ([#122](https://github.com/Xerrion/servicenow-platform-mcp/issues/122)) ([fb1394a](https://github.com/Xerrion/servicenow-platform-mcp/commit/fb1394a38c04cd578c5d32f5a11e26a901ec44f7))
+
 ## [Unreleased]
 
 ### Added

@@ -935,7 +935,7 @@ class ServiceNowClient:
         self._raise_for_status(response)
         return self._extract_result(response.json())
 
-    async def list_flow_inputs(self, flow_sys_id: str) -> list[dict[str, Any]]:
+    async def list_flow_inputs(self, flow_sys_id: str, limit: int | None = None) -> list[dict[str, Any]]:
         """List declared inputs for a flow (``sys_hub_flow_input``)."""
         http = self._ensure_client()
         response = await http.get(
@@ -944,12 +944,13 @@ class ServiceNowClient:
             params={
                 "sysparm_query": f"model={flow_sys_id}^ORDERBYorder",
                 "sysparm_display_value": "all",
+                **({"sysparm_limit": str(limit)} if limit is not None else {}),
             },
         )
         self._raise_for_status(response)
         return self._extract_result(response.json())
 
-    async def list_flow_outputs(self, flow_sys_id: str) -> list[dict[str, Any]]:
+    async def list_flow_outputs(self, flow_sys_id: str, limit: int | None = None) -> list[dict[str, Any]]:
         """List declared outputs for a flow (``sys_hub_flow_output``)."""
         http = self._ensure_client()
         response = await http.get(
@@ -958,12 +959,13 @@ class ServiceNowClient:
             params={
                 "sysparm_query": f"model={flow_sys_id}^ORDERBYorder",
                 "sysparm_display_value": "all",
+                **({"sysparm_limit": str(limit)} if limit is not None else {}),
             },
         )
         self._raise_for_status(response)
         return self._extract_result(response.json())
 
-    async def list_flow_variables(self, flow_sys_id: str) -> list[dict[str, Any]]:
+    async def list_flow_variables(self, flow_sys_id: str, limit: int | None = None) -> list[dict[str, Any]]:
         """List flow-scoped variables (``sys_hub_flow_variable``)."""
         http = self._ensure_client()
         response = await http.get(
@@ -972,12 +974,13 @@ class ServiceNowClient:
             params={
                 "sysparm_query": f"model={flow_sys_id}^ORDERBYorder",
                 "sysparm_display_value": "all",
+                **({"sysparm_limit": str(limit)} if limit is not None else {}),
             },
         )
         self._raise_for_status(response)
         return self._extract_result(response.json())
 
-    async def list_action_instances_v2(self, flow_sys_id: str) -> list[dict[str, Any]]:
+    async def list_action_instances_v2(self, flow_sys_id: str, limit: int = 1000) -> list[dict[str, Any]]:
         """List V2 action instances for a flow (``sys_hub_action_instance_v2``)."""
         http = self._ensure_client()
         response = await http.get(
@@ -986,13 +989,13 @@ class ServiceNowClient:
             params={
                 "sysparm_query": f"flow={flow_sys_id}^ORDERBYorder",
                 "sysparm_display_value": "all",
-                "sysparm_limit": "1000",
+                "sysparm_limit": str(limit),
             },
         )
         self._raise_for_status(response)
         return self._extract_result(response.json())
 
-    async def list_action_instances_v1(self, flow_sys_id: str) -> list[dict[str, Any]]:
+    async def list_action_instances_v1(self, flow_sys_id: str, limit: int = 1000) -> list[dict[str, Any]]:
         """List V1 action instances for a flow (``sys_hub_action_instance``)."""
         http = self._ensure_client()
         response = await http.get(
@@ -1001,13 +1004,13 @@ class ServiceNowClient:
             params={
                 "sysparm_query": f"flow={flow_sys_id}^ORDERBYorder",
                 "sysparm_display_value": "all",
-                "sysparm_limit": "1000",
+                "sysparm_limit": str(limit),
             },
         )
         self._raise_for_status(response)
         return self._extract_result(response.json())
 
-    async def list_logic_instances_v2(self, flow_sys_id: str) -> list[dict[str, Any]]:
+    async def list_logic_instances_v2(self, flow_sys_id: str, limit: int = 1000) -> list[dict[str, Any]]:
         """List V2 flow-logic instances (``sys_hub_flow_logic_instance_v2``)."""
         http = self._ensure_client()
         response = await http.get(
@@ -1016,13 +1019,13 @@ class ServiceNowClient:
             params={
                 "sysparm_query": f"flow={flow_sys_id}^ORDERBYorder",
                 "sysparm_display_value": "all",
-                "sysparm_limit": "1000",
+                "sysparm_limit": str(limit),
             },
         )
         self._raise_for_status(response)
         return self._extract_result(response.json())
 
-    async def list_logic_instances_v1(self, flow_sys_id: str) -> list[dict[str, Any]]:
+    async def list_logic_instances_v1(self, flow_sys_id: str, limit: int = 1000) -> list[dict[str, Any]]:
         """List V1 flow-logic instances (``sys_hub_flow_logic``)."""
         http = self._ensure_client()
         response = await http.get(
@@ -1031,13 +1034,13 @@ class ServiceNowClient:
             params={
                 "sysparm_query": f"flow={flow_sys_id}^ORDERBYorder",
                 "sysparm_display_value": "all",
-                "sysparm_limit": "1000",
+                "sysparm_limit": str(limit),
             },
         )
         self._raise_for_status(response)
         return self._extract_result(response.json())
 
-    async def list_trigger_instances_v2(self, flow_sys_id: str) -> list[dict[str, Any]]:
+    async def list_trigger_instances_v2(self, flow_sys_id: str, limit: int | None = None) -> list[dict[str, Any]]:
         """List V2 trigger instances for a flow (``sys_hub_trigger_instance_v2``)."""
         http = self._ensure_client()
         response = await http.get(
@@ -1046,12 +1049,13 @@ class ServiceNowClient:
             params={
                 "sysparm_query": f"flow={flow_sys_id}",
                 "sysparm_display_value": "all",
+                **({"sysparm_limit": str(limit)} if limit is not None else {}),
             },
         )
         self._raise_for_status(response)
         return self._extract_result(response.json())
 
-    async def list_trigger_instances_v1(self, flow_sys_id: str) -> list[dict[str, Any]]:
+    async def list_trigger_instances_v1(self, flow_sys_id: str, limit: int | None = None) -> list[dict[str, Any]]:
         """List V1 trigger instances for a flow (``sys_hub_trigger_instance``)."""
         http = self._ensure_client()
         response = await http.get(
@@ -1060,6 +1064,7 @@ class ServiceNowClient:
             params={
                 "sysparm_query": f"flow={flow_sys_id}",
                 "sysparm_display_value": "all",
+                **({"sysparm_limit": str(limit)} if limit is not None else {}),
             },
         )
         self._raise_for_status(response)

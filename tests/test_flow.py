@@ -88,6 +88,8 @@ async def test_describe_returns_all_action_keys(settings: Settings, auth_provide
     actions = result["data"]["actions"]
     for name in ("contract", "inspect", "find_by_table", "decode_values", "list_triggers", "describe"):
         assert name in actions
+    assert "sections" in actions["inspect"]["params"]
+    assert "section_limit" in actions["contract"]["params"]
 
 
 # ---------------------------------------------------------------------------
@@ -209,6 +211,154 @@ def _empty_inspect_kwargs(header_sys_id: str = SYS_ID_FLOW) -> dict[str, Any]:
 
 
 @pytest.mark.asyncio()
+async def test_inspect_compact_default_omits_optional_detail_requests(
+    settings: Settings, auth_provider: BasicAuthProvider
+) -> None:
+    """The compact default fetches only the header and six bounded structural datasets."""
+    tools = _register_and_get_tools(settings, auth_provider)
+    client = _make_client_mock(**_empty_inspect_kwargs())
+
+    with _patch_client(client):
+        raw = await tools["flow"](action="inspect", sys_id=SYS_ID_FLOW)
+    result = decode_response(raw)
+
+    assert result["status"] == "success"
+    assert list(result["data"]) == ["flow", "published_state", "structural_summary", "warnings"]
+    assert result["selection"]["mode"] == "compact"
+    for method_name in (
+        "list_flow_inputs",
+        "list_flow_outputs",
+        "list_flow_variables",
+        "list_record_triggers",
+        "get_action_type_definitions",
+        "list_action_input_definitions",
+        "list_action_output_definitions",
+        "list_v1_variable_values",
+    ):
+        getattr(client, method_name).assert_not_awaited()
+
+
+@pytest.mark.asyncio()
+async def test_inspect_invalid_section_fails_before_service_now_io(
+    settings: Settings, auth_provider: BasicAuthProvider
+) -> None:
+    """An invalid selector is rejected before a ServiceNow client is opened."""
+    tools = _register_and_get_tools(settings, auth_provider)
+    with patch("servicenow_mcp.tools.flow.ServiceNowClient") as client_factory:
+        raw = await tools["flow"](action="inspect", sys_id=SYS_ID_FLOW, sections="unknown")
+    result = decode_response(raw)
+
+    assert result["status"] == "error"
+    assert "Unknown section(s): unknown" in result["error"]["message"]
+    client_factory.assert_not_called()
+
+
+@pytest.mark.asyncio()
+async def test_inspect_explicit_sections_fetch_dependencies_once_and_only_when_needed(
+    settings: Settings, auth_provider: BasicAuthProvider
+) -> None:
+    """Overlapping section dependencies are fetched once and unrelated tables are omitted."""
+    tools = _register_and_get_tools(settings, auth_provider)
+    client = _make_client_mock(**_empty_inspect_kwargs())
+
+    with _patch_client(client):
+        raw = await tools["flow"](
+            action="inspect",
+            sys_id=SYS_ID_FLOW,
+            sections="structural_summary,canvas",
+        )
+    result = decode_response(raw)
+
+    assert result["status"] == "success"
+    for method_name in (
+        "list_action_instances_v2",
+        "list_logic_instances_v2",
+        "list_trigger_instances_v2",
+        "list_trigger_instances_v1",
+    ):
+        getattr(client, method_name).assert_awaited_once_with(SYS_ID_FLOW, 101)
+    client.list_action_instances_v1.assert_awaited_once_with(SYS_ID_FLOW, 101)
+    client.list_logic_instances_v1.assert_awaited_once_with(SYS_ID_FLOW, 101)
+    client.list_flow_inputs.assert_not_awaited()
+    client.list_flow_outputs.assert_not_awaited()
+    client.list_flow_variables.assert_not_awaited()
+
+
+@pytest.mark.asyncio()
+async def test_inspect_section_limit_discloses_truncation_and_continuation(
+    settings: Settings, auth_provider: BasicAuthProvider
+) -> None:
+    """A selected large section is bounded and reports how to request more."""
+    tools = _register_and_get_tools(settings, auth_provider)
+    actions = [
+        {
+            "sys_id": _ref(f"a{index}"),
+            "ui_uuid": _ref(f"ui_a{index}"),
+            "parent_ui_uuid": _ref(""),
+            "order": _ref(str(index)),
+            "label": _ref(f"Action {index}"),
+            "action_type": _ref("atype", "Action"),
+            "values": _ref(""),
+        }
+        for index in range(3)
+    ]
+    kwargs = _empty_inspect_kwargs()
+    kwargs["list_action_instances_v2"] = actions
+    client = _make_client_mock(**kwargs)
+
+    with _patch_client(client):
+        raw = await tools["flow"](
+            action="inspect",
+            sys_id=SYS_ID_FLOW,
+            sections="canvas",
+            section_limit=2,
+        )
+    result = decode_response(raw)
+
+    assert len(result["data"]["canvas"]) == 2
+    assert result["selection"]["truncated"] is True
+    assert result["selection"]["truncation"]["canvas"] == {
+        "returned": 2,
+        "observed_at_least": 3,
+        "omitted_at_least": 1,
+        "continuation": "Re-run with section_limit greater than 2.",
+    }
+
+
+@pytest.mark.asyncio()
+async def test_inspect_canvas_only_decodes_nodes_without_warning_dependencies(
+    settings: Settings, auth_provider: BasicAuthProvider
+) -> None:
+    """Canvas alone fetches and decodes V2 nodes without trigger or V1 warning reads."""
+    tools = _register_and_get_tools(settings, auth_provider)
+    kwargs = _empty_inspect_kwargs()
+    kwargs["list_action_instances_v2"] = [
+        {
+            "sys_id": _ref("a1"),
+            "ui_uuid": _ref("ui_a1"),
+            "parent_ui_uuid": _ref(""),
+            "order": _ref("1"),
+            "label": _ref("Action"),
+            "action_type": _ref("atype", "Action"),
+            "values": _ref(_encode_values([{"name": "x", "value": "y"}])),
+        }
+    ]
+    client = _make_client_mock(**kwargs)
+
+    with _patch_client(client):
+        raw = await tools["flow"](action="inspect", sys_id=SYS_ID_FLOW, sections="canvas")
+    result = decode_response(raw)
+
+    assert result["data"]["canvas"][0]["values_decoded"] == [{"name": "x", "value": "y"}]
+    client.list_action_instances_v2.assert_awaited_once()
+    client.list_logic_instances_v2.assert_awaited_once()
+    client.list_action_instances_v1.assert_not_awaited()
+    client.list_logic_instances_v1.assert_not_awaited()
+    client.list_trigger_instances_v2.assert_not_awaited()
+    client.list_trigger_instances_v1.assert_not_awaited()
+
+
+@pytest.mark.asyncio()
 async def test_inspect_resolves_unique_name(settings: Settings, auth_provider: BasicAuthProvider) -> None:
     """A name resolving to exactly one flow uses that sys_id."""
     tools = _register_and_get_tools(settings, auth_provider)
@@ -263,7 +413,7 @@ async def test_inspect_missing_flow_returns_error(settings: Settings, auth_provi
     kwargs["get_flow_by_sys_id"] = None
     client = _make_client_mock(**kwargs)
     with _patch_client(client):
-        raw = await tools["flow"](action="inspect", sys_id=SYS_ID_FLOW)
+        raw = await tools["flow"](action="inspect", sys_id=SYS_ID_FLOW, sections="*")
     result = decode_response(raw)
 
     assert result["status"] == "error"
@@ -347,7 +497,7 @@ async def test_inspect_happy_path_assembles_canvas(settings: Settings, auth_prov
     )
 
     with _patch_client(client):
-        raw = await tools["flow"](action="inspect", sys_id=SYS_ID_FLOW)
+        raw = await tools["flow"](action="inspect", sys_id=SYS_ID_FLOW, sections="*")
     result = decode_response(raw)
 
     assert result["status"] == "success"
@@ -373,6 +523,21 @@ async def test_inspect_happy_path_assembles_canvas(settings: Settings, auth_prov
 
     # No V1 + V2 mix, no drift, no v1 logic, no spoke -> empty warnings
     assert data["warnings"] == []
+    assert result["selection"]["mode"] == "all"
+    assert result["selection"]["omitted_sections"] == []
+    assert set(result["selection"]["returned_sections"]) == {
+        "flow",
+        "published_state",
+        "structural_summary",
+        "inputs",
+        "outputs",
+        "variables",
+        "triggers",
+        "canvas",
+        "v1_actions",
+        "v1_variable_values",
+        "warnings",
+    }
 
 
 @pytest.mark.asyncio()
@@ -387,7 +552,7 @@ async def test_inspect_snapshot_drift_emits_warning(settings: Settings, auth_pro
     client = _make_client_mock(**kwargs)
 
     with _patch_client(client):
-        raw = await tools["flow"](action="inspect", sys_id=SYS_ID_FLOW)
+        raw = await tools["flow"](action="inspect", sys_id=SYS_ID_FLOW, sections="*")
     result = decode_response(raw)
 
     assert result["status"] == "success"
@@ -418,7 +583,7 @@ async def test_inspect_decode_failure_resilient(settings: Settings, auth_provide
     client = _make_client_mock(**kwargs)
 
     with _patch_client(client):
-        raw = await tools["flow"](action="inspect", sys_id=SYS_ID_FLOW)
+        raw = await tools["flow"](action="inspect", sys_id=SYS_ID_FLOW, sections="*")
     result = decode_response(raw)
 
     assert result["status"] == "success"
@@ -564,7 +729,7 @@ async def test_contract_returns_concise_configured_bindings(
     client = _make_client_mock(**kwargs)
 
     with _patch_client(client):
-        raw = await tools["flow"](action="contract", sys_id=SYS_ID_FLOW)
+        raw = await tools["flow"](action="contract", sys_id=SYS_ID_FLOW, sections="*")
     result = decode_response(raw)
 
     assert result["status"] == "success"
@@ -717,7 +882,7 @@ async def test_contract_limits_action_definition_lookup_failures_to_schema_warni
     tools = _register_and_get_tools(settings, auth_provider)
 
     with _patch_client(client):
-        raw = await tools["flow"](action="contract", sys_id=SYS_ID_FLOW)
+        raw = await tools["flow"](action="contract", sys_id=SYS_ID_FLOW, sections="*")
     result = decode_response(raw)
 
     assert result["status"] == "success"
@@ -749,7 +914,7 @@ async def test_inspect_does_not_fetch_action_field_definitions(
     tools = _register_and_get_tools(settings, auth_provider)
 
     with _patch_client(client):
-        raw = await tools["flow"](action="inspect", sys_id=SYS_ID_FLOW)
+        raw = await tools["flow"](action="inspect", sys_id=SYS_ID_FLOW, sections="*")
 
     assert decode_response(raw)["status"] == "success"
     client.list_action_input_definitions.assert_not_awaited()
@@ -770,7 +935,7 @@ async def test_contract_warns_when_v1_actions_cannot_be_reconstructed(
     client = _make_client_mock(**kwargs)
 
     with _patch_client(client):
-        raw = await tools["flow"](action="contract", sys_id=SYS_ID_FLOW)
+        raw = await tools["flow"](action="contract", sys_id=SYS_ID_FLOW, sections="*")
     result = decode_response(raw)
 
     assert result["status"] == "success"

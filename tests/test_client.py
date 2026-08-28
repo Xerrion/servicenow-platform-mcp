@@ -1474,6 +1474,22 @@ class TestServiceNowClientFlowDesigner:
 
     @pytest.mark.asyncio()
     @respx.mock
+    async def test_flow_dataset_limit_is_forwarded(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        """Flow dataset helpers forward a caller-supplied ServiceNow row cap."""
+        from servicenow_mcp.client import ServiceNowClient
+
+        flow_id = "f" * 32
+        route = respx.get(f"{BASE_URL}/api/now/table/sys_hub_action_instance_v2").mock(
+            return_value=httpx.Response(200, json={"result": []})
+        )
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            assert await client.list_action_instances_v2(flow_id, limit=17) == []
+
+        assert route.calls.last.request.url.params["sysparm_limit"] == "17"
+
+    @pytest.mark.asyncio()
+    @respx.mock
     async def test_list_action_definition_fields_join_through_action_type(
         self, settings: Settings, auth_provider: BasicAuthProvider
     ) -> None:

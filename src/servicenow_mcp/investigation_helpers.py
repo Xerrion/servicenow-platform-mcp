@@ -55,8 +55,12 @@ def build_investigation_result(
         findings: List of finding dicts.
         **extra: Additional keys to include in the envelope.
     """
+    provenance = {"investigation": name}
+    for finding in findings:
+        finding["provenance"] = provenance.copy()
     return {
         "investigation": name,
+        "provenance": provenance,
         "finding_count": len(findings),
         "findings": findings,
         **extra,

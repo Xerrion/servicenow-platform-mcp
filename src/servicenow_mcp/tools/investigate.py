@@ -32,6 +32,24 @@ TOOL_NAMES: list[str] = ["investigate"]
 
 _VALID_ACTIONS: Final[frozenset[str]] = frozenset({"run", "explain", "describe"})
 
+_ACTION_REGISTRY: Final[dict[str, dict[str, Any]]] = {
+    "run": {
+        "description": "Run one registered investigation.",
+        "params": {"name": "registered investigation name (required)", "params": "JSON object string"},
+    },
+    "explain": {
+        "description": "Explain a finding directly when name is supplied, or use legacy trial dispatch otherwise.",
+        "params": {
+            "element_id": "table:sys_id (required)",
+            "name": "registered investigation name (optional direct-dispatch selector)",
+        },
+    },
+    "describe": {
+        "description": "List investigations and action contracts, or describe one investigation.",
+        "params": {"name": "registered investigation name (optional)"},
+    },
+}
+
 
 def _error(correlation_id: str, message: str) -> str:
     """Serialize a standard error envelope."""
@@ -74,13 +92,20 @@ async def _run_action(
     async with client_factory() as client:
         result = await module.run(client, params_dict)
 
+    result["provenance"] = {"investigation": name}
+    findings = result.get("findings")
+    if isinstance(findings, list):
+        for finding in findings:
+            if isinstance(finding, dict):
+                finding["provenance"] = {"investigation": name}
+
     return format_response(data=result, correlation_id=correlation_id)
 
 
 def _describe_action(correlation_id: str, name: str) -> str:
     if not name:
         return format_response(
-            data={"investigations": sorted(INVESTIGATION_REGISTRY.keys())},
+            data={"investigations": sorted(INVESTIGATION_REGISTRY.keys()), "actions": _ACTION_REGISTRY},
             correlation_id=correlation_id,
         )
 
@@ -92,13 +117,14 @@ def _describe_action(correlation_id: str, name: str) -> str:
     doc = (module.__doc__ or "").strip()
     description = doc.splitlines()[0] if doc else name
     return format_response(
-        data={"name": name, "description": description, "params": params},
+        data={"name": name, "description": description, "params": params, "actions": _ACTION_REGISTRY},
         correlation_id=correlation_id,
     )
 
 
 async def _explain_action(
     element_id: str,
+    name: str,
     settings: Settings,
     auth_provider: BasicAuthProvider,
     client_factory: ServiceNowClientProvider,
@@ -106,6 +132,9 @@ async def _explain_action(
 ) -> str:
     if not element_id:
         return _error(correlation_id, "'element_id' is required when action='explain'.")
+    selected_module = INVESTIGATION_REGISTRY.get(name) if name else None
+    if name and selected_module is None:
+        return _unknown_investigation_error(correlation_id, name)
 
     # Format guard before any I/O. ``parse_element_id`` enforces the 'table:sys_id'
     # shape; the table-allowlist check happens inside each module's explain.
@@ -120,20 +149,45 @@ async def _explain_action(
     # returns ``{"error": ...}`` (single-key) when ``element_id``'s table is outside
     # its allow-set. The first module that produces a real explanation wins; if all
     # decline, we surface the first decline so the caller sees a real message.
+    if selected_module is not None:
+        async with client_factory() as client:
+            result = await selected_module.explain(client, element_id)
+        return format_response(
+            data=result,
+            correlation_id=correlation_id,
+            selection={"dispatch": {"mode": "direct", "investigation": name, "attempted": [name]}},
+        )
+
     first_decline: dict[str, Any] | None = None
+    attempted: list[str] = []
     async with client_factory() as client:
-        for module in INVESTIGATION_REGISTRY.values():
+        for investigation_name, module in INVESTIGATION_REGISTRY.items():
+            attempted.append(investigation_name)
             result = await module.explain(client, element_id)
             if isinstance(result, dict) and set(result.keys()) == {"error"}:
                 if first_decline is None:
                     first_decline = result
                 continue
-            return format_response(data=result, correlation_id=correlation_id)
+            return format_response(
+                data=result,
+                correlation_id=correlation_id,
+                selection={
+                    "dispatch": {
+                        "mode": "trial",
+                        "investigation": investigation_name,
+                        "attempted": attempted,
+                    }
+                },
+            )
 
     fallback: dict[str, Any] = first_decline or {
         "error": f"No registered investigation can explain element_id '{element_id}'.",
     }
-    return format_response(data=fallback, correlation_id=correlation_id)
+    return format_response(
+        data=fallback,
+        correlation_id=correlation_id,
+        selection={"dispatch": {"mode": "trial", "investigation": None, "attempted": attempted}},
+    )
 
 
 def register_tools(
@@ -167,7 +221,8 @@ def register_tools(
 
         Args:
             action: 'run' | 'explain' | 'describe'.
-            name: Investigation name (required for 'run', optional for 'describe').
+            name: Investigation name (required for 'run'; optional direct selector for 'explain' and filter for
+                'describe').
                 Available: stale_automations, deprecated_apis, table_health,
                 acl_conflicts, error_analysis, slow_transactions, performance_bottlenecks.
             params: JSON string of run parameters (run only).
@@ -194,6 +249,7 @@ def register_tools(
 
         return await _explain_action(
             element_id=element_id,
+            name=name,
             settings=settings,
             auth_provider=auth_provider,
             client_factory=client_factory,

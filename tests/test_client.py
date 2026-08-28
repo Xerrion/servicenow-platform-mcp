@@ -1456,6 +1456,61 @@ class TestServiceNowClientFlowDesigner:
 
     @pytest.mark.asyncio()
     @respx.mock
+    async def test_list_flow_variables_filters_by_model(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """Flow variables are restricted to the inspected flow's model record."""
+        from servicenow_mcp.client import ServiceNowClient
+
+        flow_id = "a" * 32
+        route = respx.get(f"{BASE_URL}/api/now/table/sys_hub_flow_variable").mock(
+            return_value=httpx.Response(200, json={"result": []}),
+        )
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            assert await client.list_flow_variables(flow_id) == []
+
+        assert route.calls.last.request.url.params["sysparm_query"] == f"model={flow_id}^ORDERBYorder"
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_list_action_definition_fields_join_through_action_type(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """Action input/output definitions use their documented ``action_type`` relation."""
+        from servicenow_mcp.client import ServiceNowClient
+
+        action_type_ids = ["a" * 32, "b" * 32]
+        input_route = respx.get(f"{BASE_URL}/api/now/table/sys_hub_action_input").mock(
+            return_value=httpx.Response(200, json={"result": [{"name": "input"}]}),
+        )
+        output_route = respx.get(f"{BASE_URL}/api/now/table/sys_hub_action_output").mock(
+            return_value=httpx.Response(200, json={"result": [{"name": "output"}]}),
+        )
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            assert await client.list_action_input_definitions(action_type_ids) == [{"name": "input"}]
+            assert await client.list_action_output_definitions(action_type_ids) == [{"name": "output"}]
+
+        expected_prefix = f"action_typeIN{','.join(action_type_ids)}"
+        assert input_route.calls.last.request.url.params["sysparm_query"].startswith(expected_prefix)
+        assert output_route.calls.last.request.url.params["sysparm_query"].startswith(expected_prefix)
+        assert "default_value" in input_route.calls.last.request.url.params["sysparm_fields"]
+        assert "default_value" not in output_route.calls.last.request.url.params["sysparm_fields"]
+
+    @pytest.mark.asyncio()
+    async def test_list_action_definition_fields_empty_input_no_http_call(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """Empty action-type input short-circuits both definition lookups."""
+        from servicenow_mcp.client import ServiceNowClient
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            assert await client.list_action_input_definitions([]) == []
+            assert await client.list_action_output_definitions([]) == []
+
+    @pytest.mark.asyncio()
+    @respx.mock
     async def test_list_record_triggers_empty_input_no_http_call(
         self, settings: Settings, auth_provider: BasicAuthProvider
     ) -> None:

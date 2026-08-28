@@ -962,7 +962,7 @@ class ServiceNowClient:
             self._table_url("sys_hub_flow_variable"),
             headers=await self._headers(),
             params={
-                "sysparm_query": f"flow={flow_sys_id}^ORDERBYorder",
+                "sysparm_query": f"model={flow_sys_id}^ORDERBYorder",
                 "sysparm_display_value": "all",
             },
         )
@@ -1089,6 +1089,46 @@ class ServiceNowClient:
             params={
                 "sysparm_query": f"sys_idIN{ids_csv}",
                 "sysparm_fields": "sys_id,name,internal_name,sys_scope,category,sys_class_name",
+                "sysparm_display_value": "all",
+                "sysparm_limit": str(limit),
+            },
+        )
+        self._raise_for_status(response)
+        return self._extract_result(response.json())
+
+    async def list_action_input_definitions(self, action_type_sys_ids: list[str]) -> list[dict[str, Any]]:
+        """Bulk-fetch declared inputs from ``sys_hub_action_input`` for action types."""
+        if not action_type_sys_ids:
+            return []
+        http = self._ensure_client()
+        ids_csv = ",".join(action_type_sys_ids)
+        limit = min(len(action_type_sys_ids) * 50, 5000)
+        response = await http.get(
+            self._table_url("sys_hub_action_input"),
+            headers=await self._headers(),
+            params={
+                "sysparm_query": f"action_typeIN{ids_csv}^ORDERBYname",
+                "sysparm_fields": "action_type,name,label,element_prototype,mandatory,default_value,reference",
+                "sysparm_display_value": "all",
+                "sysparm_limit": str(limit),
+            },
+        )
+        self._raise_for_status(response)
+        return self._extract_result(response.json())
+
+    async def list_action_output_definitions(self, action_type_sys_ids: list[str]) -> list[dict[str, Any]]:
+        """Bulk-fetch declared outputs from ``sys_hub_action_output`` for action types."""
+        if not action_type_sys_ids:
+            return []
+        http = self._ensure_client()
+        ids_csv = ",".join(action_type_sys_ids)
+        limit = min(len(action_type_sys_ids) * 50, 5000)
+        response = await http.get(
+            self._table_url("sys_hub_action_output"),
+            headers=await self._headers(),
+            params={
+                "sysparm_query": f"action_typeIN{ids_csv}^ORDERBYname",
+                "sysparm_fields": "action_type,name,label,element_prototype,mandatory,reference",
                 "sysparm_display_value": "all",
                 "sysparm_limit": str(limit),
             },

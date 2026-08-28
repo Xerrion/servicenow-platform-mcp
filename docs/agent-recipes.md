@@ -264,7 +264,7 @@ report = json.loads(await query(
 
 ### 11. Inspect Flow Designer artifacts
 
-**Goal:** Understand which flows run for a table, inspect one flow's canvas, or decode a compressed `values` field fetched manually.  
+**Goal:** Understand which flows run for a table, obtain a concise data contract, inspect one flow's full canvas, or decode a compressed `values` field fetched manually.  
 **Old way:** Query `sys_hub_*` tables by hand and decode `values` outside the MCP server.  
 **New way:**
 
@@ -274,6 +274,9 @@ await flow(action="find_by_table", table="incident")
 
 # Inspect a specific flow by name
 await flow(action="inspect", name="My Flow")
+
+# Get fields, checks/actions, and literal data-pill mappings without raw canvas metadata
+await flow(action="contract", name="My Flow")
 
 # Decode a values blob fetched manually via query
 await flow(action="decode_values", value="H4sIA...")
@@ -287,7 +290,7 @@ await flow(
 )
 ```
 
-**Notes:** `flow(action="inspect", ...)` reads both Washington DC+ V2 rows and V1 fallback rows. Per-node decode failures are isolated to that node as `decode_error`, so one bad `values` blob does not discard the full inspection result.
+**Notes:** Use `flow(action="contract", ...)` when documenting or implementing an integration: each V2 action step includes configured `inputs` bindings plus a `definition` containing the action type's declared inputs and outputs. Declared fields come from `sys_hub_action_input` and `sys_hub_action_output` through their `action_type` relation; `type` appears only when `element_prototype` supplies a usable display label. The contract does not infer runtime values, infer semantics from an action label, or resolve data pills. Definition-table access or release variance is reported as a warning and per-action limitation instead of discarding the contract. V1 action or logic nodes are reported as warnings because their bindings cannot be reconstructed as contract steps. Use `inspect` only when raw Flow Designer metadata is required.
 
 ## 💡 Tips and Patterns
 

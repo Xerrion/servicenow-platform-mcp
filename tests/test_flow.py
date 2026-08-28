@@ -8,6 +8,7 @@ import json
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 from mcp.server.fastmcp import FastMCP
 
@@ -78,14 +79,14 @@ SYS_ID_FLOW = "f" * 32
 
 @pytest.mark.asyncio()
 async def test_describe_returns_all_action_keys(settings: Settings, auth_provider: BasicAuthProvider) -> None:
-    """``describe`` advertises all five flow actions."""
+    """``describe`` advertises all flow actions."""
     tools = _register_and_get_tools(settings, auth_provider)
     raw = await tools["flow"](action="describe")
     result = decode_response(raw)
 
     assert result["status"] == "success"
     actions = result["data"]["actions"]
-    for name in ("inspect", "find_by_table", "decode_values", "list_triggers", "describe"):
+    for name in ("contract", "inspect", "find_by_table", "decode_values", "list_triggers", "describe"):
         assert name in actions
 
 
@@ -201,6 +202,8 @@ def _empty_inspect_kwargs(header_sys_id: str = SYS_ID_FLOW) -> dict[str, Any]:
         "list_trigger_instances_v1": [],
         "list_record_triggers": [],
         "get_action_type_definitions": [],
+        "list_action_input_definitions": [],
+        "list_action_output_definitions": [],
         "list_v1_variable_values": [],
     }
 
@@ -327,7 +330,6 @@ async def test_inspect_happy_path_assembles_canvas(settings: Settings, auth_prov
             "sys_scope": _ref("global", "Global"),
         },
     ]
-
     client = _make_client_mock(
         get_flow_by_sys_id=_minimal_flow_header(),
         list_flow_inputs=[],
@@ -424,6 +426,356 @@ async def test_inspect_decode_failure_resilient(settings: Settings, auth_provide
     assert len(canvas) == 1
     assert "decode_error" in canvas[0]
     assert "base64" in canvas[0]["decode_error"]
+
+
+@pytest.mark.asyncio()
+async def test_contract_returns_concise_configured_bindings(
+    settings: Settings, auth_provider: BasicAuthProvider
+) -> None:
+    """``contract`` retains configured values and data pills without raw Flow Designer metadata."""
+    tools = _register_and_get_tools(settings, auth_provider)
+    actions_v2 = [
+        {
+            "sys_id": _ref("a1"),
+            "ui_uuid": _ref("ui_a1"),
+            "parent_ui_uuid": _ref(""),
+            "order": _ref("100"),
+            "label": _ref("Look up user"),
+            "name": _ref(""),
+            "comment": _ref(""),
+            "action_type": _ref("atype_lookup", "Look up User"),
+            "values": _ref(
+                _encode_values(
+                    [
+                        {
+                            "name": "user_principal_name",
+                            "value": "{{subflow.user}}",
+                            "parameter": {
+                                "label": "User Principal Name",
+                                "type": "string",
+                                "mandatory": True,
+                            },
+                        },
+                    ],
+                ),
+            ),
+        },
+    ]
+    logic_v2 = [
+        {
+            "sys_id": _ref("l1"),
+            "ui_uuid": _ref("ui_l1"),
+            "parent_ui_uuid": _ref(""),
+            "order": _ref("200"),
+            "label": _ref("Unable to look up user"),
+            "name": _ref(""),
+            "comment": _ref(""),
+            "logic_definition": _ref("if_def", "If"),
+            "values": _ref(
+                _encode_values(
+                    {
+                        "inputs": [
+                            {
+                                "name": "condition",
+                                "value": "{{lookup.__action_status__.code}}>0",
+                                "parameter": {"label": "Condition", "type": "string", "mandatory": True},
+                            },
+                        ],
+                        "outputsToAssign": [
+                            {
+                                "name": "message",
+                                "value": "Unable to look up {{subflow.user}}",
+                                "parameter": {"label": "message", "type": "string", "mandatory": False},
+                            },
+                        ],
+                    },
+                ),
+            ),
+        },
+    ]
+    inputs = [
+        {
+            "element": _ref("user"),
+            "label": _ref("User"),
+            "internal_type": _ref("string"),
+            "mandatory": _ref("true"),
+            "default_value": _ref(""),
+            "reference": _ref(""),
+        },
+    ]
+    outputs = [
+        {
+            "element": _ref("message"),
+            "label": _ref("Message"),
+            "internal_type": _ref("string"),
+            "mandatory": _ref("false"),
+            "default_value": _ref(""),
+            "reference": _ref(""),
+        },
+    ]
+    action_types = [
+        {
+            "sys_id": _ref("atype_lookup"),
+            "name": _ref("Look up User"),
+            "internal_name": _ref("look_up_user"),
+            "sys_scope": _ref("global", "Global"),
+            "category": _ref("User Management"),
+        },
+    ]
+    action_inputs = [
+        {
+            "action_type": _ref("atype_lookup", "Look up User"),
+            "name": _ref("user_principal_name"),
+            "label": _ref("User Principal Name"),
+            "element_prototype": _ref("prototype_string", "String"),
+            "mandatory": _ref("true"),
+            "default_value": _ref("guest@example.com"),
+            "reference": _ref(""),
+        },
+    ]
+    action_outputs = [
+        {
+            "action_type": _ref("atype_lookup", "Look up User"),
+            "name": _ref("user"),
+            "label": _ref("User"),
+            "element_prototype": _ref("prototype_reference", "Reference"),
+            "mandatory": _ref("false"),
+            "reference": _ref("sys_user"),
+        },
+        {
+            "action_type": _ref("atype_lookup", "Look up User"),
+            "name": _ref("status"),
+            "label": _ref("Status"),
+            "element_prototype": "prototype_without_display_label",
+            "mandatory": _ref("false"),
+            "reference": _ref(""),
+        },
+    ]
+    kwargs = _empty_inspect_kwargs()
+    kwargs.update(
+        list_flow_inputs=inputs,
+        list_flow_outputs=outputs,
+        list_action_instances_v2=actions_v2,
+        list_logic_instances_v2=logic_v2,
+        get_action_type_definitions=action_types,
+        list_action_input_definitions=action_inputs,
+        list_action_output_definitions=action_outputs,
+    )
+    client = _make_client_mock(**kwargs)
+
+    with _patch_client(client):
+        raw = await tools["flow"](action="contract", sys_id=SYS_ID_FLOW)
+    result = decode_response(raw)
+
+    assert result["status"] == "success"
+    data = result["data"]
+    assert data["inputs"] == [{"name": "user", "label": "User", "type": "string", "required": True}]
+    assert data["outputs"] == [{"name": "message", "label": "Message", "type": "string", "required": False}]
+    assert "canvas" not in data
+    assert data["steps"] == [
+        {
+            "step": "1",
+            "kind": "action",
+            "order": "100",
+            "label": "Look up user",
+            "action": {
+                "name": "Look up User",
+                "internal_name": "look_up_user",
+                "category": "User Management",
+                "scope": "Global",
+            },
+            "definition": {
+                "inputs": [
+                    {
+                        "name": "user_principal_name",
+                        "label": "User Principal Name",
+                        "required": True,
+                        "type": "String",
+                        "default": "guest@example.com",
+                    },
+                ],
+                "outputs": [
+                    {
+                        "name": "user",
+                        "label": "User",
+                        "required": False,
+                        "type": "Reference",
+                        "reference_table": "sys_user",
+                    },
+                    {
+                        "name": "status",
+                        "label": "Status",
+                        "required": False,
+                    },
+                ],
+            },
+            "inputs": [
+                {
+                    "name": "user_principal_name",
+                    "label": "User Principal Name",
+                    "type": "string",
+                    "required": True,
+                    "value": "{{subflow.user}}",
+                    "data_pills": ["subflow.user"],
+                },
+            ],
+        },
+        {
+            "step": "2",
+            "kind": "logic",
+            "order": "200",
+            "label": "Unable to look up user",
+            "logic": {"name": "If"},
+            "conditions": [
+                {
+                    "name": "condition",
+                    "label": "Condition",
+                    "type": "string",
+                    "required": True,
+                    "value": "{{lookup.__action_status__.code}}>0",
+                    "data_pills": ["lookup.__action_status__.code"],
+                },
+            ],
+            "output_assignments": [
+                {
+                    "name": "message",
+                    "label": "message",
+                    "type": "string",
+                    "required": False,
+                    "value": "Unable to look up {{subflow.user}}",
+                    "data_pills": ["subflow.user"],
+                },
+            ],
+        },
+    ]
+
+
+@pytest.mark.parametrize(
+    ("lookup_method", "lookup_label", "failure"),
+    [
+        (
+            "list_action_input_definitions",
+            "input",
+            httpx.ConnectError("definition table connection failed"),
+        ),
+        (
+            "list_action_input_definitions",
+            "input",
+            json.JSONDecodeError("invalid definition response", "", 0),
+        ),
+        (
+            "list_action_output_definitions",
+            "output",
+            httpx.ConnectError("definition table connection failed"),
+        ),
+        (
+            "list_action_output_definitions",
+            "output",
+            json.JSONDecodeError("invalid definition response", "", 0),
+        ),
+    ],
+)
+@pytest.mark.asyncio()
+async def test_contract_limits_action_definition_lookup_failures_to_schema_warning(
+    settings: Settings,
+    auth_provider: BasicAuthProvider,
+    lookup_method: str,
+    lookup_label: str,
+    failure: Exception,
+) -> None:
+    """Transport and parsing failures leave configured action bindings usable."""
+    actions_v2 = [
+        {
+            "sys_id": _ref("a1"),
+            "ui_uuid": _ref("ui_a1"),
+            "parent_ui_uuid": _ref(""),
+            "order": _ref("100"),
+            "label": _ref("Action"),
+            "name": _ref(""),
+            "comment": _ref(""),
+            "action_type": _ref("atype_x", "Action X"),
+            "values": _ref(
+                _encode_values(
+                    [
+                        {
+                            "name": "record",
+                            "value": "{{flow.record}}",
+                            "parameter": {"label": "Record", "type": "reference", "mandatory": True},
+                        },
+                    ]
+                )
+            ),
+        },
+    ]
+    kwargs = _empty_inspect_kwargs()
+    kwargs.update(
+        list_action_instances_v2=actions_v2,
+        get_action_type_definitions=[{"sys_id": _ref("atype_x"), "name": _ref("Action X")}],
+    )
+    client = _make_client_mock(**kwargs)
+    getattr(client, lookup_method).side_effect = failure
+    tools = _register_and_get_tools(settings, auth_provider)
+
+    with _patch_client(client):
+        raw = await tools["flow"](action="contract", sys_id=SYS_ID_FLOW)
+    result = decode_response(raw)
+
+    assert result["status"] == "success"
+    step = result["data"]["steps"][0]
+    assert step["inputs"] == [
+        {
+            "name": "record",
+            "label": "Record",
+            "type": "reference",
+            "required": True,
+            "value": "{{flow.record}}",
+            "data_pills": ["flow.record"],
+        }
+    ]
+    definition = step["definition"]
+    assert definition["inputs"] == []
+    assert definition["outputs"] == []
+    assert definition["limitations"] == [f"Action {lookup_label} definitions are unavailable: {failure}"]
+    assert result["data"]["warnings"][-1] == definition["limitations"][0]
+
+
+@pytest.mark.asyncio()
+async def test_inspect_does_not_fetch_action_field_definitions(
+    settings: Settings, auth_provider: BasicAuthProvider
+) -> None:
+    """The existing inspect action keeps its prior lookup and response behavior."""
+    kwargs = _empty_inspect_kwargs()
+    client = _make_client_mock(**kwargs)
+    tools = _register_and_get_tools(settings, auth_provider)
+
+    with _patch_client(client):
+        raw = await tools["flow"](action="inspect", sys_id=SYS_ID_FLOW)
+
+    assert decode_response(raw)["status"] == "success"
+    client.list_action_input_definitions.assert_not_awaited()
+    client.list_action_output_definitions.assert_not_awaited()
+
+
+@pytest.mark.asyncio()
+async def test_contract_warns_when_v1_actions_cannot_be_reconstructed(
+    settings: Settings, auth_provider: BasicAuthProvider
+) -> None:
+    """V1 actions must not be silently omitted from a contract's ordered V2 steps."""
+    tools = _register_and_get_tools(settings, auth_provider)
+    kwargs = _empty_inspect_kwargs()
+    kwargs.update(
+        list_action_instances_v1=[{"sys_id": _ref("v1_action")}],
+        list_v1_variable_values=[{"document": _ref("v1_action")}],
+    )
+    client = _make_client_mock(**kwargs)
+
+    with _patch_client(client):
+        raw = await tools["flow"](action="contract", sys_id=SYS_ID_FLOW)
+    result = decode_response(raw)
+
+    assert result["status"] == "success"
+    assert result["data"]["steps"] == []
+    assert any("V1 action instance" in warning for warning in result["data"]["warnings"])
 
 
 # ---------------------------------------------------------------------------

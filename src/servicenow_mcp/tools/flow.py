@@ -1,7 +1,8 @@
 """Unified ``flow`` tool: read-only Flow Designer inspection.
 
-Five actions:
+Six actions:
 
+* ``contract``       - concise declared fields, ordered V2 checks/actions, and bindings.
 * ``inspect``        - assemble one flow by sys_id or name: header, triggers,
   inputs/outputs/variables, decoded V2 nodes, canvas tree, snapshot drift.
 * ``find_by_table``  - find flows with record triggers on a given table
@@ -17,6 +18,7 @@ endpoints (undocumented) or ``sys_hub_flow_snapshot`` (opaque cache).
 
 from __future__ import annotations
 
+import re
 from typing import Any, Final
 
 from mcp.server.fastmcp import FastMCP
@@ -34,12 +36,17 @@ from servicenow_mcp.utils import format_response, validate_identifier, validate_
 TOOL_NAMES: list[str] = ["flow"]
 
 _VALID_ACTIONS: Final[frozenset[str]] = frozenset(
-    {"inspect", "find_by_table", "decode_values", "list_triggers", "describe"}
+    {"contract", "inspect", "find_by_table", "decode_values", "list_triggers", "describe"}
 )
 
 _DEFAULT_TRIGGER_LIMIT: Final[int] = 100
+_DATA_PILL_PATTERN: Final[re.Pattern[str]] = re.compile(r"{{([^{}]+)}}")
 
 _ACTION_REGISTRY: Final[dict[str, dict[str, Any]]] = {
+    "contract": {
+        "description": "Return a concise, agent-oriented contract for one flow or subflow: declared fields, triggers, ordered checks/actions, bindings, and output assignments.",
+        "params": {"sys_id": "str (32-char)", "name": "str"},
+    },
     "inspect": {
         "description": "Assemble one flow by sys_id or name: header, triggers, inputs/outputs/variables, decoded V2 nodes, canvas tree, snapshot drift.",
         "params": {"sys_id": "str (32-char)", "name": "str"},
@@ -288,6 +295,10 @@ def _build_inspect_warnings(
         )
     if (actions_v1 or logic_v1 or triggers_v1) and (actions_v2 or logic_v2 or triggers_v2):
         warnings.append("V1 and V2 Flow Designer artifacts coexist on this flow; canvas omits V1 nodes.")
+    if actions_v1:
+        warnings.append(
+            f"{len(actions_v1)} V1 action instance(s) present; their configured bindings are not represented as contract steps."
+        )
     if logic_v1:
         warnings.append(
             f"{len(logic_v1)} V1 logic instance(s) present; their semantics are not reflected in the canvas tree."
@@ -304,6 +315,197 @@ def _build_inspect_warnings(
     return warnings
 
 
+def _contract_field(row: dict[str, Any]) -> dict[str, Any]:
+    """Project a declared flow field into the stable contract shape."""
+    field: dict[str, Any] = {
+        "name": _v(row.get("element")),
+        "label": _v(row.get("label")) or _v(row.get("element")),
+        "type": _v(row.get("internal_type")),
+        "required": _v(row.get("mandatory")) == "true",
+    }
+    default = _v(row.get("default_value"))
+    if default:
+        field["default"] = default
+    reference = _v(row.get("reference"))
+    if reference:
+        field["reference_table"] = reference
+    return field
+
+
+def _action_definition_field(row: dict[str, Any], *, has_default: bool) -> dict[str, Any]:
+    """Project one declared action field without exposing its source record."""
+    name = _v(row.get("name"))
+    field: dict[str, Any] = {
+        "name": name,
+        "label": _v(row.get("label")) or name,
+        "required": _v(row.get("mandatory")).lower() == "true",
+    }
+    prototype = row.get("element_prototype")
+    if isinstance(prototype, dict):
+        display = str(prototype.get("display_value") or "")
+        if display and re.fullmatch(r"[0-9a-f]{32}", display.lower()) is None:
+            field["type"] = display
+    if has_default:
+        default = _v(row.get("default_value"))
+        if default:
+            field["default"] = default
+    reference = _v(row.get("reference"))
+    if reference:
+        field["reference_table"] = reference
+    return field
+
+
+def _index_action_definition_fields(
+    rows: list[dict[str, Any]],
+    *,
+    has_default: bool,
+) -> dict[str, list[dict[str, Any]]]:
+    """Group projected action fields by their ``action_type`` relation."""
+    indexed: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        action_type_id = _v(row.get("action_type"))
+        if action_type_id:
+            indexed.setdefault(action_type_id, []).append(_action_definition_field(row, has_default=has_default))
+    return indexed
+
+
+def _contract_binding(value: dict[str, Any]) -> dict[str, Any]:
+    """Project one decoded Flow Designer input or output assignment.
+
+    ``data_pills`` contains only literal references present in the stored
+    binding. It intentionally does not resolve or interpret them.
+    """
+    parameter = value.get("parameter")
+    parameter_data = parameter if isinstance(parameter, dict) else {}
+    raw_value = value.get("value", "")
+    binding: dict[str, Any] = {
+        "name": str(value.get("name", "")),
+        "label": str(parameter_data.get("label", "") or value.get("name", "")),
+        "type": str(parameter_data.get("type", "")),
+        "required": bool(parameter_data.get("mandatory", False)),
+        "value": raw_value,
+    }
+    if isinstance(raw_value, str):
+        data_pills = _DATA_PILL_PATTERN.findall(raw_value)
+        if data_pills:
+            binding["data_pills"] = data_pills
+    return binding
+
+
+def _contract_node_bindings(decoded: Any) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Extract configured inputs and output assignments from decoded node values."""
+    if isinstance(decoded, list):
+        return [item for item in decoded if isinstance(item, dict)], []
+    if not isinstance(decoded, dict):
+        return [], []
+
+    inputs: list[dict[str, Any]] = []
+    for key in ("inputs", "decisionTableInputs", "dynamicInputs", "workflowInputs"):
+        items = decoded.get(key)
+        if isinstance(items, list):
+            inputs.extend(item for item in items if isinstance(item, dict))
+    assignments = decoded.get("outputsToAssign")
+    if not isinstance(assignments, list):
+        return inputs, []
+    return inputs, [item for item in assignments if isinstance(item, dict)]
+
+
+def _contract_steps(
+    canvas: list[dict[str, Any]],
+    action_input_definitions: dict[str, list[dict[str, Any]]],
+    action_output_definitions: dict[str, list[dict[str, Any]]],
+    schema_limitations: list[str],
+) -> list[dict[str, Any]]:
+    """Flatten the canvas into execution-order contract steps without raw node metadata."""
+    steps: list[dict[str, Any]] = []
+
+    def visit(nodes: list[dict[str, Any]], parent_step: str = "") -> None:
+        for index, node in enumerate(nodes, start=1):
+            step_id = f"{parent_step}.{index}" if parent_step else str(index)
+            inputs, assignments = _contract_node_bindings(node.get("values_decoded"))
+            step: dict[str, Any] = {
+                "step": step_id,
+                "kind": node["kind"],
+                "order": node["order"],
+                "label": node["label"],
+            }
+            if node["kind"] == "action":
+                action_type = node["action_type"]
+                step["action"] = {
+                    "name": action_type["name"],
+                    "internal_name": action_type.get("internal_name", ""),
+                    "category": action_type.get("category", ""),
+                    "scope": action_type.get("sys_scope", ""),
+                }
+                action_type_id = action_type["sys_id"]
+                action_definition: dict[str, Any] = {
+                    "inputs": list(action_input_definitions.get(action_type_id, [])),
+                    "outputs": list(action_output_definitions.get(action_type_id, [])),
+                }
+                if schema_limitations:
+                    action_definition["limitations"] = list(schema_limitations)
+                step["definition"] = action_definition
+                step["inputs"] = [_contract_binding(value) for value in inputs]
+            else:
+                definition = node["logic_definition"]
+                step["logic"] = {"name": definition["name"]}
+                step["conditions"] = [_contract_binding(value) for value in inputs]
+            if assignments:
+                step["output_assignments"] = [_contract_binding(value) for value in assignments]
+            if "decode_error" in node:
+                step["decode_error"] = node["decode_error"]
+            steps.append(step)
+            visit(node["children"], step_id)
+
+    visit(canvas)
+    return steps
+
+
+def _contract_trigger(trigger: dict[str, Any]) -> dict[str, Any]:
+    """Project a trigger into contract fields without raw decoded metadata."""
+    result: dict[str, Any] = {
+        "version": trigger["version"],
+        "type": trigger["type"],
+        "active": trigger["active"],
+        "table": trigger["table"],
+        "condition": trigger["condition"],
+    }
+    configuration, _ = _contract_node_bindings(trigger.get("values_decoded"))
+    if configuration:
+        result["configuration"] = [_contract_binding(value) for value in configuration]
+    if "decode_error" in trigger:
+        result["decode_error"] = trigger["decode_error"]
+    return result
+
+
+def _build_flow_contract(
+    payload: dict[str, Any],
+    action_input_definitions: dict[str, list[dict[str, Any]]],
+    action_output_definitions: dict[str, list[dict[str, Any]]],
+    schema_limitations: list[str],
+) -> dict[str, Any]:
+    """Build a concise contract from the detailed inspect payload.
+
+    The contract retains literal binding values and data pills as stored, so
+    consumers can distinguish configured mappings from inferred behavior.
+    """
+    return {
+        "flow": payload["flow"],
+        "published_state": payload["published_state"],
+        "inputs": [_contract_field(row) for row in payload["inputs"]],
+        "outputs": [_contract_field(row) for row in payload["outputs"]],
+        "variables": [_contract_field(row) for row in payload["variables"]],
+        "triggers": [_contract_trigger(trigger) for trigger in payload["triggers"]],
+        "steps": _contract_steps(
+            payload["canvas"],
+            action_input_definitions,
+            action_output_definitions,
+            schema_limitations,
+        ),
+        "warnings": [*payload["warnings"], *schema_limitations],
+    }
+
+
 async def _action_inspect(
     *,
     sys_id: str,
@@ -311,6 +513,7 @@ async def _action_inspect(
     settings: Settings,
     auth_provider: BasicAuthProvider,
     correlation_id: str,
+    is_contract: bool = False,
 ) -> str:
     if sys_id and name:
         return _error(correlation_id, "Provide exactly one of sys_id or name (not both).")
@@ -343,6 +546,19 @@ async def _action_inspect(
 
         action_type_ids = sorted({_v(a.get("action_type")) for a in actions_v2 if _v(a.get("action_type"))})
         action_type_rows = await client.get_action_type_definitions(action_type_ids) if action_type_ids else []
+
+        action_input_rows: list[dict[str, Any]] = []
+        action_output_rows: list[dict[str, Any]] = []
+        schema_limitations: list[str] = []
+        if is_contract and action_type_ids:
+            try:
+                action_input_rows = await client.list_action_input_definitions(action_type_ids)
+            except Exception as exc:
+                schema_limitations.append(f"Action input definitions are unavailable: {exc}")
+            try:
+                action_output_rows = await client.list_action_output_definitions(action_type_ids)
+            except Exception as exc:
+                schema_limitations.append(f"Action output definitions are unavailable: {exc}")
 
         v1_action_ids = sorted({_v(a.get("sys_id")) for a in actions_v1 if _v(a.get("sys_id"))})
         v1_variable_values = await client.list_v1_variable_values(v1_action_ids) if v1_action_ids else []
@@ -406,7 +622,14 @@ async def _action_inspect(
         "v1_variable_values": [_flatten_record(row) for row in v1_variable_values],
         "warnings": warnings,
     }
-    return format_response(data=payload, correlation_id=correlation_id)
+    action_input_definitions = _index_action_definition_fields(action_input_rows, has_default=True)
+    action_output_definitions = _index_action_definition_fields(action_output_rows, has_default=False)
+    data = (
+        _build_flow_contract(payload, action_input_definitions, action_output_definitions, schema_limitations)
+        if is_contract
+        else payload
+    )
+    return format_response(data=data, correlation_id=correlation_id)
 
 
 def _safe_int(value: str) -> int:
@@ -650,9 +873,9 @@ def register_tools(
         """Inspect Flow Designer flows, triggers, and value blobs (read-only).
 
         Args:
-            action: 'inspect' | 'find_by_table' | 'decode_values' | 'list_triggers' | 'describe'.
-            sys_id: Flow sys_id (inspect; mutually exclusive with name).
-            name: Flow name (inspect; mutually exclusive with sys_id).
+            action: 'contract' | 'inspect' | 'find_by_table' | 'decode_values' | 'list_triggers' | 'describe'.
+            sys_id: Flow sys_id (contract/inspect; mutually exclusive with name).
+            name: Flow name (contract/inspect; mutually exclusive with sys_id).
             value: gzip+base64+JSON blob to decode (decode_values).
             table: Target table (find_by_table; optional filter for list_triggers).
             trigger_type: Trigger type filter (list_triggers, e.g. 'record_update').
@@ -671,13 +894,14 @@ def register_tools(
         if action == "decode_values":
             return _action_decode_values(value=value, correlation_id=correlation_id)
 
-        if action == "inspect":
+        if action in {"contract", "inspect"}:
             return await _action_inspect(
                 sys_id=sys_id,
                 name=name,
                 settings=settings,
                 auth_provider=auth_provider,
                 correlation_id=correlation_id,
+                is_contract=action == "contract",
             )
 
         if action == "find_by_table":

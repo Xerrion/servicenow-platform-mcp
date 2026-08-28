@@ -23,7 +23,6 @@ from servicenow_mcp.tools._dictionary import DictionaryRegistry
 from servicenow_mcp.tools._payload import MAX_JSON_PAYLOAD_BYTES
 from servicenow_mcp.utils import ServiceNowQuery, format_response
 
-
 logger = logging.getLogger(__name__)
 
 TOOL_NAMES: list[str] = ["build_query"]
@@ -99,12 +98,18 @@ def _require_value(
     value = condition.get("value")
     if value is None:
         msg = message or f"Operator '{operator}' requires a 'value'."
-        return None, format_response(data=None, correlation_id=correlation_id, status="error", error=msg)
+        return None, format_response(
+            data=None, correlation_id=correlation_id, status="error", error=msg
+        )
     return value, None
 
 
 def _apply_unary(
-    query: ServiceNowQuery, field: str, operator: str, _condition: dict[str, Any], _correlation_id: str
+    query: ServiceNowQuery,
+    field: str,
+    operator: str,
+    _condition: dict[str, Any],
+    _correlation_id: str,
 ) -> str | None:
     """Apply a unary operator (no value needed)."""
     getattr(query, operator)(field)
@@ -112,11 +117,18 @@ def _apply_unary(
 
 
 def _apply_time(
-    query: ServiceNowQuery, field: str, operator: str, condition: dict[str, Any], correlation_id: str
+    query: ServiceNowQuery,
+    field: str,
+    operator: str,
+    condition: dict[str, Any],
+    correlation_id: str,
 ) -> str | None:
     """Apply a time operator (requires integer value)."""
     value, err = _require_value(
-        condition, operator, correlation_id, f"Time operator '{operator}' requires an integer 'value'."
+        condition,
+        operator,
+        correlation_id,
+        f"Time operator '{operator}' requires an integer 'value'.",
     )
     if err:
         return err
@@ -134,7 +146,11 @@ def _apply_time(
 
 
 def _apply_binary(
-    query: ServiceNowQuery, field: str, operator: str, condition: dict[str, Any], correlation_id: str
+    query: ServiceNowQuery,
+    field: str,
+    operator: str,
+    condition: dict[str, Any],
+    correlation_id: str,
 ) -> str | None:
     """Apply a binary or OR-binary operator (requires string value)."""
     value, err = _require_value(condition, operator, correlation_id)
@@ -145,7 +161,11 @@ def _apply_binary(
 
 
 def _apply_list(
-    query: ServiceNowQuery, field: str, operator: str, condition: dict[str, Any], correlation_id: str
+    query: ServiceNowQuery,
+    field: str,
+    operator: str,
+    condition: dict[str, Any],
+    correlation_id: str,
 ) -> str | None:
     """Apply a list operator (requires list value)."""
     value = condition.get("value")
@@ -161,7 +181,11 @@ def _apply_list(
 
 
 def _apply_field(
-    query: ServiceNowQuery, field: str, operator: str, condition: dict[str, Any], correlation_id: str
+    query: ServiceNowQuery,
+    field: str,
+    operator: str,
+    condition: dict[str, Any],
+    correlation_id: str,
 ) -> str | None:
     """Apply a field comparison operator (requires other_field)."""
     other_field = condition.get("other_field") or condition.get("value")
@@ -177,7 +201,11 @@ def _apply_field(
 
 
 def _apply_between(
-    query: ServiceNowQuery, field: str, _operator: str, condition: dict[str, Any], correlation_id: str
+    query: ServiceNowQuery,
+    field: str,
+    _operator: str,
+    condition: dict[str, Any],
+    correlation_id: str,
 ) -> str | None:
     """Apply the between operator (requires start and end)."""
     start = condition.get("start")
@@ -196,7 +224,11 @@ def _apply_between(
 
 
 def _apply_datepart(
-    query: ServiceNowQuery, field: str, _operator: str, condition: dict[str, Any], correlation_id: str
+    query: ServiceNowQuery,
+    field: str,
+    _operator: str,
+    condition: dict[str, Any],
+    correlation_id: str,
 ) -> str | None:
     """Apply the datepart operator (requires part, dp_operator, dp_value)."""
     part = condition.get("part", "")
@@ -204,7 +236,14 @@ def _apply_datepart(
     if dp_operator is None:
         dp_operator = condition.get("value")
     dp_value = condition.get("dp_value")
-    if part is None or part == "" or dp_operator is None or dp_operator == "" or dp_value is None or dp_value == "":
+    if (
+        part is None
+        or part == ""
+        or dp_operator is None
+        or dp_operator == ""
+        or dp_value is None
+        or dp_value == ""
+    ):
         return format_response(
             data=None,
             correlation_id=correlation_id,
@@ -216,7 +255,11 @@ def _apply_datepart(
 
 
 def _apply_new_query(
-    query: ServiceNowQuery, _field: str, _operator: str, _condition: dict[str, Any], _correlation_id: str
+    query: ServiceNowQuery,
+    _field: str,
+    _operator: str,
+    _condition: dict[str, Any],
+    _correlation_id: str,
 ) -> str | None:
     """Apply the new_query separator."""
     query.new_query()
@@ -224,7 +267,11 @@ def _apply_new_query(
 
 
 def _apply_rl_query(
-    query: ServiceNowQuery, field: str, _operator: str, condition: dict[str, Any], correlation_id: str
+    query: ServiceNowQuery,
+    field: str,
+    _operator: str,
+    condition: dict[str, Any],
+    correlation_id: str,
 ) -> str | None:
     """Apply the rl_query operator (requires related_table, related_field, rl_operator)."""
     related_table = condition.get("related_table", "")
@@ -238,12 +285,18 @@ def _apply_rl_query(
             status="error",
             error="Operator 'rl_query' requires 'related_table', 'related_field' (or 'field'), and 'rl_operator'.",
         )
-    query.rl_query(str(related_table), str(related_field), str(rl_operator), str(rl_value))
+    query.rl_query(
+        str(related_table), str(related_field), str(rl_operator), str(rl_value)
+    )
     return None
 
 
 def _apply_order_by(
-    query: ServiceNowQuery, field: str, _operator: str, condition: dict[str, Any], _correlation_id: str
+    query: ServiceNowQuery,
+    field: str,
+    _operator: str,
+    condition: dict[str, Any],
+    _correlation_id: str,
 ) -> str | None:
     """Apply the order_by operator."""
     descending = bool(condition.get("descending", False))
@@ -372,7 +425,12 @@ def register_tools(
     four-argument signature is preserved so the bootstrap loader can call every
     unified ``register_tools`` uniformly.
     """
-    del settings, auth_provider, choices, dictionary  # unused; signature retained for loader parity
+    del (
+        settings,
+        auth_provider,
+        choices,
+        dictionary,
+    )  # unused; signature retained for loader parity
 
     @mcp.tool()
     @tool_handler

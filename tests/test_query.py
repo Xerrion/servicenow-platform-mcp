@@ -53,7 +53,7 @@ class TestQueryMode:
     @respx.mock
     async def test_query_mode_returns_records(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         """Returns matching records with pagination, sensitive fields masked."""
-        respx.get(f"{BASE_URL}/api/now/table/incident").mock(
+        route = respx.get(f"{BASE_URL}/api/now/table/incident").mock(
             return_value=httpx.Response(
                 200,
                 json={
@@ -71,13 +71,51 @@ class TestQueryMode:
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["query"](table="incident", encoded_query="active=true")
+        raw = await tools["query"](table="incident", encoded_query="active=true", fields="number,password")
         result = decode_response(raw)
 
         assert result["status"] == "success"
         assert len(result["data"]) == 2
         assert result["data"][0]["password"] == "***MASKED***"
+        assert route.calls.last.request.url.params["sysparm_fields"] == "sys_id,number,password"
         assert result["pagination"] == {"offset": 0, "limit": 20, "total": 2}
+        assert result["selection"] == {
+            "mode": "explicit",
+            "requested_fields": ["number", "password"],
+            "returned_fields": ["sys_id", "number", "password"],
+            "omitted": "all fields outside the projection",
+            "sys_id_added": True,
+        }
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_omitted_fields_returns_error_without_io(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        tools = _register_and_get_tools(settings, auth_provider)
+        result = decode_response(await tools["query"](table="incident", encoded_query="active=true"))
+
+        assert result["status"] == "error"
+        assert "fields is required" in result["error"]["message"]
+        assert not respx.calls
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_star_requests_all_masked_fields(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+        route = respx.get(f"{BASE_URL}/api/now/table/incident").mock(
+            return_value=httpx.Response(
+                200,
+                json={"result": [{"sys_id": "1", "password": "secret"}]},
+                headers={"X-Total-Count": "1"},
+            )
+        )
+        tools = _register_and_get_tools(settings, auth_provider)
+        result = decode_response(await tools["query"](table="incident", fields="*"))
+
+        assert result["status"] == "success"
+        assert result["data"][0]["password"] == "***MASKED***"
+        assert "sysparm_fields" not in route.calls.last.request.url.params
+        assert result["selection"]["mode"] == "all"
 
     @pytest.mark.asyncio()
     async def test_denied_table_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
@@ -97,7 +135,7 @@ class TestQueryMode:
         """enforce_query_safety still gates large tables in unified query mode."""
         settings.large_table_names_csv = "syslog,sys_audit"
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["query"](table="syslog", encoded_query="level=error")
+        raw = await tools["query"](table="syslog", encoded_query="level=error", fields="message")
         result = decode_response(raw)
 
         assert result["status"] == "error"
@@ -132,6 +170,7 @@ class TestQueryMode:
         raw = await tools["query"](
             table="sys_audit",
             encoded_query="sys_created_on>=javascript:gs.daysAgoStart(7)",
+            fields="tablename,fieldname,oldvalue,newvalue",
         )
         result = decode_response(raw)
 
@@ -166,13 +205,40 @@ class TestSysIdMode:
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["query"](table="incident", sys_id=sys_id)
+        raw = await tools["query"](table="incident", sys_id=sys_id, fields="number,secret")
         result = decode_response(raw)
 
         assert result["status"] == "success"
         assert result["data"]["number"] == "INC0001"
         assert result["data"]["secret"] == "***MASKED***"
         assert "pagination" not in result
+        assert result["selection"]["returned_fields"] == ["sys_id", "number", "secret"]
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_sys_id_omitted_fields_uses_compact_projection(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        sys_id = "a" * 32
+        route = respx.get(f"{BASE_URL}/api/now/table/incident/{sys_id}").mock(
+            return_value=httpx.Response(200, json={"result": {"sys_id": sys_id, "sys_updated_on": "now"}})
+        )
+        tools = _register_and_get_tools(settings, auth_provider)
+        result = decode_response(await tools["query"](table="incident", sys_id=sys_id))
+
+        assert result["status"] == "success"
+        assert route.calls.last.request.url.params["sysparm_fields"] == "sys_id,sys_updated_on"
+        assert result["selection"]["mode"] == "compact"
+
+    @pytest.mark.asyncio()
+    async def test_invalid_projection_returns_error_without_io(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        tools = _register_and_get_tools(settings, auth_provider)
+        result = decode_response(await tools["query"](table="incident", fields="number,bad-field"))
+
+        assert result["status"] == "error"
+        assert "Invalid identifier" in result["error"]["message"]
 
     @pytest.mark.asyncio()
     async def test_sys_id_mode_with_invalid_sys_id_returns_error(
@@ -288,7 +354,10 @@ class TestResolveLabels:
 
         tools = _register_and_get_tools(settings, auth_provider, choices=choices)
         raw = await tools["query"](
-            table="incident", encoded_query="active=true", resolve_labels="state=open,priority=high"
+            table="incident",
+            encoded_query="active=true",
+            fields="number",
+            resolve_labels="state=open,priority=high",
         )
         result = decode_response(raw)
 
@@ -311,7 +380,7 @@ class TestResolveLabels:
         choices.resolve = AsyncMock(side_effect=lambda _t, _f, label: label)  # type: ignore[method-assign]
 
         tools = _register_and_get_tools(settings, auth_provider, choices=choices)
-        raw = await tools["query"](table="incident", resolve_labels="state=mystery")
+        raw = await tools["query"](table="incident", fields="number", resolve_labels="state=mystery")
         result = decode_response(raw)
 
         assert result["status"] == "success"
@@ -406,7 +475,7 @@ class TestFieldValidation:
         dictionary = self._stub_dictionary(settings, auth_provider, ["u_samaccountname", "u_member"])
 
         tools = _register_and_get_tools(settings, auth_provider, dictionary=dictionary)
-        raw = await tools["query"](table="u_custom", encoded_query="name=Vinklubben")
+        raw = await tools["query"](table="u_custom", encoded_query="name=Vinklubben", fields="u_member")
         result = decode_response(raw)
 
         assert result["status"] == "success"
@@ -423,7 +492,7 @@ class TestFieldValidation:
         dictionary = self._stub_dictionary(settings, auth_provider, ["u_samaccountname", "u_member"])
 
         tools = _register_and_get_tools(settings, auth_provider, dictionary=dictionary)
-        raw = await tools["query"](table="u_custom", encoded_query="u_samaccountname=ACL_X")
+        raw = await tools["query"](table="u_custom", encoded_query="u_samaccountname=ACL_X", fields="u_member")
         result = decode_response(raw)
 
         assert result["status"] == "success"
@@ -442,7 +511,7 @@ class TestFieldValidation:
         dictionary.get_all_fields = AsyncMock(side_effect=RuntimeError("boom"))  # type: ignore[method-assign]
 
         tools = _register_and_get_tools(settings, auth_provider, dictionary=dictionary)
-        raw = await tools["query"](table="u_custom", encoded_query="name=Vinklubben")
+        raw = await tools["query"](table="u_custom", encoded_query="name=Vinklubben", fields="u_member")
         result = decode_response(raw)
 
         assert result["status"] == "success"

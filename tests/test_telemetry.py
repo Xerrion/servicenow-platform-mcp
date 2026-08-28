@@ -165,8 +165,8 @@ async def test_repeated_tool_calls_share_one_transport(
     register_tools(mcp, settings, auth_provider, client_factory=factory)
     query = get_tool_functions(mcp)["query"]
 
-    first = decode_response(await query(table="incident", encoded_query="active=true"))
-    second = decode_response(await query(table="incident", encoded_query="active=true"))
+    first = decode_response(await query(table="incident", encoded_query="active=true", fields="number"))
+    second = decode_response(await query(table="incident", encoded_query="active=true", fields="number"))
 
     assert first["status"] == "success"
     assert second["status"] == "success"

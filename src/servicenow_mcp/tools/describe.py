@@ -21,6 +21,7 @@ from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.policy import check_table_access
 from servicenow_mcp.tools._describe_helpers import (
+    DEFAULT_DESCRIBE_FIELD_LIMIT,
     _describe_impl,
     _parse_fields_filter,
 )
@@ -166,6 +167,8 @@ def register_tools(
         include_docs: bool = False,
         action: str = "",
         name_filter: str = "",
+        field_offset: int = 0,
+        field_limit: int = DEFAULT_DESCRIBE_FIELD_LIMIT,
         *,
         correlation_id: str = "",
     ) -> str:
@@ -175,7 +178,8 @@ def register_tools(
             table: ServiceNow table name. Required for the default flow and for
                 ``action='list_script_fields'``. Ignored by
                 ``action='list_tables'``.
-            fields: Comma-separated list of fields to include. Empty = all fields.
+            fields: Comma-separated fields to include. Empty returns a bounded
+                compact page. ``'*'`` explicitly returns all fields.
             verbose: When True, return the full sys_dictionary row per field
                 minus a fixed deny-list of high-noise keys. Default False.
             include_docs: When True, attach the matching sys_documentation entry
@@ -187,6 +191,8 @@ def register_tools(
                 the standard table-describe flow.
             name_filter: Substring matched against table name and label when
                 ``action='list_tables'``. Empty returns all tables (capped).
+            field_offset: Zero-based field offset for compact default pages.
+            field_limit: Field count for compact default pages (1-100).
         """
         if action:
             if action not in _VALID_DESCRIBE_ACTIONS:
@@ -211,7 +217,30 @@ def register_tools(
         validate_identifier(table)
         check_table_access(table)
 
-        requested_fields = _parse_fields_filter(fields)
+        if field_offset < 0:
+            return format_response(
+                data=None,
+                correlation_id=correlation_id,
+                status="error",
+                error="field_offset must be zero or greater.",
+            )
+        if not 1 <= field_limit <= 100:
+            return format_response(
+                data=None,
+                correlation_id=correlation_id,
+                status="error",
+                error="field_limit must be between 1 and 100.",
+            )
+
+        is_all_fields = fields.strip() == "*"
+        requested_fields = [] if is_all_fields else _parse_fields_filter(fields)
+        if "*" in requested_fields:
+            return format_response(
+                data=None,
+                correlation_id=correlation_id,
+                status="error",
+                error="fields='*' must be used alone.",
+            )
         for name in requested_fields:
             validate_identifier(name)
 
@@ -220,13 +249,26 @@ def register_tools(
             verbose=verbose,
             include_docs=include_docs,
             requested_fields=requested_fields,
+            field_offset=0 if is_all_fields else field_offset,
+            field_limit=1_000_000 if is_all_fields else field_limit,
             settings=settings,
             auth_provider=auth_provider,
             client_factory=client_factory,
         )
 
+        if is_all_fields:
+            data["selection"] = {
+                "mode": "all",
+                "requested_fields": "*",
+                "returned_fields": [str(field.get("name") or field.get("element") or "") for field in data["fields"]],
+                "omitted_count": max(data["total_field_count"] - data["field_count"], 0),
+                "truncated": data["field_count"] < data["total_field_count"],
+            }
+
+        selection = data.pop("selection")
         return format_response(
             data=data,
             correlation_id=correlation_id,
             warnings=warnings or None,
+            selection=selection,
         )

@@ -6,6 +6,7 @@ groups under ``servicenow_mcp.tools.*``.
 """
 
 import importlib
+from typing import Any
 
 import pytest
 
@@ -42,6 +43,28 @@ class TestPackageRegistry:
     def test_full_contains_all_unified_groups(self) -> None:
         assert set(PACKAGE_REGISTRY["full"]) == EXPECTED_GROUPS
         assert len(PACKAGE_REGISTRY["full"]) == 11
+
+    def test_full_public_surface_stays_at_fourteen_tools(self, settings: Any) -> None:
+        """Optimization changes do not add or remove public tools."""
+        from mcp.server.fastmcp import FastMCP
+
+        from servicenow_mcp.auth import BasicAuthProvider
+        from servicenow_mcp.choices import ChoiceRegistry
+        from servicenow_mcp.config import Settings
+        from servicenow_mcp.tools._dictionary import DictionaryRegistry
+
+        assert isinstance(settings, Settings)
+        auth_provider = BasicAuthProvider(settings)
+        mcp = FastMCP("test")
+        choices = ChoiceRegistry(settings, auth_provider)
+        dictionary = DictionaryRegistry(settings, auth_provider)
+        for group in PACKAGE_REGISTRY["full"]:
+            module = importlib.import_module(_TOOL_GROUP_MODULES[group])
+            module.register_tools(mcp, settings, auth_provider, choices=choices, dictionary=dictionary)
+
+        registered_tool_count = len(mcp._tool_manager._tools)
+        always_on_tool_count = 1
+        assert registered_tool_count + always_on_tool_count == 14
 
     def test_readonly_is_strict_subset_of_full(self) -> None:
         readonly = set(PACKAGE_REGISTRY["readonly"])

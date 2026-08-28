@@ -17,10 +17,19 @@ from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.policy import check_table_access, mask_record
 from servicenow_mcp.tools._dictionary import DictionaryRegistry, ScriptField
 from servicenow_mcp.tools._record_helpers import _resolve_record_sys_id
-from servicenow_mcp.utils import format_response, validate_identifier
+from servicenow_mcp.utils import format_response, validate_identifier, validate_sys_id
 
 
 TOOL_NAMES: list[str] = ["record_read"]
+
+_COMPACT_IDENTITY_FIELDS: tuple[str, ...] = (
+    "sys_id",
+    "name",
+    "number",
+    "sys_updated_on",
+    "sys_updated_by",
+    "sys_mod_count",
+)
 
 
 def _err(correlation_id: str, message: str) -> str:
@@ -39,6 +48,21 @@ def _script_field_summary(fields: list[ScriptField]) -> list[dict[str, object]]:
         }
         for f in fields
     ]
+
+
+def _parse_requested_fields(fields: str, correlation_id: str) -> tuple[list[str] | None, str] | str:
+    """Parse the record projection before any ServiceNow request."""
+    if fields.strip() == "*":
+        return None, "all"
+    requested = [name.strip() for name in fields.split(",") if name.strip()]
+    if "*" in requested:
+        return _err(correlation_id, "fields='*' must be used alone.")
+    for name in requested:
+        try:
+            validate_identifier(name)
+        except ValueError as exc:
+            return _err(correlation_id, f"Invalid field projection: {exc}")
+    return requested, "explicit" if requested else "compact"
 
 
 def register_tools(
@@ -62,6 +86,7 @@ def register_tools(
         table: str,
         sys_id: str = "",
         name: str = "",
+        fields: str = "",
         *,
         correlation_id: str = "",
     ) -> str:
@@ -80,6 +105,9 @@ def register_tools(
             sys_id: Mutually exclusive with ``name``. Direct lookup by sys_id.
             name: Mutually exclusive with ``sys_id``. Resolves via
                 ``name=<value>`` query; ambiguous matches return an error.
+            fields: Comma-separated field projection. Empty returns compact
+                identity/update metadata plus all discovered script-bearing fields.
+                ``'*'`` returns the full masked record.
         """
         # --- 1. Validate table identifier ----------------------------------
         if not table:
@@ -95,24 +123,62 @@ def register_tools(
         # --- 3. Policy gate ------------------------------------------------
         check_table_access(table)
 
-        # --- 4. Resolve target sys_id and fetch record ---------------------
+        parsed = _parse_requested_fields(fields, correlation_id)
+        if isinstance(parsed, str):
+            return parsed
+        requested_fields, selection_mode = parsed
+        if sys_id:
+            validate_sys_id(sys_id)
+
+        # --- 4. Discover fields and validate the requested projection ------
+        all_fields = await dict_registry.get_all_fields(table)
+        known_fields = {field.name for field in all_fields}
+        script_fields = await dict_registry.get_script_fields(table)
+        if requested_fields is not None:
+            unknown_fields = [field for field in requested_fields if field != "sys_id" and field not in known_fields]
+            if unknown_fields:
+                return _err(
+                    correlation_id,
+                    f"Unknown field(s) for table {table!r}: {','.join(unknown_fields)}.",
+                )
+
+        if selection_mode == "compact":
+            identity_fields = [
+                field for field in _COMPACT_IDENTITY_FIELDS if field == "sys_id" or field in known_fields
+            ]
+            projection = list(dict.fromkeys([*identity_fields, *(field.name for field in script_fields)]))
+        elif requested_fields is None:
+            projection = None
+        else:
+            projection = list(dict.fromkeys(["sys_id", *requested_fields]))
+
+        # --- 5. Resolve target sys_id and fetch one projected record --------
         async with client_factory() as client:
             resolved_sys_id, err = await _resolve_record_sys_id(client, table, sys_id, name, correlation_id)
             if err:
                 return err
-            # _resolve_record_sys_id returns (sys_id, None) on success.
             assert resolved_sys_id is not None
-            record = await client.get_record(table, resolved_sys_id)
+            record = await client.get_record(table, resolved_sys_id, fields=projection)
 
-        # --- 5. Discover script-bearing fields (dictionary-driven) ---------
-        script_fields = await dict_registry.get_script_fields(table)
+        masked_record = mask_record(table, record)
+        returned_fields = list(masked_record)
+        selection: dict[str, object] = {
+            "mode": selection_mode,
+            "requested_fields": "*" if selection_mode == "all" else (requested_fields or None),
+            "returned_fields": returned_fields,
+            "omitted": [] if selection_mode == "all" else "all fields outside the projection",
+            "sys_id_added": selection_mode == "explicit"
+            and requested_fields is not None
+            and "sys_id" not in requested_fields,
+        }
 
         return format_response(
             data={
                 "table": table,
                 "sys_id": resolved_sys_id,
-                "record": mask_record(table, record),
+                "record": masked_record,
                 "script_fields": _script_field_summary(script_fields),
             },
             correlation_id=correlation_id,
+            selection=selection,
         )

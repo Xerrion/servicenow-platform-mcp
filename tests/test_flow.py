@@ -543,6 +543,87 @@ async def test_inspect_section_limit_discloses_truncation_and_continuation(
     }
 
 
+@pytest.mark.parametrize(
+    ("action", "sections", "node_section"),
+    [
+        ("inspect", "canvas,warnings", "canvas"),
+        ("contract", "steps,warnings", "steps"),
+        ("inspect", "*", "canvas"),
+        ("contract", "*", "steps"),
+    ],
+)
+@pytest.mark.asyncio()
+async def test_node_section_bound_does_not_truncate_warning_analysis(
+    settings: Settings,
+    auth_provider: BasicAuthProvider,
+    action: str,
+    sections: str,
+    node_section: str,
+) -> None:
+    """A combined node bound does not hide warnings from complete source probes."""
+    actions = [
+        {
+            "sys_id": _ref(f"a{index}"),
+            "ui_uuid": _ref(f"ui_a{index}"),
+            "parent_ui_uuid": _ref(""),
+            "order": _ref(str(index)),
+            "label": _ref(f"Action {index}"),
+            "action_type": _ref("atype_core", "Core Action"),
+            "values": _ref(""),
+        }
+        for index in range(59)
+    ]
+    actions.append(
+        {
+            "sys_id": _ref("a_spoke"),
+            "ui_uuid": _ref("ui_a_spoke"),
+            "parent_ui_uuid": _ref(""),
+            "order": _ref("100"),
+            "label": _ref("Spoke Action"),
+            "action_type": _ref("atype_spoke", "Spoke Action"),
+            "values": _ref(""),
+        }
+    )
+    logic = [
+        {
+            "sys_id": _ref(f"l{index}"),
+            "ui_uuid": _ref(f"ui_l{index}"),
+            "parent_ui_uuid": _ref(""),
+            "order": _ref(str(index)),
+            "label": _ref(f"Logic {index}"),
+            "logic_definition": _ref("if_def", "If"),
+            "values": _ref(""),
+        }
+        for index in range(59, 100)
+    ]
+    kwargs = _empty_inspect_kwargs()
+    kwargs.update(
+        list_action_instances_v2=actions,
+        list_logic_instances_v2=logic,
+        get_action_type_definitions=[
+            {"sys_id": _ref("atype_core"), "category": _ref("Core")},
+            {"sys_id": _ref("atype_spoke"), "category": _ref("IntegrationHub Spoke")},
+        ],
+    )
+    client = _make_client_mock(**kwargs)
+    tools = _register_and_get_tools(settings, auth_provider)
+
+    with _patch_client(client):
+        raw = await tools["flow"](
+            action=action,
+            sys_id=SYS_ID_FLOW,
+            sections=sections,
+            section_limit=100,
+        )
+    result = decode_response(raw)
+
+    assert len(result["data"][node_section]) == 100
+    assert any("spoke action type" in warning for warning in result["data"]["warnings"])
+    assert result["selection"]["truncation"][node_section]["returned"] == 100
+    assert "warnings" not in result["selection"]["truncation"]
+    client.get_action_type_definitions.assert_awaited_once_with(["atype_core", "atype_spoke"])
+
+
 @pytest.mark.parametrize(("action", "section"), [("inspect", "canvas"), ("contract", "steps")])
 @pytest.mark.asyncio()
 async def test_node_truncation_at_max_names_direct_query_paths(

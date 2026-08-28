@@ -808,6 +808,10 @@ async def _action_inspect(
         logic_v1 = datasets.get("logic_v1", [])
         triggers_v2 = datasets.get("triggers_v2", [])
         triggers_v1 = datasets.get("triggers_v1", [])
+        node_actions_v2 = actions_v2
+        node_logic_v2 = logic_v2
+        returned_triggers_v2 = triggers_v2
+        returned_triggers_v1 = triggers_v1
         if "structural_summary" in selected_sections:
             truncated_datasets = _saturated_datasets(datasets, requested_limits, _STRUCTURAL_DATASETS)
             if truncated_datasets:
@@ -854,8 +858,8 @@ async def _action_inspect(
                         source_datasets=("actions_v2", "logic_v2"),
                     ),
                 }
-            actions_v2 = [row for kind, row in bounded_nodes if kind == "action"]
-            logic_v2 = [row for kind, row in bounded_nodes if kind == "logic"]
+            node_actions_v2 = [row for kind, row in bounded_nodes if kind == "action"]
+            node_logic_v2 = [row for kind, row in bounded_nodes if kind == "logic"]
 
         if "triggers" in selected_sections:
             all_triggers = [("v2", row) for row in triggers_v2] + [("v1", row) for row in triggers_v1]
@@ -872,10 +876,12 @@ async def _action_inspect(
                         source_datasets=("triggers_v2", "triggers_v1"),
                     ),
                 }
-            triggers_v2 = [row for version, row in bounded_triggers if version == "v2"]
-            triggers_v1 = [row for version, row in bounded_triggers if version == "v1"]
+            returned_triggers_v2 = [row for version, row in bounded_triggers if version == "v2"]
+            returned_triggers_v1 = [row for version, row in bounded_triggers if version == "v1"]
 
-        remote_ids = sorted({_v(t.get("remote_trigger_id")) for t in triggers_v2 if _v(t.get("remote_trigger_id"))})
+        remote_ids = sorted(
+            {_v(t.get("remote_trigger_id")) for t in returned_triggers_v2 if _v(t.get("remote_trigger_id"))}
+        )
         record_triggers = (
             await client.list_record_triggers(remote_ids) if "triggers" in selected_sections and remote_ids else []
         )
@@ -883,7 +889,7 @@ async def _action_inspect(
             trigger_truncation = truncation.setdefault(
                 "triggers",
                 {
-                    "returned": len(triggers_v2) + len(triggers_v1),
+                    "returned": len(returned_triggers_v2) + len(returned_triggers_v1),
                     "possible_more": True,
                 },
             )
@@ -898,16 +904,23 @@ async def _action_inspect(
                 "still apply."
             )
 
-        action_type_ids = sorted({_v(a.get("action_type")) for a in actions_v2 if _v(a.get("action_type"))})
-        needs_action_types = selected_node_section in selected_sections or "warnings" in selected_sections
-        action_type_rows = (
-            await client.get_action_type_definitions(action_type_ids) if needs_action_types and action_type_ids else []
-        )
+        node_action_type_ids = {_v(a.get("action_type")) for a in node_actions_v2 if _v(a.get("action_type"))}
+        warning_action_type_ids = {_v(a.get("action_type")) for a in actions_v2 if _v(a.get("action_type"))}
+        required_action_type_ids: set[str] = set()
+        if selected_node_section in selected_sections:
+            required_action_type_ids.update(node_action_type_ids)
+        if "warnings" in selected_sections:
+            required_action_type_ids.update(warning_action_type_ids)
+        action_type_ids = sorted(required_action_type_ids)
+        action_type_rows = await client.get_action_type_definitions(action_type_ids) if action_type_ids else []
         returned_action_type_ids = {_v(row.get("sys_id")) for row in action_type_rows if _v(row.get("sys_id"))}
-        missing_action_type_ids = sorted(set(action_type_ids) - returned_action_type_ids)
-        missing_action_type_count = len(missing_action_type_ids)
-        for section in (selected_node_section, "warnings"):
-            if section not in selected_sections or not missing_action_type_count:
+        section_action_type_ids = {
+            selected_node_section: node_action_type_ids,
+            "warnings": warning_action_type_ids,
+        }
+        for section, section_type_ids in section_action_type_ids.items():
+            missing_action_type_ids = sorted(section_type_ids - returned_action_type_ids)
+            if section not in selected_sections or not missing_action_type_ids:
                 continue
             section_truncation = truncation.setdefault(
                 section,
@@ -921,7 +934,7 @@ async def _action_inspect(
                     ),
                 },
             )
-            section_truncation["missing_action_type_metadata"] = missing_action_type_count
+            section_truncation["missing_action_type_metadata"] = len(missing_action_type_ids)
             section_truncation["limitation"] = (
                 f"{section} covers only probed structural rows and returned action-type metadata."
             )
@@ -934,13 +947,14 @@ async def _action_inspect(
         action_input_rows: list[dict[str, Any]] = []
         action_output_rows: list[dict[str, Any]] = []
         schema_limitations: list[str] = []
-        if is_contract and "steps" in selected_sections and action_type_ids:
+        node_action_type_id_list = sorted(node_action_type_ids)
+        if is_contract and "steps" in selected_sections and node_action_type_id_list:
             try:
-                action_input_rows = await client.list_action_input_definitions(action_type_ids)
+                action_input_rows = await client.list_action_input_definitions(node_action_type_id_list)
             except Exception as exc:
                 schema_limitations.append(f"Action input definitions are unavailable: {exc}")
             try:
-                action_output_rows = await client.list_action_output_definitions(action_type_ids)
+                action_output_rows = await client.list_action_output_definitions(node_action_type_id_list)
             except Exception as exc:
                 schema_limitations.append(f"Action output definitions are unavailable: {exc}")
 
@@ -982,17 +996,17 @@ async def _action_inspect(
     canvas: list[dict[str, Any]] = []
     if selected_node_section in selected_sections:
         nodes: list[dict[str, Any]] = [
-            _build_v2_node(row, kind="action", action_type_lookup=action_type_lookup) for row in actions_v2
+            _build_v2_node(row, kind="action", action_type_lookup=action_type_lookup) for row in node_actions_v2
         ]
-        nodes.extend(_build_v2_node(row, kind="logic") for row in logic_v2)
+        nodes.extend(_build_v2_node(row, kind="logic") for row in node_logic_v2)
         nodes.sort(key=lambda n: _safe_int(n["order"]))
         canvas = _assemble_canvas(nodes)
 
     # Triggers - V2 first (stitched), then V1.
     triggers: list[dict[str, Any]] = []
     if "triggers" in selected_sections:
-        triggers = [_v2_trigger_entry(row, condition_lookup=condition_lookup) for row in triggers_v2]
-        triggers.extend(_v1_trigger_entry(row) for row in triggers_v1)
+        triggers = [_v2_trigger_entry(row, condition_lookup=condition_lookup) for row in returned_triggers_v2]
+        triggers.extend(_v1_trigger_entry(row) for row in returned_triggers_v1)
 
     master = _v(header.get("master_snapshot"))
     latest = _v(header.get("latest_snapshot"))

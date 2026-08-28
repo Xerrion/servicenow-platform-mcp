@@ -270,6 +270,191 @@ async def test_selected_warnings_fetch_spoke_metadata_without_action_schema(
     client.list_action_output_definitions.assert_not_awaited()
 
 
+@pytest.mark.parametrize("action", ["inspect", "contract"])
+@pytest.mark.parametrize("sections", ["", "warnings"])
+@pytest.mark.asyncio()
+async def test_selected_warnings_disclose_spoke_beyond_probe(
+    settings: Settings,
+    auth_provider: BasicAuthProvider,
+    action: str,
+    sections: str,
+) -> None:
+    """Warning selection discloses when a later spoke action is outside its bounded probe."""
+    actions = [
+        {"sys_id": _ref(f"a{index}"), "action_type": _ref("atype_spoke" if index == 101 else "atype_core")}
+        for index in range(102)
+    ]
+    kwargs = _empty_inspect_kwargs()
+    client = _make_client_mock(**kwargs)
+    client.list_action_instances_v2.side_effect = lambda _flow_sys_id, limit: actions[:limit]
+    client.get_action_type_definitions.return_value = [{"sys_id": _ref("atype_core"), "category": _ref("Core")}]
+    tools = _register_and_get_tools(settings, auth_provider)
+
+    with _patch_client(client):
+        raw = await tools["flow"](
+            action=action,
+            sys_id=SYS_ID_FLOW,
+            sections=sections,
+            section_limit=100,
+        )
+    result = decode_response(raw)
+
+    assert not any("spoke action type" in warning for warning in result["data"]["warnings"])
+    assert result["selection"]["truncated"] is True
+    assert result["selection"]["truncation"]["warnings"]["datasets"] == ["actions_v2"]
+    assert result["selection"]["truncation"]["warnings"]["continuation"] == (
+        "The configured MAX_ROW_LIMIT of 100 has been reached; no further continuation is available through flow. "
+        "To complete warning analysis, use query with pagination and these explicit projections: "
+        f"sys_hub_action_instance_v2 (encoded_query=flow={SYS_ID_FLOW}, fields=sys_id,action_type); "
+        f"sys_hub_action_instance (encoded_query=flow={SYS_ID_FLOW}, fields=sys_id); "
+        f"sys_hub_flow_logic_instance_v2 (encoded_query=flow={SYS_ID_FLOW}, fields=sys_id); "
+        f"sys_hub_flow_logic (encoded_query=flow={SYS_ID_FLOW}, fields=sys_id); "
+        f"sys_hub_trigger_instance_v2 (encoded_query=flow={SYS_ID_FLOW}, fields=sys_id); "
+        f"sys_hub_trigger_instance (encoded_query=flow={SYS_ID_FLOW}, fields=sys_id). Then collect every action_type "
+        "sys_id from the V2 actions and query sys_hub_action_type_base "
+        "(encoded_query=sys_idIN<action_type_sys_ids>, fields=sys_id,category,sys_scope) for spoke detection. "
+        "Use limit and offset to continue each read. Query safety and row limits still apply."
+    )
+    client.get_action_type_definitions.assert_awaited_once_with(["atype_core"])
+
+
+@pytest.mark.asyncio()
+async def test_warning_dependency_below_cap_recommends_larger_section_limit(
+    settings: Settings, auth_provider: BasicAuthProvider
+) -> None:
+    """A saturated warning probe below the cap gives an achievable flow continuation."""
+    larger_settings = settings.model_copy(update={"max_row_limit": 200})
+    kwargs = _empty_inspect_kwargs()
+    kwargs["list_logic_instances_v1"] = [{"sys_id": _ref(f"logic{index}")} for index in range(3)]
+    client = _make_client_mock(**kwargs)
+    tools = _register_and_get_tools(larger_settings, BasicAuthProvider(larger_settings))
+
+    with _patch_client(client):
+        raw = await tools["flow"](
+            action="inspect",
+            sys_id=SYS_ID_FLOW,
+            sections="warnings",
+            section_limit=2,
+        )
+    result = decode_response(raw)
+
+    truncation = result["selection"]["truncation"]["warnings"]
+    assert truncation["datasets"] == ["logic_v1"]
+    assert truncation["continuation"] == "Re-run with section_limit greater than 2."
+
+
+@pytest.mark.asyncio()
+async def test_warning_truncation_identifies_every_saturated_dependency(
+    settings: Settings, auth_provider: BasicAuthProvider
+) -> None:
+    """Warning metadata lists each structural dataset that reached its probe limit."""
+    structural_methods = {
+        "list_action_instances_v1",
+        "list_action_instances_v2",
+        "list_logic_instances_v1",
+        "list_logic_instances_v2",
+        "list_trigger_instances_v1",
+        "list_trigger_instances_v2",
+    }
+    kwargs = _empty_inspect_kwargs()
+    for method_name in structural_methods:
+        kwargs[method_name] = [{"sys_id": _ref(f"{method_name}_{index}")} for index in range(3)]
+    client = _make_client_mock(**kwargs)
+    tools = _register_and_get_tools(settings, auth_provider)
+
+    with _patch_client(client):
+        raw = await tools["flow"](
+            action="inspect",
+            sys_id=SYS_ID_FLOW,
+            sections="warnings",
+            section_limit=2,
+        )
+    result = decode_response(raw)
+
+    assert result["selection"]["truncation"]["warnings"]["datasets"] == [
+        "actions_v1",
+        "actions_v2",
+        "logic_v1",
+        "logic_v2",
+        "triggers_v1",
+        "triggers_v2",
+    ]
+
+
+@pytest.mark.asyncio()
+async def test_warning_truncation_discloses_missing_action_type_metadata(
+    settings: Settings, auth_provider: BasicAuthProvider
+) -> None:
+    """Spoke detection reports when action-type metadata is incomplete."""
+    kwargs = _empty_inspect_kwargs()
+    kwargs["list_action_instances_v2"] = [
+        {"sys_id": _ref("a1"), "action_type": _ref("atype_returned")},
+        {"sys_id": _ref("a2"), "action_type": _ref("atype_missing")},
+    ]
+    kwargs["get_action_type_definitions"] = [{"sys_id": _ref("atype_returned"), "category": _ref("Core")}]
+    client = _make_client_mock(**kwargs)
+    tools = _register_and_get_tools(settings, auth_provider)
+
+    with _patch_client(client):
+        raw = await tools["flow"](action="inspect", sys_id=SYS_ID_FLOW, sections="warnings")
+    result = decode_response(raw)
+
+    truncation = result["selection"]["truncation"]["warnings"]
+    assert truncation["datasets"] == []
+    assert truncation["missing_action_type_metadata"] == 1
+    assert "returned action-type metadata" in truncation["limitation"]
+    assert "sys_idINatype_missing" in truncation["continuation"]
+
+
+@pytest.mark.parametrize(("action", "section"), [("inspect", "canvas"), ("contract", "steps")])
+@pytest.mark.asyncio()
+async def test_node_section_discloses_missing_action_type_metadata(
+    settings: Settings,
+    auth_provider: BasicAuthProvider,
+    action: str,
+    section: str,
+) -> None:
+    """Derived nodes report missing parent action-type metadata."""
+    kwargs = _empty_inspect_kwargs()
+    kwargs["list_action_instances_v2"] = [{"sys_id": _ref("a1"), "action_type": _ref("atype_missing")}]
+    client = _make_client_mock(**kwargs)
+    tools = _register_and_get_tools(settings, auth_provider)
+
+    with _patch_client(client):
+        raw = await tools["flow"](action=action, sys_id=SYS_ID_FLOW, sections=section)
+    result = decode_response(raw)
+
+    truncation = result["selection"]["truncation"][section]
+    assert truncation["missing_action_type_metadata"] == 1
+    assert "fields=sys_id,name,internal_name,sys_scope,category" in truncation["continuation"]
+
+
+@pytest.mark.asyncio()
+async def test_trigger_section_discloses_record_condition_dependency_cap(settings: Settings) -> None:
+    """Trigger output reports when the condition join exceeds its internal query cap."""
+    larger_settings = settings.model_copy(update={"max_row_limit": 2000})
+    triggers = [{"sys_id": _ref(f"t{index}"), "remote_trigger_id": _ref(f"rt{index}")} for index in range(1001)]
+    kwargs = _empty_inspect_kwargs()
+    kwargs["list_trigger_instances_v2"] = triggers
+    kwargs["list_record_triggers"] = [{"sys_id": _ref(f"rt{index}")} for index in range(1000)]
+    client = _make_client_mock(**kwargs)
+    tools = _register_and_get_tools(larger_settings, BasicAuthProvider(larger_settings))
+
+    with _patch_client(client):
+        raw = await tools["flow"](
+            action="inspect",
+            sys_id=SYS_ID_FLOW,
+            sections="triggers",
+            section_limit=1001,
+        )
+    result = decode_response(raw)
+
+    truncation = result["selection"]["truncation"]["triggers"]
+    assert truncation["dependency_datasets"] == ["sys_flow_record_trigger"]
+    assert "only 1000 remote trigger ids" in truncation["limitation"]
+    assert "sys_flow_record_trigger (encoded_query=sys_idIN<remote_trigger_ids>" in truncation["continuation"]
+
+
 @pytest.mark.asyncio()
 async def test_inspect_invalid_section_fails_before_service_now_io(
     settings: Settings, auth_provider: BasicAuthProvider
@@ -336,6 +521,7 @@ async def test_inspect_section_limit_discloses_truncation_and_continuation(
     ]
     kwargs = _empty_inspect_kwargs()
     kwargs["list_action_instances_v2"] = actions
+    kwargs["get_action_type_definitions"] = [{"sys_id": _ref("atype"), "name": _ref("Action")}]
     client = _make_client_mock(**kwargs)
 
     with _patch_client(client):
@@ -429,6 +615,47 @@ async def test_structural_summary_truncation_at_max_names_all_truncated_sources(
     assert f"sys_hub_trigger_instance (encoded_query=flow={SYS_ID_FLOW})" in truncation["continuation"]
 
 
+@pytest.mark.asyncio()
+async def test_warning_truncation_at_max_names_complete_direct_query_sequence(
+    settings: Settings, auth_provider: BasicAuthProvider
+) -> None:
+    """Capped warning probes give the complete safe direct-query sequence."""
+    kwargs = _empty_inspect_kwargs()
+    kwargs["list_action_instances_v2"] = [
+        {"sys_id": _ref(f"a{index}"), "action_type": _ref("atype")} for index in range(settings.max_row_limit + 1)
+    ]
+    client = _make_client_mock(**kwargs)
+    tools = _register_and_get_tools(settings, auth_provider)
+
+    with _patch_client(client):
+        raw = await tools["flow"](
+            action="inspect",
+            sys_id=SYS_ID_FLOW,
+            sections="warnings",
+            section_limit=settings.max_row_limit,
+        )
+    result = decode_response(raw)
+
+    truncation = result["selection"]["truncation"]["warnings"]
+    continuation = truncation["continuation"]
+    assert truncation["datasets"] == ["actions_v2"]
+    assert "no further continuation is available through flow" in continuation
+    for table in (
+        "sys_hub_action_instance_v2",
+        "sys_hub_action_instance",
+        "sys_hub_flow_logic_instance_v2",
+        "sys_hub_flow_logic",
+        "sys_hub_trigger_instance_v2",
+        "sys_hub_trigger_instance",
+    ):
+        assert f"{table} (encoded_query=flow={SYS_ID_FLOW}, fields=" in continuation
+    assert "sys_id,action_type" in continuation
+    assert "sys_hub_action_type_base (encoded_query=sys_idIN<action_type_sys_ids>" in continuation
+    assert "fields=sys_id,category,sys_scope" in continuation
+    assert "Use limit and offset" in continuation
+    assert "Query safety and row limits still apply" in continuation
+
+
 @pytest.mark.parametrize(
     ("section", "client_method", "source_path"),
     [
@@ -468,7 +695,10 @@ async def test_row_section_truncation_at_max_names_direct_query_path(
     ("section", "expected_source"),
     [
         ("v1_actions", f"sys_hub_action_instance (encoded_query=flow={SYS_ID_FLOW})"),
-        ("v1_variable_values", "sys_variable_value with encoded_query=documentIN<action_sys_ids>"),
+        (
+            "v1_variable_values",
+            "sys_variable_value (encoded_query=document=sys_hub_action_instance^document_keyIN<action_sys_ids>",
+        ),
     ],
 )
 @pytest.mark.asyncio()
@@ -498,6 +728,45 @@ async def test_v1_section_truncation_names_direct_query_sequence(
     assert expected_source in continuation
     assert "explicit fields projection" in continuation
     assert "Query safety and row limits still apply" in continuation
+    if section == "v1_variable_values":
+        assert "The configured MAX_ROW_LIMIT of 100 has been reached" in continuation
+        assert f"sys_hub_action_instance (encoded_query=flow={SYS_ID_FLOW}, fields=sys_id)" in continuation
+        assert "document=sys_hub_action_instance^document_keyIN<action_sys_ids>" in continuation
+        assert "Re-run with section_limit" not in continuation
+
+
+@pytest.mark.asyncio()
+async def test_v1_variable_values_disclose_saturated_action_dependency(
+    settings: Settings, auth_provider: BasicAuthProvider
+) -> None:
+    """V1 values stay incomplete when only an omitted action has values, and metadata says so."""
+    actions = [{"sys_id": _ref(f"a{index}")} for index in range(4)]
+    kwargs = _empty_inspect_kwargs()
+    client = _make_client_mock(**kwargs)
+    client.list_action_instances_v1.side_effect = lambda _flow_sys_id, limit: actions[:limit]
+    client.list_v1_variable_values.side_effect = lambda action_ids: (
+        [{"document_key": _ref("a3"), "value": _ref("late")}] if "a3" in action_ids else []
+    )
+    tools = _register_and_get_tools(settings, auth_provider)
+
+    with _patch_client(client):
+        raw = await tools["flow"](
+            action="inspect",
+            sys_id=SYS_ID_FLOW,
+            sections="v1_variable_values",
+            section_limit=2,
+        )
+    result = decode_response(raw)
+
+    assert result["data"]["v1_variable_values"] == []
+    truncation = result["selection"]["truncation"]["v1_variable_values"]
+    assert truncation["dependency_datasets"] == ["actions_v1"]
+    assert truncation["returned"] == 0
+    assert truncation["possible_more"] is True
+    assert "Re-run with section_limit greater than 2" in truncation["continuation"]
+    assert f"sys_hub_action_instance (encoded_query=flow={SYS_ID_FLOW}, fields=sys_id)" in truncation["continuation"]
+    assert "document=sys_hub_action_instance^document_keyIN<action_sys_ids>" in truncation["continuation"]
+    client.list_v1_variable_values.assert_awaited_once_with(["a0", "a1", "a2"])
 
 
 @pytest.mark.asyncio()

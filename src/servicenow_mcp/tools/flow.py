@@ -29,6 +29,7 @@ from servicenow_mcp.choices import ChoiceRegistry
 from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
+from servicenow_mcp.policy import INTERNAL_QUERY_LIMIT
 from servicenow_mcp.tools._dictionary import DictionaryRegistry
 from servicenow_mcp.tools._flow_values import decode_values, looks_compressed
 from servicenow_mcp.utils import format_response, validate_identifier, validate_sys_id
@@ -614,11 +615,49 @@ def _continuation(
     )
 
 
-def _v1_variable_value_continuation(*, flow_sys_id: str) -> str:
+def _warning_continuation(*, section_limit: int, max_row_limit: int, flow_sys_id: str) -> str:
+    if section_limit < max_row_limit:
+        return f"Re-run with section_limit greater than {section_limit}."
     return (
-        "No complete count is available through flow. Use query with an explicit fields projection and a safe encoded "
-        f"query on sys_hub_action_instance (encoded_query=flow={flow_sys_id}) to obtain action sys_ids, then query "
-        "sys_variable_value with encoded_query=documentIN<action_sys_ids>. Query safety and row limits still apply."
+        f"The configured MAX_ROW_LIMIT of {max_row_limit} has been reached; no further continuation is available "
+        "through flow. To complete warning analysis, use query with pagination and these explicit projections: "
+        f"sys_hub_action_instance_v2 (encoded_query=flow={flow_sys_id}, fields=sys_id,action_type); "
+        f"sys_hub_action_instance (encoded_query=flow={flow_sys_id}, fields=sys_id); "
+        f"sys_hub_flow_logic_instance_v2 (encoded_query=flow={flow_sys_id}, fields=sys_id); "
+        f"sys_hub_flow_logic (encoded_query=flow={flow_sys_id}, fields=sys_id); "
+        f"sys_hub_trigger_instance_v2 (encoded_query=flow={flow_sys_id}, fields=sys_id); "
+        f"sys_hub_trigger_instance (encoded_query=flow={flow_sys_id}, fields=sys_id). Then collect every action_type "
+        "sys_id from the V2 actions and query sys_hub_action_type_base "
+        "(encoded_query=sys_idIN<action_type_sys_ids>, fields=sys_id,category,sys_scope) for spoke detection. "
+        "Use limit and offset to continue each read. Query safety and row limits still apply."
+    )
+
+
+def _v1_variable_value_continuation(*, section_limit: int, max_row_limit: int, flow_sys_id: str) -> str:
+    next_step = (
+        f"Re-run with section_limit greater than {section_limit}. "
+        if section_limit < max_row_limit
+        else f"The configured MAX_ROW_LIMIT of {max_row_limit} has been reached. "
+    )
+    return (
+        f"{next_step}For direct recovery, use query with an explicit fields projection and a safe encoded query on "
+        f"sys_hub_action_instance (encoded_query=flow={flow_sys_id}, fields=sys_id) to obtain every action sys_id, "
+        "then query sys_variable_value "
+        "(encoded_query=document=sys_hub_action_instance^document_keyIN<action_sys_ids>, "
+        "fields=document,document_key,variable,value). Use limit and offset to continue each read. "
+        "Query safety and row limits still apply."
+    )
+
+
+def _saturated_datasets(
+    datasets: dict[str, list[dict[str, Any]]],
+    requested_limits: dict[str, int],
+    names: frozenset[str],
+) -> list[str]:
+    return sorted(
+        name
+        for name in names
+        if requested_limits.get(name, 0) > 0 and len(datasets.get(name, [])) >= requested_limits[name]
     )
 
 
@@ -770,9 +809,7 @@ async def _action_inspect(
         triggers_v2 = datasets.get("triggers_v2", [])
         triggers_v1 = datasets.get("triggers_v1", [])
         if "structural_summary" in selected_sections:
-            truncated_datasets = [
-                name for name in sorted(_STRUCTURAL_DATASETS) if len(datasets.get(name, [])) > effective_limit
-            ]
+            truncated_datasets = _saturated_datasets(datasets, requested_limits, _STRUCTURAL_DATASETS)
             if truncated_datasets:
                 truncation["structural_summary"] = {
                     "datasets": truncated_datasets,
@@ -782,6 +819,19 @@ async def _action_inspect(
                         max_row_limit=settings.max_row_limit,
                         flow_sys_id=resolved_sys_id,
                         source_datasets=tuple(truncated_datasets),
+                    ),
+                }
+
+        if "warnings" in selected_sections:
+            saturated_dependencies = _saturated_datasets(datasets, requested_limits, _STRUCTURAL_DATASETS)
+            if saturated_dependencies:
+                truncation["warnings"] = {
+                    "datasets": saturated_dependencies,
+                    "limitation": "Warning analysis covers only the probed rows for the saturated dependencies.",
+                    "continuation": _warning_continuation(
+                        section_limit=effective_limit,
+                        max_row_limit=settings.max_row_limit,
+                        flow_sys_id=resolved_sys_id,
                     ),
                 }
 
@@ -829,12 +879,57 @@ async def _action_inspect(
         record_triggers = (
             await client.list_record_triggers(remote_ids) if "triggers" in selected_sections and remote_ids else []
         )
+        if "triggers" in selected_sections and len(remote_ids) > INTERNAL_QUERY_LIMIT:
+            trigger_truncation = truncation.setdefault(
+                "triggers",
+                {
+                    "returned": len(triggers_v2) + len(triggers_v1),
+                    "possible_more": True,
+                },
+            )
+            trigger_truncation["dependency_datasets"] = ["sys_flow_record_trigger"]
+            trigger_truncation["limitation"] = (
+                f"V2 trigger conditions were queried for only {INTERNAL_QUERY_LIMIT} remote trigger ids."
+            )
+            trigger_truncation["continuation"] = (
+                "Batch all remote_trigger_id values from the returned V2 triggers, then use query with an explicit "
+                "fields projection on sys_flow_record_trigger (encoded_query=sys_idIN<remote_trigger_ids>, "
+                "fields=sys_id,condition). Use limit and offset to continue each batch. Query safety and row limits "
+                "still apply."
+            )
 
         action_type_ids = sorted({_v(a.get("action_type")) for a in actions_v2 if _v(a.get("action_type"))})
         needs_action_types = selected_node_section in selected_sections or "warnings" in selected_sections
         action_type_rows = (
             await client.get_action_type_definitions(action_type_ids) if needs_action_types and action_type_ids else []
         )
+        returned_action_type_ids = {_v(row.get("sys_id")) for row in action_type_rows if _v(row.get("sys_id"))}
+        missing_action_type_ids = sorted(set(action_type_ids) - returned_action_type_ids)
+        missing_action_type_count = len(missing_action_type_ids)
+        for section in (selected_node_section, "warnings"):
+            if section not in selected_sections or not missing_action_type_count:
+                continue
+            section_truncation = truncation.setdefault(
+                section,
+                {
+                    "datasets": [],
+                    "limitation": f"{section} has incomplete dependencies.",
+                    "continuation": _warning_continuation(
+                        section_limit=effective_limit,
+                        max_row_limit=settings.max_row_limit,
+                        flow_sys_id=resolved_sys_id,
+                    ),
+                },
+            )
+            section_truncation["missing_action_type_metadata"] = missing_action_type_count
+            section_truncation["limitation"] = (
+                f"{section} covers only probed structural rows and returned action-type metadata."
+            )
+            section_truncation["continuation"] += (
+                f" Query sys_hub_action_type_base (encoded_query=sys_idIN{','.join(missing_action_type_ids)}, "
+                "fields=sys_id,name,internal_name,sys_scope,category) to recover missing action metadata. Query safety "
+                "and row limits still apply."
+            )
 
         action_input_rows: list[dict[str, Any]] = []
         action_output_rows: list[dict[str, Any]] = []
@@ -855,8 +950,27 @@ async def _action_inspect(
             section="v1_variable_values",
             section_limit=effective_limit,
             truncation=truncation,
-            continuation=_v1_variable_value_continuation(flow_sys_id=resolved_sys_id),
+            continuation=_v1_variable_value_continuation(
+                section_limit=effective_limit,
+                max_row_limit=settings.max_row_limit,
+                flow_sys_id=resolved_sys_id,
+            ),
         )
+
+        if "v1_variable_values" in selected_sections and _saturated_datasets(
+            datasets, requested_limits, frozenset({"actions_v1"})
+        ):
+            truncation["v1_variable_values"] = {
+                "dependency_datasets": ["actions_v1"],
+                "returned": len(v1_variable_values),
+                "possible_more": True,
+                "limitation": "Variable values were queried only for the probed V1 action instances.",
+                "continuation": _v1_variable_value_continuation(
+                    section_limit=effective_limit,
+                    max_row_limit=settings.max_row_limit,
+                    flow_sys_id=resolved_sys_id,
+                ),
+            }
 
     # Build lookups.
     action_type_lookup = _index_by_sys_id(action_type_rows)
@@ -954,7 +1068,11 @@ async def _action_inspect(
             {
                 "returned": len(v1_variable_values),
                 "possible_more": True,
-                "continuation": _v1_variable_value_continuation(flow_sys_id=resolved_sys_id),
+                "continuation": _v1_variable_value_continuation(
+                    section_limit=effective_limit,
+                    max_row_limit=settings.max_row_limit,
+                    flow_sys_id=resolved_sys_id,
+                ),
             },
         )
     assembled["structural_summary"] = _structural_summary(datasets, effective_limit)

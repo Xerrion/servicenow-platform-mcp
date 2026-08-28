@@ -17,6 +17,8 @@ All configuration is handled through environment variables, loaded via [pydantic
 | `MAX_ROW_LIMIT` | No | `100` | Max records per query (1-10000) |
 | `LARGE_TABLE_NAMES_CSV` | No | `syslog,...` | Tables requiring date-bounded queries |
 | `SCRIPT_ALLOWED_ROOT` | No | `""` | Root directory for `script_path` in `record_write` |
+| `HTTPX_TIMEOUT_SECONDS` | No | `30` | ServiceNow HTTP timeout in seconds (1-600) |
+| `METADATA_CACHE_TTL_SECONDS` | No | `300` | Metadata cache freshness in seconds (1-86400) |
 | `SENTRY_DSN` | No | `""` | Sentry DSN for error tracking |
 | `SENTRY_ENVIRONMENT` | No | - | Grouping label for Sentry (defaults to `SERVICENOW_ENV`) |
 
@@ -46,6 +48,12 @@ The `MCP_TOOL_PACKAGE` variable controls the available tool surface.
 ### Custom Packages
 You can list specific tools: `MCP_TOOL_PACKAGE="query,describe,investigate"`. `build_query` is not a valid tool name.
 *Note: `service_catalog` and `record_write` are now tool names. `record_write` should typically be paired with `record_apply` for the preview flow.*
+
+## Metadata Cache
+
+`METADATA_CACHE_TTL_SECONDS` controls the freshness window for the metadata cache. It applies to choice mappings, dictionary table chains and field metadata, script-field discovery, and audit table and field configuration. The default is 300 seconds. Values must be between 1 and 86400; zero is invalid.
+
+The cache uses monotonic TTLs, synchronous reloads, same-key single-flight loading, independent-key concurrency, explicit invalidation, and a 1,000-entry LRU bound. It does not cache records, query results, flows, attachments, preview tokens, or audit row counts. A lower TTL improves freshness at the cost of more metadata requests.
 
 ---
 

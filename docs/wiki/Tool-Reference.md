@@ -1,8 +1,8 @@
 # Tool Reference
 
-Complete reference for all tools provided by the ServiceNow Platform MCP server. The surface has been unified into 13 core tools that use dispatcher patterns and ServiceNow encoded queries.
+Complete reference for all 14 tools in the 11 tool groups provided by the ServiceNow Platform MCP server. The tools use dispatcher patterns and ServiceNow encoded queries.
 
-All tools return responses as JSON strings with a standardized envelope containing `correlation_id`, `status`, `data`, and optionally `pagination` and `warnings`. See [[Architecture]] for details on the response format.
+All tools return responses as JSON strings with a standardized envelope containing `correlation_id`, `status`, `data`, and optionally `pagination`, `selection`, and `warnings`. See [[Architecture]] for details on the response format.
 
 For security guardrails that apply across all tools, see [[Safety-and-Policy]]. For worked examples of complex queries and multi-tool workflows, see [Agent Recipes](../../docs/agent-recipes.md).
 
@@ -27,14 +27,15 @@ Search and retrieve records from any table using ServiceNow encoded query string
 - **Key Parameters:**
   - `table`: Target table name (e.g., `incident`).
   - `encoded_query`: ServiceNow query string (e.g., `active=true^priority=1`).
-  - `fields`: Comma-separated field names to return.
+  - `sys_id`: Select exact-record mode. With no `fields`, this mode returns `sys_id,sys_updated_on`.
+  - `fields`: Required in list mode. Use a comma-separated field projection, or `*` for all fields. `sys_id` is always included.
   - `resolve_labels`: Optional label-to-value resolution (e.g., `state=open`).
   - `display_values`: If `true`, returns human-readable labels in a `_display` object.
   - `limit`, `offset`, `order_by`: Pagination and sorting.
 - **Example:**
   ```python
-   await query(table="incident", encoded_query="active=true^priority=1", fields="number,short_description")
-   ```
+  await query(table="incident", encoded_query="active=true^priority=1", fields="number,short_description")
+  ```
 
 ServiceNow encoded queries are the only supported query construction interface. Copy a filter breadcrumb from a ServiceNow list, or construct the encoded query string directly, then pass it in `encoded_query`. Query safety still applies.
 
@@ -46,6 +47,9 @@ Retrieve schema and metadata for a table, or enumerate its script-bearing fields
   - `action`: Optional. `describe_table` (default) or `list_script_fields`. When `list_script_fields`, returns the resolved super_class `chain` and the script-bearing fields (`name`, `internal_type`, `inherited_from`, `via_heuristic`) for the supplied `table`.
   - `table`: Target table name (required for both actions).
   - `verbose`: If `true`, returns all platform metadata (otherwise returns a slim 8-key summary per field).
+  - `fields`: Optional field projection. Empty returns an alphabetical page of 25 fields; `*` returns all fields.
+  - `field_offset`: Offset for continuing the default field page.
+  - `field_limit`: Page size from 1 to 100.
 - **Example:**
   ```python
   await describe(table="incident")
@@ -56,7 +60,7 @@ Retrieve schema and metadata for a table, or enumerate its script-bearing fields
 
 ## Record Management
 
-The system uses a two-stage preview/apply flow for all record mutations.
+Record mutations use a two-stage preview/apply flow by default. A caller can explicitly set `preview=false` to request an immediate write.
 
 ### `record_write`
 Unified tool for staging `create`, `update`, or `delete` actions.
@@ -85,6 +89,7 @@ Read-only counterpart to `record_write` for any table.
 - **Key Parameters:**
   - `table`: Target table name.
   - `sys_id` **or** `name`: Exactly one must be supplied. Ambiguous names (more than one match) and missing records return a structured error.
+  - `fields`: Optional field projection. Empty returns compact identity/update fields plus discovered script-bearing fields; `*` returns the full masked record. `sys_id` is always included.
 - **Response:** Masked record fields plus the `script_fields` list resolved from `sys_dictionary` for the table.
 - **Availability:** Included in both the `full` and `readonly` packages.
 - **Example:**
@@ -131,8 +136,9 @@ Runs pre-defined diagnostic and health check modules.
 
 - **Actions:**
   - `run`: Execute a module (e.g., `stale_automations`, `table_health`).
-  - `explain`: Interpret a specific finding from a previous run.
+  - `explain`: Interpret a specific finding from a previous run. Pass the registered investigation `name` and an `element_id` for direct dispatch. If `name` is omitted, the tool keeps legacy trial dispatch.
 - **Modules:** `stale_automations`, `deprecated_apis`, `table_health`, `acl_conflicts`, `error_analysis`, `slow_transactions`, `performance_bottlenecks`.
+- **Response metadata:** `run` results and findings include the registered investigation name as provenance. `explain` responses disclose the dispatch mode.
 
 ### `audit`
 
@@ -186,27 +192,30 @@ Inspect ServiceNow Flow Designer artifacts from documented Table API records.
   - `active`: Optional `true`/`false` filter for `list_triggers`.
   - `value`: Raw compressed `values` field content for `decode_values`.
   - `limit`: Optional page size for `list_triggers`; defaults to 100 when omitted or `0`.
+  - `sections`: For `inspect` and `contract`, comma-separated sections to return. Empty selects `flow,published_state,structural_summary,warnings`; `*` selects every section.
+  - `section_limit`: Maximum rows or nodes per selected section. The default is 100, capped by `MAX_ROW_LIMIT`.
 - **Examples:**
   ```python
   await flow(action="contract", name="Provision Entra ID Group Membership")
   await flow(action="inspect", sys_id="9e858befc3340f105cf89fcd2b01317d")
-  await flow(action="inspect", name="My Flow")
+  await flow(action="inspect", name="My Flow", sections="flow,published_state,structural_summary,warnings", section_limit=25)
   await flow(action="find_by_table", table="incident")
   await flow(action="decode_values", value="H4sIA...")
   await flow(action="list_triggers", trigger_type="record_update", active="true", limit=50)
   await flow(action="describe")
   ```
-- **`inspect` response highlights:** `data` contains `flow`, `triggers`, `inputs`, `outputs`, `variables`, `canvas`, `published_state`, `v1_actions`, and `v1_variable_values`.
+- **`inspect` response highlights:** The default `data` contains only `flow`, `published_state`, `structural_summary`, and `warnings`. Request other sections by name, or pass `sections="*"` for all inspect sections.
   - `flow`: Flow metadata (`sys_id`, `name`, `internal_name`, `type`, `active`, `description`, `sys_scope`).
   - `published_state`: `{master_snapshot, latest_snapshot, drift}`. `drift` is `true` when the published snapshot differs from the latest authored snapshot.
   - `canvas`: Nested V2 tree. Root nodes have an empty `parent_ui_id`; children are sorted by `order`. Each node includes `kind` (`action` or `logic`), `ui_id`, `parent_ui_id`, `order`, `decoded_values`, and recursive `children`.
   - `warnings`: Returned in the standard response envelope for mixed V1/V2 flows, snapshot drift, IntegrationHub spoke heuristics, or V1 logic that cannot be woven into the V2 canvas tree.
-- **`contract` response highlights:** `data` contains the flow header, published state, concise declared `inputs`, `outputs`, and `variables`, triggers, and ordered `steps`.
+- **`contract` response highlights:** The default `data` contains only `flow`, `published_state`, `structural_summary`, and `warnings`. Request `inputs`, `outputs`, `variables`, `triggers`, or `steps` as needed, or pass `sections="*"` for all contract sections.
   - Each action step exposes its action type, configured `inputs`, and a concise `definition` with declared `inputs` and `outputs`. Definition fields include `name`, `label`, `required`, and, when available, `type`, input `default`, and `reference_table`. Each logic step exposes its `conditions`; `output_assignments` are included when stored configuration has them.
   - Action definitions are read from `sys_hub_action_input` and `sys_hub_action_output`, joined to `sys_hub_action_type_base` through `action_type`. `type` is emitted only when `element_prototype` provides a usable display label. Missing or inaccessible definition schema is reported in contract warnings and the affected action's `definition.limitations`.
   - Binding `value` is preserved exactly as configured. `data_pills` lists only `{{...}}` references found in that value; the tool does not infer action behavior or resolve a data pill's runtime value.
   - Contract steps represent V2 nodes only. If V1 actions or logic are present, `warnings` explains that their bindings cannot be reconstructed into ordered contract steps.
 - **Notes:** The tool reads both V1 (`sys_hub_action_instance`, `sys_hub_flow_logic`, `sys_hub_trigger_instance`) and V2 (`sys_hub_action_instance_v2`, `sys_hub_flow_logic_instance_v2`, `sys_hub_trigger_instance_v2`) records. Record-trigger conditions are joined through `sys_flow_record_trigger`. It does not use the undocumented `/api/now/processflow/flow/{sys_id}` endpoint or the opaque `sys_hub_flow_snapshot` compiled cache. A bad per-node `values` blob adds `decode_error` to that node; the rest of `inspect` still succeeds.
+- **Selection metadata:** Successful `inspect` and `contract` responses disclose the selected sections and truncation metadata. Use that metadata to continue a bounded read instead of assuming a full flow was returned.
 
 ### `resolve_choice`
 Resolves human-readable labels to underlying ServiceNow values using the `sys_choice` table.

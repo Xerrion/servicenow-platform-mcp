@@ -1,6 +1,6 @@
 # 📖 Agent Recipes
 
-This document provides a set of "recipes" for common ServiceNow workflows using the unified tool surface.
+This document provides a set of "recipes" for common ServiceNow workflows using the unified tool surface. Prefer small field projections and bounded flow sections so responses remain useful across repeated calls.
 
 The previous specialized helper tools (e.g., `incident_list`, `debug_trace`, `changes_updateset_inspect`) have been collapsed into a minimal, dispatcher-oriented API. Agents and developers now achieve complex tasks through multi-call joins, encoded query strings, and explicit choice resolution. These recipes demonstrate how to translate legacy tool usage into this new, more flexible vocabulary.
 
@@ -8,8 +8,8 @@ The previous specialized helper tools (e.g., `incident_list`, `debug_trace`, `ch
 
 | Tool | Purpose |
 | :--- | :--- |
-| `query` | Fetch records, aggregates, or single records from any table using encoded queries. |
-| `describe` | Retrieve slim field metadata (8 keys) for a table to understand its structure. Use `action='list_script_fields'` with a `table` argument to discover the dictionary-driven script-bearing fields and the resolved super_class chain. |
+| `query` | Fetch records, aggregates, or single records from any table using encoded queries. List mode requires `fields`; use `fields="*"` only for an intentional full record. |
+| `describe` | Retrieve slim field metadata (8 keys) for a table to understand its structure. Empty fields return an alphabetical page of 25 fields; use `field_offset` and `field_limit` to continue. |
 | `record_read` | Read a record by `sys_id` or `name`. Returns the masked record plus the `script_fields` list resolved from `sys_dictionary` for the table. |
 | `record_write` | Dispatcher for creating, updating, or deleting records (with `script_path` file injection and `script_field` targeting for tables with multiple script-bearing fields). |
 | `record_apply` | Commits a write operation previously staged with `preview=True`. |
@@ -79,7 +79,7 @@ preview = json.loads(await record_write(
 # 3. Commit the change
 await record_apply(preview_token=preview["data"]["preview_token"])
 ```
-**Notes:** The preview/apply two-step is a mandatory safety mechanism for all writes. It allows the agent (or human) to inspect the impact before commitment. Every tool returns a JSON-serialized envelope string (see `format_response` in `responses.py`); always `json.loads(...)` before indexing into `data`.
+**Notes:** Preview/apply is the default safety mechanism for record writes. It allows the agent (or human) to inspect the impact before commitment. Callers can explicitly set `preview=False` for an immediate write. Every tool returns a JSON-serialized envelope string (see `format_response` in `utils.py`); always `json.loads(...)` before indexing into `data`.
 
 ---
 
@@ -123,7 +123,7 @@ await query(
 **Old way:** `changes_updateset_inspect`  
 **New way:**
 ```python
-# 1. Verify the Update Set exists
+# 1. Verify the Update Set exists (exact sys_id mode has a compact default projection)
 # await query(table="sys_update_set", sys_id="<sys_id>")
 
 # 2. List the captured changes (sys_update_xml)
@@ -240,7 +240,7 @@ report = json.loads(await query(
 
 ### 11. Inspect Flow Designer artifacts
 
-**Goal:** Understand which flows run for a table, obtain a concise data contract, inspect one flow's full canvas, or decode a compressed `values` field fetched manually.  
+**Goal:** Understand which flows run for a table, obtain a concise data contract, inspect selected flow sections, or decode a compressed `values` field fetched manually.  
 **Old way:** Query `sys_hub_*` tables by hand and decode `values` outside the MCP server.  
 **New way:**
 
@@ -248,11 +248,16 @@ report = json.loads(await query(
 # Find all flows triggered by a given table
 await flow(action="find_by_table", table="incident")
 
-# Inspect a specific flow by name
-await flow(action="inspect", name="My Flow")
+# Inspect only the sections needed for a compact first read
+flow_result = await flow(
+    action="inspect",
+    name="My Flow",
+    sections="flow,published_state,structural_summary,warnings",
+    section_limit=25,
+)
 
 # Get fields, checks/actions, and literal data-pill mappings without raw canvas metadata
-await flow(action="contract", name="My Flow")
+await flow(action="contract", name="My Flow", sections="flow,inputs,outputs,variables,triggers,steps,warnings")
 
 # Decode a values blob fetched manually via query
 await flow(action="decode_values", value="H4sIA...")
@@ -266,7 +271,14 @@ await flow(
 )
 ```
 
-**Notes:** Use `flow(action="contract", ...)` when documenting or implementing an integration: each V2 action step includes configured `inputs` bindings plus a `definition` containing the action type's declared inputs and outputs. Declared fields come from `sys_hub_action_input` and `sys_hub_action_output` through their `action_type` relation; `type` appears only when `element_prototype` supplies a usable display label. The contract does not infer runtime values, infer semantics from an action label, or resolve data pills. Definition-table access or release variance is reported as a warning and per-action limitation instead of discarding the contract. V1 action or logic nodes are reported as warnings because their bindings cannot be reconstructed as contract steps. Use `inspect` only when raw Flow Designer metadata is required.
+**Notes:** Use `flow(action="contract", ...)` when documenting or implementing an integration. Start with compact sections and use the response's selection and truncation metadata to request continuation. Each V2 action step includes configured `inputs` bindings plus a `definition` containing the action type's declared inputs and outputs. Definition-table access or release variance is reported as a warning instead of discarding the contract. V1 action or logic nodes are reported as warnings because their bindings cannot be reconstructed as contract steps.
+
+### Migration: compact reads and direct investigation explanations
+
+- List-mode `query` calls must include `fields`. Choose a small projection such as `fields="number,short_description,priority"`; use `fields="*"` only when all fields are intentional.
+- `record_read` defaults to compact identity/update fields plus discovered script-bearing fields. Pass `fields="*"` for the full masked record.
+- Use `selection` metadata and truncation metadata to continue paged field, record, or flow reads.
+- Investigation findings include a provenance name. For a direct explanation, pass the registered name and element identifier: `investigate(action="explain", name="table_health", element_id="table:sys_id")`. Omitting `name` keeps legacy trial dispatch.
 
 ## 💡 Tips and Patterns
 

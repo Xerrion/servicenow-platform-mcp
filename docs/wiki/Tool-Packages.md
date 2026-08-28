@@ -2,7 +2,7 @@
 
 Tool packages control which tools are loaded when the server starts. Configure the active package via the `MCP_TOOL_PACKAGE` environment variable.
 
-The server has been consolidated from 14 packages down to 4 focused presets. For a complete reference of every tool, see [[Tool-Reference]]. For security guardrails that apply across all packages, see [[Safety-and-Policy]].
+The server has 11 tool groups and 4 focused presets. The public `full` surface contains 14 tools. For a complete reference of every tool, see [[Tool-Reference]]. For security guardrails that apply across all packages, see [[Safety-and-Policy]].
 
 ---
 

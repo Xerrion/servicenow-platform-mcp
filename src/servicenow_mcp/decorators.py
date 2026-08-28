@@ -30,8 +30,7 @@ _SENSITIVE_ARG_KEYS: frozenset[str] = frozenset(
         # User-supplied content surfaces that may carry PII, credentials, or
         # other sensitive material. ``variables`` (service_catalog catalog-item
         # variables) often holds names, addresses, license keys. ``conditions``
-        # (build_query) holds untrusted value lists. ``text`` is free-form
-        # search input.
+        # can hold untrusted filter values. ``text`` is free-form search input.
         "variables",
         "conditions",
         "text",

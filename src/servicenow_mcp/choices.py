@@ -5,7 +5,7 @@ import logging
 from typing import Any, ClassVar
 
 from servicenow_mcp.auth import BasicAuthProvider
-from servicenow_mcp.client import ServiceNowClient
+from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.sentry import capture_exception as sentry_capture
 
@@ -124,9 +124,15 @@ class ChoiceRegistry:
     _fetched: bool
     _lock: asyncio.Lock
 
-    def __init__(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        auth_provider: BasicAuthProvider,
+        client_factory: ServiceNowClientProvider | None = None,
+    ) -> None:
         self._settings = settings
         self._auth_provider = auth_provider
+        self._client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
         self._cache: dict[tuple[str, str], dict[str, str]] = {}
         self._fetched = False
         self._lock = asyncio.Lock()
@@ -199,7 +205,7 @@ class ChoiceRegistry:
 
         query_str = q.build()
 
-        async with ServiceNowClient(self._settings, self._auth_provider) as client:
+        async with self._client_factory() as client:
             result = await client.query_records(
                 table="sys_choice",
                 query=query_str,

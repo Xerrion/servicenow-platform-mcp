@@ -20,7 +20,7 @@ from mcp.server.fastmcp import FastMCP
 
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.choices import ChoiceRegistry
-from servicenow_mcp.client import ServiceNowClient
+from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.policy import (
@@ -330,6 +330,7 @@ async def _run_sys_id_mode(
     display_values: bool,
     settings: Settings,
     auth_provider: BasicAuthProvider,
+    client_factory: ServiceNowClientProvider,
     correlation_id: str,
 ) -> str:
     validate_sys_id(sys_id)
@@ -339,7 +340,7 @@ async def _run_sys_id_mode(
         for name in field_list:
             validate_identifier(name)
 
-    async with ServiceNowClient(settings, auth_provider) as client:
+    async with client_factory() as client:
         record = await client.get_record(table, sys_id, fields=field_list, display_values=display_values)
 
     return format_response(data=mask_record(table, record), correlation_id=correlation_id)
@@ -352,6 +353,7 @@ async def _run_aggregate_mode(
     group_by: str,
     settings: Settings,
     auth_provider: BasicAuthProvider,
+    client_factory: ServiceNowClientProvider,
     correlation_id: str,
     warnings: list[str],
 ) -> str:
@@ -359,7 +361,7 @@ async def _run_aggregate_mode(
         validate_identifier(group_by)
     enforce_query_safety(table, encoded_query, None, settings)
 
-    async with ServiceNowClient(settings, auth_provider) as client:
+    async with client_factory() as client:
         result = await client.aggregate(
             table,
             encoded_query,
@@ -383,6 +385,7 @@ async def _run_query_mode(
     display_values: bool,
     settings: Settings,
     auth_provider: BasicAuthProvider,
+    client_factory: ServiceNowClientProvider,
     correlation_id: str,
     warnings: list[str],
 ) -> str:
@@ -400,7 +403,7 @@ async def _run_query_mode(
     if effective_limit < limit:
         warnings.append(f"Limit capped at {effective_limit}")
 
-    async with ServiceNowClient(settings, auth_provider) as client:
+    async with client_factory() as client:
         result = await client.query_records(
             table,
             encoded_query,
@@ -511,6 +514,7 @@ def register_tools(
     auth_provider: BasicAuthProvider,
     choices: ChoiceRegistry | None = None,
     dictionary: DictionaryRegistry | None = None,
+    client_factory: ServiceNowClientProvider | None = None,
 ) -> None:
     """Register the unified ``query`` tool on the MCP server.
 
@@ -520,6 +524,8 @@ def register_tools(
     ``dictionary`` registry, when supplied, drives advisory validation of the
     fields referenced in ``encoded_query``.
     """
+
+    client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
 
     @mcp.tool()
     @tool_handler
@@ -576,6 +582,7 @@ def register_tools(
                 display_values=display_values,
                 settings=settings,
                 auth_provider=auth_provider,
+                client_factory=client_factory,
                 correlation_id=correlation_id,
             )
 
@@ -605,6 +612,7 @@ def register_tools(
                 group_by=group_by,
                 settings=settings,
                 auth_provider=auth_provider,
+                client_factory=client_factory,
                 correlation_id=correlation_id,
                 warnings=warnings,
             )
@@ -620,6 +628,7 @@ def register_tools(
             display_values=display_values,
             settings=settings,
             auth_provider=auth_provider,
+            client_factory=client_factory,
             correlation_id=correlation_id,
             warnings=warnings,
         )

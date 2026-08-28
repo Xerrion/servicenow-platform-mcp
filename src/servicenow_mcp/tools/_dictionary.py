@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from typing import Any, ClassVar, Final
 
 from servicenow_mcp.auth import BasicAuthProvider
-from servicenow_mcp.client import ServiceNowClient
+from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.utils import ServiceNowQuery
 
@@ -222,9 +222,15 @@ class DictionaryRegistry:
     _settings: Settings
     _auth_provider: BasicAuthProvider
 
-    def __init__(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        auth_provider: BasicAuthProvider,
+        client_factory: ServiceNowClientProvider | None = None,
+    ) -> None:
         self._settings = settings
         self._auth_provider = auth_provider
+        self._client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
         self._script_cache: dict[str, list[ScriptField]] = {}
         self._all_cache: dict[str, list[DictionaryField]] = {}
         self._chain_cache: dict[str, list[str]] = {}
@@ -261,7 +267,7 @@ class DictionaryRegistry:
         if table in self._all_cache:
             return list(self._all_cache[table])
 
-        async with ServiceNowClient(self._settings, self._auth_provider) as client:
+        async with self._client_factory() as client:
             chain = await self._resolve_chain(client, table)
             collected: list[DictionaryField] = []
             for level, current in enumerate(chain):
@@ -287,7 +293,7 @@ class DictionaryRegistry:
         """Return the resolved super_class chain for ``table`` (child-first)."""
         if table in self._chain_cache:
             return list(self._chain_cache[table])
-        async with ServiceNowClient(self._settings, self._auth_provider) as client:
+        async with self._client_factory() as client:
             chain = await self._resolve_chain(client, table)
         return list(chain)
 

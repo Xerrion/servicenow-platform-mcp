@@ -10,7 +10,7 @@ import logging
 from typing import Any
 
 from servicenow_mcp.auth import BasicAuthProvider
-from servicenow_mcp.client import ServiceNowClient
+from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.policy import INTERNAL_QUERY_LIMIT
 from servicenow_mcp.utils import ServiceNowQuery
@@ -218,6 +218,7 @@ async def _describe_impl(
     requested_fields: list[str],
     settings: Settings,
     auth_provider: BasicAuthProvider,
+    client_factory: ServiceNowClientProvider,
 ) -> tuple[dict[str, Any], list[str]]:
     """Run the post-validation orchestration for the ``describe`` tool.
 
@@ -229,7 +230,7 @@ async def _describe_impl(
     ``format_response``.
     """
     warnings: list[str] = []
-    async with ServiceNowClient(settings, auth_provider) as client:
+    async with client_factory() as client:
         metadata = await client.get_metadata(table)
         table_meta = await client.query_records(
             "sys_db_object",

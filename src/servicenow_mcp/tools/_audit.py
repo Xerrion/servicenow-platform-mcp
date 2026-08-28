@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from typing import Any, ClassVar, Final
 
 from servicenow_mcp.auth import BasicAuthProvider
-from servicenow_mcp.client import ServiceNowClient
+from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.tools._dictionary import DictionaryRegistry
 from servicenow_mcp.utils import ServiceNowQuery
@@ -162,10 +162,12 @@ class AuditRegistry:
         settings: Settings,
         auth_provider: BasicAuthProvider,
         dictionary: DictionaryRegistry,
+        client_factory: ServiceNowClientProvider | None = None,
     ) -> None:
         self._settings = settings
         self._auth_provider = auth_provider
         self._dictionary = dictionary
+        self._client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
         self._table_audit_cache: dict[str, bool | None] = {}
         self._field_audit_cache: dict[tuple[str, str], FieldAudit] = {}
         self._table_field_rows_cache: dict[str, list[dict[str, Any]]] = {}
@@ -194,7 +196,7 @@ class AuditRegistry:
             self._table_audit_cache[table] = None
             return None
 
-        async with ServiceNowClient(self._settings, self._auth_provider) as client:
+        async with self._client_factory() as client:
             rows = await self._fetch_table_audit_rows(client, chain)
 
         by_name: dict[str, str] = {}
@@ -319,7 +321,7 @@ class AuditRegistry:
             return list(self._table_field_rows_cache[cache_key])
 
         query = ServiceNowQuery().in_list("name", chain).equals("element", field).equals("active", "true").build()
-        async with ServiceNowClient(self._settings, self._auth_provider) as client:
+        async with self._client_factory() as client:
             result = await client.query_records(
                 table="sys_dictionary",
                 query=query,
@@ -342,7 +344,7 @@ class AuditRegistry:
         if not chain:
             return []
         query = ServiceNowQuery().in_list("name", chain).is_not_empty("element").equals("active", "true").build()
-        async with ServiceNowClient(self._settings, self._auth_provider) as client:
+        async with self._client_factory() as client:
             result = await client.query_records(
                 table="sys_dictionary",
                 query=query,

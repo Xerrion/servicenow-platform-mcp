@@ -105,6 +105,7 @@ class TestCreateMcpServer:
         assert "attachment" in tool_names
         assert "attachment_write" in tool_names
         assert "code_search" in tool_names
+        assert len(tool_names) == 14
 
     def test_custom_package_can_load_code_search_tool(self) -> None:
         """The ``code_search`` group is directly loadable via MCP_TOOL_PACKAGE."""

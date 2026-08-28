@@ -18,7 +18,7 @@ from mcp.server.fastmcp import FastMCP
 
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.choices import ChoiceRegistry
-from servicenow_mcp.client import ServiceNowClient
+from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.policy import gate_write
@@ -215,12 +215,14 @@ def register_tools(
     auth_provider: BasicAuthProvider,
     choices: ChoiceRegistry | None = None,
     dictionary: DictionaryRegistry | None = None,
+    client_factory: ServiceNowClientProvider | None = None,
 ) -> None:
     """Register the unified ``service_catalog`` tool.
 
     ``choices`` is unused here but accepted for unified-loader contract parity.
     """
     del choices, dictionary  # unused; signature retained for loader parity
+    client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
 
     @mcp.tool()
     @tool_handler
@@ -310,7 +312,7 @@ def register_tools(
             validate_sys_id(catalog_sys_id)
 
         # --- 4. Dispatch -------------------------------------------------
-        async with ServiceNowClient(settings, auth_provider) as client:
+        async with client_factory() as client:
             if action == "catalogs_list":
                 return await _run_catalogs_list(client, limit, text, correlation_id)
             if action == "catalog_get":

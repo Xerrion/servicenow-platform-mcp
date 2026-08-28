@@ -11,7 +11,7 @@ from mcp.server.fastmcp import FastMCP
 
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.choices import ChoiceRegistry
-from servicenow_mcp.client import ServiceNowClient
+from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.policy import check_table_access, mask_record
@@ -47,11 +47,13 @@ def register_tools(
     auth_provider: BasicAuthProvider,
     choices: ChoiceRegistry | None = None,
     dictionary: DictionaryRegistry | None = None,
+    client_factory: ServiceNowClientProvider | None = None,
 ) -> None:
     """Register the unified ``record_read`` tool on the MCP server."""
     del choices  # unused; signature retained for loader parity
+    client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
     if dictionary is None:
-        dictionary = DictionaryRegistry(settings, auth_provider)
+        dictionary = DictionaryRegistry(settings, auth_provider, client_factory)
     dict_registry = dictionary
 
     @mcp.tool()
@@ -94,7 +96,7 @@ def register_tools(
         check_table_access(table)
 
         # --- 4. Resolve target sys_id and fetch record ---------------------
-        async with ServiceNowClient(settings, auth_provider) as client:
+        async with client_factory() as client:
             resolved_sys_id, err = await _resolve_record_sys_id(client, table, sys_id, name, correlation_id)
             if err:
                 return err

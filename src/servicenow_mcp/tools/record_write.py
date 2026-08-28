@@ -22,7 +22,7 @@ from mcp.server.fastmcp import FastMCP
 
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.choices import ChoiceRegistry
-from servicenow_mcp.client import ServiceNowClient
+from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.policy import (
@@ -492,12 +492,14 @@ def register_tools(
     auth_provider: BasicAuthProvider,
     choices: ChoiceRegistry | None = None,
     dictionary: DictionaryRegistry | None = None,
+    client_factory: ServiceNowClientProvider | None = None,
 ) -> None:
     """Register the unified ``record_write`` and ``record_apply`` tools."""
     del choices  # unused; signature retained for loader parity
+    client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
 
     if dictionary is None:
-        dictionary = DictionaryRegistry(settings, auth_provider)
+        dictionary = DictionaryRegistry(settings, auth_provider, client_factory)
     dict_registry = dictionary
 
     # Closure-scoped preview store.
@@ -582,7 +584,7 @@ def register_tools(
 
         # --- 5. Dispatch -------------------------------------------------
         extra_data: dict[str, Any] = {}
-        async with ServiceNowClient(settings, auth_provider) as client:
+        async with client_factory() as client:
             return await _dispatch_record_write(
                 client,
                 action,
@@ -621,5 +623,5 @@ def register_tools(
         if blocked:
             return blocked
 
-        async with ServiceNowClient(settings, auth_provider) as client:
+        async with client_factory() as client:
             return await _apply_payload(client, payload, table, correlation_id)

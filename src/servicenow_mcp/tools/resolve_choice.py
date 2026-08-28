@@ -12,6 +12,7 @@ from mcp.server.fastmcp import FastMCP
 
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.choices import ChoiceRegistry
+from servicenow_mcp.client import ServiceNowClientProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.policy import check_table_access
@@ -33,6 +34,7 @@ def register_tools(
     auth_provider: BasicAuthProvider,
     choices: ChoiceRegistry | None = None,
     dictionary: DictionaryRegistry | None = None,
+    client_factory: ServiceNowClientProvider | None = None,
 ) -> None:
     """Register the unified ``resolve_choice`` tool on the MCP server.
 
@@ -40,7 +42,7 @@ def register_tools(
     ``auth_provider`` are accepted to match the loader contract used by
     ``server.py`` for every unified tool.
     """
-    del settings, auth_provider, dictionary  # unused; signature retained for loader parity
+    del settings, auth_provider, dictionary, client_factory  # unused; signature retained for loader parity
 
     @mcp.tool()
     @tool_handler

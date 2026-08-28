@@ -25,7 +25,7 @@ from mcp.server.fastmcp import FastMCP
 
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.choices import ChoiceRegistry
-from servicenow_mcp.client import ServiceNowClient
+from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.tools._dictionary import DictionaryRegistry
@@ -512,6 +512,7 @@ async def _action_inspect(
     name: str,
     settings: Settings,
     auth_provider: BasicAuthProvider,
+    client_factory: ServiceNowClientProvider,
     correlation_id: str,
     is_contract: bool = False,
 ) -> str:
@@ -522,7 +523,7 @@ async def _action_inspect(
     if sys_id:
         validate_sys_id(sys_id)
 
-    async with ServiceNowClient(settings, auth_provider) as client:
+    async with client_factory() as client:
         resolved_sys_id, err = await _resolve_inspect_sys_id(client, sys_id, name, correlation_id)
         if err is not None:
             return err
@@ -655,13 +656,14 @@ async def _action_find_by_table(
     table: str,
     settings: Settings,
     auth_provider: BasicAuthProvider,
+    client_factory: ServiceNowClientProvider,
     correlation_id: str,
 ) -> str:
     if not table:
         return _error(correlation_id, "'table' is required for action='find_by_table'.")
     validate_identifier(table)
 
-    async with ServiceNowClient(settings, auth_provider) as client:
+    async with client_factory() as client:
         record_triggers = await client.find_record_triggers_by_table(table)
         remote_ids = sorted({_v(r.get("sys_id")) for r in record_triggers if _v(r.get("sys_id"))})
         v2_triggers = await client.list_v2_triggers_by_remote_ids(remote_ids) if remote_ids else []
@@ -751,6 +753,7 @@ async def _action_list_triggers(
     limit: int,
     settings: Settings,
     auth_provider: BasicAuthProvider,
+    client_factory: ServiceNowClientProvider,
     correlation_id: str,
 ) -> str:
     if active and active not in {"true", "false"}:
@@ -766,7 +769,7 @@ async def _action_list_triggers(
     effective_limit = limit if limit and limit > 0 else _DEFAULT_TRIGGER_LIMIT
     effective_limit = max(1, min(effective_limit, settings.max_row_limit))
 
-    async with ServiceNowClient(settings, auth_provider) as client:
+    async with client_factory() as client:
         filtered = await client.list_triggers_filtered(
             trigger_type=trigger_type,
             table=table,
@@ -847,6 +850,7 @@ def register_tools(
     auth_provider: BasicAuthProvider,
     choices: ChoiceRegistry | None = None,
     dictionary: DictionaryRegistry | None = None,
+    client_factory: ServiceNowClientProvider | None = None,
 ) -> None:
     """Register the unified ``flow`` tool on the MCP server.
 
@@ -855,6 +859,7 @@ def register_tools(
     across tool groups.
     """
     del choices, dictionary  # unused; signature retained for loader parity
+    client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
 
     @mcp.tool()
     @tool_handler
@@ -900,6 +905,7 @@ def register_tools(
                 name=name,
                 settings=settings,
                 auth_provider=auth_provider,
+                client_factory=client_factory,
                 correlation_id=correlation_id,
                 is_contract=action == "contract",
             )
@@ -909,6 +915,7 @@ def register_tools(
                 table=table,
                 settings=settings,
                 auth_provider=auth_provider,
+                client_factory=client_factory,
                 correlation_id=correlation_id,
             )
 
@@ -919,5 +926,6 @@ def register_tools(
             limit=limit,
             settings=settings,
             auth_provider=auth_provider,
+            client_factory=client_factory,
             correlation_id=correlation_id,
         )

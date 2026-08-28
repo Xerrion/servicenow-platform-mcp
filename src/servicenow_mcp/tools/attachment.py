@@ -20,7 +20,7 @@ from mcp.server.fastmcp import FastMCP
 
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.choices import ChoiceRegistry
-from servicenow_mcp.client import ServiceNowClient
+from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.errors import NotFoundError
@@ -360,12 +360,14 @@ def register_tools(
     auth_provider: BasicAuthProvider,
     choices: ChoiceRegistry | None = None,
     dictionary: DictionaryRegistry | None = None,
+    client_factory: ServiceNowClientProvider | None = None,
 ) -> None:
     """Register the unified ``attachment`` and ``attachment_write`` tools.
 
     ``choices`` is unused here but accepted for unified-loader contract parity.
     """
     del choices, dictionary  # unused; signature retained for loader parity
+    client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
 
     @mcp.tool()
     @tool_handler
@@ -396,7 +398,7 @@ def register_tools(
         _validate_read_identifier_shapes(action, sys_id, table_sys_id, table)
 
         # --- 3. Dispatch -------------------------------------------------
-        async with ServiceNowClient(settings, auth_provider) as client:
+        async with client_factory() as client:
             return await _dispatch_read_action(client, action, sys_id, table, table_sys_id, file_name, correlation_id)
 
     @mcp.tool()
@@ -446,7 +448,7 @@ def register_tools(
                     f"supported size of {MAX_ATTACHMENT_BYTES} bytes",
                 )
 
-            async with ServiceNowClient(settings, auth_provider) as client:
+            async with client_factory() as client:
                 return await _run_upload(
                     client,
                     table,
@@ -468,5 +470,5 @@ def register_tools(
         if env_blocked:
             return env_blocked
 
-        async with ServiceNowClient(settings, auth_provider) as client:
+        async with client_factory() as client:
             return await _run_delete(client, sys_id, settings, correlation_id)

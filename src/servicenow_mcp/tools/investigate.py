@@ -17,7 +17,7 @@ from mcp.server.fastmcp import FastMCP
 
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.choices import ChoiceRegistry
-from servicenow_mcp.client import ServiceNowClient
+from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.investigation_helpers import parse_element_id
@@ -48,6 +48,7 @@ async def _run_action(
     params: str,
     settings: Settings,
     auth_provider: BasicAuthProvider,
+    client_factory: ServiceNowClientProvider,
     correlation_id: str,
 ) -> str:
     if not name:
@@ -70,7 +71,7 @@ async def _run_action(
         validate_identifier(table)
         check_table_access(table)
 
-    async with ServiceNowClient(settings, auth_provider) as client:
+    async with client_factory() as client:
         result = await module.run(client, params_dict)
 
     return format_response(data=result, correlation_id=correlation_id)
@@ -100,6 +101,7 @@ async def _explain_action(
     element_id: str,
     settings: Settings,
     auth_provider: BasicAuthProvider,
+    client_factory: ServiceNowClientProvider,
     correlation_id: str,
 ) -> str:
     if not element_id:
@@ -119,7 +121,7 @@ async def _explain_action(
     # its allow-set. The first module that produces a real explanation wins; if all
     # decline, we surface the first decline so the caller sees a real message.
     first_decline: dict[str, Any] | None = None
-    async with ServiceNowClient(settings, auth_provider) as client:
+    async with client_factory() as client:
         for module in INVESTIGATION_REGISTRY.values():
             result = await module.explain(client, element_id)
             if isinstance(result, dict) and set(result.keys()) == {"error"}:
@@ -140,6 +142,7 @@ def register_tools(
     auth_provider: BasicAuthProvider,
     choices: ChoiceRegistry | None = None,
     dictionary: DictionaryRegistry | None = None,
+    client_factory: ServiceNowClientProvider | None = None,
 ) -> None:
     """Register the unified ``investigate`` tool on the MCP server.
 
@@ -148,6 +151,7 @@ def register_tools(
     accepted only to keep the loader contract consistent.
     """
     del choices, dictionary  # unused; signature retained for loader parity
+    client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
 
     @mcp.tool()
     @tool_handler
@@ -181,6 +185,7 @@ def register_tools(
                 params=params,
                 settings=settings,
                 auth_provider=auth_provider,
+                client_factory=client_factory,
                 correlation_id=correlation_id,
             )
 
@@ -191,5 +196,6 @@ def register_tools(
             element_id=element_id,
             settings=settings,
             auth_provider=auth_provider,
+            client_factory=client_factory,
             correlation_id=correlation_id,
         )

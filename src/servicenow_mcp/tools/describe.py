@@ -16,7 +16,7 @@ from mcp.server.fastmcp import FastMCP
 
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.choices import ChoiceRegistry
-from servicenow_mcp.client import ServiceNowClient
+from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.policy import check_table_access
@@ -98,6 +98,7 @@ async def _run_list_tables(
     name_filter: str,
     settings: Settings,
     auth_provider: BasicAuthProvider,
+    client_factory: ServiceNowClientProvider,
     correlation_id: str,
 ) -> str:
     """List tables from ``sys_db_object``, optionally filtered by name/label.
@@ -112,7 +113,7 @@ async def _run_list_tables(
         builder.like("name", name_filter).or_condition("label", "LIKE", name_filter)
     query = builder.order_by("name").build()
 
-    async with ServiceNowClient(settings, auth_provider) as client:
+    async with client_factory() as client:
         result = await client.query_records(
             table="sys_db_object",
             query=query,
@@ -141,6 +142,7 @@ def register_tools(
     auth_provider: BasicAuthProvider,
     choices: ChoiceRegistry | None = None,
     dictionary: DictionaryRegistry | None = None,
+    client_factory: ServiceNowClientProvider | None = None,
 ) -> None:
     """Register the unified ``describe`` tool on the MCP server.
 
@@ -150,8 +152,9 @@ def register_tools(
     """
     del choices  # unused; signature retained for loader parity
 
+    client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
     if dictionary is None:
-        dictionary = DictionaryRegistry(settings, auth_provider)
+        dictionary = DictionaryRegistry(settings, auth_provider, client_factory)
     dict_registry = dictionary
 
     @mcp.tool()
@@ -194,7 +197,7 @@ def register_tools(
                     error=f"Unknown describe action {action!r}. Valid actions: {sorted(_VALID_DESCRIBE_ACTIONS)}.",
                 )
             if action == "list_tables":
-                return await _run_list_tables(name_filter, settings, auth_provider, correlation_id)
+                return await _run_list_tables(name_filter, settings, auth_provider, client_factory, correlation_id)
             return await _run_list_script_fields(table, dict_registry, correlation_id)
 
         if not table:
@@ -219,6 +222,7 @@ def register_tools(
             requested_fields=requested_fields,
             settings=settings,
             auth_provider=auth_provider,
+            client_factory=client_factory,
         )
 
         return format_response(

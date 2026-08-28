@@ -3,6 +3,7 @@
 import logging
 import re
 import uuid
+from collections.abc import Callable
 from typing import Any
 from urllib.parse import quote
 
@@ -37,17 +38,24 @@ class ServiceNowClient:
     _settings: Settings
     _auth_provider: BasicAuthProvider
 
-    def __init__(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        auth_provider: BasicAuthProvider,
+        http_client: httpx.AsyncClient | None = None,
+    ) -> None:
         self._settings = settings
         self._auth_provider = auth_provider
-        self._http_client: httpx.AsyncClient | None = None
+        self._http_client = http_client
+        self._owns_http_client = http_client is None
 
     async def __aenter__(self) -> "ServiceNowClient":
-        self._http_client = httpx.AsyncClient(timeout=self._settings.httpx_timeout_seconds)
+        if self._http_client is None:
+            self._http_client = httpx.AsyncClient(timeout=self._settings.httpx_timeout_seconds)
         return self
 
     async def __aexit__(self, *exc: object) -> None:
-        if self._http_client:
+        if self._owns_http_client and self._http_client:
             await self._http_client.aclose()
             self._http_client = None
 
@@ -1295,3 +1303,24 @@ class ServiceNowClient:
         )
         self._raise_for_status(response)
         return self._extract_result(response.json())
+
+
+class ServiceNowClientFactory:
+    """Create ServiceNow clients with consistent HTTP transport ownership."""
+
+    def __init__(
+        self,
+        settings: Settings,
+        auth_provider: BasicAuthProvider,
+        http_client: httpx.AsyncClient | None = None,
+    ) -> None:
+        self._settings = settings
+        self._auth_provider = auth_provider
+        self._http_client = http_client
+
+    def __call__(self) -> ServiceNowClient:
+        """Return a ServiceNow client backed by the configured transport."""
+        return ServiceNowClient(self._settings, self._auth_provider, self._http_client)
+
+
+ServiceNowClientProvider = Callable[[], ServiceNowClient]

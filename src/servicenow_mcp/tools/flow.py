@@ -44,6 +44,18 @@ _DEFAULT_TRIGGER_LIMIT: Final[int] = 100
 _DEFAULT_SECTION_LIMIT: Final[int] = 100
 _DATA_PILL_PATTERN: Final[re.Pattern[str]] = re.compile(r"{{([^{}]+)}}")
 
+_DATASET_QUERY_PATHS: Final[dict[str, tuple[str, str]]] = {
+    "inputs": ("sys_hub_flow_input", "model"),
+    "outputs": ("sys_hub_flow_output", "model"),
+    "variables": ("sys_hub_flow_variable", "model"),
+    "actions_v2": ("sys_hub_action_instance_v2", "flow"),
+    "actions_v1": ("sys_hub_action_instance", "flow"),
+    "logic_v2": ("sys_hub_flow_logic_instance_v2", "flow"),
+    "logic_v1": ("sys_hub_flow_logic", "flow"),
+    "triggers_v2": ("sys_hub_trigger_instance_v2", "flow"),
+    "triggers_v1": ("sys_hub_trigger_instance", "flow"),
+}
+
 _STRUCTURAL_DATASETS: Final[frozenset[str]] = frozenset(
     {"actions_v2", "actions_v1", "logic_v2", "logic_v1", "triggers_v2", "triggers_v1"}
 )
@@ -582,12 +594,41 @@ def _required_datasets(selected_sections: list[str]) -> set[str]:
     return datasets
 
 
+def _continuation(
+    *,
+    section_limit: int,
+    max_row_limit: int,
+    flow_sys_id: str,
+    source_datasets: tuple[str, ...],
+) -> str:
+    if section_limit < max_row_limit:
+        return f"Re-run with section_limit greater than {section_limit}."
+    query_paths = ", ".join(
+        f"{table} (encoded_query={field}={flow_sys_id})"
+        for table, field in (_DATASET_QUERY_PATHS[name] for name in source_datasets)
+    )
+    return (
+        f"The configured MAX_ROW_LIMIT of {max_row_limit} has been reached; no further continuation is available "
+        f"through flow. Use query with an explicit fields projection and a safe encoded query on: {query_paths}. "
+        "Query safety and row limits still apply."
+    )
+
+
+def _v1_variable_value_continuation(*, flow_sys_id: str) -> str:
+    return (
+        "No complete count is available through flow. Use query with an explicit fields projection and a safe encoded "
+        f"query on sys_hub_action_instance (encoded_query=flow={flow_sys_id}) to obtain action sys_ids, then query "
+        "sys_variable_value with encoded_query=documentIN<action_sys_ids>. Query safety and row limits still apply."
+    )
+
+
 def _bounded_rows(
     rows: list[dict[str, Any]],
     *,
     section: str,
     section_limit: int,
     truncation: dict[str, dict[str, Any]],
+    continuation: str,
 ) -> list[dict[str, Any]]:
     returned = rows[:section_limit]
     if len(rows) > section_limit:
@@ -595,7 +636,7 @@ def _bounded_rows(
             "returned": len(returned),
             "observed_at_least": len(rows),
             "omitted_at_least": len(rows) - len(returned),
-            "continuation": f"Re-run with section_limit greater than {section_limit}.",
+            "continuation": continuation,
         }
     return returned
 
@@ -687,13 +728,40 @@ async def _action_inspect(
         datasets, requested_limits = await _fetch_flow_datasets(client, resolved_sys_id, required, effective_limit)
         truncation: dict[str, dict[str, Any]] = {}
         inputs = _bounded_rows(
-            datasets.get("inputs", []), section="inputs", section_limit=effective_limit, truncation=truncation
+            datasets.get("inputs", []),
+            section="inputs",
+            section_limit=effective_limit,
+            truncation=truncation,
+            continuation=_continuation(
+                section_limit=effective_limit,
+                max_row_limit=settings.max_row_limit,
+                flow_sys_id=resolved_sys_id,
+                source_datasets=("inputs",),
+            ),
         )
         outputs = _bounded_rows(
-            datasets.get("outputs", []), section="outputs", section_limit=effective_limit, truncation=truncation
+            datasets.get("outputs", []),
+            section="outputs",
+            section_limit=effective_limit,
+            truncation=truncation,
+            continuation=_continuation(
+                section_limit=effective_limit,
+                max_row_limit=settings.max_row_limit,
+                flow_sys_id=resolved_sys_id,
+                source_datasets=("outputs",),
+            ),
         )
         variables = _bounded_rows(
-            datasets.get("variables", []), section="variables", section_limit=effective_limit, truncation=truncation
+            datasets.get("variables", []),
+            section="variables",
+            section_limit=effective_limit,
+            truncation=truncation,
+            continuation=_continuation(
+                section_limit=effective_limit,
+                max_row_limit=settings.max_row_limit,
+                flow_sys_id=resolved_sys_id,
+                source_datasets=("variables",),
+            ),
         )
         actions_v2 = datasets.get("actions_v2", [])
         actions_v1 = datasets.get("actions_v1", [])
@@ -709,7 +777,12 @@ async def _action_inspect(
                 truncation["structural_summary"] = {
                     "datasets": truncated_datasets,
                     "returned_per_dataset": effective_limit,
-                    "continuation": f"Re-run with section_limit greater than {effective_limit}.",
+                    "continuation": _continuation(
+                        section_limit=effective_limit,
+                        max_row_limit=settings.max_row_limit,
+                        flow_sys_id=resolved_sys_id,
+                        source_datasets=tuple(truncated_datasets),
+                    ),
                 }
 
         selected_node_section = "steps" if is_contract else "canvas"
@@ -724,7 +797,12 @@ async def _action_inspect(
                     "returned": len(bounded_nodes),
                     "observed_at_least": len(combined_nodes),
                     "omitted_at_least": len(combined_nodes) - len(bounded_nodes),
-                    "continuation": f"Re-run with section_limit greater than {effective_limit}.",
+                    "continuation": _continuation(
+                        section_limit=effective_limit,
+                        max_row_limit=settings.max_row_limit,
+                        flow_sys_id=resolved_sys_id,
+                        source_datasets=("actions_v2", "logic_v2"),
+                    ),
                 }
             actions_v2 = [row for kind, row in bounded_nodes if kind == "action"]
             logic_v2 = [row for kind, row in bounded_nodes if kind == "logic"]
@@ -737,7 +815,12 @@ async def _action_inspect(
                     "returned": len(bounded_triggers),
                     "observed_at_least": len(all_triggers),
                     "omitted_at_least": len(all_triggers) - len(bounded_triggers),
-                    "continuation": f"Re-run with section_limit greater than {effective_limit}.",
+                    "continuation": _continuation(
+                        section_limit=effective_limit,
+                        max_row_limit=settings.max_row_limit,
+                        flow_sys_id=resolved_sys_id,
+                        source_datasets=("triggers_v2", "triggers_v1"),
+                    ),
                 }
             triggers_v2 = [row for version, row in bounded_triggers if version == "v2"]
             triggers_v1 = [row for version, row in bounded_triggers if version == "v1"]
@@ -748,7 +831,7 @@ async def _action_inspect(
         )
 
         action_type_ids = sorted({_v(a.get("action_type")) for a in actions_v2 if _v(a.get("action_type"))})
-        needs_action_types = selected_node_section in selected_sections
+        needs_action_types = selected_node_section in selected_sections or "warnings" in selected_sections
         action_type_rows = (
             await client.get_action_type_definitions(action_type_ids) if needs_action_types and action_type_ids else []
         )
@@ -772,6 +855,7 @@ async def _action_inspect(
             section="v1_variable_values",
             section_limit=effective_limit,
             truncation=truncation,
+            continuation=_v1_variable_value_continuation(flow_sys_id=resolved_sys_id),
         )
 
     # Build lookups.
@@ -841,6 +925,12 @@ async def _action_inspect(
                     section="v1_actions",
                     section_limit=effective_limit,
                     truncation=truncation,
+                    continuation=_continuation(
+                        section_limit=effective_limit,
+                        max_row_limit=settings.max_row_limit,
+                        flow_sys_id=resolved_sys_id,
+                        source_datasets=("actions_v1",),
+                    ),
                 )
             ]
             if "v1_actions" in selected_sections
@@ -864,7 +954,7 @@ async def _action_inspect(
             {
                 "returned": len(v1_variable_values),
                 "possible_more": True,
-                "continuation": "No complete count is available; narrow the flow or inspect the source table directly.",
+                "continuation": _v1_variable_value_continuation(flow_sys_id=resolved_sys_id),
             },
         )
     assembled["structural_summary"] = _structural_summary(datasets, effective_limit)

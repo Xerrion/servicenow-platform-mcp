@@ -35,6 +35,7 @@ class AsyncMetadataCache[K: Hashable, V]:
         self._clock = clock
         self._entries: OrderedDict[K, _CacheEntry[V]] = OrderedDict()
         self._loads: dict[K, asyncio.Task[V]] = {}
+        self._active_load_counts: dict[K, int] = {}
         self._key_versions: dict[K, int] = {}
         self._global_version = 0
 
@@ -56,7 +57,8 @@ class AsyncMetadataCache[K: Hashable, V]:
             global_version = self._global_version
             task = asyncio.create_task(self._load(key, loader, key_version, global_version))
             self._loads[key] = task
-            task.add_done_callback(self._load_finished_callback(key, key_version))
+            self._active_load_counts[key] = self._active_load_counts.get(key, 0) + 1
+            task.add_done_callback(self._load_finished_callback(key))
         return await asyncio.shield(task)
 
     def contains(self, key: K) -> bool:
@@ -76,26 +78,26 @@ class AsyncMetadataCache[K: Hashable, V]:
         if key is None:
             self._entries.clear()
             self._global_version += 1
-            for load_key in tuple(self._loads):
+            for load_key in self._active_load_counts:
                 self._key_versions[load_key] = self._key_versions.get(load_key, 0) + 1
             self._loads.clear()
             return
 
         self._entries.pop(key, None)
-        if key in self._loads:
+        if key in self._active_load_counts:
             self._key_versions[key] = self._key_versions.get(key, 0) + 1
-            self._loads.pop(key)
+            self._loads.pop(key, None)
 
     def invalidate_where(self, predicate: Callable[[K], bool]) -> None:
         """Invalidate entries and in-flight loads whose keys match ``predicate``."""
         self._record("invalidation")
         matching_keys = {key for key in self._entries if predicate(key)}
-        matching_keys.update(key for key in self._loads if predicate(key))
+        matching_keys.update(key for key in self._active_load_counts if predicate(key))
         for key in matching_keys:
             self._entries.pop(key, None)
-            if key in self._loads:
+            if key in self._active_load_counts:
                 self._key_versions[key] = self._key_versions.get(key, 0) + 1
-                self._loads.pop(key)
+                self._loads.pop(key, None)
 
     async def _load(
         self,
@@ -113,18 +115,21 @@ class AsyncMetadataCache[K: Hashable, V]:
             self._record("reload")
         return value
 
-    def _finish_load(self, key: K, key_version: int, task: asyncio.Task[V]) -> None:
+    def _finish_load(self, key: K, task: asyncio.Task[V]) -> None:
         if self._loads.get(key) is task:
             self._loads.pop(key, None)
+        active_load_count = self._active_load_counts[key] - 1
+        if active_load_count == 0:
+            self._active_load_counts.pop(key)
             self._key_versions.pop(key, None)
-        elif key not in self._loads and self._key_versions.get(key) == key_version:
-            self._key_versions.pop(key, None)
+        else:
+            self._active_load_counts[key] = active_load_count
         if not task.cancelled():
             task.exception()
 
-    def _load_finished_callback(self, key: K, key_version: int) -> Callable[[asyncio.Task[V]], None]:
+    def _load_finished_callback(self, key: K) -> Callable[[asyncio.Task[V]], None]:
         def finish(task: asyncio.Task[V]) -> None:
-            self._finish_load(key, key_version, task)
+            self._finish_load(key, task)
 
         return finish
 

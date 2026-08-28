@@ -238,6 +238,38 @@ async def test_inspect_compact_default_omits_optional_detail_requests(
         getattr(client, method_name).assert_not_awaited()
 
 
+@pytest.mark.parametrize("action", ["inspect", "contract"])
+@pytest.mark.parametrize("sections", ["", "warnings"])
+@pytest.mark.parametrize("spoke_field", ["category", "sys_scope"])
+@pytest.mark.asyncio()
+async def test_selected_warnings_fetch_spoke_metadata_without_action_schema(
+    settings: Settings,
+    auth_provider: BasicAuthProvider,
+    action: str,
+    sections: str,
+    spoke_field: str,
+) -> None:
+    """Compact and explicit warnings retain spoke detection for both flow views."""
+    kwargs = _empty_inspect_kwargs()
+    kwargs.update(
+        list_action_instances_v2=[{"sys_id": _ref("a1"), "action_type": _ref("atype_spoke")}],
+        get_action_type_definitions=[
+            {"sys_id": _ref("atype_spoke"), spoke_field: _ref("IntegrationHub Spoke")},
+        ],
+    )
+    client = _make_client_mock(**kwargs)
+    tools = _register_and_get_tools(settings, auth_provider)
+
+    with _patch_client(client):
+        raw = await tools["flow"](action=action, sys_id=SYS_ID_FLOW, sections=sections)
+    result = decode_response(raw)
+
+    assert any("spoke action type" in warning for warning in result["data"]["warnings"])
+    client.get_action_type_definitions.assert_awaited_once_with(["atype_spoke"])
+    client.list_action_input_definitions.assert_not_awaited()
+    client.list_action_output_definitions.assert_not_awaited()
+
+
 @pytest.mark.asyncio()
 async def test_inspect_invalid_section_fails_before_service_now_io(
     settings: Settings, auth_provider: BasicAuthProvider
@@ -323,6 +355,149 @@ async def test_inspect_section_limit_discloses_truncation_and_continuation(
         "omitted_at_least": 1,
         "continuation": "Re-run with section_limit greater than 2.",
     }
+
+
+@pytest.mark.parametrize(("action", "section"), [("inspect", "canvas"), ("contract", "steps")])
+@pytest.mark.asyncio()
+async def test_node_truncation_at_max_names_direct_query_paths(
+    settings: Settings,
+    auth_provider: BasicAuthProvider,
+    action: str,
+    section: str,
+) -> None:
+    """Inspect and contract do not offer an impossible continuation above the configured cap."""
+    actions = [
+        {
+            "sys_id": _ref(f"a{index}"),
+            "ui_uuid": _ref(f"ui_a{index}"),
+            "parent_ui_uuid": _ref(""),
+            "order": _ref(str(index)),
+            "label": _ref(f"Action {index}"),
+            "action_type": _ref(""),
+            "values": _ref(""),
+        }
+        for index in range(settings.max_row_limit + 1)
+    ]
+    kwargs = _empty_inspect_kwargs()
+    kwargs["list_action_instances_v2"] = actions
+    client = _make_client_mock(**kwargs)
+    tools = _register_and_get_tools(settings, auth_provider)
+
+    with _patch_client(client):
+        raw = await tools["flow"](
+            action=action,
+            sys_id=SYS_ID_FLOW,
+            sections=section,
+            section_limit=settings.max_row_limit + 50,
+        )
+    result = decode_response(raw)
+
+    truncation = result["selection"]["truncation"][section]
+    assert result["selection"]["section_limit"] == settings.max_row_limit
+    assert "no further continuation is available through flow" in truncation["continuation"]
+    assert f"sys_hub_action_instance_v2 (encoded_query=flow={SYS_ID_FLOW})" in truncation["continuation"]
+    assert f"sys_hub_flow_logic_instance_v2 (encoded_query=flow={SYS_ID_FLOW})" in truncation["continuation"]
+    assert "explicit fields projection" in truncation["continuation"]
+    assert "Query safety and row limits still apply" in truncation["continuation"]
+
+
+@pytest.mark.parametrize("action", ["inspect", "contract"])
+@pytest.mark.asyncio()
+async def test_structural_summary_truncation_at_max_names_all_truncated_sources(
+    settings: Settings,
+    auth_provider: BasicAuthProvider,
+    action: str,
+) -> None:
+    """Both flow views disclose direct source paths for capped structural counts."""
+    kwargs = _empty_inspect_kwargs()
+    kwargs["list_trigger_instances_v1"] = [{"sys_id": _ref(f"t{index}")} for index in range(settings.max_row_limit + 1)]
+    client = _make_client_mock(**kwargs)
+    tools = _register_and_get_tools(settings, auth_provider)
+
+    with _patch_client(client):
+        raw = await tools["flow"](
+            action=action,
+            sys_id=SYS_ID_FLOW,
+            sections="structural_summary",
+            section_limit=settings.max_row_limit + 50,
+        )
+    result = decode_response(raw)
+
+    truncation = result["selection"]["truncation"]["structural_summary"]
+    assert truncation["datasets"] == ["triggers_v1"]
+    assert "no further continuation is available through flow" in truncation["continuation"]
+    assert f"sys_hub_trigger_instance (encoded_query=flow={SYS_ID_FLOW})" in truncation["continuation"]
+
+
+@pytest.mark.parametrize(
+    ("section", "client_method", "source_path"),
+    [
+        ("inputs", "list_flow_inputs", "sys_hub_flow_input (encoded_query=model="),
+        ("triggers", "list_trigger_instances_v2", "sys_hub_trigger_instance_v2 (encoded_query=flow="),
+    ],
+)
+@pytest.mark.asyncio()
+async def test_row_section_truncation_at_max_names_direct_query_path(
+    settings: Settings,
+    auth_provider: BasicAuthProvider,
+    section: str,
+    client_method: str,
+    source_path: str,
+) -> None:
+    """Bounded rows and merged trigger rows disclose usable capped-read paths."""
+    kwargs = _empty_inspect_kwargs()
+    kwargs[client_method] = [{"sys_id": _ref(f"r{index}")} for index in range(settings.max_row_limit + 1)]
+    client = _make_client_mock(**kwargs)
+    tools = _register_and_get_tools(settings, auth_provider)
+
+    with _patch_client(client):
+        raw = await tools["flow"](
+            action="inspect",
+            sys_id=SYS_ID_FLOW,
+            sections=section,
+            section_limit=settings.max_row_limit + 50,
+        )
+    result = decode_response(raw)
+
+    continuation = result["selection"]["truncation"][section]["continuation"]
+    assert "no further continuation is available through flow" in continuation
+    assert f"{source_path}{SYS_ID_FLOW})" in continuation
+
+
+@pytest.mark.parametrize(
+    ("section", "expected_source"),
+    [
+        ("v1_actions", f"sys_hub_action_instance (encoded_query=flow={SYS_ID_FLOW})"),
+        ("v1_variable_values", "sys_variable_value with encoded_query=documentIN<action_sys_ids>"),
+    ],
+)
+@pytest.mark.asyncio()
+async def test_v1_section_truncation_names_direct_query_sequence(
+    settings: Settings,
+    auth_provider: BasicAuthProvider,
+    section: str,
+    expected_source: str,
+) -> None:
+    """Legacy action sections retain safe direct-query guidance when capped."""
+    kwargs = _empty_inspect_kwargs()
+    kwargs["list_action_instances_v1"] = [{"sys_id": _ref(f"a{index}")} for index in range(settings.max_row_limit + 1)]
+    kwargs["list_v1_variable_values"] = [{"document": _ref(f"a{index}")} for index in range(settings.max_row_limit + 1)]
+    client = _make_client_mock(**kwargs)
+    tools = _register_and_get_tools(settings, auth_provider)
+
+    with _patch_client(client):
+        raw = await tools["flow"](
+            action="inspect",
+            sys_id=SYS_ID_FLOW,
+            sections=section,
+            section_limit=settings.max_row_limit + 50,
+        )
+    result = decode_response(raw)
+
+    continuation = result["selection"]["truncation"][section]["continuation"]
+    assert expected_source in continuation
+    assert "explicit fields projection" in continuation
+    assert "Query safety and row limits still apply" in continuation
 
 
 @pytest.mark.asyncio()

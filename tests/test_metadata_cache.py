@@ -163,6 +163,61 @@ async def test_replacement_load_stays_valid_when_invalidated_load_finishes_last(
 
 
 @pytest.mark.asyncio()
+async def test_replacement_load_remains_cached_when_it_finishes_before_invalidated_load() -> None:
+    """A replacement that finishes first remains protected from its superseded load."""
+    cache = AsyncMetadataCache[str, str](name=CacheName.AUDIT_TABLE_CONFIG, ttl_seconds=30)
+    release_old = asyncio.Event()
+    release_new = asyncio.Event()
+
+    async def load_old() -> str:
+        await release_old.wait()
+        return "old"
+
+    async def load_new() -> str:
+        await release_new.wait()
+        return "new"
+
+    old = asyncio.create_task(cache.get_or_load("incident", load_old))
+    for _ in range(3):
+        await asyncio.sleep(0)
+    cache.invalidate("incident")
+    new = asyncio.create_task(cache.get_or_load("incident", load_new))
+    for _ in range(3):
+        await asyncio.sleep(0)
+
+    release_new.set()
+    assert await new == "new"
+    release_old.set()
+    assert await old == "old"
+    assert await cache.get_or_load("incident", load_old) == "new"
+
+
+@pytest.mark.asyncio()
+async def test_second_invalidation_keeps_completed_replacement_and_superseded_load_invalid() -> None:
+    """Invalidation advances the generation while only a superseded load remains active."""
+    cache = AsyncMetadataCache[str, str](name=CacheName.AUDIT_TABLE_CONFIG, ttl_seconds=30)
+    release_old = asyncio.Event()
+
+    async def load_old() -> str:
+        await release_old.wait()
+        return "old"
+
+    async def load_new() -> str:
+        return "new"
+
+    old = asyncio.create_task(cache.get_or_load("incident", load_old))
+    for _ in range(3):
+        await asyncio.sleep(0)
+    cache.invalidate("incident")
+    assert await cache.get_or_load("incident", load_new) == "new"
+
+    cache.invalidate("incident")
+    release_old.set()
+    assert await old == "old"
+    assert await cache.get_or_load("incident", load_new) == "new"
+
+
+@pytest.mark.asyncio()
 async def test_cache_can_cross_event_loops_without_lock_affinity() -> None:
     """A cache created outside a loop can serve calls from separate event loops."""
     cache = AsyncMetadataCache[str, str](name=CacheName.CHOICES, ttl_seconds=30)

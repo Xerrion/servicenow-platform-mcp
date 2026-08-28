@@ -10,7 +10,7 @@ The server has been consolidated from 14 packages down to 4 focused presets. For
 
 | Package | Total MCP Tools | Description |
 |---|---|---|
-| `full` (default) | 15 | All unified tools, including `audit`, `flow`, `code_search`, and the `build_query` helper |
+| `full` (default) | 14 | All unified tools, including `audit`, `flow`, and `code_search` |
 | `readonly` | 11 | Includes `record_read`, `audit`, `flow`, `code_search`, and `attachment_write` (runtime write gating blocks in prod) |
 | `core_readonly` | 5 | Minimal read-only core: `query`, `describe`, `attachment`, `attachment_write`, `list_tool_packages` |
 | `none` | 1 | No tools loaded - only `list_tool_packages` is available |
@@ -21,11 +21,9 @@ The server has been consolidated from 14 packages down to 4 focused presets. For
 
 The `list_tool_packages` tool is always available and returns the active registry at runtime. The detailed lists below name package tools; add `list_tool_packages` to get the total MCP tool count shown above.
 
-### `full` (14 package tools)
+### `full` (13 package tools)
 
-`query`, `build_query`, `describe`, `record_read`, `record_write`, `record_apply`, `attachment`, `attachment_write`, `investigate`, `resolve_choice`, `service_catalog`, `audit`, `flow`, `code_search`.
-
-*Note: `build_query` is a stateless helper that returns an encoded query string for the caller to pass straight to `query`. It is the only tool that is exclusive to the `full` package - the read-only presets pass encoded queries to `query` directly.*
+`query`, `describe`, `record_read`, `record_write`, `record_apply`, `attachment`, `attachment_write`, `investigate`, `resolve_choice`, `service_catalog`, `audit`, `flow`, `code_search`.
 
 ### `readonly` (10 package tools)
 

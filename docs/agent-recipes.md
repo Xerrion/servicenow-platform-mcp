@@ -1,6 +1,6 @@
 # 📖 Agent Recipes
 
-This document provides a set of "recipes" for common ServiceNow workflows using the unified 12-tool surface.
+This document provides a set of "recipes" for common ServiceNow workflows using the unified tool surface.
 
 The previous specialized helper tools (e.g., `incident_list`, `debug_trace`, `changes_updateset_inspect`) have been collapsed into a minimal, dispatcher-oriented API. Agents and developers now achieve complex tasks through multi-call joins, encoded query strings, and explicit choice resolution. These recipes demonstrate how to translate legacy tool usage into this new, more flexible vocabulary.
 
@@ -9,7 +9,6 @@ The previous specialized helper tools (e.g., `incident_list`, `debug_trace`, `ch
 | Tool | Purpose |
 | :--- | :--- |
 | `query` | Fetch records, aggregates, or single records from any table using encoded queries. |
-| `build_query` | Stateless helper - compiles a JSON array of condition objects into the encoded query string that `query` consumes. `full` package only. |
 | `describe` | Retrieve slim field metadata (8 keys) for a table to understand its structure. Use `action='list_script_fields'` with a `table` argument to discover the dictionary-driven script-bearing fields and the resolved super_class chain. |
 | `record_read` | Read a record by `sys_id` or `name`. Returns the masked record plus the `script_fields` list resolved from `sys_dictionary` for the table. |
 | `record_write` | Dispatcher for creating, updating, or deleting records (with `script_path` file injection and `script_field` targeting for tables with multiple script-bearing fields). |
@@ -86,8 +85,7 @@ await record_apply(preview_token=preview["data"]["preview_token"])
 
 ### 3. Build a complex multi-condition query
 **Goal:** Find incidents that are either New or In Progress, have High/Critical priority, and belong to a Network group.  
-**Old way:** `build_query(...)` then `table_query(...)`  
-**New way:**
+**Method:** Construct the encoded query string directly, or copy it from a ServiceNow filter breadcrumb.
 ```python
 # Compose the query string directly
 # (state=1 OR state=2) AND (priority <= 2) AND (group name starts with Network)
@@ -100,28 +98,6 @@ await query(
 )
 ```
 **Notes:** Dot-walking (`assignment_group.name`) is supported. Use `^NQ` (New Query) for top-level OR conditions that require entirely separate filter sets.
-
----
-
-### 3a. Compose the same query with `build_query`
-**Goal:** Same result as Recipe 3, but expressed as structured JSON instead of hand-written encoded-query syntax. Useful when the conditions come from another tool, a UI, or any source that already speaks JSON.  
-**Availability:** `full` package only.
-```python
-import json
-
-built = json.loads(await build_query(conditions=json.dumps([
-    {"operator": "in_list",     "field": "state",                  "value": ["1", "2"]},
-    {"operator": "less_or_equal", "field": "priority",             "value": "2"},
-    {"operator": "starts_with", "field": "assignment_group.name",  "value": "Network"},
-])))
-
-await query(
-    table="incident",
-    encoded_query=built["data"]["query"],
-    fields="number,short_description,assignment_group.name"
-)
-```
-**Notes:** `build_query` is stateless - it returns the encoded query string in `data.query` for the caller to forward. There is no token store and no shared state; if the second call fails, just call `build_query` again.
 
 ---
 

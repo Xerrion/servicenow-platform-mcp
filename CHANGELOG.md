@@ -9,6 +9,10 @@
 
 ## [Unreleased]
 
+### Removed
+
+* Removed the public `build_query` MCP tool. Pass ServiceNow encoded query strings directly to `query(encoded_query=...)`; custom packages that name `build_query` are invalid.
+
 ### Added
 
 * `flow` unified tool for read-only Flow Designer inspection (Washington DC V2 + V1 fallback). Five actions: `inspect`, `find_by_table`, `decode_values`, `list_triggers`, `describe`. Available in `full` and `readonly` presets.

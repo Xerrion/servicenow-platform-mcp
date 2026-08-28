@@ -16,12 +16,12 @@ Communication happens over **stdio transport**. The server runs as a child proce
 
 ## Unified Tool Surface
 
-Version 0.10.0 introduced a unified 12-tool surface. Most tools are implemented as **dispatchers** that take an `action` parameter, reducing the total tool count while increasing flexibility.
+The current `full` preset exposes 14 tools, including the always-available `list_tool_packages` tool. Most tools are implemented as **dispatchers** that take an `action` parameter, reducing the total tool count while increasing flexibility.
 
 ### Key Implementation Patterns
 
 - **Action Dispatchers:** Tools like `attachment`, `investigate`, and `service_catalog` use an `action` parameter to route requests to internal logic.
-- **Encoded Queries:** The `query` tool accepts ServiceNow encoded query strings directly. The optional `build_query` helper (in the `full` package) is a stateless transform that compiles a JSON array of condition objects into an encoded query string for callers that prefer structured input.
+- **Encoded Queries:** The `query` tool accepts ServiceNow encoded query strings directly. Callers can copy filter breadcrumbs from ServiceNow or construct encoded query strings directly. Query safety remains enforced by `query`.
 - **Two-Stage Writes:** `record_write` (stage) and `record_apply` (commit) implement a mandatory safety flow for all mutations.
 - **Helper Modules:** Shared logic is extracted into specialized helpers:
   - `_artifact.py`: Handles secure script file reads (path containment, UTF-8 decode, 1 MB cap) and the `xml` well-formedness check.

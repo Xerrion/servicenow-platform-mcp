@@ -406,7 +406,7 @@ The registry contains 4 preset packages. Tool groups are loaded from `servicenow
 
 | Package | Tools | Description |
 |---|---|---|
-| `full` | 13 | Every group (full surface, includes `build_query`) |
+| `full` | 11 | Every tool group |
 | `readonly` | 9 | Read tools + investigate + resolve_choice |
 | `core_readonly` | 5 | Query + describe + attachment only |
 | `none` | 1 | Only `list_tool_packages` loaded |
@@ -414,7 +414,7 @@ The registry contains 4 preset packages. Tool groups are loaded from `servicenow
 - **Custom Packages:** Comma-separated group names are supported (e.g., `MCP_TOOL_PACKAGE=query,describe`).
 - **Tool Group Shadowing:** `MCP_TOOL_PACKAGE=service_catalog` resolves via the custom-package path to the single tool group.
 - **Write Gating:** The `attachment` group registers both read and write tools; write tools are blocked at runtime in production by `write_gate`.
-- **`build_query`:** Stateless helper that complements `query`. Accepts a JSON array of condition objects and returns the encoded query string in `data.query` for the caller to pass straight to `query`. `full` package only - the readonly presets pass encoded queries to `query` directly.
+- **Query construction:** Pass ServiceNow encoded query strings directly to `query(encoded_query=...)`. Callers can copy filter breadcrumbs from ServiceNow or construct the strings directly. Query safety still runs in `query`.
 
 ## 🔀 Async Patterns
 

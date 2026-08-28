@@ -33,43 +33,10 @@ Search and retrieve records from any table using ServiceNow encoded query string
   - `limit`, `offset`, `order_by`: Pagination and sorting.
 - **Example:**
   ```python
-  await query(table="incident", encoded_query="active=true^priority=1", fields="number,short_description")
-  ```
+   await query(table="incident", encoded_query="active=true^priority=1", fields="number,short_description")
+   ```
 
-### `build_query`
-Stateless helper that compiles a JSON array of condition objects into a ServiceNow encoded query string. The result is returned in `data.query` for the caller to forward to `query`.
-
-- **Purpose:** Let agents express filters as structured JSON without learning the encoded-query mini-language. The tool touches no ServiceNow APIs; it is a pure transform.
-- **Availability:** `full` package only - readonly presets pass encoded queries to `query` directly.
-- **Key Parameters:**
-  - `conditions`: JSON-encoded array of condition objects. Each object carries an `operator`, a `field` (omitted for `new_query`), and operator-specific keys (`value`, `start`/`end`, `other_field`, `part`/`dp_operator`/`dp_value`, `related_table`/`related_field`/`rl_operator`, `descending`).
-- **Operator groups:**
-  - **Comparison:** `equals`, `not_equals`, `greater_than`, `greater_or_equal`, `less_than`, `less_or_equal`
-  - **String:** `contains`, `starts_with`, `like`, `ends_with`, `not_like`, `does_not_contain`
-  - **Null / special:** `is_empty`, `is_not_empty`, `anything`, `empty_string`
-  - **Time:** `hours_ago`, `minutes_ago`, `days_ago`, `older_than_days`
-  - **Date:** `on`, `not_on`, `relative_gt`, `relative_lt`, `more_than`
-  - **Date part:** `datepart`
-  - **Range:** `between`
-  - **Field comparison:** `gt_field`, `lt_field`, `gt_or_equals_field`, `lt_or_equals_field`, `same_as`, `not_same_as`
-  - **Reference:** `dynamic`, `in_hierarchy`
-  - **Change detection:** `val_changes`, `changes_from`, `changes_to`
-  - **Logical:** `new_query` (inserts `^NQ` separator)
-  - **Related list:** `rl_query`
-  - **List:** `in_list`, `not_in_list` (value is a list of strings)
-  - **OR:** `or_equals`, `or_starts_with`
-  - **Ordering:** `order_by` (optional `descending: true`)
-- **Example:**
-  ```python
-  built = await build_query(conditions=json.dumps([
-      {"operator": "equals",     "field": "active",         "value": "true"},
-      {"operator": "less_or_equal", "field": "priority",    "value": "2"},
-      {"operator": "hours_ago",  "field": "sys_created_on", "value": 24},
-      {"operator": "order_by",   "field": "sys_created_on", "descending": True},
-  ]))
-  # built["data"]["query"] -> "active=true^priority<=2^sys_created_on>=javascript:gs.hoursAgoStart(24)^ORDERBYDESCsys_created_on"
-  await query(table="incident", encoded_query=built["data"]["query"], fields="number,priority")
-  ```
+ServiceNow encoded queries are the only supported query construction interface. Copy a filter breadcrumb from a ServiceNow list, or construct the encoded query string directly, then pass it in `encoded_query`. Query safety still applies.
 
 ### `describe`
 Retrieve schema and metadata for a table, or enumerate its script-bearing fields.
@@ -273,6 +240,6 @@ The following specialized tool families from v0.9.x have been **deleted** and re
 - Documentation and Workflow families (`docs_*`, `workflow_*`, legacy `flow_*` - Use `flow` for Flow Designer inspection, or `query`/`describe` against platform tables)
 - `artifact_create`/`artifact_update` (Folded into `record_write`)
 
-`build_query` is retained from v0.9.x but reshaped to be stateless and scoped to the `full` package. The `QueryTokenStore` is gone - `build_query` returns the encoded query string directly in `data.query` for the caller to forward to `query`. Agents may also bypass `build_query` entirely and pass encoded queries to `query` directly.
+The public `build_query` tool was removed. Pass encoded queries directly to `query`; the `QueryTokenStore` is also gone.
 
 For detailed mapping of old workflows to new tools, see [Agent Recipes](../../docs/agent-recipes.md).

@@ -349,7 +349,6 @@ class TestResolveLabels:
         )
 
         choices = ChoiceRegistry(settings, auth_provider)
-        choices._fetched = True
         choices.resolve = AsyncMock(side_effect=lambda _t, _f, label: {"open": "1", "high": "2"}[label])  # type: ignore[method-assign]
 
         tools = _register_and_get_tools(settings, auth_provider, choices=choices)
@@ -376,7 +375,6 @@ class TestResolveLabels:
         )
 
         choices = ChoiceRegistry(settings, auth_provider)
-        choices._fetched = True
         choices.resolve = AsyncMock(side_effect=lambda _t, _f, label: label)  # type: ignore[method-assign]
 
         tools = _register_and_get_tools(settings, auth_provider, choices=choices)

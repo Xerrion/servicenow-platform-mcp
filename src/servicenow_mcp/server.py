@@ -58,8 +58,8 @@ def create_mcp_server() -> FastMCP:
 
     mcp = FastMCP("servicenow-platform-mcp", lifespan=lifespan)
 
-    choices = ChoiceRegistry(settings, auth_provider, client_factory)
-    dictionary = DictionaryRegistry(settings, auth_provider, client_factory)
+    choices = ChoiceRegistry(settings, auth_provider, client_factory, telemetry)
+    dictionary = DictionaryRegistry(settings, auth_provider, client_factory, telemetry)
     attach_servicenow_state(mcp, settings, auth_provider, choices, dictionary, client_factory, telemetry)
 
     # Always register the list_tool_packages tool

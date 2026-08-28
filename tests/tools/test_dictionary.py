@@ -8,13 +8,20 @@ are mocked with respx routed by URL.
 
 from __future__ import annotations
 
+import asyncio
+from typing import cast
+from unittest.mock import AsyncMock
+
 import httpx
 import pytest
 import respx
 
 from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp.client import ServiceNowClientProvider
 from servicenow_mcp.config import Settings
+from servicenow_mcp.telemetry import CacheName, HttpTelemetry
 from servicenow_mcp.tools._dictionary import (
+    DictionaryField,
     DictionaryRegistry,
     _attributes_admit_heuristic,
     looks_like_template,
@@ -313,6 +320,72 @@ class TestCache:
 
         assert db_route.call_count == 2
         assert dict_route.call_count == 2
+
+    @pytest.mark.asyncio()
+    async def test_chain_cache_hit_precedes_client_creation(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """A fresh chain hit does not construct or enter another client context."""
+        entered = 0
+
+        class ClientContext:
+            async def __aenter__(self) -> object:
+                nonlocal entered
+                entered += 1
+                return object()
+
+            async def __aexit__(self, *args: object) -> None:
+                return None
+
+        client_factory = cast("ServiceNowClientProvider", ClientContext)
+        registry = DictionaryRegistry(settings, auth_provider, client_factory)
+        registry._resolve_chain = AsyncMock(return_value=["incident"])  # type: ignore[method-assign]
+
+        assert await registry.get_chain("incident") == ["incident"]
+        assert await registry.get_chain("incident") == ["incident"]
+        assert entered == 1
+
+    @pytest.mark.asyncio()
+    async def test_same_table_field_load_is_single_flight(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """Concurrent calls for one table share dictionary metadata loading."""
+        registry = DictionaryRegistry(settings, auth_provider)
+        gate = asyncio.Event()
+        calls = 0
+
+        async def load(table: str) -> list[DictionaryField]:
+            del table
+            nonlocal calls
+            calls += 1
+            await gate.wait()
+            return []
+
+        registry.get_all_fields = load  # type: ignore[method-assign]
+        first = asyncio.create_task(registry.get_script_fields("incident"))
+        second = asyncio.create_task(registry.get_script_fields("incident"))
+        await asyncio.sleep(0)
+        gate.set()
+
+        assert await asyncio.gather(first, second) == [[], []]
+        assert calls == 1
+
+    @respx.mock
+    @pytest.mark.asyncio()
+    async def test_cache_telemetry_uses_fixed_dictionary_names(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """Dictionary cache counters omit the requested table name."""
+        respx.get(DB_OBJECT_URL).mock(return_value=httpx.Response(200, json={"result": [{"super_class": ""}]}))
+        telemetry = HttpTelemetry()
+        registry = DictionaryRegistry(settings, auth_provider, telemetry=telemetry)
+
+        await registry.get_chain("sensitive_customer_table")
+        await registry.get_chain("sensitive_customer_table")
+
+        context = telemetry.cache_sentry_context()
+        assert context[CacheName.DICTIONARY_CHAINS.value]["hits"] == 1
+        assert "sensitive_customer_table" not in str(context)
 
 
 # ---------------------------------------------------------------------------

@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     large_table_names_csv: str = _DEFAULT_LARGE_TABLES
     script_allowed_root: str = ""
     httpx_timeout_seconds: float = 30.0
+    metadata_cache_ttl_seconds: int = 300
 
     sentry_dsn: str = ""
     sentry_environment: str = ""
@@ -68,6 +69,14 @@ class Settings(BaseSettings):
         """Ensure httpx_timeout_seconds is finite and between 1.0 and 600.0."""
         if not math.isfinite(v) or v < 1.0 or v > 600.0:
             raise ValueError("httpx_timeout_seconds must be between 1.0 and 600.0")
+        return v
+
+    @field_validator("metadata_cache_ttl_seconds")
+    @classmethod
+    def validate_metadata_cache_ttl(cls, v: int) -> int:
+        """Ensure metadata_cache_ttl_seconds is between 1 second and 24 hours."""
+        if v < 1 or v > 86400:
+            raise ValueError("metadata_cache_ttl_seconds must be between 1 and 86400")
         return v
 
     @field_validator("mcp_tool_package")

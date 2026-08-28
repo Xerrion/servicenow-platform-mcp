@@ -520,7 +520,13 @@ def register_tools(
 
     client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
     dictionary_registry = dictionary or DictionaryRegistry(settings, auth_provider, client_factory)
-    audit_registry = AuditRegistry(settings, auth_provider, dictionary_registry, client_factory)
+    audit_registry = AuditRegistry(
+        settings,
+        auth_provider,
+        dictionary_registry,
+        client_factory,
+        getattr(mcp, "_sn_http_telemetry", None),
+    )
 
     @mcp.tool()
     @tool_handler

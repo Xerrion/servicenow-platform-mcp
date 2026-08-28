@@ -2,8 +2,9 @@
 
 import logging
 from dataclasses import dataclass
+from enum import StrEnum
 from time import perf_counter
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 
@@ -11,6 +12,31 @@ from servicenow_mcp.sentry import set_sentry_context
 
 
 logger = logging.getLogger(__name__)
+
+
+class CacheName(StrEnum):
+    """Fixed metadata cache names used by bounded telemetry."""
+
+    CHOICES = "choices"
+    DICTIONARY_CHAINS = "dictionary_chains"
+    DICTIONARY_FIELDS = "dictionary_fields"
+    DICTIONARY_SCRIPT_FIELDS = "dictionary_script_fields"
+    AUDIT_TABLE_CONFIG = "audit_table_config"
+    AUDIT_FIELD_CONFIG = "audit_field_config"
+
+
+CacheEvent = Literal["hit", "miss", "expiration", "reload", "invalidation"]
+
+
+@dataclass(frozen=True, slots=True)
+class CacheTelemetrySnapshot:
+    """Immutable measurements for one fixed metadata cache domain."""
+
+    hits: int = 0
+    misses: int = 0
+    expirations: int = 0
+    reloads: int = 0
+    invalidations: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,6 +49,7 @@ class HttpTelemetrySnapshot:
     response_bytes: int
     total_duration_ms: float
     shared_pool_request_count: int
+    metadata_caches: dict[str, CacheTelemetrySnapshot]
 
 
 class HttpTelemetry:
@@ -35,6 +62,7 @@ class HttpTelemetry:
         self._response_bytes = 0
         self._total_duration_ms = 0.0
         self._shared_pool_request_count = 0
+        self._metadata_caches = {name: CacheTelemetrySnapshot() for name in CacheName}
 
     def record_started(self, *, is_shared_pool: bool) -> None:
         """Count a started HTTP request and its pool mode."""
@@ -53,6 +81,28 @@ class HttpTelemetry:
         self._failed_request_count += 1
         self._total_duration_ms += max(duration_ms, 0.0)
 
+    def record_cache_event(self, name: CacheName, event: CacheEvent) -> None:
+        """Count one metadata cache event under a fixed cache name."""
+        current = self._metadata_caches[name]
+        values = {
+            "hits": current.hits,
+            "misses": current.misses,
+            "expirations": current.expirations,
+            "reloads": current.reloads,
+            "invalidations": current.invalidations,
+        }
+        event_fields = {
+            "hit": "hits",
+            "miss": "misses",
+            "expiration": "expirations",
+            "reload": "reloads",
+            "invalidation": "invalidations",
+        }
+        event_field = event_fields[event]
+        values[event_field] += 1
+        self._metadata_caches[name] = CacheTelemetrySnapshot(**values)
+        set_sentry_context("cache_telemetry", self.cache_sentry_context())
+
     def snapshot(self) -> HttpTelemetrySnapshot:
         """Return the current fixed-size aggregate measurements."""
         return HttpTelemetrySnapshot(
@@ -62,7 +112,21 @@ class HttpTelemetry:
             response_bytes=self._response_bytes,
             total_duration_ms=self._total_duration_ms,
             shared_pool_request_count=self._shared_pool_request_count,
+            metadata_caches={name.value: value for name, value in self._metadata_caches.items()},
         )
+
+    def cache_sentry_context(self) -> dict[str, dict[str, int]]:
+        """Return fixed-name metadata cache counters for Sentry context."""
+        return {
+            name.value: {
+                "hits": value.hits,
+                "misses": value.misses,
+                "expirations": value.expirations,
+                "reloads": value.reloads,
+                "invalidations": value.invalidations,
+            }
+            for name, value in self._metadata_caches.items()
+        }
 
     def sentry_context(self) -> dict[str, int | float]:
         """Return bounded aggregate values for Sentry context."""

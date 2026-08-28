@@ -19,6 +19,8 @@ from typing import Any, ClassVar, Final
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
+from servicenow_mcp.metadata_cache import AsyncMetadataCache
+from servicenow_mcp.telemetry import CacheName, HttpTelemetry
 from servicenow_mcp.utils import ServiceNowQuery
 
 
@@ -213,8 +215,8 @@ class DictionaryRegistry:
     """Lazy-loaded cache of script-bearing fields per table.
 
     One instance per server. Threads through ``register_tools`` alongside
-    ``ChoiceRegistry``. The cache survives the process lifetime; flushing is
-    exposed but currently unwired.
+    ``ChoiceRegistry``. Cached values expire after the configured metadata TTL;
+    explicit flushing remains available.
     """
 
     _DICT_FIELDS: ClassVar[list[str]] = ["element", "internal_type", "attributes"]
@@ -227,36 +229,42 @@ class DictionaryRegistry:
         settings: Settings,
         auth_provider: BasicAuthProvider,
         client_factory: ServiceNowClientProvider | None = None,
+        telemetry: HttpTelemetry | None = None,
     ) -> None:
         self._settings = settings
         self._auth_provider = auth_provider
         self._client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
-        self._script_cache: dict[str, list[ScriptField]] = {}
-        self._all_cache: dict[str, list[DictionaryField]] = {}
-        self._chain_cache: dict[str, list[str]] = {}
+        ttl = settings.metadata_cache_ttl_seconds
+        self._script_cache = AsyncMetadataCache[str, list[ScriptField]](
+            name=CacheName.DICTIONARY_SCRIPT_FIELDS, ttl_seconds=ttl, telemetry=telemetry
+        )
+        self._all_cache = AsyncMetadataCache[str, list[DictionaryField]](
+            name=CacheName.DICTIONARY_FIELDS, ttl_seconds=ttl, telemetry=telemetry
+        )
+        self._chain_cache = AsyncMetadataCache[str, list[str]](
+            name=CacheName.DICTIONARY_CHAINS, ttl_seconds=ttl, telemetry=telemetry
+        )
 
     async def get_script_fields(self, table: str) -> list[ScriptField]:
         """Return the script-bearing fields for ``table``.
 
         Walks the ``super_class`` chain child-first, applies the type filter,
         and dedupes by element name (child wins on collision). Result is
-        cached for the lifetime of the registry.
+        cached until the configured metadata TTL expires.
         """
-        if table in self._script_cache:
-            return list(self._script_cache[table])
 
-        all_fields = await self.get_all_fields(table)
-        ordered: dict[str, ScriptField] = {}
-        for field in all_fields:
-            if field.name in ordered:
-                continue
-            classified = _classify(field)
-            if classified is not None:
-                ordered[field.name] = classified
+        async def load() -> list[ScriptField]:
+            all_fields = await self.get_all_fields(table)
+            ordered: dict[str, ScriptField] = {}
+            for field in all_fields:
+                if field.name in ordered:
+                    continue
+                classified = _classify(field)
+                if classified is not None:
+                    ordered[field.name] = classified
+            return list(ordered.values())
 
-        result = list(ordered.values())
-        self._script_cache[table] = result
-        return list(result)
+        return list(await self._script_cache.get_or_load(table, load))
 
     async def get_all_fields(self, table: str) -> list[DictionaryField]:
         """Return every dictionary field for ``table`` plus its super_class chain.
@@ -264,38 +272,38 @@ class DictionaryRegistry:
         Child fields come before parent fields. Used by ``describe`` for
         diagnostics and by ``get_script_fields`` as its input stream.
         """
-        if table in self._all_cache:
-            return list(self._all_cache[table])
 
-        async with self._client_factory() as client:
-            chain = await self._resolve_chain(client, table)
+        async def load() -> list[DictionaryField]:
+            chain = await self.get_chain(table)
             collected: list[DictionaryField] = []
-            for level, current in enumerate(chain):
-                inherited_from = None if level == 0 else current
-                rows = await self._fetch_dictionary_rows(client, current)
-                for row in rows:
-                    element = str(row.get("element") or "").strip()
-                    if not element:
-                        continue
-                    collected.append(
-                        DictionaryField(
-                            name=element,
-                            internal_type=str(row.get("internal_type") or "").strip(),
-                            attributes=str(row.get("attributes") or ""),
-                            inherited_from=inherited_from,
+            async with self._client_factory() as client:
+                for level, current in enumerate(chain):
+                    inherited_from = None if level == 0 else current
+                    rows = await self._fetch_dictionary_rows(client, current)
+                    for row in rows:
+                        element = str(row.get("element") or "").strip()
+                        if not element:
+                            continue
+                        collected.append(
+                            DictionaryField(
+                                name=element,
+                                internal_type=str(row.get("internal_type") or "").strip(),
+                                attributes=str(row.get("attributes") or ""),
+                                inherited_from=inherited_from,
+                            )
                         )
-                    )
+            return collected
 
-        self._all_cache[table] = collected
-        return list(collected)
+        return list(await self._all_cache.get_or_load(table, load))
 
     async def get_chain(self, table: str) -> list[str]:
         """Return the resolved super_class chain for ``table`` (child-first)."""
-        if table in self._chain_cache:
-            return list(self._chain_cache[table])
-        async with self._client_factory() as client:
-            chain = await self._resolve_chain(client, table)
-        return list(chain)
+
+        async def load() -> list[str]:
+            async with self._client_factory() as client:
+                return await self._resolve_chain(client, table)
+
+        return list(await self._chain_cache.get_or_load(table, load))
 
     def flush(self, table: str | None = None) -> None:
         """Clear cached entries.
@@ -304,13 +312,13 @@ class DictionaryRegistry:
         for ``incident`` only.
         """
         if table is None:
-            self._script_cache.clear()
-            self._all_cache.clear()
-            self._chain_cache.clear()
+            self._script_cache.invalidate()
+            self._all_cache.invalidate()
+            self._chain_cache.invalidate()
             return
-        self._script_cache.pop(table, None)
-        self._all_cache.pop(table, None)
-        self._chain_cache.pop(table, None)
+        self._script_cache.invalidate(table)
+        self._all_cache.invalidate(table)
+        self._chain_cache.invalidate(table)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -324,9 +332,6 @@ class DictionaryRegistry:
         chain containing just the queried table (the dictionary query will then
         return zero rows, which is the correct empty answer).
         """
-        if table in self._chain_cache:
-            return list(self._chain_cache[table])
-
         chain: list[str] = []
         visited: set[str] = set()
         current = table
@@ -352,7 +357,6 @@ class DictionaryRegistry:
                 chain,
             )
 
-        self._chain_cache[table] = chain
         return list(chain)
 
     async def _lookup_super_class(self, client: ServiceNowClient, table: str) -> str:

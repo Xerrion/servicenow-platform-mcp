@@ -1,7 +1,8 @@
 """Tests for ChoiceRegistry lazy-loaded choice list cache."""
 
 import asyncio
-from unittest.mock import patch
+from typing import cast
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import respx
@@ -9,6 +10,7 @@ from httpx import Response
 
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.choices import ChoiceRegistry, _group_choice_records, _merge_with_defaults
+from servicenow_mcp.client import ServiceNowClientProvider
 from servicenow_mcp.config import Settings
 
 
@@ -24,8 +26,8 @@ def auth_provider(settings: Settings) -> BasicAuthProvider:
 def _make_registry_with_defaults(settings: Settings, auth_provider: BasicAuthProvider) -> ChoiceRegistry:
     """Create a ChoiceRegistry pre-populated with OOTB defaults (no network)."""
     registry = ChoiceRegistry(settings, auth_provider)
-    registry._fetched = True
     registry._cache = {k: dict(v) for k, v in ChoiceRegistry._DEFAULTS.items()}
+    registry._metadata_cache.seed("all", registry._cache)
     return registry
 
 
@@ -150,6 +152,19 @@ class TestChoiceRegistryFetch:
         await registry.resolve("problem", "state", "new")
 
         assert route.call_count == 1
+
+    @pytest.mark.asyncio()
+    async def test_fresh_hit_precedes_client_creation(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """A fresh choices hit does not call the client factory."""
+        client_factory = AsyncMock(side_effect=AssertionError("client factory called"))
+        registry = ChoiceRegistry(settings, auth_provider, cast("ServiceNowClientProvider", client_factory))
+        registry._cache = {("incident", "state"): {"open": "1"}}
+        registry._metadata_cache.seed("all", registry._cache)
+
+        assert await registry.resolve("incident", "state", "open") == "1"
+        client_factory.assert_not_called()
 
     @pytest.mark.asyncio()
     @respx.mock
@@ -338,10 +353,10 @@ class TestChoiceRegistryExceptionPaths:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_ensure_fetched_double_check_after_lock(
+    async def test_concurrent_waiter_shares_in_flight_load(
         self, settings: Settings, auth_provider: BasicAuthProvider
     ) -> None:
-        """Second concurrent caller should hit the double-check guard (line 170) after lock release."""
+        """A second concurrent caller shares the first caller's in-flight load."""
         gate = asyncio.Event()
 
         original_fetch = ChoiceRegistry._fetch_from_instance
@@ -378,7 +393,6 @@ class TestChoiceRegistryExceptionPaths:
         assert results[1] == "7"  # "closed" from defaults
 
         # Fetch should only have been called once - the second task hit the double-check
-        assert registry._fetched is True
 
     @pytest.mark.asyncio()
     @respx.mock
@@ -395,10 +409,6 @@ class TestChoiceRegistryExceptionPaths:
 
         # Should fall back to default value
         assert result == "1"
-        assert registry._fetched is True
-        # Cache should contain all default keys
-        assert ("incident", "state") in registry._cache
-        assert ("change_request", "state") in registry._cache
 
     @pytest.mark.asyncio()
     async def test_fetch_from_instance_empty_defaults(

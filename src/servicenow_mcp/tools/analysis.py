@@ -32,7 +32,7 @@ _DEFAULT_WINDOW_DAYS: Final[int] = 90
 _JOURNAL_FIELDS: Final[frozenset[str]] = frozenset({"comments", "work_notes", "close_notes"})
 _JOURNAL_TYPES: Final[frozenset[str]] = frozenset({"journal", "journal_input", "journal_list"})
 _MRVS_TYPES: Final[frozenset[str]] = frozenset({"multi_row_variable_set"})
-_LIST_COLLECTOR_TYPES: Final[frozenset[str]] = frozenset({"list_collector", "21"})
+_LIST_COLLECTOR_TYPES: Final[frozenset[str]] = frozenset({"21", "list_collector", "list collector"})
 _SENSITIVE_VARIABLE_RE: Final[re.Pattern[str]] = re.compile(
     r"password|token|secret|credential|api[\s_-]*key|private[\s_-]*key",
     re.IGNORECASE,
@@ -107,8 +107,12 @@ def _has_complete_definition_metadata(definition: dict[str, Any]) -> bool:
     return all(resolve_ref_value(definition.get(key)) for key in ("name", "question_text"))
 
 
+def _is_list_collector(variable_type: str) -> bool:
+    return variable_type.strip().casefold() in _LIST_COLLECTOR_TYPES
+
+
 def _is_multi_value(variable_type: str, raw_value: str, definition_count: int) -> bool:
-    if variable_type.lower() in _LIST_COLLECTOR_TYPES:
+    if _is_list_collector(variable_type):
         return len([value for value in raw_value.split(",") if value.strip()]) > 1
     return definition_count > 1
 
@@ -183,7 +187,7 @@ async def _ritm_variables(
                 ServiceNowQuery().in_list("sys_id", definition_ids).build(),
                 fields=["sys_id", "name", "question_text", "type", "reference", "variable_set"],
                 limit=len(definition_ids),
-                display_values=True,
+                display_values=False,
             )
         )
         if definition_ids
@@ -225,7 +229,7 @@ async def _ritm_variables(
         has_complete_metadata = _has_complete_definition_metadata(definition)
         is_masked = not has_complete_metadata or _is_sensitive_definition(definition)
         is_mrvs = variable_type.lower() in _MRVS_TYPES
-        is_list_collector = variable_type.lower() in _LIST_COLLECTOR_TYPES
+        is_list_collector = _is_list_collector(variable_type)
         if not has_complete_metadata:
             warnings.append(
                 "One or more variable definitions had incomplete metadata; affected answers were conservatively masked."

@@ -136,12 +136,16 @@ async def test_ritm_variables_missing_and_invalid(settings: Settings, auth_provi
 
 
 @pytest.mark.asyncio()
+@pytest.mark.parametrize(
+    "variable_type", [pytest.param("21", id="raw-type"), pytest.param("List Collector", id="display-type")]
+)
 @respx.mock
 async def test_ritm_variables_handles_list_collector_and_duplicate_answers(
-    settings: Settings, auth_provider: BasicAuthProvider
+    settings: Settings, auth_provider: BasicAuthProvider, variable_type: str
 ) -> None:
     option_id = "b" * 32
     definition_id = "c" * 32
+    raw_value = f"{'f' * 32},{'h' * 32}"
     respx.get(f"{BASE_URL}/api/now/table/sc_req_item/{SYS_ID}").mock(
         return_value=httpx.Response(200, json={"result": {"sys_id": SYS_ID}})
     )
@@ -167,14 +171,16 @@ async def test_ritm_variables_handles_list_collector_and_duplicate_answers(
                     {
                         "sys_id": option_id,
                         "item_option_new": definition_id,
-                        "value": f"{'f' * 32},{'h' * 32}",
+                        "value": raw_value,
                     }
                 ]
             },
         )
     )
-    respx.get(f"{BASE_URL}/api/now/table/item_option_new").mock(
-        return_value=httpx.Response(
+
+    def definitions_handler(request: httpx.Request) -> httpx.Response:
+        assert "sysparm_display_value" not in request.url.params
+        return httpx.Response(
             200,
             json={
                 "result": [
@@ -182,20 +188,26 @@ async def test_ritm_variables_handles_list_collector_and_duplicate_answers(
                         "sys_id": definition_id,
                         "name": "rows",
                         "question_text": "Rows",
-                        "type": "21",
+                        "type": variable_type,
                         "reference": "sys_user",
                         "variable_set": "g" * 32,
                     }
                 ]
             },
         )
-    )
+
+    respx.get(f"{BASE_URL}/api/now/table/item_option_new").mock(side_effect=definitions_handler)
     result = decode_response(await _tools(settings, auth_provider)["analysis"](action="ritm_variables", sys_id=SYS_ID))
     assert [entry["status"] for entry in result["data"]["entries"]] == ["resolved", "resolved"]
     assert all(entry["multi_value"] is True for entry in result["data"]["entries"])
+    assert all(entry["raw_value"] == raw_value for entry in result["data"]["entries"])
     assert all(entry["display_value"] is None for entry in result["data"]["entries"])
     assert sum("raw sys_ids" in warning for warning in result["warnings"]) == 1
+    assert not any("not decoded" in warning for warning in result["warnings"])
     assert any("Duplicate" in warning for warning in result["warnings"])
+    assert result["data"]["unsupported_features"] == {
+        "multi_row_variable_sets": {"present": False, "payload_fields_retrieved": False}
+    }
 
 
 @pytest.mark.asyncio()

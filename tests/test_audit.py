@@ -72,7 +72,10 @@ def _make_sys_db_handler(
             # Chain-walk: extract table name from ``name=<table>`` clause.
             target = query.split("name=", 1)[1].split("^", 1)[0]
             parent = chain_parents.get(target, "")
-            return httpx.Response(200, json={"result": [{"super_class": parent}] if target in chain_parents else []})
+            return httpx.Response(
+                200,
+                json={"result": [{"super_class.name": parent}] if target in chain_parents else []},
+            )
         # Table-audit chain-IN lookup.
         result = [{"name": t, "sys_audit": table_audit.get(t, "")} for t in table_audit]
         return httpx.Response(200, json={"result": result})

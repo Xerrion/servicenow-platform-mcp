@@ -96,6 +96,8 @@ class TestBasicAuthProvider:
             "Content-Type": "application/json",
             "Accept": "application/json",
         }
+        assert "X-TV2-Auth" not in headers
+        assert "Authorization" not in headers
 
 
 class TestCreateAuth:

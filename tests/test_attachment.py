@@ -14,7 +14,8 @@ from mcp.server import MCPServer
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.policy import DENIED_TABLES
-from servicenow_mcp.tools.attachment import register_tools
+from servicenow_mcp.tools.attachment import register_tools as register_read_tools
+from servicenow_mcp.tools.attachment_write import register_tools as register_write_tools
 from tests.helpers import decode_response, get_tool_functions
 
 
@@ -35,7 +36,8 @@ def auth_provider(settings: Settings) -> BasicAuthProvider:
 def _register_and_get_tools(settings: Settings, auth_provider: BasicAuthProvider) -> dict[str, Any]:
     """Register the unified attachment tools on a fresh MCP and return callables."""
     mcp = MCPServer("test")
-    register_tools(mcp, settings, auth_provider)
+    register_read_tools(mcp, settings, auth_provider)
+    register_write_tools(mcp, settings, auth_provider)
     return get_tool_functions(mcp)
 
 
@@ -215,6 +217,27 @@ class TestUnifiedAttachmentWrite:
 
         assert result["status"] == "error"
         assert "unknown action" in result["error"]["message"].lower()
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_upload_action_remains_gated_in_production(
+        self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider
+    ) -> None:
+        """The opt-in write group retains runtime production gating."""
+        tools = _register_and_get_tools(prod_settings, prod_auth_provider)
+        result = decode_response(
+            await tools["attachment_write"](
+                action="upload",
+                table="incident",
+                table_sys_id=TABLE_SYS_ID,
+                file_name="hello.txt",
+                content_base64=base64.b64encode(b"hello").decode("ascii"),
+            )
+        )
+
+        assert result["status"] == "error"
+        assert "production" in result["error"]["message"].lower()
+        assert not respx.calls.called
 
     @pytest.mark.asyncio()
     @respx.mock

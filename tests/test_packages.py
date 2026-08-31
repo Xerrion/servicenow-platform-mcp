@@ -1,7 +1,7 @@
 """Tests for the unified tool package registry.
 
 Phase 3b collapsed 14 legacy presets into 4 (``full``, ``readonly``,
-``core_readonly``, ``none``) and 21 legacy tool groups into 7 unified
+``core_readonly``, ``none``) and 21 legacy tool groups into unified
 groups under ``servicenow_mcp.tools.*``.
 """
 
@@ -25,9 +25,11 @@ EXPECTED_GROUPS = {
     "record_write",
     "record_read",
     "attachment",
+    "attachment_write",
     "investigate",
     "resolve_choice",
     "service_catalog",
+    "analysis",
     "flow",
     "audit",
     "code_search",
@@ -42,7 +44,7 @@ class TestPackageRegistry:
 
     def test_full_contains_all_unified_groups(self) -> None:
         assert set(PACKAGE_REGISTRY["full"]) == EXPECTED_GROUPS
-        assert len(PACKAGE_REGISTRY["full"]) == 11
+        assert len(PACKAGE_REGISTRY["full"]) == 13
 
     def test_full_public_surface_stays_at_fourteen_tools(self, settings: Any) -> None:
         """Optimization changes do not add or remove public tools."""
@@ -64,7 +66,7 @@ class TestPackageRegistry:
 
         registered_tool_count = len(mcp._tool_manager._tools)
         always_on_tool_count = 1
-        assert registered_tool_count + always_on_tool_count == 14
+        assert registered_tool_count + always_on_tool_count == 15
 
     def test_readonly_is_strict_subset_of_full(self) -> None:
         readonly = set(PACKAGE_REGISTRY["readonly"])
@@ -72,6 +74,7 @@ class TestPackageRegistry:
         assert readonly < full
         # readonly excludes mutating groups
         assert "record_write" not in readonly
+        assert "attachment_write" not in readonly
         assert "service_catalog" not in readonly
         # record_read is read-only and included
         assert "record_read" in readonly
@@ -259,3 +262,11 @@ def test_code_search_in_full_and_readonly_only() -> None:
     assert "code_search" in PACKAGE_REGISTRY["readonly"]
     for preset in ("core_readonly", "none"):
         assert "code_search" not in PACKAGE_REGISTRY[preset], f"code_search should not appear in the '{preset}' preset"
+
+
+def test_analysis_in_full_and_readonly_only() -> None:
+    """Composed analysis is read-only but not part of the minimal core."""
+    assert "analysis" in PACKAGE_REGISTRY["full"]
+    assert "analysis" in PACKAGE_REGISTRY["readonly"]
+    for preset in ("core_readonly", "none"):
+        assert "analysis" not in PACKAGE_REGISTRY[preset]

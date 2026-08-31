@@ -2,9 +2,12 @@
 
 import importlib
 import json
+from pathlib import Path
 from types import ModuleType
 from typing import Any
 from unittest.mock import patch
+
+import pytest
 
 from tests.helpers import get_tool_functions, get_tool_names
 
@@ -61,16 +64,11 @@ class TestCreateMcpServer:
         assert "describe" in tool_names
         assert "query" in tool_names
         assert "attachment" in tool_names
+        assert "attachment_write" not in tool_names
         assert "code_search" not in tool_names
 
     async def test_readonly_includes_attachment_read_tools_but_not_write_tools(self) -> None:
-        """readonly package includes the attachment read tool and excludes record_write.
-
-        Note: the unified ``attachment`` group registers both read and write
-        attachment tools in one module (write paths are blocked at runtime by
-        ``write_gate`` in production), so ``attachment_write`` is present even
-        in the ``readonly`` preset. ``record_write``/``record_apply`` are not.
-        """
+        """readonly includes attachment reads and excludes all attachment and record writes."""
         from servicenow_mcp.server import create_mcp_server
 
         env = {
@@ -84,6 +82,7 @@ class TestCreateMcpServer:
 
         tool_names = await get_tool_names(mcp_server)
         assert "attachment" in tool_names
+        assert "attachment_write" not in tool_names
         assert "code_search" in tool_names
         assert "record_write" not in tool_names
         assert "record_apply" not in tool_names
@@ -104,8 +103,31 @@ class TestCreateMcpServer:
         tool_names = await get_tool_names(mcp_server)
         assert "attachment" in tool_names
         assert "attachment_write" in tool_names
+        assert "analysis" in tool_names
         assert "code_search" in tool_names
-        assert len(tool_names) == 14
+        assert len(tool_names) == 15
+
+    @pytest.mark.parametrize(
+        ("package_name", "expected_tools"),
+        [
+            ("attachment", {"list_tool_packages", "attachment"}),
+            ("attachment_write", {"list_tool_packages", "attachment_write"}),
+        ],
+    )
+    async def test_custom_attachment_groups_are_separate(self, package_name: str, expected_tools: set[str]) -> None:
+        """Custom attachment groups expose only the selected capability."""
+        from servicenow_mcp.server import create_mcp_server
+
+        env = {
+            "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
+            "SERVICENOW_USERNAME": "admin",
+            "SERVICENOW_PASSWORD": "s3cret",
+            "MCP_TOOL_PACKAGE": package_name,
+        }
+        with patch.dict("os.environ", env, clear=True):
+            mcp_server = create_mcp_server()
+
+        assert set(await get_tool_names(mcp_server)) == expected_tools
 
     async def test_custom_package_can_load_code_search_tool(self) -> None:
         """The ``code_search`` group is directly loadable via MCP_TOOL_PACKAGE."""
@@ -192,3 +214,26 @@ class TestCreateMcpServer:
         # Other tool groups should still load successfully.
         assert "list_tool_packages" in tool_names
         assert "describe" in tool_names
+
+
+class TestMain:
+    """Test server process startup."""
+
+    def test_missing_instance_url_reports_secret_safe_configuration_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Startup identifies the missing setting without exposing other inputs."""
+        from servicenow_mcp.server import main
+
+        sentry_dsn_marker = "sentry-dsn-must-not-appear"
+        monkeypatch.chdir(tmp_path)
+        with (
+            patch.dict("os.environ", {"SENTRY_DSN": sentry_dsn_marker}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main()
+
+        message = str(exc_info.value)
+        assert "SERVICENOW_INSTANCE_URL: Field required" in message
+        assert ".env/.env.local in the working directory" in message
+        assert sentry_dsn_marker not in message

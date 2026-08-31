@@ -353,6 +353,16 @@ Dispatched via the read-only `flow` tool. Available in the `full` and `readonly`
 - Deliberately skips `sys_hub_flow_snapshot` because it is an opaque compiled cache.
 - Per-node decode failures add `decode_error` to that node only; the enclosing `inspect` response still succeeds.
 
+## 🔬 Read-Only Analysis
+
+The read-only `analysis` tool is available in `full` and `readonly` packages. It has three actions:
+
+- `ritm_variables`: Composes submitted answers for one `sc_req_item` through `sc_item_option_mtom`, `sc_item_option`, and `item_option_new`. It masks answers when the variable name or label indicates password, token, secret, credential, API key, or private key, and it masks conservatively when either field is unavailable. Reference and List Collector values retain raw sys_ids with an explicit warning; comma-separated List Collector identifiers set `multi_value`. A bounded `sc_multi_row_question_answer` presence query reports stable `data.unsupported_features.multi_row_variable_sets` metadata without retrieving or decoding payload fields. This metadata does not affect answer entries or pagination.
+- `journal_history`: Reads `sys_journal_field` for one record. It permits only dictionary-confirmed `comments`, `work_notes`, and `close_notes`, including inherited fields. It defaults to 90 days and supports bounded `limit` and `offset` pagination.
+- `describe`: Returns the action registry without platform I/O.
+
+Both read actions require Table API access to the target and composition tables. ServiceNow row ACLs, field ACLs, and retention govern completeness.
+
 ## 🛡 Audit Inspection
 
 Dispatched via the read-only `audit` tool. Available in the `full` and `readonly` packages, or through custom packages such as `MCP_TOOL_PACKAGE=audit,query,describe`. Backed by `AuditRegistry` (in `tools/_audit.py`), which composes `DictionaryRegistry` for the `super_class` chain walk rather than reimplementing it.
@@ -413,27 +423,27 @@ Dispatched via the read-only `audit` tool. Available in the `full` and `readonly
 
 ## 📦 Packages & Tool Groups
 
-The registry contains 4 preset packages and 11 tool groups. Tool groups are loaded from `servicenow_mcp.tools.*`.
+The registry contains 4 preset packages and 13 tool groups. Tool groups are loaded from `servicenow_mcp.tools.*`.
 
 ### Preset Packages
 
 | Package | Tools | Description |
 |---|---|---|
-| `full` | 14 | Every tool group |
-| `readonly` | 11 | Read tools + investigate + resolve_choice |
-| `core_readonly` | 5 | Query + describe + attachment only |
+| `full` | 15 | Every tool group |
+| `readonly` | 11 | Read tools + investigate + resolve_choice + analysis |
+| `core_readonly` | 4 | Query + describe + attachment only |
 | `none` | 1 | Only `list_tool_packages` loaded |
 
 - **Custom Packages:** Comma-separated group names are supported (e.g., `MCP_TOOL_PACKAGE=query,describe`).
 - **Tool Group Shadowing:** `MCP_TOOL_PACKAGE=service_catalog` resolves via the custom-package path to the single tool group.
-- **Write Gating:** The `attachment` group registers both read and write tools; write tools are blocked at runtime in production by `write_gate`.
+- **Attachment split:** The `attachment` group is read-only. `attachment_write` is a separate opt-in group and remains gated at runtime by `write_gate`.
 - **Query construction:** Pass ServiceNow encoded query strings directly to `query(encoded_query=...)`. Callers can copy filter breadcrumbs from ServiceNow or construct the strings directly. Query safety still runs in `query`.
 
 ### Compact Reads and Selection Metadata
 
 - `query` list mode requires an explicit `fields` projection. `fields="*"` requests all fields; `sys_id` is always included. Exact `sys_id` mode defaults to `sys_id,sys_updated_on` and also accepts an explicit projection or `*`. Aggregate mode is unchanged.
 - `record_read` accepts `fields`. Empty selection returns compact identity/update fields plus discovered script-bearing fields; `*` returns the full masked record. `script_fields` remains in the response and `sys_id` is always included.
-- `describe` returns an alphabetical page of 25 fields when `fields` is empty. `field_offset` and `field_limit` (1-100) continue the page; `fields="*"` requests all fields.
+- `describe` resolves the bounded `super_class` chain child-first, de-duplicates child overrides, preserves `inherited_from`, and then returns an alphabetical page of 25 fields when `fields` is empty. `field_offset` and `field_limit` (1-100) continue the page; `fields="*"` requests all fields.
 - Affected success responses include `selection` metadata. Use it, together with truncation metadata where present, to continue bounded reads.
 
 ### HTTP Pool and Metadata Cache

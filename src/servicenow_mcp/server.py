@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from urllib.parse import urlparse
 
 from mcp.server import MCPServer
+from pydantic import ValidationError
 
 from servicenow_mcp.auth import create_auth
 from servicenow_mcp.choices import ChoiceRegistry
@@ -22,6 +23,22 @@ from servicenow_mcp.utils import serialize
 
 
 logger = logging.getLogger(__name__)
+
+
+def _format_configuration_error(exc: ValidationError) -> str:
+    """Format settings validation failures without including input values."""
+    details = []
+    for error in exc.errors(include_url=False, include_context=False, include_input=False):
+        location = error["loc"]
+        setting = ".".join(str(part).upper() for part in location) if location else "CONFIGURATION"
+        details.append(f"- {setting}: {error['msg']}")
+
+    lines = [
+        "Invalid ServiceNow MCP configuration:",
+        *details,
+        "Set required values in the process environment or in .env/.env.local in the working directory.",
+    ]
+    return "\n".join(lines)
 
 
 def create_mcp_server() -> MCPServer:
@@ -101,7 +118,10 @@ def create_mcp_server() -> MCPServer:
 
 def main() -> None:
     """Run the MCP server with stdio transport."""
-    mcp = create_mcp_server()
+    try:
+        mcp = create_mcp_server()
+    except ValidationError as exc:
+        raise SystemExit(_format_configuration_error(exc)) from None
     try:
         mcp.run(transport="stdio")
     finally:

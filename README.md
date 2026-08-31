@@ -10,7 +10,7 @@
 
 # servicenow-platform-mcp
 
-A comprehensive [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for ServiceNow. Provides 14 unified tools in 11 tool groups for platform introspection, change intelligence, debugging, record management, and automated investigations.
+A comprehensive [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for ServiceNow. Provides 15 unified tools in 13 tool groups for platform introspection, change intelligence, debugging, record management, and automated investigations.
 
 ## Quick Start
 
@@ -134,13 +134,14 @@ Or read the [Installation Guide](INSTALL.md) directly. For usage examples and pa
 
 ## Key Features
 
-- **Platform Introspection** - Describe table schemas with `describe` and query records with `query` using encoded queries.
+- **Platform Introspection** - Describe complete inherited table schemas with `describe` and query records with `query` using encoded queries. The same generic tools support tables such as `sc_task`, `task_sla`, and `cmdb_rel_ci`; there are no table-specific tools for these tables.
 - **Record Management** - Unified `record_write` and `record_apply` tools for create, update, and delete. Writes use preview-then-apply by default; callers can explicitly set `preview=false` for an immediate write.
 - **Script-Bearing Records** - Write Business Rules, Script Includes, UI Pages, Widgets, UI Macros, ACLs, and any other table whose dictionary fields carry executable script or markup, all via `record_write` with local script file support and per-field targeting (`script_field`). Script fields are discovered at runtime from `sys_dictionary` — no hardcoded artifact catalog. Read the same surface back via `record_read`, or enumerate a table's script fields with `describe(action='list_script_fields', table='<table>')`.
 - **Attachment Operations** - Unified `attachment` for read operations and `attachment_write` for mutations.
 - **Investigations** - Automated analysis of system health, stale automations, performance bottlenecks, and more via `investigate`.
 - **Label Resolution** - Map human-readable choice labels to underlying values automatically with `resolve_choice`.
 - **Service Catalog** - Dispatcher-based `service_catalog` tool for browsing and ordering.
+- **Read-Only Analysis** - Compose fulfilled RITM variables and bounded journal history with `analysis`. See [Tool Reference](docs/wiki/Tool-Reference.md) for the complete action and parameter reference.
 
 ## Example Usage
 
@@ -167,12 +168,27 @@ Control which tools are loaded with `MCP_TOOL_PACKAGE`.
 
 | Package | Tools | Description |
 |---------|-------|-------------|
-| `full` | 14 | All unified tools, including `audit`, `flow`, and `code_search` (default) |
-| `readonly` | 11 | Includes `record_read`, `audit`, `flow`, `code_search`, and `attachment_write` (write_gate blocks in prod) |
-| `core_readonly` | 5 | Minimal read surface (includes `attachment_write`) |
-| `none` | 1 | Just `list_tool_packages` |
+| `full` | 15 | All unified tools, including `query`, `describe`, `record_read`, `analysis`, `audit`, `flow`, and attachment reads and writes (default) |
+| `readonly` | 11 | Read-only tools: `query`, `describe`, `record_read`, `attachment`, `investigate`, `resolve_choice`, `analysis`, `audit`, `flow`, and `code_search` |
+| `core_readonly` | 4 | Minimal read surface: `query`, `describe`, `attachment`, and `list_tool_packages` |
+| `none` | 1 | Only `list_tool_packages` |
 
 Custom packages are supported via comma-separated tool names: `MCP_TOOL_PACKAGE="query,describe,attachment"`.
+The `attachment` group is read-only. Add the separate `attachment_write` group explicitly to a custom package to opt in to upload and delete operations. `full` includes both groups; the `readonly` presets do not expose attachment writes. For package contents and migration details, see [Tool Packages](docs/wiki/Tool-Packages.md).
+
+### Read-only analysis
+
+The `analysis` tool is available in `full` and `readonly`, but not in `core_readonly`. It provides three actions:
+
+- `ritm_variables` composes submitted answers for one requested item (RITM) through the related catalog-option tables. Sensitive answers are masked. List Collector values retain their raw sys_ids, include a warning, and identify multiple comma-separated values. Reference values also retain raw sys_ids because the tool does not automatically resolve display values. If multi-row variable sets (MRVS) are present, the response reports this in `data.unsupported_features.multi_row_variable_sets`; MRVS payloads are not retrieved or decoded.
+- `journal_history` returns bounded `sys_journal_field` history for dictionary-confirmed `comments`, `work_notes`, and optional `close_notes`. It is separate from `audit`'s `history` action, which reads field changes from `sys_audit`. Table and field ACLs and journal retention affect completeness.
+- `describe` returns the analysis action registry without platform I/O.
+
+Analysis requires Table API read access and applicable table and field ACLs for the target tables and these supporting tables: `sys_db_object`, `sys_dictionary`, `sys_journal_field`, `sc_req_item`, `sc_item_option_mtom`, `sc_item_option`, `item_option_new`, and `sc_multi_row_question_answer`.
+
+The ordinary `describe` tool resolves inherited fields through the bounded `sys_db_object.super_class` chain. Child declarations override ancestor declarations, each field reports its `inherited_from` provenance, and pagination occurs after de-duplication.
+
+Analysis does not provide a Power BI connector or export, semantic Jira or LeanIX joins, MRVS payload decoding, or automatic reference display resolution for submitted variable answers.
 
 ## Safety
 

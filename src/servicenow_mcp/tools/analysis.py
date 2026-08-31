@@ -40,7 +40,10 @@ _SENSITIVE_VARIABLE_RE: Final[re.Pattern[str]] = re.compile(
 
 _ACTION_REGISTRY: Final[dict[str, dict[str, Any]]] = {
     "ritm_variables": {
-        "description": "Return submitted variable answers for one sc_req_item record.",
+        "description": (
+            "Return paginated submitted variable answers for one sc_req_item record, with "
+            "data.unsupported_features.multi_row_variable_sets presence metadata."
+        ),
         "params": {"sys_id": "str (32-char)", "limit": "int (optional)", "offset": "int (optional)"},
     },
     "journal_history": {
@@ -269,17 +272,6 @@ async def _ritm_variables(
         warnings.append(
             "Multi-row variable-set answers are present but are not decoded or retrieved from their payload fields."
         )
-        entries.append(
-            {
-                "answer_sys_id": None,
-                "definition_sys_id": None,
-                "raw_value": None,
-                "display_value": None,
-                "multi_value": True,
-                "masked": False,
-                "status": "unsupported_mrvs",
-            }
-        )
 
     total = int(links_result.get("count", len(links)))
     next_offset = effective_offset + len(links)
@@ -287,6 +279,12 @@ async def _ritm_variables(
         data={
             "table": "sc_req_item",
             "sys_id": resolve_ref_value(target.get("sys_id")) or sys_id,
+            "unsupported_features": {
+                "multi_row_variable_sets": {
+                    "present": has_mrvs,
+                    "payload_fields_retrieved": False,
+                }
+            },
             "entry_count": len(entries),
             "entries": entries,
         },

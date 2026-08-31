@@ -175,7 +175,7 @@ Control which tools are loaded with `MCP_TOOL_PACKAGE`.
 
 Custom packages are supported via comma-separated tool names: `MCP_TOOL_PACKAGE="query,describe,attachment"`.
 The `attachment` group is read-only. Add `attachment_write` explicitly to opt in to upload and delete operations.
-The `analysis` group requires Table API read access and applicable table and field ACLs for target records, `sys_db_object`, `sys_dictionary`, `sys_journal_field`, `sc_req_item`, `sc_item_option_mtom`, `sc_item_option`, and `item_option_new`.
+The `analysis` group requires Table API read access and applicable table and field ACLs for target records, `sys_db_object`, `sys_dictionary`, `sys_journal_field`, `sc_req_item`, `sc_item_option_mtom`, `sc_item_option`, `item_option_new`, and `sc_multi_row_question_answer`.
 
 ## Safety
 

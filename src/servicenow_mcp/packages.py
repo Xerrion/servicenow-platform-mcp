@@ -14,7 +14,7 @@ Note: the ``record_write`` group registers both ``record_write`` and
 Presets:
     ``full``           - every group (full surface, including attachment writes).
     ``readonly``       - query + describe + record_read + attachment +
-                       investigate + resolve_choice + audit + flow +
+                       investigate + resolve_choice + analysis + audit + flow +
                        code_search.
     ``core_readonly``  - query + describe + attachment only.
     ``none``           - no tool groups loaded; only ``list_tool_packages``

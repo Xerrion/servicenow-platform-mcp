@@ -90,6 +90,9 @@ async def test_ritm_variables_masks_sensitive_answer_and_paginates(
     assert entry["display_value"] == "***MASKED***"
     assert result["pagination"] == {"offset": 0, "limit": 1, "total": 2}
     assert result["selection"]["next_offset"] == 1
+    assert result["data"]["unsupported_features"] == {
+        "multi_row_variable_sets": {"present": False, "payload_fields_retrieved": False}
+    }
 
 
 @pytest.mark.asyncio()
@@ -220,20 +223,97 @@ async def test_ritm_variables_discloses_mrvs_presence_without_payload(
     result = decode_response(
         await _tools(settings, auth_provider)["analysis"](action="ritm_variables", sys_id=SYS_ID, limit=2, offset=4)
     )
-    assert result["data"]["entries"] == [
-        {
-            "answer_sys_id": None,
-            "definition_sys_id": None,
-            "raw_value": None,
-            "display_value": None,
-            "multi_value": True,
-            "masked": False,
-            "status": "unsupported_mrvs",
-        }
-    ]
+    assert result["data"]["entries"] == []
+    assert result["data"]["entry_count"] == 0
+    assert result["data"]["unsupported_features"] == {
+        "multi_row_variable_sets": {"present": True, "payload_fields_retrieved": False}
+    }
     assert len(result["warnings"]) == 1
     assert "payload" in result["warnings"][0]
     assert result["pagination"] == {"offset": 4, "limit": 2, "total": 0}
+    assert result["selection"] == {"mode": "submitted_answers", "truncated": False, "next_offset": None}
+
+
+@pytest.mark.asyncio()
+@pytest.mark.parametrize(
+    ("offset", "option_id", "expected_next_offset"),
+    [
+        pytest.param(0, "b" * 32, 1, id="full-answer-page"),
+        pytest.param(1, "c" * 32, None, id="later-offset"),
+    ],
+)
+@respx.mock
+async def test_ritm_variables_mrvs_metadata_does_not_distort_answer_pagination(
+    settings: Settings,
+    auth_provider: BasicAuthProvider,
+    offset: int,
+    option_id: str,
+    expected_next_offset: int | None,
+) -> None:
+    definition_id = "d" * 32
+    respx.get(f"{BASE_URL}/api/now/table/sc_req_item/{SYS_ID}").mock(
+        return_value=httpx.Response(200, json={"result": {"sys_id": SYS_ID}})
+    )
+    respx.get(f"{BASE_URL}/api/now/table/sc_multi_row_question_answer").mock(
+        return_value=httpx.Response(200, json={"result": [{"sys_id": "e" * 32}]})
+    )
+
+    def links_handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params["sysparm_limit"] == "1"
+        assert request.url.params["sysparm_offset"] == str(offset)
+        return httpx.Response(
+            200,
+            json={"result": [{"sys_id": "f" * 32, "sc_item_option": option_id}]},
+            headers={"X-Total-Count": "2"},
+        )
+
+    respx.get(f"{BASE_URL}/api/now/table/sc_item_option_mtom").mock(side_effect=links_handler)
+    respx.get(f"{BASE_URL}/api/now/table/sc_item_option").mock(
+        return_value=httpx.Response(
+            200,
+            json={"result": [{"sys_id": option_id, "item_option_new": definition_id, "value": "synthetic"}]},
+        )
+    )
+    respx.get(f"{BASE_URL}/api/now/table/item_option_new").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "result": [
+                    {
+                        "sys_id": definition_id,
+                        "name": "requested_value",
+                        "question_text": "Requested value",
+                        "type": "string",
+                        "reference": "",
+                        "variable_set": "",
+                    }
+                ]
+            },
+        )
+    )
+
+    result = decode_response(
+        await _tools(settings, auth_provider)["analysis"](
+            action="ritm_variables",
+            sys_id=SYS_ID,
+            limit=1,
+            offset=offset,
+        )
+    )
+    assert len(result["data"]["entries"]) == 1
+    assert result["data"]["entry_count"] == 1
+    assert result["data"]["entries"][0]["answer_sys_id"] == option_id
+    assert result["data"]["entries"][0]["status"] == "resolved"
+    assert result["data"]["unsupported_features"] == {
+        "multi_row_variable_sets": {"present": True, "payload_fields_retrieved": False}
+    }
+    assert result["pagination"] == {"offset": offset, "limit": 1, "total": 2}
+    assert result["selection"] == {
+        "mode": "submitted_answers",
+        "truncated": expected_next_offset is not None,
+        "next_offset": expected_next_offset,
+    }
+    assert len(result["warnings"]) == 1
 
 
 @pytest.mark.asyncio()
@@ -278,7 +358,10 @@ async def test_ritm_variables_deduplicates_mrvs_warnings(settings: Settings, aut
     )
 
     result = decode_response(await _tools(settings, auth_provider)["analysis"](action="ritm_variables", sys_id=SYS_ID))
-    assert [entry["status"] for entry in result["data"]["entries"]] == ["unsupported_mrvs", "unsupported_mrvs"]
+    assert [entry["status"] for entry in result["data"]["entries"]] == ["unsupported_mrvs"]
+    assert result["data"]["unsupported_features"] == {
+        "multi_row_variable_sets": {"present": True, "payload_fields_retrieved": False}
+    }
     assert len(result["warnings"]) == 2
     assert len(set(result["warnings"])) == 2
 

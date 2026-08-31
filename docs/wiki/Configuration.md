@@ -28,7 +28,7 @@ All configuration is handled through environment variables, loaded via [pydantic
 
 Choose one authentication method:
 
-- **API key:** Set `SERVICENOW_API_KEY`. The server sends it in the `X-TV2-Auth` request header and does not use `SERVICENOW_USERNAME` or `SERVICENOW_PASSWORD`, even if they are also set.
+- **API key:** Set `SERVICENOW_API_KEY`. The server sends it in the `x-sn-apikey` request header and does not use `SERVICENOW_USERNAME` or `SERVICENOW_PASSWORD`, even if they are also set.
 - **Basic Auth:** Leave `SERVICENOW_API_KEY` unset and set both `SERVICENOW_USERNAME` and `SERVICENOW_PASSWORD`.
 
 Keep credentials and API keys out of version control. Store local values in `.env.local` or in your MCP client's secret or environment-variable configuration.

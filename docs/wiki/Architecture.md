@@ -39,7 +39,7 @@ The server entry point is `server.py`.
 
 ### Authentication
 
-Bootstrap selects the authentication provider from configuration. When `SERVICENOW_API_KEY` is set, requests use API-key authentication and include the key in the `X-TV2-Auth` header. Otherwise, the server uses Basic Auth with `SERVICENOW_USERNAME` and `SERVICENOW_PASSWORD`. API-key configuration takes precedence over username and password when both are present.
+Bootstrap selects the authentication provider from configuration. When `SERVICENOW_API_KEY` is set, requests use API-key authentication and include the key in the `x-sn-apikey` header. Otherwise, the server uses Basic Auth with `SERVICENOW_USERNAME` and `SERVICENOW_PASSWORD`. API-key configuration takes precedence over username and password when both are present.
 
 ### Registration Pattern
 

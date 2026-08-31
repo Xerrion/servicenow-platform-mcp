@@ -56,7 +56,7 @@ The server also loads variables from `.env` and `.env.local` files in the workin
 
 See [[Configuration]] for the full reference of all environment variables.
 
-When `SERVICENOW_API_KEY` is set, the server sends it as the `X-TV2-Auth` header and ignores `SERVICENOW_USERNAME` and `SERVICENOW_PASSWORD`.
+When `SERVICENOW_API_KEY` is set, the server sends it as the `x-sn-apikey` header and ignores `SERVICENOW_USERNAME` and `SERVICENOW_PASSWORD`.
 
 ---
 

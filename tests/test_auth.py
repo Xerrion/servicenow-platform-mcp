@@ -92,11 +92,11 @@ class TestBasicAuthProvider:
         headers = await provider.get_headers()
 
         assert headers == {
-            "X-TV2-Auth": "api-key-secret",
+            "x-sn-apikey": "api-key-secret",
             "Content-Type": "application/json",
             "Accept": "application/json",
         }
-        assert "x-sn-apikey" not in headers
+        assert "X-TV2-Auth" not in headers
         assert "Authorization" not in headers
 
 

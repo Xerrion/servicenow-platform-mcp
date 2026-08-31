@@ -1,6 +1,6 @@
 [project]
 name = "servicenow-platform-mcp"
-version = "0.10.0"
+version = "0.11.0"
 description = "A comprehensive MCP server for ServiceNow - platform introspection, ITSM workflows, CMDB operations, change intelligence, debugging, investigations, and documentation generation."
 readme = "README.md"
 license = "MIT"

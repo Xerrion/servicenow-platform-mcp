@@ -9,7 +9,7 @@ are mocked with respx routed by URL.
 from __future__ import annotations
 
 import asyncio
-from typing import cast
+from typing import Any, cast
 from unittest.mock import AsyncMock
 
 import httpx
@@ -44,9 +44,9 @@ def _row(element: str, internal_type: str, attributes: str = "") -> dict[str, st
     return {"element": element, "internal_type": internal_type, "attributes": attributes}
 
 
-def _mock_root_table(dictionary_rows: list[dict[str, str]]) -> None:
+def _mock_root_table(dictionary_rows: list[dict[str, Any]]) -> None:
     """Mock a root table (empty super_class) returning ``dictionary_rows``."""
-    respx.get(DB_OBJECT_URL).mock(return_value=httpx.Response(200, json={"result": [{"super_class": ""}]}))
+    respx.get(DB_OBJECT_URL).mock(return_value=httpx.Response(200, json={"result": [{"super_class.name": ""}]}))
     respx.get(DICTIONARY_URL).mock(return_value=httpx.Response(200, json={"result": dictionary_rows}))
 
 
@@ -121,6 +121,24 @@ class TestHeuristicAdmission:
 
     @respx.mock
     @pytest.mark.asyncio()
+    async def test_internal_type_uses_dot_walk_name_not_reference_sys_id(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        _mock_root_table(
+            [
+                {
+                    "element": "comments",
+                    "internal_type": {"value": "a" * 32},
+                    "internal_type.name": "journal_input",
+                    "attributes": "",
+                }
+            ]
+        )
+        fields = await DictionaryRegistry(settings, auth_provider).get_all_fields("task")
+        assert fields[0].internal_type == "journal_input"
+
+    @respx.mock
+    @pytest.mark.asyncio()
     async def test_html_sanitize_false_alone_admits(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         _mock_root_table([_row("body", "html", "html_sanitize=false")])
         registry = DictionaryRegistry(settings, auth_provider)
@@ -181,8 +199,8 @@ class TestSuperClassChain:
         # Child returns parent="sys_script_client"; parent returns "" (root).
         respx.get(DB_OBJECT_URL).mock(
             side_effect=[
-                httpx.Response(200, json={"result": [{"super_class": "sys_script_client"}]}),
-                httpx.Response(200, json={"result": [{"super_class": ""}]}),
+                httpx.Response(200, json={"result": [{"super_class.name": "sys_script_client"}]}),
+                httpx.Response(200, json={"result": [{"super_class.name": ""}]}),
             ]
         )
         respx.get(DICTIONARY_URL).mock(
@@ -214,8 +232,8 @@ class TestSuperClassChain:
     async def test_child_wins_on_field_collision(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         respx.get(DB_OBJECT_URL).mock(
             side_effect=[
-                httpx.Response(200, json={"result": [{"super_class": "parent_table"}]}),
-                httpx.Response(200, json={"result": [{"super_class": ""}]}),
+                httpx.Response(200, json={"result": [{"super_class.name": "parent_table"}]}),
+                httpx.Response(200, json={"result": [{"super_class.name": ""}]}),
             ]
         )
         respx.get(DICTIONARY_URL).mock(
@@ -256,8 +274,8 @@ class TestCycleAndDepthGuards:
     async def test_cycle_detected_and_truncated(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         # a -> b -> a (cycle). Each call returns the cyclic parent.
         responses = {
-            "a": httpx.Response(200, json={"result": [{"super_class": "b"}]}),
-            "b": httpx.Response(200, json={"result": [{"super_class": "a"}]}),
+            "a": httpx.Response(200, json={"result": [{"super_class.name": "b"}]}),
+            "b": httpx.Response(200, json={"result": [{"super_class.name": "a"}]}),
         }
 
         def _route(request: httpx.Request) -> httpx.Response:
@@ -289,7 +307,7 @@ class TestCache:
     @pytest.mark.asyncio()
     async def test_second_call_does_not_refetch(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         db_route = respx.get(DB_OBJECT_URL).mock(
-            return_value=httpx.Response(200, json={"result": [{"super_class": ""}]})
+            return_value=httpx.Response(200, json={"result": [{"super_class.name": ""}]})
         )
         dict_route = respx.get(DICTIONARY_URL).mock(
             return_value=httpx.Response(200, json={"result": [_row("script", "script")]})
@@ -307,7 +325,7 @@ class TestCache:
     @pytest.mark.asyncio()
     async def test_flush_invalidates_cache(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
         db_route = respx.get(DB_OBJECT_URL).mock(
-            return_value=httpx.Response(200, json={"result": [{"super_class": ""}]})
+            return_value=httpx.Response(200, json={"result": [{"super_class.name": ""}]})
         )
         dict_route = respx.get(DICTIONARY_URL).mock(
             return_value=httpx.Response(200, json={"result": [_row("script", "script")]})
@@ -376,7 +394,7 @@ class TestCache:
         self, settings: Settings, auth_provider: BasicAuthProvider
     ) -> None:
         """Dictionary cache counters omit the requested table name."""
-        respx.get(DB_OBJECT_URL).mock(return_value=httpx.Response(200, json={"result": [{"super_class": ""}]}))
+        respx.get(DB_OBJECT_URL).mock(return_value=httpx.Response(200, json={"result": [{"super_class.name": ""}]}))
         telemetry = HttpTelemetry()
         registry = DictionaryRegistry(settings, auth_provider, telemetry=telemetry)
 

@@ -1,11 +1,11 @@
 """Tool package registry and loader for the ServiceNow MCP server.
 
-The unified tool surface exposes 12 tool groups across 4 preset packages:
+The unified tool surface exposes 13 tool groups across 4 preset packages:
 
 Groups (registered modules under ``servicenow_mcp.tools``):
     ``query``, ``describe``, ``record_write``, ``record_read``,
     ``attachment``, ``attachment_write``, ``investigate``, ``resolve_choice``,
-    ``service_catalog``, ``audit``, ``flow``, ``code_search``.
+    ``service_catalog``, ``analysis``, ``audit``, ``flow``, ``code_search``.
 
 Note: the ``record_write`` group registers both ``record_write`` and
 ``record_apply`` tools. Attachment reads and writes use separate groups;
@@ -38,6 +38,7 @@ _TOOL_GROUP_MODULES: dict[str, str] = {
     "investigate": "servicenow_mcp.tools.investigate",
     "resolve_choice": "servicenow_mcp.tools.resolve_choice",
     "service_catalog": "servicenow_mcp.tools.service_catalog",
+    "analysis": "servicenow_mcp.tools.analysis",
     "audit": "servicenow_mcp.tools.audit",
     "flow": "servicenow_mcp.tools.flow",
     "code_search": "servicenow_mcp.tools.code_search",
@@ -56,6 +57,7 @@ PACKAGE_REGISTRY: dict[str, list[str]] = {
         "investigate",
         "resolve_choice",
         "service_catalog",
+        "analysis",
         "audit",
         "flow",
         "code_search",
@@ -67,6 +69,7 @@ PACKAGE_REGISTRY: dict[str, list[str]] = {
         "attachment",
         "investigate",
         "resolve_choice",
+        "analysis",
         "audit",
         "flow",
         "code_search",

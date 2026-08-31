@@ -1,6 +1,6 @@
 # Tool Reference
 
-Complete reference for all 14 tools in the 11 tool groups provided by the ServiceNow Platform MCP server. The tools use dispatcher patterns and ServiceNow encoded queries.
+Complete reference for all 15 tools in the 13 tool groups provided by the ServiceNow Platform MCP server. The tools use dispatcher patterns and ServiceNow encoded queries.
 
 All tools return responses as JSON strings with a standardized envelope containing `correlation_id`, `status`, `data`, and optionally `pagination`, `selection`, and `warnings`. See [[Architecture]] for details on the response format.
 
@@ -40,13 +40,13 @@ Search and retrieve records from any table using ServiceNow encoded query string
 ServiceNow encoded queries are the only supported query construction interface. Copy a filter breadcrumb from a ServiceNow list, or construct the encoded query string directly, then pass it in `encoded_query`. Query safety still applies.
 
 ### `describe`
-Retrieve schema and metadata for a table, or enumerate its script-bearing fields.
+Retrieve inherited schema and metadata for a table, or enumerate its script-bearing fields.
 
 - **Purpose:** Understand a table's structure before querying or writing; discover dictionary-driven script fields at runtime.
 - **Key Parameters:**
   - `action`: Optional. `describe_table` (default) or `list_script_fields`. When `list_script_fields`, returns the resolved super_class `chain` and the script-bearing fields (`name`, `internal_type`, `inherited_from`, `via_heuristic`) for the supplied `table`.
   - `table`: Target table name (required for both actions).
-  - `verbose`: If `true`, returns all platform metadata (otherwise returns a slim 8-key summary per field).
+  - `verbose`: If `true`, returns all platform metadata (otherwise returns a slim summary per field).
   - `fields`: Optional field projection. Empty returns an alphabetical page of 25 fields; `*` returns all fields.
   - `field_offset`: Offset for continuing the default field page.
   - `field_limit`: Page size from 1 to 100.
@@ -55,6 +55,8 @@ Retrieve schema and metadata for a table, or enumerate its script-bearing fields
   await describe(table="incident")
   await describe(action="list_script_fields", table="sys_script")
   ```
+
+Ordinary field listing and explicit lookup walk the bounded `sys_db_object.super_class` chain child-first. Child declarations override ancestor declarations. Each field includes `inherited_from`; direct fields use `null`. Pagination runs after de-duplication.
 
 ---
 
@@ -169,6 +171,16 @@ Inspect ServiceNow field-level auditing posture and masked history.
   await audit(action="check_table", table="incident")
   await audit(action="history", table="incident", sys_id="<sys_id>", window_days=30)
   ```
+
+### `analysis`
+
+Compose read-only data that otherwise needs several bounded Table API calls. Included in `full` and `readonly`, but not `core_readonly`.
+
+- `ritm_variables`: Requires one `sc_req_item` `sys_id`. It joins `sc_item_option_mtom`, `sc_item_option`, and `item_option_new`, and returns bounded submitted answers with definition metadata and pagination. Variable names and labels that indicate password, token, secret, credential, API key, or private key cause the answer to be masked. Reference values retain raw sys_ids and have no inferred display value. MRVS answers are marked `unsupported_mrvs` and are not decoded.
+- `journal_history`: Requires `table` and `sys_id`. It reads only dictionary-confirmed `comments`, `work_notes`, and `close_notes` entries from `sys_journal_field`. The query always constrains `name`, `element`, `element_id`, and a date floor. Results use deterministic chronological order and bounded `limit`/`offset` pagination. This is separate from `audit(action="history")`, which reads field changes from `sys_audit`.
+- `describe`: Returns the action registry without platform I/O.
+
+Required resources are the Table API and read ACLs for the target record, `sys_db_object`, `sys_dictionary`, and the composition tables used by each action. Row ACLs, field ACLs, and journal retention can make results incomplete.
 
 ### `flow`
 

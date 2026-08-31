@@ -149,6 +149,7 @@ class TestDescribe:
             "read_only": False,
             "reference_table": "",
             "choice_count": 0,
+            "inherited_from": None,
         }
         assert second["name"] == "state"
         assert second["type"] == "integer"
@@ -200,27 +201,46 @@ class TestDescribe:
         assert any("priority" in w for w in result.get("warnings", []))
         assert result["selection"]["mode"] == "explicit"
         dictionary_call = next(call for call in respx.calls if call.request.url.path.endswith("/sys_dictionary"))
-        assert "elementINstate%2Cpriority" in str(dictionary_call.request.url)
+        assert "name%3Dincident" in str(dictionary_call.request.url)
 
     @pytest.mark.asyncio()
     @respx.mock
     async def test_compact_default_has_continuation_metadata(
         self, settings: Settings, auth_provider: BasicAuthProvider
     ) -> None:
-        self._mock_dictionary(total=40)
+        from unittest.mock import AsyncMock
+
+        from mcp.server import MCPServer
+
+        from servicenow_mcp.tools._dictionary import DictionaryField, DictionaryRegistry
+        from servicenow_mcp.tools.describe import register_tools
+
+        dictionary = DictionaryRegistry(settings, auth_provider)
+        dictionary.get_all_fields = AsyncMock(  # type: ignore[method-assign]
+            return_value=[
+                DictionaryField(
+                    name=f"field_{index:02d}",
+                    internal_type="string",
+                    attributes="",
+                    inherited_from=None,
+                    metadata={"element": f"field_{index:02d}", "internal_type": "string"},
+                )
+                for index in range(40)
+            ]
+        )
         self._mock_db_object()
         self._mock_choices()
 
-        tools = _register_and_get_tools(settings, auth_provider)
+        mcp = MCPServer("test")
+        register_tools(mcp, settings, auth_provider, dictionary=dictionary)
+        tools = get_tool_functions(mcp)
         result = decode_response(await tools["describe"](table="incident", field_limit=2, field_offset=10))
 
         assert result["status"] == "success"
         assert result["selection"]["truncated"] is True
         assert result["selection"]["next_offset"] == 12
         assert result["selection"]["omitted_count"] == 38
-        dictionary_call = next(call for call in respx.calls if call.request.url.path.endswith("/sys_dictionary"))
-        assert dictionary_call.request.url.params["sysparm_limit"] == "2"
-        assert dictionary_call.request.url.params["sysparm_offset"] == "10"
+        assert result["selection"]["returned_fields"] == ["field_10", "field_11"]
 
     @pytest.mark.asyncio()
     @respx.mock
@@ -344,6 +364,89 @@ class TestDescribe:
         assert "correlation_id" in result
         assert len(result["correlation_id"]) > 0
 
+    @pytest.mark.asyncio()
+    async def test_inherited_fields_are_deduplicated_with_child_override(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """Describe sorts the merged hierarchy and keeps the child declaration."""
+        from unittest.mock import AsyncMock
+
+        from servicenow_mcp.tools._dictionary import DictionaryField, DictionaryRegistry
+
+        dictionary = DictionaryRegistry(settings, auth_provider)
+        dictionary.get_all_fields = AsyncMock(  # type: ignore[method-assign]
+            return_value=[
+                DictionaryField(
+                    name="state",
+                    internal_type="integer",
+                    attributes="",
+                    inherited_from=None,
+                    metadata={"element": "state", "column_label": "Incident state", "internal_type": "integer"},
+                ),
+                DictionaryField(
+                    name="number",
+                    internal_type="string",
+                    attributes="",
+                    inherited_from="task",
+                    metadata={"element": "number", "column_label": "Number", "internal_type": "string"},
+                ),
+            ]
+        )
+        from mcp.server import MCPServer
+
+        from servicenow_mcp.tools.describe import register_tools
+
+        mcp = MCPServer("test")
+        register_tools(mcp, settings, auth_provider, dictionary=dictionary)
+        tools = get_tool_functions(mcp)
+
+        with respx.mock:
+            self._mock_db_object()
+            self._mock_choices()
+            result = decode_response(await tools["describe"](table="incident", fields="number,state"))
+
+        fields = {field["name"]: field for field in result["data"]["fields"]}
+        assert fields["number"]["inherited_from"] == "task"
+        assert fields["state"]["inherited_from"] is None
+        assert fields["state"]["label"] == "Incident state"
+
+    @pytest.mark.asyncio()
+    @pytest.mark.parametrize("table", ["incident", "sc_request", "sc_req_item", "problem", "sc_task", "task_sla"])
+    async def test_task_derived_tables_surface_task_fields(
+        self, table: str, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        """Synthetic task-derived schemas expose inherited task fields consistently."""
+        from unittest.mock import AsyncMock
+
+        from servicenow_mcp.tools._dictionary import DictionaryField, DictionaryRegistry
+
+        dictionary = DictionaryRegistry(settings, auth_provider)
+        dictionary.get_all_fields = AsyncMock(  # type: ignore[method-assign]
+            return_value=[
+                DictionaryField(
+                    name="number",
+                    internal_type="string",
+                    attributes="",
+                    inherited_from="task",
+                    metadata={"element": "number", "column_label": "Number", "internal_type": "string"},
+                )
+            ]
+        )
+        from mcp.server import MCPServer
+
+        from servicenow_mcp.tools.describe import register_tools
+
+        mcp = MCPServer("test")
+        register_tools(mcp, settings, auth_provider, dictionary=dictionary)
+        tools = get_tool_functions(mcp)
+        with respx.mock:
+            respx.get(f"{BASE_URL}/api/now/table/sys_db_object").mock(
+                return_value=httpx.Response(200, json={"result": [{"name": table}]})
+            )
+            self._mock_choices()
+            result = decode_response(await tools["describe"](table=table, fields="number"))
+        assert result["data"]["fields"][0]["inherited_from"] == "task"
+
 
 class TestListScriptFields:
     """``describe(action='list_script_fields')`` returns dictionary-driven script fields."""
@@ -352,7 +455,7 @@ class TestListScriptFields:
     def _mock_super_class(parent: str = "") -> None:
         """Mock the sys_db_object lookup to return ``parent`` as super_class display value."""
         respx.get(f"{BASE_URL}/api/now/table/sys_db_object").mock(
-            return_value=httpx.Response(200, json={"result": [{"super_class": parent}]}),
+            return_value=httpx.Response(200, json={"result": [{"super_class.name": parent}]}),
         )
 
     @staticmethod
@@ -424,7 +527,7 @@ class TestListTables:
     """``describe(action='list_tables')`` lists tables from sys_db_object."""
 
     @staticmethod
-    def _mock_tables(rows: list[dict[str, str]], total: int | None = None) -> None:
+    def _mock_tables(rows: list[dict[str, Any]], total: int | None = None) -> None:
         """Mock the sys_db_object query to return ``rows`` with a total-count header."""
         respx.get(f"{BASE_URL}/api/now/table/sys_db_object").mock(
             return_value=httpx.Response(

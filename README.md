@@ -10,7 +10,7 @@
 
 # servicenow-platform-mcp
 
-A comprehensive [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for ServiceNow. Provides 14 unified tools in 12 tool groups for platform introspection, change intelligence, debugging, record management, and automated investigations.
+A comprehensive [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for ServiceNow. Provides 15 unified tools in 13 tool groups for platform introspection, change intelligence, debugging, record management, and automated investigations.
 
 ## Quick Start
 
@@ -134,13 +134,14 @@ Or read the [Installation Guide](INSTALL.md) directly. For usage examples and pa
 
 ## Key Features
 
-- **Platform Introspection** - Describe table schemas with `describe` and query records with `query` using encoded queries.
+- **Platform Introspection** - Describe complete inherited table schemas with `describe` and query records with `query` using encoded queries.
 - **Record Management** - Unified `record_write` and `record_apply` tools for create, update, and delete. Writes use preview-then-apply by default; callers can explicitly set `preview=false` for an immediate write.
 - **Script-Bearing Records** - Write Business Rules, Script Includes, UI Pages, Widgets, UI Macros, ACLs, and any other table whose dictionary fields carry executable script or markup, all via `record_write` with local script file support and per-field targeting (`script_field`). Script fields are discovered at runtime from `sys_dictionary` — no hardcoded artifact catalog. Read the same surface back via `record_read`, or enumerate a table's script fields with `describe(action='list_script_fields', table='<table>')`.
 - **Attachment Operations** - Unified `attachment` for read operations and `attachment_write` for mutations.
 - **Investigations** - Automated analysis of system health, stale automations, performance bottlenecks, and more via `investigate`.
 - **Label Resolution** - Map human-readable choice labels to underlying values automatically with `resolve_choice`.
 - **Service Catalog** - Dispatcher-based `service_catalog` tool for browsing and ordering.
+- **Read-Only Analysis** - Compose fulfilled RITM variables and bounded journal history with `analysis`.
 
 ## Example Usage
 
@@ -167,13 +168,14 @@ Control which tools are loaded with `MCP_TOOL_PACKAGE`.
 
 | Package | Tools | Description |
 |---------|-------|-------------|
-| `full` | 14 | All unified tools, including `audit`, `flow`, and `code_search` (default) |
-| `readonly` | 10 | Includes `record_read`, `audit`, `flow`, `code_search`, and attachment reads |
+| `full` | 15 | All unified tools, including `analysis`, `audit`, `flow`, and `code_search` (default) |
+| `readonly` | 11 | Includes `record_read`, `analysis`, `audit`, `flow`, `code_search`, and attachment reads |
 | `core_readonly` | 4 | Minimal read surface with attachment reads |
 | `none` | 1 | Just `list_tool_packages` |
 
 Custom packages are supported via comma-separated tool names: `MCP_TOOL_PACKAGE="query,describe,attachment"`.
 The `attachment` group is read-only. Add `attachment_write` explicitly to opt in to upload and delete operations.
+The `analysis` group requires Table API read access and applicable table and field ACLs for target records, `sys_db_object`, `sys_dictionary`, `sys_journal_field`, `sc_req_item`, `sc_item_option_mtom`, `sc_item_option`, and `item_option_new`.
 
 ## Safety
 

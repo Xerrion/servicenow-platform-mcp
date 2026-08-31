@@ -40,8 +40,8 @@ Keep credentials and API keys out of version control. Store local values in `.en
 The `MCP_TOOL_PACKAGE` variable controls the available tool surface.
 
 ### Presets
-- `full`: 14 total tools (13 package tools plus always-on `list_tool_packages`; includes `code_search`).
-- `readonly`: 10 total tools (excludes all write tools and `service_catalog`; includes `record_read`, `attachment`, `audit`, `flow`, and `code_search`).
+- `full`: 15 total tools (14 package tools plus always-on `list_tool_packages`; includes `analysis` and `code_search`).
+- `readonly`: 11 total tools (excludes all write tools and `service_catalog`; includes `record_read`, `attachment`, `analysis`, `audit`, `flow`, and `code_search`).
 - `core_readonly`: 4 total tools (`query`, `describe`, `attachment`, `list_tool_packages`).
 - `none`: Only `list_tool_packages`.
 

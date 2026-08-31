@@ -13,6 +13,7 @@ from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.policy import INTERNAL_QUERY_LIMIT
+from servicenow_mcp.tools._dictionary import DictionaryField, DictionaryRegistry
 from servicenow_mcp.utils import ServiceNowQuery
 
 
@@ -123,6 +124,7 @@ def _build_slim_field_list(
                 "read_only": _bool_value(col.get("read_only")),
                 "reference_table": _ref_value(col.get("reference", "")),
                 "choice_count": int(choice_counts.get(name, 0)),
+                "inherited_from": col.get("inherited_from"),
             }
         )
     return fields
@@ -138,6 +140,7 @@ def _build_verbose_field_list(
         cleaned = {k: v for k, v in col.items() if k not in DESCRIBE_NOISE_FIELDS}
         name = str(col.get("element", "") or "")
         cleaned["choice_count"] = int(choice_counts.get(name, 0))
+        cleaned["inherited_from"] = col.get("inherited_from")
         fields.append(cleaned)
     return fields
 
@@ -182,6 +185,27 @@ async def _fetch_choice_counts(
     return counts
 
 
+async def _fetch_inherited_choice_counts(
+    client: ServiceNowClient,
+    fields: list[DictionaryField],
+    table: str,
+    warnings: list[str],
+) -> dict[str, int]:
+    """Fetch choice counts from each field's declaring table without per-field queries."""
+    names = [field.name for field in fields]
+    counts = await _fetch_choice_counts(client, table, names, warnings)
+    fields_by_table: dict[str, list[str]] = collections.defaultdict(list)
+    for field in fields:
+        if field.inherited_from and not counts.get(field.name):
+            fields_by_table[field.inherited_from].append(field.name)
+
+    for source_table, names in fields_by_table.items():
+        source_counts = await _fetch_choice_counts(client, source_table, names, warnings)
+        for name, count in source_counts.items():
+            counts.setdefault(name, count)
+    return counts
+
+
 async def _fetch_documentation(
     client: ServiceNowClient,
     table: str,
@@ -206,6 +230,27 @@ async def _fetch_documentation(
     if len(records) >= 500:
         warnings.append("Documentation records may be truncated at 500 entries")
     return {d["element"]: d for d in records if d.get("element")}
+
+
+async def _fetch_inherited_documentation(
+    client: ServiceNowClient,
+    fields: list[DictionaryField],
+    table: str,
+    warnings: list[str],
+) -> dict[str, dict[str, Any]]:
+    """Fetch documentation from each field's declaring table in bounded batches."""
+    names = [field.name for field in fields]
+    documentation = await _fetch_documentation(client, table, names, warnings)
+    fields_by_table: dict[str, list[str]] = collections.defaultdict(list)
+    for field in fields:
+        if field.inherited_from and field.name not in documentation:
+            fields_by_table[field.inherited_from].append(field.name)
+
+    for source_table, names in fields_by_table.items():
+        source_docs = await _fetch_documentation(client, source_table, names, warnings)
+        for name, document in source_docs.items():
+            documentation.setdefault(name, document)
+    return documentation
 
 
 def _apply_fields_filter(
@@ -239,6 +284,7 @@ async def _describe_impl(
     settings: Settings,
     auth_provider: BasicAuthProvider,
     client_factory: ServiceNowClientProvider,
+    dictionary: DictionaryRegistry,
 ) -> tuple[dict[str, Any], list[str]]:
     """Run the post-validation orchestration for the ``describe`` tool.
 
@@ -251,25 +297,28 @@ async def _describe_impl(
     """
     warnings: list[str] = []
     is_all_fields = field_limit >= 1_000_000
+    all_dictionary_fields = sorted(await dictionary.get_all_fields(table), key=lambda item: item.name)
+    total_field_count = len(all_dictionary_fields)
+    if requested_fields:
+        wanted = set(requested_fields)
+        selected_dictionary_fields = [field for field in all_dictionary_fields if field.name in wanted]
+    elif is_all_fields:
+        selected_dictionary_fields = all_dictionary_fields
+    else:
+        selected_dictionary_fields = all_dictionary_fields[field_offset : field_offset + field_limit]
+
+    metadata: list[dict[str, Any]] = []
+    for field in selected_dictionary_fields:
+        row = dict(field.metadata)
+        row["element"] = field.name
+        row["internal_type"] = field.internal_type
+        row["attributes"] = field.attributes
+        row["inherited_from"] = field.inherited_from
+        if not verbose:
+            row = {key: row.get(key) for key in _SLIM_METADATA_FIELDS} | {"inherited_from": field.inherited_from}
+        metadata.append(row)
+
     async with client_factory() as client:
-        metadata_query = ServiceNowQuery().equals("name", table).is_not_empty("element")
-        if requested_fields:
-            metadata_query.in_list("element", requested_fields)
-        metadata_query.order_by("element")
-        metadata_result = await client.query_records(
-            "sys_dictionary",
-            metadata_query.build(),
-            fields=None if verbose else _SLIM_METADATA_FIELDS,
-            limit=(INTERNAL_QUERY_LIMIT if is_all_fields else max(len(requested_fields), field_limit)),
-            offset=0 if requested_fields or is_all_fields else field_offset,
-        )
-        metadata = metadata_result.get("records", [])
-        if requested_fields:
-            total_field_count = len(metadata)
-        else:
-            total_field_count = metadata_result.get("count", 0)
-            if not total_field_count:
-                total_field_count = len(metadata)
         table_meta = await client.query_records(
             "sys_db_object",
             ServiceNowQuery().equals("name", table).build(),
@@ -277,11 +326,20 @@ async def _describe_impl(
             limit=1,
         )
         table_info = table_meta.get("records", [{}])[0] if table_meta.get("records") else {}
-        returned_names = [str(column.get("element") or "") for column in metadata if column.get("element")]
-        choice_counts = await _fetch_choice_counts(client, table, returned_names, warnings)
+        choice_counts = await _fetch_inherited_choice_counts(
+            client,
+            selected_dictionary_fields,
+            table,
+            warnings,
+        )
         docs: dict[str, dict[str, Any]] = {}
         if include_docs:
-            docs = await _fetch_documentation(client, table, returned_names, warnings)
+            docs = await _fetch_inherited_documentation(
+                client,
+                selected_dictionary_fields,
+                table,
+                warnings,
+            )
 
     field_list = (
         _build_verbose_field_list(metadata, choice_counts)

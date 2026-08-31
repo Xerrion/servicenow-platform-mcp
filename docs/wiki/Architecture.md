@@ -20,7 +20,7 @@ Communication happens over **stdio transport**. The server runs as a child proce
 
 ## Unified Tool Surface
 
-The current `full` preset exposes 14 tools, including the always-available `list_tool_packages` tool. Most tools are implemented as **dispatchers** that take an `action` parameter, reducing the total tool count while increasing flexibility.
+The current `full` preset exposes 15 tools, including the always-available `list_tool_packages` tool. Most tools are implemented as **dispatchers** that take an `action` parameter, reducing the total tool count while increasing flexibility.
 
 ### Key Implementation Patterns
 

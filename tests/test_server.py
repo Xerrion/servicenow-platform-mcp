@@ -103,8 +103,9 @@ class TestCreateMcpServer:
         tool_names = await get_tool_names(mcp_server)
         assert "attachment" in tool_names
         assert "attachment_write" in tool_names
+        assert "analysis" in tool_names
         assert "code_search" in tool_names
-        assert len(tool_names) == 14
+        assert len(tool_names) == 15
 
     @pytest.mark.parametrize(
         ("package_name", "expected_tools"),

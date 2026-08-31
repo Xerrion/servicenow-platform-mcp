@@ -14,7 +14,8 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from typing import Any, ClassVar, Final
+from dataclasses import field as dataclass_field
+from typing import Any, Final
 
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
@@ -64,6 +65,7 @@ class DictionaryField:
     internal_type: str
     attributes: str
     inherited_from: str | None
+    metadata: dict[str, Any] = dataclass_field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -219,8 +221,6 @@ class DictionaryRegistry:
     explicit flushing remains available.
     """
 
-    _DICT_FIELDS: ClassVar[list[str]] = ["element", "internal_type", "attributes"]
-
     _settings: Settings
     _auth_provider: BasicAuthProvider
 
@@ -275,24 +275,25 @@ class DictionaryRegistry:
 
         async def load() -> list[DictionaryField]:
             chain = await self.get_chain(table)
-            collected: list[DictionaryField] = []
+            collected: dict[str, DictionaryField] = {}
             async with self._client_factory() as client:
                 for level, current in enumerate(chain):
                     inherited_from = None if level == 0 else current
                     rows = await self._fetch_dictionary_rows(client, current)
                     for row in rows:
                         element = str(row.get("element") or "").strip()
-                        if not element:
+                        if not element or element in collected:
                             continue
-                        collected.append(
-                            DictionaryField(
-                                name=element,
-                                internal_type=str(row.get("internal_type") or "").strip(),
-                                attributes=str(row.get("attributes") or ""),
-                                inherited_from=inherited_from,
-                            )
+                        collected[element] = DictionaryField(
+                            name=element,
+                            internal_type=self._dictionary_value(
+                                row.get("internal_type.name") or row.get("internal_type")
+                            ),
+                            attributes=str(row.get("attributes") or ""),
+                            inherited_from=inherited_from,
+                            metadata=dict(row),
                         )
-            return collected
+            return list(collected.values())
 
         return list(await self._all_cache.get_or_load(table, load))
 
@@ -371,14 +372,13 @@ class DictionaryRegistry:
         result = await client.query_records(
             table="sys_db_object",
             query=ServiceNowQuery().equals("name", table).build(),
-            fields=["super_class"],
+            fields=["super_class.name"],
             limit=1,
-            display_values=True,
         )
         records = result.get("records", [])
         if not records:
             return ""
-        super_class: Any = records[0].get("super_class") or ""
+        super_class: Any = records[0].get("super_class.name") or records[0].get("super_class") or ""
         if isinstance(super_class, dict):
             super_class = super_class.get("display_value") or super_class.get("value") or ""
         return str(super_class).strip()
@@ -389,8 +389,32 @@ class DictionaryRegistry:
         result = await client.query_records(
             table="sys_dictionary",
             query=query,
-            fields=self._DICT_FIELDS,
+            fields=None,
             limit=1000,
         )
         records: Any = result.get("records") or []
-        return list(records) if isinstance(records, list) else []
+        rows = list(records) if isinstance(records, list) else []
+        if not any(isinstance(row.get("internal_type"), dict) and not row.get("internal_type.name") for row in rows):
+            return rows
+        type_result = await client.query_records(
+            table="sys_dictionary",
+            query=query,
+            fields=["element", "internal_type.name"],
+            limit=1000,
+        )
+        type_rows: Any = type_result.get("records") or []
+        type_by_element = {
+            str(row.get("element") or ""): row.get("internal_type.name")
+            for row in type_rows
+            if isinstance(row, dict) and row.get("element")
+        }
+        for row in rows:
+            row["internal_type.name"] = type_by_element.get(str(row.get("element") or ""), "")
+        return rows
+
+    @staticmethod
+    def _dictionary_value(value: Any) -> str:
+        """Normalize dictionary references to their stable display value."""
+        if isinstance(value, dict):
+            value = value.get("display_value") or ""
+        return str(value or "").strip().lower().replace(" ", "_")

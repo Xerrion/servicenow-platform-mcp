@@ -18,13 +18,13 @@ pytestmark = pytest.mark.integration
 # Group -> tool count:
 #   query (1), describe (1), record_write (2: record_write + record_apply),
 #   record_read (1), attachment (1), attachment_write (1),
-#   investigate (1), resolve_choice (1), service_catalog (1), audit (1),
+#   investigate (1), resolve_choice (1), service_catalog (1), analysis (1), audit (1),
 #   flow (1), code_search (1).
 EXPECTED_TOOL_COUNTS: dict[str, int] = {
-    # full preset: 1 always-on plus 13 package tools.
-    "full": 14,
-    # readonly preset: 1 always-on plus 9 package tools.
-    "readonly": 10,
+    # full preset: 1 always-on plus 14 package tools.
+    "full": 15,
+    # readonly preset: 1 always-on plus 10 package tools.
+    "readonly": 11,
     # core_readonly preset: 1 always-on plus query, describe, and attachment.
     "core_readonly": 4,
     # none preset: only list_tool_packages.

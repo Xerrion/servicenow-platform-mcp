@@ -73,7 +73,7 @@ def _mock_dictionary(table: str, fields: list[dict[str, str]]) -> None:
     """Mock the sys_db_object + sys_dictionary fetch for ``table`` with ``fields``."""
     # sys_db_object lookup returns no super_class (root table) - the chain stops here.
     respx.get(SYS_DB_OBJECT_URL).mock(
-        return_value=httpx.Response(200, json={"result": [{"super_class": ""}]}),
+        return_value=httpx.Response(200, json={"result": [{"super_class.name": ""}]}),
     )
     # sys_dictionary returns the supplied fields for the requested table name.
     respx.get(METADATA_URL).mock(

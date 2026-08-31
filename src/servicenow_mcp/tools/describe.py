@@ -254,6 +254,7 @@ def register_tools(
             settings=settings,
             auth_provider=auth_provider,
             client_factory=client_factory,
+            dictionary=dict_registry,
         )
 
         if is_all_fields:

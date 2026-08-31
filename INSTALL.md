@@ -26,8 +26,8 @@ Ask the user:
    - If **no** - set `SERVICENOW_ENV=dev` (default, writes allowed)
 
 2. **Do you want all tools or a specific subset?**
-   - **All tools** (default) - set `MCP_TOOL_PACKAGE=full` (14 tools, including `audit` and `flow`)
-   - **Read-only** - set `MCP_TOOL_PACKAGE=readonly` (10 tools, including `audit`, `flow`, and attachment reads)
+   - **All tools** (default) - set `MCP_TOOL_PACKAGE=full` (15 tools, including `analysis`, `audit`, and `flow`)
+   - **Read-only** - set `MCP_TOOL_PACKAGE=readonly` (11 tools, including `analysis`, `audit`, `flow`, and attachment reads)
    - **Minimal** - set `MCP_TOOL_PACKAGE=core_readonly` (4 tools: query, describe, attachment, list_tool_packages)
    - **Custom** - comma-separated tool names (e.g., `query,describe,attachment`)
 
@@ -154,7 +154,7 @@ After writing the configuration, tell the user to:
 
 ## Tool Reference
 
-The server provides 14 tools in the `full` preset. Use `list_tool_packages` to see available tools at runtime. For detailed usage patterns and complex queries, see [Agent Recipes](docs/agent-recipes.md).
+The server provides 15 tools in the `full` preset. Use `list_tool_packages` to see available tools at runtime. For detailed usage patterns and complex queries, see [Agent Recipes](docs/agent-recipes.md).
 
 ### query
 Search and retrieve records using ServiceNow encoded query strings. List mode requires `fields`; use a comma-separated projection for compact reads or `fields="*"` for an intentional full record. `sys_id` is always included. Supports `resolve_labels` for human-readable filtering and `display_values` for labeled results.

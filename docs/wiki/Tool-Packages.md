@@ -2,7 +2,7 @@
 
 Tool packages control which tools are loaded when the server starts. Configure the active package via the `MCP_TOOL_PACKAGE` environment variable.
 
-The server has 12 tool groups and 4 focused presets. The public `full` surface contains 14 tools. For a complete reference of every tool, see [[Tool-Reference]]. For security guardrails that apply across all packages, see [[Safety-and-Policy]].
+The server has 13 tool groups and 4 focused presets. The public `full` surface contains 15 tools. For a complete reference of every tool, see [[Tool-Reference]]. For security guardrails that apply across all packages, see [[Safety-and-Policy]].
 
 ---
 
@@ -10,8 +10,8 @@ The server has 12 tool groups and 4 focused presets. The public `full` surface c
 
 | Package | Total MCP Tools | Description |
 |---|---|---|
-| `full` (default) | 14 | All unified tools, including `audit`, `flow`, and `code_search` |
-| `readonly` | 10 | Includes `record_read`, `audit`, `flow`, `code_search`, and attachment reads |
+| `full` (default) | 15 | All unified tools, including `analysis`, `audit`, `flow`, and `code_search` |
+| `readonly` | 11 | Includes `record_read`, `analysis`, `audit`, `flow`, `code_search`, and attachment reads |
 | `core_readonly` | 4 | Minimal read-only core: `query`, `describe`, `attachment`, `list_tool_packages` |
 | `none` | 1 | No tools loaded - only `list_tool_packages` is available |
 
@@ -21,13 +21,13 @@ The server has 12 tool groups and 4 focused presets. The public `full` surface c
 
 The `list_tool_packages` tool is always available and returns the active registry at runtime. The detailed lists below name package tools; add `list_tool_packages` to get the total MCP tool count shown above.
 
-### `full` (13 package tools)
+### `full` (14 package tools)
 
-`query`, `describe`, `record_read`, `record_write`, `record_apply`, `attachment`, `attachment_write`, `investigate`, `resolve_choice`, `service_catalog`, `audit`, `flow`, `code_search`.
+`query`, `describe`, `record_read`, `record_write`, `record_apply`, `attachment`, `attachment_write`, `investigate`, `resolve_choice`, `service_catalog`, `analysis`, `audit`, `flow`, `code_search`.
 
-### `readonly` (9 package tools)
+### `readonly` (10 package tools)
 
-`query`, `describe`, `record_read`, `attachment`, `investigate`, `resolve_choice`, `audit`, `flow`, `code_search`.
+`query`, `describe`, `record_read`, `attachment`, `investigate`, `resolve_choice`, `analysis`, `audit`, `flow`, `code_search`.
 
 ### `core_readonly` (3 package tools)
 
@@ -44,6 +44,8 @@ MCP_TOOL_PACKAGE="query,describe,attachment"
 ```
 
 The `attachment` group registers only the read tool. Add `attachment_write` explicitly to opt in to attachment upload and delete. Runtime write gating still applies to the opt-in group.
+
+The `analysis` group is read-only and is included in `full` and `readonly`. It is excluded from `core_readonly` because it broadens the minimal surface to catalog-answer and journal composition tables.
 
 ### Migration from v0.9.x
 

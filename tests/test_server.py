@@ -2,9 +2,12 @@
 
 import importlib
 import json
+from pathlib import Path
 from types import ModuleType
 from typing import Any
 from unittest.mock import patch
+
+import pytest
 
 from tests.helpers import get_tool_functions, get_tool_names
 
@@ -192,3 +195,26 @@ class TestCreateMcpServer:
         # Other tool groups should still load successfully.
         assert "list_tool_packages" in tool_names
         assert "describe" in tool_names
+
+
+class TestMain:
+    """Test server process startup."""
+
+    def test_missing_instance_url_reports_secret_safe_configuration_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Startup identifies the missing setting without exposing other inputs."""
+        from servicenow_mcp.server import main
+
+        sentry_dsn_marker = "sentry-dsn-must-not-appear"
+        monkeypatch.chdir(tmp_path)
+        with (
+            patch.dict("os.environ", {"SENTRY_DSN": sentry_dsn_marker}, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main()
+
+        message = str(exc_info.value)
+        assert "SERVICENOW_INSTANCE_URL: Field required" in message
+        assert ".env/.env.local in the working directory" in message
+        assert sentry_dsn_marker not in message

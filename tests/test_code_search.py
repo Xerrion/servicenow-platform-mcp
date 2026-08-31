@@ -26,26 +26,26 @@ def auth_provider(settings: Settings) -> BasicAuthProvider:
 
 def _register_and_get_tools(settings: Settings, auth_provider: BasicAuthProvider) -> dict[str, Any]:
     """Register the unified ``code_search`` tool on a fresh MCP and return callables."""
-    from mcp.server.fastmcp import FastMCP
+    from mcp.server import MCPServer
 
     from servicenow_mcp.tools.code_search import register_tools
 
-    mcp = FastMCP("test")
+    mcp = MCPServer("test")
     register_tools(mcp, settings, auth_provider)
     return get_tool_functions(mcp)
 
 
-def test_schema_exposes_agent_callable_parameters(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+async def test_schema_exposes_agent_callable_parameters(settings: Settings, auth_provider: BasicAuthProvider) -> None:
     """The MCP schema exposes callable inputs and hides injected correlation_id."""
-    from mcp.server.fastmcp import FastMCP
+    from mcp.server import MCPServer
 
     from servicenow_mcp.tools.code_search import register_tools
 
-    mcp = FastMCP("test")
+    mcp = MCPServer("test")
     register_tools(mcp, settings, auth_provider)
-    tool = get_registered_tools(mcp)["code_search"]
+    tool = (await get_registered_tools(mcp))["code_search"]
 
-    properties = tool.parameters.get("properties", {})
+    properties = tool.input_schema.get("properties", {})
     assert "action" in properties
     assert "term" in properties
     assert "table" in properties

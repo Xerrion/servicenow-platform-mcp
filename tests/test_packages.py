@@ -46,7 +46,7 @@ class TestPackageRegistry:
 
     def test_full_public_surface_stays_at_fourteen_tools(self, settings: Any) -> None:
         """Optimization changes do not add or remove public tools."""
-        from mcp.server.fastmcp import FastMCP
+        from mcp.server import MCPServer
 
         from servicenow_mcp.auth import BasicAuthProvider
         from servicenow_mcp.choices import ChoiceRegistry
@@ -55,7 +55,7 @@ class TestPackageRegistry:
 
         assert isinstance(settings, Settings)
         auth_provider = BasicAuthProvider(settings)
-        mcp = FastMCP("test")
+        mcp = MCPServer("test")
         choices = ChoiceRegistry(settings, auth_provider)
         dictionary = DictionaryRegistry(settings, auth_provider)
         for group in PACKAGE_REGISTRY["full"]:

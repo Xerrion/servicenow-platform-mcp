@@ -7,7 +7,7 @@ callers know which fields they can target on a subsequent ``record_write``.
 
 from __future__ import annotations
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.choices import ChoiceRegistry
@@ -66,7 +66,7 @@ def _parse_requested_fields(fields: str, correlation_id: str) -> tuple[list[str]
 
 
 def register_tools(
-    mcp: FastMCP,
+    mcp: MCPServer,
     settings: Settings,
     auth_provider: BasicAuthProvider,
     choices: ChoiceRegistry | None = None,

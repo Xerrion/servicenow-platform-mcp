@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.config import Settings
@@ -36,7 +36,7 @@ def _register_and_get_tools(
     """Register the unified ``flow`` tool on a fresh MCP and return callables."""
     from servicenow_mcp.tools.flow import register_tools
 
-    mcp = FastMCP("test")
+    mcp = MCPServer("test")
     register_tools(mcp, settings, auth_provider, choices=choices)
     return get_tool_functions(mcp)
 

@@ -72,7 +72,7 @@ def tool_handler(
 
     The decorated function receives ``correlation_id`` as a keyword argument
     injected at call time. The ``__signature__`` is overridden to hide
-    ``correlation_id`` from FastMCP's schema introspection.
+    ``correlation_id`` from MCPServer's schema introspection.
 
     Usage::
 
@@ -104,7 +104,7 @@ def tool_handler(
 
         return await safe_tool_call(_run, correlation_id)
 
-    # Hide correlation_id from FastMCP tool schema introspection.
+    # Hide correlation_id from MCPServer tool schema introspection.
     # inspect.signature() follows __wrapped__ set by functools.wraps,
     # so we must remove it and provide an explicit __signature__ instead.
     original_sig = inspect.signature(fn)

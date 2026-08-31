@@ -35,11 +35,11 @@ def _register_and_get_tools(
     dictionary: DictionaryRegistry | None = None,
 ) -> dict[str, Any]:
     """Register the unified ``record_read`` tool on a fresh MCP and return callables."""
-    from mcp.server.fastmcp import FastMCP
+    from mcp.server import MCPServer
 
     from servicenow_mcp.tools.record_read import register_tools
 
-    mcp = FastMCP("test")
+    mcp = MCPServer("test")
     register_tools(mcp, settings, auth_provider, choices=choices, dictionary=dictionary)
     return get_tool_functions(mcp)
 

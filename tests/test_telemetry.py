@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.client import ServiceNowClient, ServiceNowClientFactory, ServiceNowClientProvider
@@ -31,15 +31,15 @@ class _CloseTrackingAsyncClient(httpx.AsyncClient):
 
 
 class _McpProtocolServer(Protocol):
-    """FastMCP protocol server subset used to enter its real lifespan."""
+    """MCP protocol server subset used to enter its real lifespan."""
 
     lifespan: Callable[[Any], AbstractAsyncContextManager[Any]]
 
 
-class _FastMcpWithRuntime(Protocol):
-    """FastMCP runtime attributes used by lifecycle tests."""
+class _McpServerWithRuntime(Protocol):
+    """MCPServer runtime attributes used by lifecycle tests."""
 
-    _mcp_server: _McpProtocolServer
+    _lowlevel_server: _McpProtocolServer
     _sn_client_factory: ServiceNowClientProvider
 
 
@@ -161,7 +161,7 @@ async def test_repeated_tool_calls_share_one_transport(
         ),
     )
     factory = ServiceNowClientFactory(settings, auth_provider, transport)
-    mcp = FastMCP("test")
+    mcp = MCPServer("test")
     register_tools(mcp, settings, auth_provider, client_factory=factory)
     query = get_tool_functions(mcp)["query"]
 
@@ -205,8 +205,8 @@ async def test_failed_request_records_bounded_telemetry(settings: Settings) -> N
 
 
 @pytest.mark.asyncio()
-async def test_fastmcp_lifespan_closes_shared_transport_once_on_exception() -> None:
-    """The real FastMCP lifespan closes shared HTTP state during exceptional shutdown."""
+async def test_mcp_server_lifespan_closes_shared_transport_once_on_exception() -> None:
+    """The real MCPServer lifespan closes shared HTTP state during exceptional shutdown."""
     from servicenow_mcp.server import create_mcp_server
 
     env = {
@@ -218,7 +218,7 @@ async def test_fastmcp_lifespan_closes_shared_transport_once_on_exception() -> N
     with patch.dict("os.environ", env, clear=True):
         mcp = create_mcp_server()
 
-    runtime = cast("_FastMcpWithRuntime", cast("object", mcp))
+    runtime = cast("_McpServerWithRuntime", cast("object", mcp))
     service_client = runtime._sn_client_factory()
     transport = service_client._ensure_client()
 
@@ -226,10 +226,10 @@ async def test_fastmcp_lifespan_closes_shared_transport_once_on_exception() -> N
         patch.object(transport, "aclose", new=AsyncMock(wraps=transport.aclose)) as close,
         pytest.raises(RuntimeError, match="shutdown"),
     ):
-        async with runtime._mcp_server.lifespan(runtime._mcp_server):
+        async with runtime._lowlevel_server.lifespan(runtime._lowlevel_server):
             raise RuntimeError("shutdown")
 
-    async with runtime._mcp_server.lifespan(runtime._mcp_server):
+    async with runtime._lowlevel_server.lifespan(runtime._lowlevel_server):
         pass
 
     close.assert_awaited_once_with()

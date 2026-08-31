@@ -12,7 +12,7 @@ from tests.helpers import get_tool_functions, get_tool_names
 class TestCreateMcpServer:
     """Test MCP server creation."""
 
-    def test_creates_server_with_name(self) -> None:
+    async def test_creates_server_with_name(self) -> None:
         """Server has the expected name."""
         from servicenow_mcp.server import create_mcp_server
 
@@ -27,7 +27,7 @@ class TestCreateMcpServer:
 
         assert mcp_server.name == "servicenow-platform-mcp"
 
-    def test_server_has_list_tool_packages_tool(self) -> None:
+    async def test_server_has_list_tool_packages_tool(self) -> None:
         """Server always registers the list_tool_packages tool."""
         from servicenow_mcp.server import create_mcp_server
 
@@ -41,10 +41,10 @@ class TestCreateMcpServer:
             mcp_server = create_mcp_server()
 
         # The tool manager should have the list_tool_packages tool
-        tool_names = get_tool_names(mcp_server)
+        tool_names = await get_tool_names(mcp_server)
         assert "list_tool_packages" in tool_names
 
-    def test_server_loads_core_readonly_tools(self) -> None:
+    async def test_server_loads_core_readonly_tools(self) -> None:
         """When using core_readonly package, core read-only tools are registered."""
         from servicenow_mcp.server import create_mcp_server
 
@@ -57,13 +57,13 @@ class TestCreateMcpServer:
         with patch.dict("os.environ", env, clear=True):
             mcp_server = create_mcp_server()
 
-        tool_names = get_tool_names(mcp_server)
+        tool_names = await get_tool_names(mcp_server)
         assert "describe" in tool_names
         assert "query" in tool_names
         assert "attachment" in tool_names
         assert "code_search" not in tool_names
 
-    def test_readonly_includes_attachment_read_tools_but_not_write_tools(self) -> None:
+    async def test_readonly_includes_attachment_read_tools_but_not_write_tools(self) -> None:
         """readonly package includes the attachment read tool and excludes record_write.
 
         Note: the unified ``attachment`` group registers both read and write
@@ -82,13 +82,13 @@ class TestCreateMcpServer:
         with patch.dict("os.environ", env, clear=True):
             mcp_server = create_mcp_server()
 
-        tool_names = get_tool_names(mcp_server)
+        tool_names = await get_tool_names(mcp_server)
         assert "attachment" in tool_names
         assert "code_search" in tool_names
         assert "record_write" not in tool_names
         assert "record_apply" not in tool_names
 
-    def test_full_includes_attachment_read_and_write_tools(self) -> None:
+    async def test_full_includes_attachment_read_and_write_tools(self) -> None:
         """full package includes both attachment read and write tools."""
         from servicenow_mcp.server import create_mcp_server
 
@@ -101,13 +101,13 @@ class TestCreateMcpServer:
         with patch.dict("os.environ", env, clear=True):
             mcp_server = create_mcp_server()
 
-        tool_names = get_tool_names(mcp_server)
+        tool_names = await get_tool_names(mcp_server)
         assert "attachment" in tool_names
         assert "attachment_write" in tool_names
         assert "code_search" in tool_names
         assert len(tool_names) == 14
 
-    def test_custom_package_can_load_code_search_tool(self) -> None:
+    async def test_custom_package_can_load_code_search_tool(self) -> None:
         """The ``code_search`` group is directly loadable via MCP_TOOL_PACKAGE."""
         from servicenow_mcp.server import create_mcp_server
 
@@ -120,10 +120,10 @@ class TestCreateMcpServer:
         with patch.dict("os.environ", env, clear=True):
             mcp_server = create_mcp_server()
 
-        tool_names = get_tool_names(mcp_server)
+        tool_names = await get_tool_names(mcp_server)
         assert tool_names == ["list_tool_packages", "code_search"]
 
-    def test_none_package_has_only_list_packages(self) -> None:
+    async def test_none_package_has_only_list_packages(self) -> None:
         """'none' package only has the list_tool_packages tool."""
         from servicenow_mcp.server import create_mcp_server
 
@@ -136,10 +136,10 @@ class TestCreateMcpServer:
         with patch.dict("os.environ", env, clear=True):
             mcp_server = create_mcp_server()
 
-        tool_names = get_tool_names(mcp_server)
+        tool_names = await get_tool_names(mcp_server)
         assert tool_names == ["list_tool_packages"]
 
-    def test_list_tool_packages_tool_returns_package_data(self) -> None:
+    async def test_list_tool_packages_tool_returns_package_data(self) -> None:
         """Calling list_tool_packages returns serialized package registry."""
         from servicenow_mcp.server import create_mcp_server
 
@@ -163,7 +163,7 @@ class TestCreateMcpServer:
         assert result["none"] == []
         assert "query" in result["core_readonly"]
 
-    def test_import_error_during_tool_loading_is_handled(self) -> None:
+    async def test_import_error_during_tool_loading_is_handled(self) -> None:
         """Server still starts when a tool group module fails to import."""
         from servicenow_mcp.server import create_mcp_server
 
@@ -186,7 +186,7 @@ class TestCreateMcpServer:
         ):
             mcp_server = create_mcp_server()
 
-        tool_names = get_tool_names(mcp_server)
+        tool_names = await get_tool_names(mcp_server)
         # The query tool should not be registered due to the import failure.
         assert "query" not in tool_names
         # Other tool groups should still load successfully.

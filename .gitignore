@@ -9,7 +9,8 @@ dist/
 build/
 .eggs/
 
-.serena/*
+.serena/
+.zed/
 
 # Virtual environments
 .venv/

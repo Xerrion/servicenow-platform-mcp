@@ -4,27 +4,15 @@ import json
 from collections.abc import Callable
 from typing import Any, Protocol, cast
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 
 class RegisteredToolLike(Protocol):
-    """Typed subset of FastMCP's registered tool model used in tests."""
+    """Typed subset of MCPServer's registered tool model used in tests."""
 
     name: str
     fn: Callable[..., Any]
     parameters: dict[str, Any]
-
-
-class _ToolManagerLike(Protocol):
-    """Typed subset of FastMCP's tool manager used in tests."""
-
-    _tools: dict[str, RegisteredToolLike]
-
-
-class _FastMCPLike(Protocol):
-    """Typed subset of FastMCP used for test helper access."""
-
-    _tool_manager: _ToolManagerLike
 
 
 def decode_response(raw: str) -> dict[str, Any]:
@@ -48,17 +36,21 @@ def decode_response(raw: str) -> dict[str, Any]:
     return result
 
 
-def get_registered_tools(mcp: FastMCP) -> dict[str, RegisteredToolLike]:
-    """Return the registered tool mapping from a FastMCP instance."""
-    typed_mcp = cast("_FastMCPLike", cast("object", mcp))
-    return typed_mcp._tool_manager._tools
+def _get_registered_tools(mcp: MCPServer) -> dict[str, RegisteredToolLike]:
+    """Return the registered tool mapping from an MCPServer instance."""
+    return cast("dict[str, RegisteredToolLike]", cast("object", mcp._tool_manager._tools))
 
 
-def get_tool_functions(mcp: FastMCP) -> dict[str, Callable[..., Any]]:
+def get_tool_functions(mcp: MCPServer) -> dict[str, Callable[..., Any]]:
     """Return a mapping of tool name to callable for assertions and invocation."""
-    return {tool.name: tool.fn for tool in get_registered_tools(mcp).values()}
+    return {tool.name: tool.fn for tool in _get_registered_tools(mcp).values()}
 
 
-def get_tool_names(mcp: FastMCP) -> list[str]:
+async def get_registered_tools(mcp: MCPServer) -> dict[str, Any]:
+    """Return registered MCP tool schemas keyed by name."""
+    return {tool.name: tool for tool in await mcp.list_tools()}
+
+
+async def get_tool_names(mcp: MCPServer) -> list[str]:
     """Return registered tool names in insertion order."""
-    return list(get_registered_tools(mcp))
+    return [tool.name for tool in await mcp.list_tools()]

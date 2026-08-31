@@ -16,7 +16,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Final
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.choices import ChoiceRegistry
@@ -564,7 +564,7 @@ def _validate_aggregate_block(aggregate: str, correlation_id: str) -> _Aggregate
 
 
 def register_tools(
-    mcp: FastMCP,
+    mcp: MCPServer,
     settings: Settings,
     auth_provider: BasicAuthProvider,
     choices: ChoiceRegistry | None = None,

@@ -6,6 +6,20 @@ See also: [[Architecture]] for technical internals, [[Telemetry]] for observabil
 
 ## Getting Started
 
+### MCP SDK
+
+The project requires `mcp>=2.1.1`. MCP SDK v2 uses `MCPServer`, imported from `mcp.server`:
+
+```python
+from mcp.server import MCPServer
+
+mcp = MCPServer("servicenow-platform-mcp")
+```
+
+Tool registration still uses `@mcp.tool()` with the project's `@tool_handler` decorator. Registration functions type the server parameter as `mcp: MCPServer`. The server continues to use `mcp.run(transport="stdio")`.
+
+The direct `httpx` dependency is used by the application and remains independent of the SDK. MCP SDK v2's `httpx2` is transitive.
+
 ### Prerequisites
 
 - **Python 3.12+** (tested on 3.12, 3.13, 3.14)
@@ -130,7 +144,7 @@ disallow_untyped_defs = true
 ignore_missing_imports = true
 ```
 
-The `servicenow_mcp.server` module has `call-arg` error code disabled due to FastMCP's dynamic tool registration.
+The `servicenow_mcp.server` module has `call-arg` error code disabled for the dynamically imported tool registration calls.
 
 ## Naming Conventions
 
@@ -169,20 +183,31 @@ assert result["data"]["field"] == "expected"
 ### Standard Test Helper Pattern
 
 ```python
-def _register_and_get_tools(settings, auth_provider):
-    mcp = FastMCP("test")
+from mcp.server import MCPServer
+
+
+async def _register_and_get_tool_schemas(settings, auth_provider):
+    mcp = MCPServer("test")
     register_tools(mcp, settings, auth_provider)
-    return {t.name: t.fn for t in mcp._tool_manager._tools.values()}
+    return {tool.name: tool for tool in await mcp.list_tools()}
 ```
 
-Domain tools use the same pattern with an extra `choices` parameter:
+Test helpers can pass the optional registries needed by the tool under test. For example, a helper that supplies choices uses this pattern:
 
 ```python
-def _register_and_get_tools(settings, auth_provider, choices=None):
-    mcp = FastMCP("test")
+async def _register_and_get_tool_schemas(settings, auth_provider, choices=None):
+    mcp = MCPServer("test")
     register_tools(mcp, settings, auth_provider, choices=choices)
-    return {t.name: t.fn for t in mcp._tool_manager._tools.values()}
+    return {tool.name: tool for tool in await mcp.list_tools()}
 ```
+
+For tool listing and schema checks, use the public asynchronous API:
+
+```python
+tools = await mcp.list_tools()
+```
+
+The private callable registry is reserved for tests that must directly invoke registered handlers. It is not the normal API for listing tools or checking schemas.
 
 ### Test Fixtures
 
@@ -283,8 +308,8 @@ Release-please uses conventional commits to determine version bumps:
 
 | Package | Purpose |
 |---|---|
-| `mcp` (>=1.0.0) | MCP server framework |
-| `httpx` (>=0.27.0) | Async HTTP client |
+| `mcp` (>=2.1.1) | MCP SDK v2 server framework |
+| `httpx` (>=0.27.0) | Independent async HTTP client for ServiceNow REST API calls |
 | `pydantic` (>=2.0.0) | Data validation |
 | `pydantic-settings` (>=2.0.0) | Environment-based configuration |
 | `python-dotenv` (>=1.0.0) | `.env` file loading |

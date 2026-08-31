@@ -6,13 +6,15 @@ Deep technical architecture of the `servicenow-platform-mcp` server - an async P
 
 The server is built on:
 
-- **FastMCP** - MCP server framework providing tool registration and transport handling.
+- **MCPServer** - MCP SDK v2 server class, imported from `mcp.server`, providing tool registration and transport handling. The project requires `mcp>=2.1.1`.
 - **httpx** - Async HTTP client for ServiceNow REST API communication.
 - **JSON** - Standard JSON serialization for all tool responses.
 - **pydantic-settings** - Configuration management via environment variables.
 - **sentry-sdk** - Error tracking for invisible child-process environments.
 
 Repeated tool calls share one server-lifetime `httpx.AsyncClient` connection pool. This reduces connection setup overhead and records bounded telemetry for HTTP request count, duration, response bytes, and shared-pool usage. A directly constructed `ServiceNowClient` remains responsible for its own transport and closes it when its context ends.
+
+The application keeps `httpx` as a direct dependency for ServiceNow REST API communication. MCP SDK v2's `httpx2` dependency is transitive.
 
 Communication happens over **stdio transport**. The server runs as a child process of an AI agent, and all output is captured in a standardized JSON envelope.
 
@@ -44,8 +46,11 @@ Bootstrap selects the authentication provider from configuration. When `SERVICEN
 The loader uses one `register_tools()` signature for all tool groups:
 
 ```python
+from mcp.server import MCPServer
+
+
 def register_tools(
-    mcp: FastMCP,
+    mcp: MCPServer,
     settings: Settings,
     auth_provider: BasicAuthProvider,
     choices: ChoiceRegistry | None = None,
@@ -56,6 +61,10 @@ def register_tools(
 ```
 
 The bootstrap process dynamically imports modules from `servicenow_mcp.tools` and registers them.
+
+The server is constructed as `MCPServer("servicenow-platform-mcp")`. Tool decorators remain `@mcp.tool()` and `@tool_handler`. The entry point runs `mcp.run(transport="stdio")`.
+
+MCP protocol model fields use snake_case Python names, such as `input_schema` and `structured_content`.
 
 ## Wire Format
 

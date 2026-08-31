@@ -6,13 +6,14 @@
 - Package manager: **uv** (not pip/poetry). Build system: hatchling.
 - Source layout: `src/servicenow_mcp/` (src-layout). Entry point: `servicenow_mcp.server:main`.
 - Config via `pydantic-settings` loading env vars from `.env` / `.env.local`.
+- The MCP dependency floor is `mcp>=2.1.1`. MCP SDK v2 uses `MCPServer` from `mcp.server`; direct `httpx` remains an independent application dependency, while MCP's `httpx2` is transitive.
 - Version: 0.10.0. Supported Python: 3.12, 3.13, 3.14.
 
 ### Dependencies
 
 | Type          | Packages                                                                   |
 | ------------- | -------------------------------------------------------------------------- |
-| Core          | `mcp`, `httpx`, `pydantic`, `pydantic-settings`, `python-dotenv`, `uvicorn`, `starlette` |
+| Core          | `mcp>=2.1.1`, `httpx`, `pydantic`, `pydantic-settings`, `python-dotenv`, `uvicorn`, `starlette` |
 | Sentry        | `sentry-sdk>=2.55.0`                                                              |
 | Dev           | `pytest`, `pytest-asyncio`, `respx`, `ruff`, `mypy`, `basedpyright`, `pytest-cov`          |
 
@@ -162,7 +163,7 @@ What `@tool_handler` does:
 
 1. Auto-generates `correlation_id` via `generate_correlation_id()` (UUID4).
 2. Wraps the function call in `safe_tool_call()` which catches `ForbiddenError` and `Exception`, returning serialized error envelopes.
-3. Hides `correlation_id` from the FastMCP tool schema by overriding `__signature__` and deleting `__wrapped__`.
+3. Hides `correlation_id` from the MCPServer tool schema by overriding `__signature__` and deleting `__wrapped__`.
 4. Sets Sentry tags (`tool.name`, `tool.correlation_id`) and context with tool name, correlation_id, and args.
 
 ## 📊 Response Format
@@ -228,16 +229,19 @@ Agents pass ServiceNow encoded query strings directly to the `query` tool. Refer
 The server bootstrap uses one registration signature for all tool groups.
 
 ```python
+from mcp.server import MCPServer
+
+
 def register_tools(
-    mcp: FastMCP,
+    mcp: MCPServer,
     settings: Settings,
     auth_provider: BasicAuthProvider,
     choices: ChoiceRegistry | None = None,
     dictionary: DictionaryRegistry | None = None,
     client_factory: ServiceNowClientProvider | None = None,
 ) -> None:
-    # Modules that do not require the ChoiceRegistry explicitly ignore it
-    del choices  # unused; signature retained for loader parity
+    # Modules that do not require the registries explicitly ignore them
+    del choices, dictionary  # unused; signature retained for loader parity
 
     @mcp.tool()
     @tool_handler
@@ -248,6 +252,10 @@ def register_tools(
             result = await client.some_method(param)
         return format_response(data=result, correlation_id=correlation_id)
 ```
+
+The SDK v2 tool decorators remain `@mcp.tool()` and `@tool_handler`. The server is created with `MCPServer("servicenow-platform-mcp")` and runs over stdio with `mcp.run(transport="stdio")`.
+
+Public protocol model fields use snake_case Python names, including `input_schema` and `structured_content`.
 
 ## ✏️ Platform Artifacts
 
@@ -373,7 +381,7 @@ Dispatched via the read-only `audit` tool. Available in the `full` and `readonly
 
 1. Creates `Settings` and auth via `create_auth()`.
 2. Calls `setup_sentry(settings)` and sets Sentry context.
-3. Creates `FastMCP('servicenow-platform-mcp')`.
+3. Creates `MCPServer('servicenow-platform-mcp')`.
 4. Calls `attach_servicenow_state(...)` to attach shared state.
 5. Always registers the `list_tool_packages` tool.
 6. Loads tool groups via `importlib` and passes the shared registries and client factory to `register_tools(...)`.
@@ -463,14 +471,19 @@ Use **respx** library with `@respx.mock` decorator on async test methods.
 
 ### Tool Test Helpers
 
-Tool tests live alongside the rest of the suite in `tests/`. Standard tool registration for tests uses the 4-argument signature:
+Tool tests live alongside the rest of the suite in `tests/`. Standard tool registration for tests uses the 5-argument signature:
 
 ```python
-def _register_and_get_tools(settings, auth_provider, choices=None):
-    mcp = FastMCP("test")
+from mcp.server import MCPServer
+
+
+async def _register_and_get_tool_schemas(settings, auth_provider, choices=None):
+    mcp = MCPServer("test")
     register_tools(mcp, settings, auth_provider, choices=choices)
-    return {t.name: t.fn for t in mcp._tool_manager._tools.values()}
+    return {tool.name: tool for tool in await mcp.list_tools()}
 ```
+
+Use the public asynchronous `await mcp.list_tools()` API for tool listing and schema checks. Existing test helpers may access the private callable registry only when a test must directly invoke a registered handler.
 
 ### Parsing Tool Output in Tests
 

@@ -9,7 +9,7 @@ from typing import Any
 import httpx
 import pytest
 import respx
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.config import Settings
@@ -34,7 +34,7 @@ def auth_provider(settings: Settings) -> BasicAuthProvider:
 
 def _register_and_get_tools(settings: Settings, auth_provider: BasicAuthProvider) -> dict[str, Any]:
     """Register the unified attachment tools on a fresh MCP and return callables."""
-    mcp = FastMCP("test")
+    mcp = MCPServer("test")
     register_tools(mcp, settings, auth_provider)
     return get_tool_functions(mcp)
 

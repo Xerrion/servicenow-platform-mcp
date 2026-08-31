@@ -6,7 +6,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from urllib.parse import urlparse
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 from servicenow_mcp.auth import create_auth
 from servicenow_mcp.choices import ChoiceRegistry
@@ -24,7 +24,7 @@ from servicenow_mcp.utils import serialize
 logger = logging.getLogger(__name__)
 
 
-def create_mcp_server() -> FastMCP:
+def create_mcp_server() -> MCPServer:
     """Create and configure the MCP server with tools based on the active package."""
     settings = Settings()
     auth_provider = create_auth(settings)
@@ -48,7 +48,7 @@ def create_mcp_server() -> FastMCP:
     client_factory = ServiceNowClientFactory(settings, auth_provider, http_client)
 
     @asynccontextmanager
-    async def lifespan(mcp_server: FastMCP) -> AsyncIterator[None]:
+    async def lifespan(mcp_server: MCPServer) -> AsyncIterator[None]:
         del mcp_server
         try:
             yield
@@ -56,7 +56,7 @@ def create_mcp_server() -> FastMCP:
             if not http_client.is_closed:
                 await http_client.aclose()
 
-    mcp = FastMCP("servicenow-platform-mcp", lifespan=lifespan)
+    mcp = MCPServer("servicenow-platform-mcp", lifespan=lifespan)
 
     choices = ChoiceRegistry(settings, auth_provider, client_factory, telemetry)
     dictionary = DictionaryRegistry(settings, auth_provider, client_factory, telemetry)

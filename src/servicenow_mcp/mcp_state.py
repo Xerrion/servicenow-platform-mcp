@@ -1,8 +1,8 @@
-"""Typed helpers for ServiceNow-specific FastMCP state."""
+"""Typed helpers for ServiceNow-specific MCPServer state."""
 
 from typing import Protocol, cast
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.choices import ChoiceRegistry
@@ -13,7 +13,7 @@ from servicenow_mcp.tools._dictionary import DictionaryRegistry
 
 
 class _ServiceNowStateCarrier(Protocol):
-    """FastMCP instance with ServiceNow-specific state attached."""
+    """MCPServer instance with ServiceNow-specific state attached."""
 
     _sn_settings: Settings
     _sn_auth: BasicAuthProvider
@@ -24,7 +24,7 @@ class _ServiceNowStateCarrier(Protocol):
 
 
 def attach_servicenow_state(
-    mcp: FastMCP,
+    mcp: MCPServer,
     settings: Settings,
     auth_provider: BasicAuthProvider,
     choices: ChoiceRegistry,

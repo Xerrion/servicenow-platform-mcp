@@ -8,7 +8,7 @@ Two modes, dispatched on whether ``label`` is set:
 
 from __future__ import annotations
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.choices import ChoiceRegistry
@@ -29,7 +29,7 @@ def _error(correlation_id: str, message: str) -> str:
 
 
 def register_tools(
-    mcp: FastMCP,
+    mcp: MCPServer,
     settings: Settings,
     auth_provider: BasicAuthProvider,
     choices: ChoiceRegistry | None = None,

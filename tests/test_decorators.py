@@ -140,11 +140,11 @@ class TestToolHandler:
         assert len(ids) == 2
         assert ids[0] != ids[1]
 
-    async def test_works_with_fastmcp_tool_registration(self) -> None:
+    async def test_works_with_mcp_server_tool_registration(self) -> None:
         """Verify the decorator works with @mcp.tool() registration."""
-        from mcp.server.fastmcp import FastMCP
+        from mcp.server import MCPServer
 
-        mcp = FastMCP("test")
+        mcp = MCPServer("test")
 
         @mcp.tool()
         @tool_handler
@@ -157,18 +157,23 @@ class TestToolHandler:
             return format_response(data={"table": table}, correlation_id=correlation_id)
 
         # Check the tool was registered
-        tools = get_registered_tools(mcp)
+        tools = await get_registered_tools(mcp)
         assert "test_tool" in tools
 
         # Check the schema does NOT contain correlation_id
         tool = tools["test_tool"]
-        schema = tool.parameters
+        schema = tool.input_schema
         assert "correlation_id" not in schema.get("properties", {})
         assert "table" in schema.get("properties", {})
 
         # Check calling the tool works
-        result = await tool.fn("my_table")
-        parsed = json.loads(result)
+        call_result = await mcp.call_tool("test_tool", {"table": "my_table"})
+        assert call_result.result_type == "complete"
+        result = call_result.structured_content
+        assert isinstance(result, dict)
+        raw = result["result"]
+        assert isinstance(raw, str)
+        parsed = json.loads(raw)
         assert isinstance(parsed, dict)
         assert parsed["status"] == "success"
         assert parsed["data"]["table"] == "my_table"

@@ -22,7 +22,7 @@ import asyncio
 import re
 from typing import Any, Final
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.choices import ChoiceRegistry
@@ -1319,7 +1319,7 @@ def _action_describe(correlation_id: str) -> str:
 
 
 def register_tools(
-    mcp: FastMCP,
+    mcp: MCPServer,
     settings: Settings,
     auth_provider: BasicAuthProvider,
     choices: ChoiceRegistry | None = None,

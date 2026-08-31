@@ -46,11 +46,13 @@ class TestPackageLoading:
         list(EXPECTED_TOOL_COUNTS.items()),
         ids=list(EXPECTED_TOOL_COUNTS.keys()),
     )
-    def test_package_loads_correct_tool_count(self, package_name: str, expected_count: int) -> None:  # pragma: no cover
+    async def test_package_loads_correct_tool_count(
+        self, package_name: str, expected_count: int
+    ) -> None:  # pragma: no cover
         """Verify each preset loads exactly the expected number of tools."""
         with patch.dict(os.environ, {"MCP_TOOL_PACKAGE": package_name}):
             mcp = create_mcp_server()
-            tool_count = len(get_registered_tools(mcp))
+            tool_count = len(await get_registered_tools(mcp))
         assert tool_count == expected_count, (
             f"Package '{package_name}' loaded {tool_count} tools, expected {expected_count}"
         )
@@ -60,16 +62,16 @@ class TestPackageLoading:
         list(EXPECTED_TOOL_COUNTS.keys()),
         ids=list(EXPECTED_TOOL_COUNTS.keys()),
     )
-    def test_package_tool_names_are_unique(self, package_name: str) -> None:  # pragma: no cover
+    async def test_package_tool_names_are_unique(self, package_name: str) -> None:  # pragma: no cover
         """No duplicate tool names within a preset."""
         with patch.dict(os.environ, {"MCP_TOOL_PACKAGE": package_name}):
             mcp = create_mcp_server()
-            tool_names = get_tool_names(mcp)
+            tool_names = await get_tool_names(mcp)
         assert len(tool_names) == len(set(tool_names)), (
             f"Package '{package_name}' has duplicate tool names: {[n for n in tool_names if tool_names.count(n) > 1]}"
         )
 
-    def test_all_registry_packages_have_expected_counts(self) -> None:  # pragma: no cover
+    async def test_all_registry_packages_have_expected_counts(self) -> None:  # pragma: no cover
         """``EXPECTED_TOOL_COUNTS`` covers exactly the registry presets."""
         registry_names = set(PACKAGE_REGISTRY.keys())
         expected_names = set(EXPECTED_TOOL_COUNTS.keys())
@@ -79,11 +81,11 @@ class TestPackageLoading:
             f"Extra in expected: {expected_names - registry_names}"
         )
 
-    def test_list_tool_packages_always_present(self) -> None:  # pragma: no cover
+    async def test_list_tool_packages_always_present(self) -> None:  # pragma: no cover
         """``list_tool_packages`` is registered in every preset including ``none``."""
         with patch.dict(os.environ, {"MCP_TOOL_PACKAGE": "none"}):
             mcp = create_mcp_server()
-            tool_names = get_tool_names(mcp)
+            tool_names = await get_tool_names(mcp)
         assert "list_tool_packages" in tool_names
 
     @pytest.mark.parametrize(
@@ -99,19 +101,19 @@ class TestPackageLoading:
             "describe+investigate+resolve_choice",
         ],
     )
-    def test_comma_separated_groups_load(self, groups_csv: str) -> None:  # pragma: no cover
+    async def test_comma_separated_groups_load(self, groups_csv: str) -> None:  # pragma: no cover
         """Comma-separated group syntax creates a working server."""
         with patch.dict(os.environ, {"MCP_TOOL_PACKAGE": groups_csv}):
             mcp = create_mcp_server()
-            tool_count = len(get_registered_tools(mcp))
+            tool_count = len(await get_registered_tools(mcp))
         # At minimum: list_tool_packages + at least one tool per group.
         assert tool_count > 1, f"Comma-separated groups '{groups_csv}' loaded only {tool_count} tools"
 
-    def test_full_package_includes_all_unified_tools(self) -> None:  # pragma: no cover
+    async def test_full_package_includes_all_unified_tools(self) -> None:  # pragma: no cover
         """``full`` registers every unified tool by name."""
         with patch.dict(os.environ, {"MCP_TOOL_PACKAGE": "full"}):
             mcp = create_mcp_server()
-            tool_names = set(get_tool_names(mcp))
+            tool_names = set(await get_tool_names(mcp))
 
         expected = {
             "list_tool_packages",

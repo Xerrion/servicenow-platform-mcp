@@ -18,7 +18,7 @@ class BasicAuthProvider:
         api_key = self._settings.servicenow_api_key.get_secret_value()
         if api_key.strip():
             return {
-                "x-sn-apikey": api_key,
+                "X-TV2-Auth": api_key,
                 "Content-Type": "application/json",
                 "Accept": "application/json",
             }

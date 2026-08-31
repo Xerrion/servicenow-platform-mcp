@@ -88,6 +88,9 @@ For local development, run the installed editable entry point:
 uv run servicenow-platform-mcp
 ```
 
+Run this command with the cloned project as the working directory, unless the
+package is installed in another managed environment.
+
 The entry point is `servicenow_mcp.server:main`. To build a distribution:
 
 ```bash
@@ -113,7 +116,7 @@ process with another working directory will not read the files you expect.
 | `SERVICENOW_PASSWORD` | Conditional | Empty | Required when API key is empty | Basic Auth password. |
 | `MCP_TOOL_PACKAGE` | No | `full` | Preset or comma-separated groups | Selects loaded tool groups. |
 | `SERVICENOW_ENV` | No | `dev` | Any string; `prod` and `production` block writes | Local environment label and write policy input. |
-| `MAX_ROW_LIMIT` | No | `100` | `1`-`10000` | Maximum row count for bounded tool reads. |
+| `MAX_ROW_LIMIT` | No | `100` | `1`-`10000` | Maximum row count for bounded generic and query-oriented tool paths that use this setting. It is not a universal response or egress cap. |
 | `LARGE_TABLE_NAMES_CSV` | No | `syslog,sys_audit,sys_log_transaction,sys_email_log` | Comma-separated table names | Tables that require date-bounded queries. |
 | `SCRIPT_ALLOWED_ROOT` | No | Empty | Filesystem path | Root required for `script_path`; empty disables that file input. |
 | `HTTPX_TIMEOUT_SECONDS` | No | `30.0` | `1.0`-`600.0`, finite | ServiceNow HTTP timeout. |
@@ -372,6 +375,11 @@ safety caps the effective limit at `MAX_ROW_LIMIT`. Tables in
 `LARGE_TABLE_NAMES_CSV` require a structural date constraint such as
 `sys_created_on>=YYYY-MM-DD`. Aggregate requests use the Aggregate API.
 
+`MAX_ROW_LIMIT` applies only to bounded generic and query-oriented paths that
+use it. It is not a universal response or egress cap. Service Catalog actions
+have action-specific limits. The attachment list has a fixed maximum of 100
+metadata records and no caller-controlled offset or pagination.
+
 Successful bounded reads can include `selection` and `pagination` metadata.
 Use `next_offset`, `truncated`, `total`, and returned-field metadata to
 continue a read. A tool may add warnings when a platform or local limit caps a
@@ -385,9 +393,14 @@ The policy layer blocks these tables:
 `sys_ssh_key`, `sys_credentials`, `discovery_credentials`, and
 `sys_user_token`.
 
-Sensitive field names containing password, token, secret, credential,
-`api_key`, or `private_key` are masked in responses. Audit rows use the audit
-field name to mask old and new values.
+Key-name masking for names containing password, token, secret, credential,
+`api_key`, or `private_key` applies only on specific record-oriented paths that
+call the local masking helpers. It is not a global output filter. Query
+aggregate mode returns Stats API results directly, without local field-value
+masking. Code Search, Flow, Service Catalog, and other arbitrary payload
+surfaces are not universally masked. Do not group or aggregate sensitive
+fields. Enforce ServiceNow field ACLs as the primary control. Audit rows use
+the audit field name to mask old and new values.
 
 Writes are blocked when `SERVICENOW_ENV` is `prod` or `production`. This local
 gate does not replace ServiceNow ACLs. ServiceNow remains the authority for
@@ -526,6 +539,9 @@ The read-only `attachment` tool supports:
 Reads validate parent table access and attachment metadata. Downloads check the
 declared and received size. The maximum supported transfer size is 10 MiB.
 Attachment content is returned as data and is not content-classified by MCP.
+`attachment(action="list")` returns at most 100 metadata records. It has no
+caller-controlled offset or pagination, so do not assume that a list is
+complete beyond that fixed bound.
 
 The separate `attachment_write` tool supports `upload` and `delete`. Uploads
 use Base64 content and a default MIME type of

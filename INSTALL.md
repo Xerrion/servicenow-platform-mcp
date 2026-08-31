@@ -26,8 +26,8 @@ Ask the user:
    - If **no** - set `SERVICENOW_ENV=dev` (default, writes allowed)
 
 2. **Do you want all tools or a specific subset?**
-   - **All tools** (default) - set `MCP_TOOL_PACKAGE=full` (13 tools, including `audit` and `flow`)
-   - **Read-only** - set `MCP_TOOL_PACKAGE=readonly` (9 tools, including `audit` and `flow`)
+   - **All tools** (default) - set `MCP_TOOL_PACKAGE=full` (14 tools, including `audit` and `flow`)
+   - **Read-only** - set `MCP_TOOL_PACKAGE=readonly` (11 tools, including `audit` and `flow`)
    - **Minimal** - set `MCP_TOOL_PACKAGE=core_readonly` (5 tools: query, describe, attachment, attachment_write, list_tool_packages)
    - **Custom** - comma-separated tool names (e.g., `query,describe,attachment`)
 
@@ -129,9 +129,16 @@ Ask the user if they want to configure any of these optional settings:
 3. **Script file root** - When using `record_write` with `script_path`, constrains file reads to a directory tree
    - Add `"SCRIPT_ALLOWED_ROOT": "<absolute_path>"` to the environment/env block
 
-4. **Sentry error tracking** - MCP servers run as child processes, so stdout/stderr is invisible. Sentry provides error visibility.
+4. **HTTP timeout** - ServiceNow request timeout in seconds (default: 30, range: 1-600)
+   - Add `"HTTPX_TIMEOUT_SECONDS": "<seconds>"` to the environment/env block
+
+5. **Sentry error tracking** - MCP servers run as child processes, so stdout/stderr is invisible. Sentry provides error visibility.
    - Add `"SENTRY_DSN": "<dsn_url>"` to the environment/env block
    - Optionally add `"SENTRY_ENVIRONMENT": "<label>"` (defaults to `SERVICENOW_ENV`)
+
+6. **Metadata cache freshness** - Choices, dictionary metadata, and audit configuration use a bounded in-memory metadata cache.
+   - Add `"METADATA_CACHE_TTL_SECONDS": "300"` to the environment/env block.
+   - Valid values are 1-86400 seconds. The default is 300 seconds. This setting does not cache records, query results, flows, attachments, previews, or audit row counts.
 
 ## Step 4: Verify Setup
 
@@ -147,22 +154,19 @@ After writing the configuration, tell the user to:
 
 ## Tool Reference
 
-The server provides 12 unified tools. Use `list_tool_packages` to see available tools at runtime. For detailed usage patterns and complex queries, see [Agent Recipes](docs/agent-recipes.md).
+The server provides 14 tools in the `full` preset. Use `list_tool_packages` to see available tools at runtime. For detailed usage patterns and complex queries, see [Agent Recipes](docs/agent-recipes.md).
 
 ### query
-Search and retrieve records using ServiceNow encoded query strings. Supports `resolve_labels` for human-readable filtering and `display_values` for labeled results.
-
-### build_query
-Stateless helper that compiles a JSON array of condition objects into a ServiceNow encoded query string (returned in `data.query`). Pass the returned string as the `query` parameter to the `query` tool. Available in the `full` package only - read-only presets pass encoded queries to `query` directly.
+Search and retrieve records using ServiceNow encoded query strings. List mode requires `fields`; use a comma-separated projection for compact reads or `fields="*"` for an intentional full record. `sys_id` is always included. Supports `resolve_labels` for human-readable filtering and `display_values` for labeled results.
 
 ### describe
-Retrieve table schema and metadata. Returns a slim set of field attributes by default (8 keys); use `verbose=true` for the full platform payload.
+Retrieve table schema and metadata. An empty field selection returns an alphabetical page of 25 fields. Use `field_offset` and `field_limit` (1-100) to continue, or `fields="*"` for all fields. Use `verbose=true` for the full platform payload.
 
 ### record_write
 Unified tool for `create`, `update`, and `delete` actions. When called with `preview=true` (default), it returns a `preview_token` consumed by `record_apply`. Supports local script injection via `script_path` for any table whose dictionary fields are script-bearing (Business Rules, Script Includes, UI Pages, Widgets, UI Macros, ACLs, etc.) — script fields are discovered at runtime from `sys_dictionary`, no hardcoded catalog. Use `script_field` to target a specific field on tables that have more than one.
 
 ### record_read
-Read-only counterpart to `record_write` for platform artifacts. Resolves a record by `sys_id` or `name` and returns the masked record plus the `script_fields` list so callers can drive multi-field edits without guessing field names.
+Read-only counterpart to `record_write` for platform artifacts. Resolves a record by `sys_id` or `name` and returns a compact masked projection by default, plus the `script_fields` list. Pass `fields="*"` for the full masked record.
 
 ### record_apply
 Commits a write operation previously staged with `record_write(preview=true)`. Takes the returned `preview_token`.

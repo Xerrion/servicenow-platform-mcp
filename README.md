@@ -10,7 +10,7 @@
 
 # servicenow-platform-mcp
 
-A comprehensive [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for ServiceNow. Provides 12 unified tools for platform introspection, change intelligence, debugging, record management, and automated investigations.
+A comprehensive [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for ServiceNow. Provides 14 unified tools in 11 tool groups for platform introspection, change intelligence, debugging, record management, and automated investigations.
 
 ## Quick Start
 
@@ -106,13 +106,16 @@ uvx servicenow-platform-mcp
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
 | `SERVICENOW_INSTANCE_URL` | Full URL (must start with `https://`) | - | Yes |
-| `SERVICENOW_USERNAME` | ServiceNow username | - | Yes |
-| `SERVICENOW_PASSWORD` | ServiceNow password | - | Yes |
+| `SERVICENOW_API_KEY` | ServiceNow API key; replaces Basic Auth when set | - | Conditional |
+| `SERVICENOW_USERNAME` | ServiceNow username for Basic Auth | - | Conditional |
+| `SERVICENOW_PASSWORD` | ServiceNow password for Basic Auth | - | Conditional |
 | `MCP_TOOL_PACKAGE` | Tool package to load (`full`, `readonly`, `core_readonly`, `none`) | `full` | No |
 | `SERVICENOW_ENV` | Environment label (`dev`/`test`/`staging`/`prod`) | `dev` | No |
 | `MAX_ROW_LIMIT` | Max rows per query (1-10000) | `100` | No |
 | `LARGE_TABLE_NAMES_CSV` | Tables requiring date filters | `syslog,sys_audit,sys_log_transaction,sys_email_log` | No |
 | `SCRIPT_ALLOWED_ROOT` | Root dir for `script_path` in artifact write | `""` (disabled) | When using `script_path` |
+| `HTTPX_TIMEOUT_SECONDS` | ServiceNow HTTP timeout in seconds (1-600) | `30` | No |
+| `METADATA_CACHE_TTL_SECONDS` | Freshness window for choices, dictionary metadata, and audit configuration | `300` seconds | No |
 | `SENTRY_DSN` | Sentry DSN for error reporting | `""` | No |
 | `SENTRY_ENVIRONMENT` | Sentry environment label | Falls back to `SERVICENOW_ENV` | No |
 
@@ -132,7 +135,7 @@ Or read the [Installation Guide](INSTALL.md) directly. For usage examples and pa
 ## Key Features
 
 - **Platform Introspection** - Describe table schemas with `describe` and query records with `query` using encoded queries.
-- **Record Management** - Unified `record_write` and `record_apply` tools for create, update, and delete with a mandatory preview-then-apply safety pattern.
+- **Record Management** - Unified `record_write` and `record_apply` tools for create, update, and delete. Writes use preview-then-apply by default; callers can explicitly set `preview=false` for an immediate write.
 - **Script-Bearing Records** - Write Business Rules, Script Includes, UI Pages, Widgets, UI Macros, ACLs, and any other table whose dictionary fields carry executable script or markup, all via `record_write` with local script file support and per-field targeting (`script_field`). Script fields are discovered at runtime from `sys_dictionary` — no hardcoded artifact catalog. Read the same surface back via `record_read`, or enumerate a table's script fields with `describe(action='list_script_fields', table='<table>')`.
 - **Attachment Operations** - Unified `attachment` for read operations and `attachment_write` for mutations.
 - **Investigations** - Automated analysis of system health, stale automations, performance bottlenecks, and more via `investigate`.
@@ -156,13 +159,15 @@ await query(
 )
 ```
 
+List mode requires an explicit field projection. Use a small field set for normal reads. Use `fields="*"` only when the full record is intentional. `sys_id` is always included. Successful responses include `selection` metadata describing the projection.
+
 ## Tool Packages
 
 Control which tools are loaded with `MCP_TOOL_PACKAGE`.
 
 | Package | Tools | Description |
 |---------|-------|-------------|
-| `full` | 15 | All unified tools, including `audit`, `flow`, `code_search`, and the `build_query` helper (default) |
+| `full` | 14 | All unified tools, including `audit`, `flow`, and `code_search` (default) |
 | `readonly` | 11 | Includes `record_read`, `audit`, `flow`, `code_search`, and `attachment_write` (write_gate blocks in prod) |
 | `core_readonly` | 5 | Minimal read surface (includes `attachment_write`) |
 | `none` | 1 | Just `list_tool_packages` |

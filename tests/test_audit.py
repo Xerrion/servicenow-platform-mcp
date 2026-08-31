@@ -623,15 +623,8 @@ async def test_history_explicit_since_overrides_window(settings: Settings, auth_
 
 @pytest.mark.asyncio()
 @respx.mock
-async def test_flush_table_clears_field_row_cache(settings: Settings, auth_provider: BasicAuthProvider) -> None:
-    """``flush('incident')`` must invalidate ``_table_field_rows_cache`` entries.
-
-    The row cache is keyed by ``"{table}:{field}"`` so a naive
-    ``pop(table)`` would leave stale rows behind and the next
-    ``get_field_audit`` call would return a stale verdict. This locks
-    the flush contract: after flushing, a config change on the platform
-    is visible immediately.
-    """
+async def test_flush_table_clears_field_config_cache(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    """``flush('incident')`` makes a changed field configuration visible immediately."""
     from servicenow_mcp.tools._audit import AuditRegistry
 
     respx.get(SYS_DB_URL).mock(
@@ -665,7 +658,32 @@ async def test_flush_table_clears_field_row_cache(settings: Settings, auth_provi
     registry.flush("incident")
 
     second = await registry.get_field_audit("incident", "business_service")
-    assert second.field_audit is False, "flush('incident') failed to invalidate _table_field_rows_cache"
+    assert second.field_audit is False, "flush('incident') failed to invalidate field configuration"
+
+
+@pytest.mark.asyncio()
+async def test_field_config_hit_precedes_client_creation(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    """A fresh audit field hit does not ask its dictionary or client to load."""
+    from typing import cast
+    from unittest.mock import AsyncMock
+
+    from servicenow_mcp.client import ServiceNowClientProvider
+    from servicenow_mcp.tools._audit import AuditRegistry, FieldAudit
+
+    dictionary = DictionaryRegistry(settings, auth_provider)
+    dictionary.get_chain = AsyncMock(side_effect=AssertionError("dictionary called"))  # type: ignore[method-assign]
+    client_factory = AsyncMock(side_effect=AssertionError("client factory called"))
+    registry = AuditRegistry(
+        settings,
+        auth_provider,
+        dictionary,
+        cast("ServiceNowClientProvider", client_factory),
+    )
+    expected = FieldAudit(True, True, None, True, False, "")
+    registry._field_audit_cache.seed(("incident", "state"), expected)
+
+    assert await registry.get_field_audit("incident", "state") == expected
+    client_factory.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

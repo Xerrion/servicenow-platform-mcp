@@ -49,6 +49,8 @@ Set `SERVICENOW_INSTANCE_URL` and choose one authentication method. These variab
 | `SERVICENOW_PASSWORD` | Conditional | ServiceNow password for Basic Auth; required when no API key is set |
 | `MCP_TOOL_PACKAGE` | No | Tool package to load (default: `"full"`). See [[Tool-Packages]] |
 | `SERVICENOW_ENV` | No | Environment label (default: `"dev"`). Write ops blocked on `"prod"` / `"production"` |
+| `HTTPX_TIMEOUT_SECONDS` | No | ServiceNow HTTP timeout in seconds (default: `30`; valid range: `1-600`) |
+| `METADATA_CACHE_TTL_SECONDS` | No | Metadata cache freshness in seconds (default: `300`; valid range: `1-86400`) |
 
 The server also loads variables from `.env` and `.env.local` files in the working directory (`.env.local` takes precedence).
 
@@ -136,7 +138,7 @@ uvx servicenow-platform-mcp
 Once configured, try these example prompts with your AI agent:
 
 - **"Describe the incident table schema"** - Explores table structure, field types, and metadata
-- **"List open incidents"** - Queries records using domain tools with choice label resolution
+- **"List open incidents"** - Queries records with a small field projection and choice label resolution
 - **"Show me what business rules run on the incident table"** - Inspects platform artifacts
 - **"Trace the debug log for incident INC0010001"** - Builds an event timeline from system logs
 - **"What update sets were created this week?"** - Change intelligence across your instance

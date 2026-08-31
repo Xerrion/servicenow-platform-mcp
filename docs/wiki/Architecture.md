@@ -12,17 +12,19 @@ The server is built on:
 - **pydantic-settings** - Configuration management via environment variables.
 - **sentry-sdk** - Error tracking for invisible child-process environments.
 
+Repeated tool calls share one server-lifetime `httpx.AsyncClient` connection pool. This reduces connection setup overhead and records bounded telemetry for HTTP request count, duration, response bytes, and shared-pool usage. A directly constructed `ServiceNowClient` remains responsible for its own transport and closes it when its context ends.
+
 Communication happens over **stdio transport**. The server runs as a child process of an AI agent, and all output is captured in a standardized JSON envelope.
 
 ## Unified Tool Surface
 
-Version 0.10.0 introduced a unified 12-tool surface. Most tools are implemented as **dispatchers** that take an `action` parameter, reducing the total tool count while increasing flexibility.
+The current `full` preset exposes 14 tools, including the always-available `list_tool_packages` tool. Most tools are implemented as **dispatchers** that take an `action` parameter, reducing the total tool count while increasing flexibility.
 
 ### Key Implementation Patterns
 
 - **Action Dispatchers:** Tools like `attachment`, `investigate`, and `service_catalog` use an `action` parameter to route requests to internal logic.
-- **Encoded Queries:** The `query` tool accepts ServiceNow encoded query strings directly. The optional `build_query` helper (in the `full` package) is a stateless transform that compiles a JSON array of condition objects into an encoded query string for callers that prefer structured input.
-- **Two-Stage Writes:** `record_write` (stage) and `record_apply` (commit) implement a mandatory safety flow for all mutations.
+- **Encoded Queries:** The `query` tool accepts ServiceNow encoded query strings directly. Callers can copy filter breadcrumbs from ServiceNow or construct encoded query strings directly. Query safety remains enforced by `query`.
+- **Two-Stage Writes:** `record_write` (stage) and `record_apply` (commit) implement the default safety flow for record mutations. `record_write(preview=false)` explicitly requests an immediate write.
 - **Helper Modules:** Shared logic is extracted into specialized helpers:
   - `_artifact.py`: Handles secure script file reads (path containment, UTF-8 decode, 1 MB cap) and the `xml` well-formedness check.
   - `_dictionary.py`: `DictionaryRegistry` — runtime discovery of script-bearing fields per table by walking `sys_db_object.super_class` and filtering `sys_dictionary` rows. Replaces the previous hardcoded artifact catalog.
@@ -39,7 +41,7 @@ Bootstrap selects the authentication provider from configuration. When `SERVICEN
 
 ### Registration Pattern
 
-The loader uses an unconditional 4-argument `register_tools()` pattern for all tool groups:
+The loader uses one `register_tools()` signature for all tool groups:
 
 ```python
 def register_tools(
@@ -47,6 +49,8 @@ def register_tools(
     settings: Settings,
     auth_provider: BasicAuthProvider,
     choices: ChoiceRegistry | None = None,
+    dictionary: DictionaryRegistry | None = None,
+    client_factory: ServiceNowClientProvider | None = None,
 ) -> None:
     ...
 ```
@@ -55,7 +59,7 @@ The bootstrap process dynamically imports modules from `servicenow_mcp.tools` an
 
 ## Wire Format
 
-All tool outputs are serialized using standard JSON. The TOON format from previous versions has been removed.
+All tool outputs are serialized using standard JSON. The TOON format from previous versions has been removed. Read tools can add top-level `selection` metadata that identifies returned and omitted fields or sections, effective limits, and truncation.
 
 ### `format_response()` Envelope
 
@@ -67,6 +71,7 @@ Every tool returns a standardized envelope:
   "correlation_id": "uuid-v4",
   "data": { ... },
   "pagination": { "offset": 0, "limit": 100, "total": 500 },
+  "selection": { "mode": "explicit", "returned_fields": ["sys_id", "number"] },
   "warnings": []
 }
 ```
@@ -76,7 +81,7 @@ Every tool returns a standardized envelope:
 The server maintains minimal in-memory state via `state.py`.
 
 - **PreviewTokenStore:** Mediates between `record_write` and `record_apply`. When `record_write` is called with `preview=true` (default), it stores the proposed mutation and returns a UUID token. `record_apply` then consumes this token to finalize the write. Tokens expire after 5 minutes.
-- **ChoiceRegistry:** Lazy-loads choice labels from the `sys_choice` table on first use and caches them for the lifetime of the process.
+- **Metadata cache:** Caches choices, dictionary chain and field metadata, script-field discovery, and audit configuration with a configurable TTL. Entries use a 1,000-entry LRU bound and explicit invalidation. Mutable records, query results, flows, attachments, previews, and audit row counts are not cached.
 
 The `QueryTokenStore` from previous versions has been deleted as agents now pass encoded queries directly.
 

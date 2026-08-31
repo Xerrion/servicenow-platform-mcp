@@ -95,6 +95,7 @@ async def _resolve_record_sys_id(
     lookup = await client.query_records(
         table,
         ServiceNowQuery().equals("name", name).build(),
+        fields=["sys_id"],
         limit=2,
     )
     records = lookup.get("records", [])

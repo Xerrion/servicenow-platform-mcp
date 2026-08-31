@@ -15,7 +15,7 @@ from mcp.server.fastmcp import FastMCP
 
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.choices import ChoiceRegistry
-from servicenow_mcp.client import ServiceNowClient
+from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.policy import check_table_access
@@ -77,9 +77,11 @@ def register_tools(
     auth_provider: BasicAuthProvider,
     choices: ChoiceRegistry | None = None,
     dictionary: DictionaryRegistry | None = None,
+    client_factory: ServiceNowClientProvider | None = None,
 ) -> None:
     """Register the unified ``code_search`` tool on the MCP server."""
     del choices, dictionary  # unused; signature retained for loader parity
+    client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
 
     @mcp.tool()
     @tool_handler
@@ -108,7 +110,7 @@ def register_tools(
         if normalized_action == "describe":
             return format_response(data={"actions": _ACTION_REGISTRY}, correlation_id=correlation_id)
 
-        async with ServiceNowClient(settings, auth_provider) as client:
+        async with client_factory() as client:
             if normalized_action == "list_tables":
                 result = await client.code_search_tables(search_group=search_group or None)
                 return format_response(data=result, correlation_id=correlation_id)

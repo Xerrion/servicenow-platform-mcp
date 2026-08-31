@@ -25,7 +25,7 @@ from mcp.server.fastmcp import FastMCP
 
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.choices import ChoiceRegistry
-from servicenow_mcp.client import ServiceNowClient
+from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.errors import ServiceNowMCPError
@@ -249,6 +249,7 @@ async def _action_check_field(
     window_days: int,
     settings: Settings,
     auth_provider: BasicAuthProvider,
+    client_factory: ServiceNowClientProvider,
     registry: AuditRegistry,
     correlation_id: str,
 ) -> str:
@@ -267,7 +268,7 @@ async def _action_check_field(
     field_count = 0
     table_count = 0
     if table_audit is not False:
-        async with ServiceNowClient(settings, auth_provider) as client:
+        async with client_factory() as client:
             table_count = await _stats_count(client, table=table, field=None, since=since)
             if fa.has_row:
                 field_count = await _stats_count(client, table=table, field=field, since=since)
@@ -294,6 +295,7 @@ async def _action_check_fields(
     window_days: int,
     settings: Settings,
     auth_provider: BasicAuthProvider,
+    client_factory: ServiceNowClientProvider,
     registry: AuditRegistry,
     correlation_id: str,
 ) -> str:
@@ -325,7 +327,7 @@ async def _action_check_fields(
     table_count = 0
     field_counts: dict[str, int] = dict.fromkeys(fields, 0)
     if table_audit is not False:
-        async with ServiceNowClient(settings, auth_provider) as client:
+        async with client_factory() as client:
             table_count = await _stats_count(client, table=table, field=None, since=since)
             for name, fa in field_audits.items():
                 if fa.has_row:
@@ -429,6 +431,7 @@ async def _action_history(
     limit: int,
     settings: Settings,
     auth_provider: BasicAuthProvider,
+    client_factory: ServiceNowClientProvider,
     correlation_id: str,
 ) -> str:
     validate_identifier(table)
@@ -459,7 +462,7 @@ async def _action_history(
         .build()
     )
 
-    async with ServiceNowClient(settings, auth_provider) as client:
+    async with client_factory() as client:
         result = await client.query_records(
             table="sys_audit",
             query=query,
@@ -504,6 +507,7 @@ def register_tools(
     auth_provider: BasicAuthProvider,
     choices: ChoiceRegistry | None = None,
     dictionary: DictionaryRegistry | None = None,
+    client_factory: ServiceNowClientProvider | None = None,
 ) -> None:
     """Register the unified ``audit`` tool on the MCP server.
 
@@ -514,8 +518,15 @@ def register_tools(
     """
     del choices  # unused; signature retained for loader parity
 
-    dictionary_registry = dictionary or DictionaryRegistry(settings, auth_provider)
-    audit_registry = AuditRegistry(settings, auth_provider, dictionary_registry)
+    client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
+    dictionary_registry = dictionary or DictionaryRegistry(settings, auth_provider, client_factory)
+    audit_registry = AuditRegistry(
+        settings,
+        auth_provider,
+        dictionary_registry,
+        client_factory,
+        getattr(mcp, "_sn_http_telemetry", None),
+    )
 
     @mcp.tool()
     @tool_handler
@@ -564,6 +575,7 @@ def register_tools(
                 window_days=window_days,
                 settings=settings,
                 auth_provider=auth_provider,
+                client_factory=client_factory,
                 registry=audit_registry,
                 correlation_id=correlation_id,
             )
@@ -575,6 +587,7 @@ def register_tools(
                 window_days=window_days,
                 settings=settings,
                 auth_provider=auth_provider,
+                client_factory=client_factory,
                 registry=audit_registry,
                 correlation_id=correlation_id,
             )
@@ -594,5 +607,6 @@ def register_tools(
             limit=limit,
             settings=settings,
             auth_provider=auth_provider,
+            client_factory=client_factory,
             correlation_id=correlation_id,
         )

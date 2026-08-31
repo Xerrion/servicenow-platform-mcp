@@ -225,7 +225,7 @@ Agents pass ServiceNow encoded query strings directly to the `query` tool. Refer
 
 ## 🏗 Tool Registration
 
-The server bootstrap uses an unconditional 4-argument registration pattern for all tool groups.
+The server bootstrap uses one registration signature for all tool groups.
 
 ```python
 def register_tools(
@@ -233,6 +233,8 @@ def register_tools(
     settings: Settings,
     auth_provider: BasicAuthProvider,
     choices: ChoiceRegistry | None = None,
+    dictionary: DictionaryRegistry | None = None,
+    client_factory: ServiceNowClientProvider | None = None,
 ) -> None:
     # Modules that do not require the ChoiceRegistry explicitly ignore it
     del choices  # unused; signature retained for loader parity
@@ -260,7 +262,7 @@ Script-bearing artifacts (Business Rules, Script Includes, UI Macros, etc.) are 
 3. Admits a field when its `internal_type` is in `UNAMBIGUOUS_SCRIPT_TYPES` (`script`, `script_plain`, `script_server`, `script_client`, `email_script`, `html_script`, `html_template`, `css`).
 4. For ambiguous types (`html`, `xml`), admits the field only when `attributes` contains `tinymce_allow_all=true` or `html_sanitize=false`.
 5. Drops anything in `EXCLUDED_ELEMENTS` (`translated_html`, `template_value`, `glide_var`, `json`, `conditions`, `condition_string`, `glide_action_list`, `variable_conditions`, `snapshot_template_value`, `variable_template_value`).
-6. Caches per-table results for the registry lifetime; `flush(table=None)` invalidates everything or a single table.
+6. Caches per-table results with the configured metadata TTL; `flush(table=None)` invalidates everything or a single table.
 
 The `looks_like_template(content)` helper (regex `\${[^}]+}`) is exposed for record-level template detection but is not consulted during dictionary discovery.
 
@@ -291,7 +293,7 @@ Read-only counterpart. `record_read(table, sys_id=..., name=...)` returns the ma
 
 ## 🔄 ChoiceRegistry
 
-- `ChoiceRegistry(settings, auth_provider)` - lazy-loaded from `sys_choice` table.
+- `ChoiceRegistry(settings, auth_provider)` - lazy-loaded from `sys_choice` table and governed by the metadata cache TTL.
 - Exposed as the `resolve_choice` tool for agents to map labels to values.
 - Labels normalized: lowercase, spaces to underscores.
 
@@ -362,7 +364,7 @@ Dispatched via the read-only `audit` tool. Available in the `full` and `readonly
 - Field-level audit is resolved child-first along `super_class`; the first `sys_dictionary` row found wins, and `inherited_from` names the source table (or is `null` when the queried table declared its own row).
 - `no_audit=true` in the `attributes` blob is an absolute veto over the boolean `audit` column. It is matched at comma boundaries so substrings like `my_no_audit=true` do not false-positive.
 - Positive control disambiguates "no field activity in window" from "audit not configured": zero field rows with non-zero table rows means `audited_but_inactive`; zero on both means `inconclusive`.
-- `AuditRegistry` caches table-level posture and per-(table, field) resolution for the server lifetime; `sys_audit` row counts are NEVER cached.
+- `AuditRegistry` caches table-level posture and per-(table, field) resolution with the metadata cache TTL; `sys_audit` row counts are NEVER cached.
 - Deliberately does not inspect `sys_audit_delete`, `sys_audit_relation`, or `sys_history_line` - those are distinct stores with different schemas.
 
 ## 🖥 Server Bootstrap
@@ -374,7 +376,7 @@ Dispatched via the read-only `audit` tool. Available in the `full` and `readonly
 3. Creates `FastMCP('servicenow-platform-mcp')`.
 4. Calls `attach_servicenow_state(...)` to attach shared state.
 5. Always registers the `list_tool_packages` tool.
-6. Loads tool groups via `importlib` and calls an unconditional 4-argument `register_tools(...)`.
+6. Loads tool groups via `importlib` and passes the shared registries and client factory to `register_tools(...)`.
 7. `main()` runs with stdio transport; `shutdown_sentry()` is called in a finally block.
 
 ## 🌐 Client
@@ -388,33 +390,49 @@ Dispatched via the read-only `audit` tool. Available in the `full` and `readonly
 | Field                   | Type      | Default                                              | Env Var                 |
 | ----------------------- | --------- | ---------------------------------------------------- | ----------------------- |
 | `servicenow_instance_url` | `str`       | required                                             | `SERVICENOW_INSTANCE_URL` |
-| `servicenow_username`     | `str`       | required                                             | `SERVICENOW_USERNAME`     |
-| `servicenow_password`     | `SecretStr` | required                                             | `SERVICENOW_PASSWORD`     |
+| `servicenow_api_key`      | `SecretStr` | `""` (replaces Basic Auth when set)                  | `SERVICENOW_API_KEY`      |
+| `servicenow_username`     | `str`       | `""` (required without API key)                      | `SERVICENOW_USERNAME`     |
+| `servicenow_password`     | `SecretStr` | `""` (required without API key)                      | `SERVICENOW_PASSWORD`     |
 | `mcp_tool_package`        | `str`       | `"full"`                                               | `MCP_TOOL_PACKAGE`        |
 | `servicenow_env`          | `str`       | `"dev"`                                                | `SERVICENOW_ENV`          |
 | `max_row_limit`           | `int`       | `100` (range 1-10000)                                  | `MAX_ROW_LIMIT`           |
 | `large_table_names_csv`   | `str`       | `"syslog,sys_audit,sys_log_transaction,sys_email_log"` | `LARGE_TABLE_NAMES_CSV`   |
 | `script_allowed_root`     | `str`       | `""`                                                     | `SCRIPT_ALLOWED_ROOT`     |
+| `httpx_timeout_seconds`   | `float`     | `30.0` (range 1.0-600.0)                              | `HTTPX_TIMEOUT_SECONDS`   |
+| `metadata_cache_ttl_seconds` | `int`    | `300` (range 1-86400)                                  | `METADATA_CACHE_TTL_SECONDS` |
 | `sentry_dsn`              | `str`       | `""`                                                     | `SENTRY_DSN`              |
 | `sentry_environment`      | `str`       | `""`                                                     | `SENTRY_ENVIRONMENT`      |
 
 ## 📦 Packages & Tool Groups
 
-The registry contains 4 preset packages. Tool groups are loaded from `servicenow_mcp.tools.*`.
+The registry contains 4 preset packages and 11 tool groups. Tool groups are loaded from `servicenow_mcp.tools.*`.
 
 ### Preset Packages
 
 | Package | Tools | Description |
 |---|---|---|
-| `full` | 13 | Every group (full surface, includes `build_query`) |
-| `readonly` | 9 | Read tools + investigate + resolve_choice |
+| `full` | 14 | Every tool group |
+| `readonly` | 11 | Read tools + investigate + resolve_choice |
 | `core_readonly` | 5 | Query + describe + attachment only |
 | `none` | 1 | Only `list_tool_packages` loaded |
 
 - **Custom Packages:** Comma-separated group names are supported (e.g., `MCP_TOOL_PACKAGE=query,describe`).
 - **Tool Group Shadowing:** `MCP_TOOL_PACKAGE=service_catalog` resolves via the custom-package path to the single tool group.
 - **Write Gating:** The `attachment` group registers both read and write tools; write tools are blocked at runtime in production by `write_gate`.
-- **`build_query`:** Stateless helper that complements `query`. Accepts a JSON array of condition objects and returns the encoded query string in `data.query` for the caller to pass straight to `query`. `full` package only - the readonly presets pass encoded queries to `query` directly.
+- **Query construction:** Pass ServiceNow encoded query strings directly to `query(encoded_query=...)`. Callers can copy filter breadcrumbs from ServiceNow or construct the strings directly. Query safety still runs in `query`.
+
+### Compact Reads and Selection Metadata
+
+- `query` list mode requires an explicit `fields` projection. `fields="*"` requests all fields; `sys_id` is always included. Exact `sys_id` mode defaults to `sys_id,sys_updated_on` and also accepts an explicit projection or `*`. Aggregate mode is unchanged.
+- `record_read` accepts `fields`. Empty selection returns compact identity/update fields plus discovered script-bearing fields; `*` returns the full masked record. `script_fields` remains in the response and `sys_id` is always included.
+- `describe` returns an alphabetical page of 25 fields when `fields` is empty. `field_offset` and `field_limit` (1-100) continue the page; `fields="*"` requests all fields.
+- Affected success responses include `selection` metadata. Use it, together with truncation metadata where present, to continue bounded reads.
+
+### HTTP Pool and Metadata Cache
+
+- Repeated tool calls reuse one server-lifetime shared HTTP connection pool. Direct `ServiceNowClient` instances still own and close their own transport.
+- `METADATA_CACHE_TTL_SECONDS` controls monotonic TTL freshness for choices, dictionary chain/field/script-field metadata, and audit table/field configuration. It defaults to 300 seconds and accepts 1-86400 seconds. The cache uses synchronous fresh reload, same-key single flight, independent-key concurrency, explicit invalidation, and a 1,000-entry LRU bound.
+- The metadata cache does not cache records, query results, flows, attachments, previews, or audit row counts. Bounded telemetry reports fixed-label HTTP and metadata-cache counters; it does not add a public tool.
 
 ## 🔀 Async Patterns
 

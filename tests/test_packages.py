@@ -6,6 +6,7 @@ groups under ``servicenow_mcp.tools.*``.
 """
 
 import importlib
+from typing import Any
 
 import pytest
 
@@ -27,7 +28,6 @@ EXPECTED_GROUPS = {
     "investigate",
     "resolve_choice",
     "service_catalog",
-    "build_query",
     "flow",
     "audit",
     "code_search",
@@ -42,16 +42,37 @@ class TestPackageRegistry:
 
     def test_full_contains_all_unified_groups(self) -> None:
         assert set(PACKAGE_REGISTRY["full"]) == EXPECTED_GROUPS
-        assert len(PACKAGE_REGISTRY["full"]) == 12
+        assert len(PACKAGE_REGISTRY["full"]) == 11
+
+    def test_full_public_surface_stays_at_fourteen_tools(self, settings: Any) -> None:
+        """Optimization changes do not add or remove public tools."""
+        from mcp.server.fastmcp import FastMCP
+
+        from servicenow_mcp.auth import BasicAuthProvider
+        from servicenow_mcp.choices import ChoiceRegistry
+        from servicenow_mcp.config import Settings
+        from servicenow_mcp.tools._dictionary import DictionaryRegistry
+
+        assert isinstance(settings, Settings)
+        auth_provider = BasicAuthProvider(settings)
+        mcp = FastMCP("test")
+        choices = ChoiceRegistry(settings, auth_provider)
+        dictionary = DictionaryRegistry(settings, auth_provider)
+        for group in PACKAGE_REGISTRY["full"]:
+            module = importlib.import_module(_TOOL_GROUP_MODULES[group])
+            module.register_tools(mcp, settings, auth_provider, choices=choices, dictionary=dictionary)
+
+        registered_tool_count = len(mcp._tool_manager._tools)
+        always_on_tool_count = 1
+        assert registered_tool_count + always_on_tool_count == 14
 
     def test_readonly_is_strict_subset_of_full(self) -> None:
         readonly = set(PACKAGE_REGISTRY["readonly"])
         full = set(PACKAGE_REGISTRY["full"])
         assert readonly < full
-        # readonly excludes mutating groups and the build_query helper
+        # readonly excludes mutating groups
         assert "record_write" not in readonly
         assert "service_catalog" not in readonly
-        assert "build_query" not in readonly
         # record_read is read-only and included
         assert "record_read" in readonly
 
@@ -60,7 +81,6 @@ class TestPackageRegistry:
         readonly = set(PACKAGE_REGISTRY["readonly"])
         assert core < readonly
         assert core == {"query", "describe", "attachment"}
-        assert "build_query" not in core
 
     def test_none_is_empty(self) -> None:
         assert PACKAGE_REGISTRY["none"] == []
@@ -163,6 +183,11 @@ class TestCommaSyntax:
         assert "query" in message
         assert "describe" in message
 
+    def test_removed_build_query_group_raises(self) -> None:
+        with pytest.raises(ValueError, match="Unknown group names: build_query") as exc_info:
+            get_package("build_query")
+        assert "build_query" not in str(exc_info.value).partition("Valid groups:")[2]
+
     def test_empty_segment_raises(self) -> None:
         with pytest.raises(ValueError, match="empty"):
             get_package(",,,")
@@ -197,18 +222,6 @@ def test_domain_groups_not_in_unified_registry() -> None:
     assert domain_groups == [], (
         f"Legacy domain_* groups should not appear in the unified registry, found: {domain_groups}"
     )
-
-
-def test_build_query_only_in_full() -> None:
-    """``build_query`` is a ``full``-only helper.
-
-    It assembles encoded query strings client-side. Read-only presets pass
-    raw encoded queries straight to ``query`` and have no need for the
-    builder; gating it to ``full`` keeps the readonly surface minimal.
-    """
-    assert "build_query" in PACKAGE_REGISTRY["full"]
-    for preset in ("readonly", "core_readonly", "none"):
-        assert "build_query" not in PACKAGE_REGISTRY[preset], f"build_query should not appear in the '{preset}' preset"
 
 
 def test_flow_in_full_and_readonly_only() -> None:

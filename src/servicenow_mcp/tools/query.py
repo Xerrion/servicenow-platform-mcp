@@ -20,7 +20,7 @@ from mcp.server.fastmcp import FastMCP
 
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.choices import ChoiceRegistry
-from servicenow_mcp.client import ServiceNowClient
+from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.policy import (
@@ -64,6 +64,8 @@ _ORDER_PREFIXES: Final[tuple[str, ...]] = ("ORDERBYDESC", "ORDERBY")
 # uppercase textual operators (LIKE, STARTSWITH, ISEMPTY, ...) and at symbolic
 # operators (=, !=, >, <).
 _FIELD_TOKEN_RE: Final[re.Pattern[str]] = re.compile(r"^[a-z][a-z0-9_]*(?:\.[a-z0-9_]+)*")
+
+_COMPACT_RECORD_FIELDS: Final[tuple[str, ...]] = ("sys_id", "sys_updated_on")
 
 
 # ---------------------------------------------------------------------------
@@ -172,6 +174,49 @@ def _parse_label_pairs(spec: str) -> list[_LabelPair] | str:
 def _parse_csv(spec: str) -> list[str]:
     """Split a comma-separated list, trimming whitespace and dropping empties."""
     return [item.strip() for item in spec.split(",") if item.strip()]
+
+
+def _parse_projection(fields: str, *, compact_default: bool) -> tuple[list[str] | None, dict[str, object]] | str:
+    """Parse a field projection and describe its response contract."""
+    if fields.strip() == "*":
+        return None, {
+            "mode": "all",
+            "requested_fields": "*",
+            "returned_fields": "all fields returned by ServiceNow",
+            "omitted": [],
+            "sys_id_added": False,
+        }
+    if "*" in _parse_csv(fields):
+        return "fields='*' must be used alone."
+
+    requested = _parse_csv(fields)
+    if not requested:
+        if not compact_default:
+            return "fields is required for list mode. Use a comma-separated projection or fields='*' for all fields."
+        requested = list(_COMPACT_RECORD_FIELDS)
+        mode = "compact"
+    else:
+        mode = "explicit"
+
+    for name in requested:
+        validate_identifier(name)
+
+    sys_id_added = "sys_id" not in requested
+    projected = list(dict.fromkeys(["sys_id", *requested]))
+    return projected, {
+        "mode": mode,
+        "requested_fields": None if mode == "compact" else requested,
+        "returned_fields": projected,
+        "omitted": "all fields outside the projection",
+        "sys_id_added": sys_id_added,
+    }
+
+
+def _project_record(record: dict[str, object], fields: list[str] | None) -> dict[str, object]:
+    """Apply the requested projection defensively to a ServiceNow record."""
+    if fields is None:
+        return record
+    return {name: record[name] for name in fields if name in record}
 
 
 def _join_query(existing: str, fragment: str) -> str:
@@ -330,19 +375,27 @@ async def _run_sys_id_mode(
     display_values: bool,
     settings: Settings,
     auth_provider: BasicAuthProvider,
+    client_factory: ServiceNowClientProvider,
     correlation_id: str,
 ) -> str:
     validate_sys_id(sys_id)
 
-    field_list = _parse_csv(fields) or None
-    if field_list:
-        for name in field_list:
-            validate_identifier(name)
+    parsed = _parse_projection(fields, compact_default=True)
+    if isinstance(parsed, str):
+        return _err(correlation_id, parsed)
+    field_list, selection = parsed
 
-    async with ServiceNowClient(settings, auth_provider) as client:
+    async with client_factory() as client:
         record = await client.get_record(table, sys_id, fields=field_list, display_values=display_values)
 
-    return format_response(data=mask_record(table, record), correlation_id=correlation_id)
+    masked = mask_record(table, record)
+    if field_list is None:
+        selection["returned_fields"] = list(masked)
+    return format_response(
+        data=_project_record(masked, field_list),
+        correlation_id=correlation_id,
+        selection=selection,
+    )
 
 
 async def _run_aggregate_mode(
@@ -352,6 +405,7 @@ async def _run_aggregate_mode(
     group_by: str,
     settings: Settings,
     auth_provider: BasicAuthProvider,
+    client_factory: ServiceNowClientProvider,
     correlation_id: str,
     warnings: list[str],
 ) -> str:
@@ -359,7 +413,7 @@ async def _run_aggregate_mode(
         validate_identifier(group_by)
     enforce_query_safety(table, encoded_query, None, settings)
 
-    async with ServiceNowClient(settings, auth_provider) as client:
+    async with client_factory() as client:
         result = await client.aggregate(
             table,
             encoded_query,
@@ -383,13 +437,14 @@ async def _run_query_mode(
     display_values: bool,
     settings: Settings,
     auth_provider: BasicAuthProvider,
+    client_factory: ServiceNowClientProvider,
     correlation_id: str,
     warnings: list[str],
 ) -> str:
-    field_list = _parse_csv(fields) or None
-    if field_list:
-        for name in field_list:
-            validate_identifier(name)
+    parsed = _parse_projection(fields, compact_default=False)
+    if isinstance(parsed, str):
+        return _err(correlation_id, parsed)
+    field_list, selection = parsed
 
     order_field = order_by.lstrip("-") if order_by else ""
     if order_field:
@@ -400,7 +455,7 @@ async def _run_query_mode(
     if effective_limit < limit:
         warnings.append(f"Limit capped at {effective_limit}")
 
-    async with ServiceNowClient(settings, auth_provider) as client:
+    async with client_factory() as client:
         result = await client.query_records(
             table,
             encoded_query,
@@ -411,12 +466,15 @@ async def _run_query_mode(
             display_values=display_values,
         )
 
-    masked = [mask_record(table, record) for record in result["records"]]
+    masked = [_project_record(mask_record(table, record), field_list) for record in result["records"]]
+    if field_list is None:
+        selection["returned_fields"] = sorted({name for record in masked for name in record})
     return format_response(
         data=masked,
         correlation_id=correlation_id,
         pagination={"offset": offset, "limit": effective_limit, "total": result["count"]},
         warnings=warnings or None,
+        selection=selection,
     )
 
 
@@ -511,6 +569,7 @@ def register_tools(
     auth_provider: BasicAuthProvider,
     choices: ChoiceRegistry | None = None,
     dictionary: DictionaryRegistry | None = None,
+    client_factory: ServiceNowClientProvider | None = None,
 ) -> None:
     """Register the unified ``query`` tool on the MCP server.
 
@@ -520,6 +579,8 @@ def register_tools(
     ``dictionary`` registry, when supplied, drives advisory validation of the
     fields referenced in ``encoded_query``.
     """
+
+    client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
 
     @mcp.tool()
     @tool_handler
@@ -546,7 +607,9 @@ def register_tools(
                 except `fields` and `display_values`).
             encoded_query: ServiceNow encoded query string (e.g. 'state=1^priority=2').
                 Empty = no filter.
-            fields: Comma-separated field list. Empty returns all (subject to masking).
+            fields: Comma-separated field projection. List mode requires this argument.
+                ``'*'`` explicitly requests all masked fields. Exact sys_id mode defaults
+                to the compact ``sys_id,sys_updated_on`` projection.
             limit: Max rows (1-max_row_limit). Default 20.
             offset: Pagination offset.
             order_by: Field name; prefix with '-' for descending (e.g. '-sys_created_on').
@@ -576,8 +639,14 @@ def register_tools(
                 display_values=display_values,
                 settings=settings,
                 auth_provider=auth_provider,
+                client_factory=client_factory,
                 correlation_id=correlation_id,
             )
+
+        if not aggregate:
+            projection = _parse_projection(fields, compact_default=False)
+            if isinstance(projection, str):
+                return _err(correlation_id, projection)
 
         # --- resolve_labels: augment encoded_query before safety check ----
         warnings: list[str] = []
@@ -605,6 +674,7 @@ def register_tools(
                 group_by=group_by,
                 settings=settings,
                 auth_provider=auth_provider,
+                client_factory=client_factory,
                 correlation_id=correlation_id,
                 warnings=warnings,
             )
@@ -620,6 +690,7 @@ def register_tools(
             display_values=display_values,
             settings=settings,
             auth_provider=auth_provider,
+            client_factory=client_factory,
             correlation_id=correlation_id,
             warnings=warnings,
         )

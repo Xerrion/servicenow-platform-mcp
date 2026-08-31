@@ -145,6 +145,7 @@ def format_response(
     error: str | dict[str, str] | None = None,
     pagination: dict[str, int] | None = None,
     warnings: list[str] | None = None,
+    selection: dict[str, Any] | None = None,
 ) -> str:
     """Build and serialize a standardized response envelope.
 
@@ -161,6 +162,8 @@ def format_response(
         response["pagination"] = pagination
     if warnings is not None:
         response["warnings"] = warnings
+    if selection is not None:
+        response["selection"] = selection
 
     return serialize(response)
 

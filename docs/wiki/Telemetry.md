@@ -1,6 +1,6 @@
 # Telemetry
 
-Observability documentation for the `servicenow-platform-mcp` server. Currently, **Sentry** is the sole observability integration.
+Observability documentation for the `servicenow-platform-mcp` server. The server provides bounded in-process HTTP and metadata-cache telemetry, with optional **Sentry** error tracking.
 
 See also: [[Architecture]] for server internals, [[Development]] for setup.
 
@@ -13,6 +13,12 @@ MCP servers run as child processes of AI agents via stdio transport - the user n
 ## Sentry Integration
 
 The Sentry integration lives in `sentry.py` and follows a graceful-degradation pattern - all public functions are safe to call regardless of whether Sentry is active.
+
+## Bounded Runtime Telemetry
+
+The shared connection pool records aggregate HTTP request counts, duration, response bytes, and shared-pool usage. The metadata cache records hits, misses, expirations, reloads, and invalidations under fixed cache-domain names. Telemetry does not add a public MCP tool. It does not record credentials, request contents, URLs, or arbitrary table names.
+
+The metadata cache covers choices, dictionary chain and field metadata, script-field discovery, and audit table and field configuration. It does not cover records, query results, flows, attachments, previews, or audit row counts.
 
 ### Activation Requirements
 
@@ -181,6 +187,6 @@ def _disable_sentry_capture():
 
 ## Historical Note
 
-OpenTelemetry was previously integrated via a `telemetry.py` module that provided distributed tracing with spans for tool invocations and HTTP requests. It supported OTLP and console exporters, W3C `traceparent` header injection, and trace context in response envelopes.
+OpenTelemetry previously provided distributed tracing with spans for tool invocations and HTTP requests. It supported OTLP and console exporters, W3C `traceparent` header injection, and trace context in response envelopes.
 
-The OTel integration was **removed in v0.9.0** (commit `b72cee3`, PR [#68](https://github.com/Xerrion/servicenow-platform-mcp/pull/68)) to resolve SonarCloud issues and simplify the observability stack. The `.env.example` file may still contain stale OTel-related variables (`OTEL_ENABLED`, `OTEL_EXPORTER_OTLP_ENDPOINT`, etc.) - these are ignored by the server and have no effect.
+The OTel integration was **removed in v0.9.0** (commit `b72cee3`, PR [#68](https://github.com/Xerrion/servicenow-platform-mcp/pull/68)) to resolve SonarCloud issues and simplify the observability stack. Old OTel-related environment variables (`OTEL_ENABLED`, `OTEL_EXPORTER_OTLP_ENDPOINT`, etc.) are ignored by the server and have no effect.

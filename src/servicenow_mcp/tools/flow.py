@@ -18,6 +18,7 @@ endpoints (undocumented) or ``sys_hub_flow_snapshot`` (opaque cache).
 
 from __future__ import annotations
 
+import asyncio
 import re
 from typing import Any, Final
 
@@ -25,9 +26,10 @@ from mcp.server.fastmcp import FastMCP
 
 from servicenow_mcp.auth import BasicAuthProvider
 from servicenow_mcp.choices import ChoiceRegistry
-from servicenow_mcp.client import ServiceNowClient
+from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
+from servicenow_mcp.policy import INTERNAL_QUERY_LIMIT
 from servicenow_mcp.tools._dictionary import DictionaryRegistry
 from servicenow_mcp.tools._flow_values import decode_values, looks_compressed
 from servicenow_mcp.utils import format_response, validate_identifier, validate_sys_id
@@ -40,16 +42,82 @@ _VALID_ACTIONS: Final[frozenset[str]] = frozenset(
 )
 
 _DEFAULT_TRIGGER_LIMIT: Final[int] = 100
+_DEFAULT_SECTION_LIMIT: Final[int] = 100
 _DATA_PILL_PATTERN: Final[re.Pattern[str]] = re.compile(r"{{([^{}]+)}}")
+
+_DATASET_QUERY_PATHS: Final[dict[str, tuple[str, str]]] = {
+    "inputs": ("sys_hub_flow_input", "model"),
+    "outputs": ("sys_hub_flow_output", "model"),
+    "variables": ("sys_hub_flow_variable", "model"),
+    "actions_v2": ("sys_hub_action_instance_v2", "flow"),
+    "actions_v1": ("sys_hub_action_instance", "flow"),
+    "logic_v2": ("sys_hub_flow_logic_instance_v2", "flow"),
+    "logic_v1": ("sys_hub_flow_logic", "flow"),
+    "triggers_v2": ("sys_hub_trigger_instance_v2", "flow"),
+    "triggers_v1": ("sys_hub_trigger_instance", "flow"),
+}
+
+_STRUCTURAL_DATASETS: Final[frozenset[str]] = frozenset(
+    {"actions_v2", "actions_v1", "logic_v2", "logic_v1", "triggers_v2", "triggers_v1"}
+)
+_SECTION_DEPENDENCIES: Final[dict[str, frozenset[str]]] = {
+    "flow": frozenset(),
+    "published_state": frozenset(),
+    "structural_summary": _STRUCTURAL_DATASETS,
+    "inputs": frozenset({"inputs"}),
+    "outputs": frozenset({"outputs"}),
+    "variables": frozenset({"variables"}),
+    "triggers": frozenset({"triggers_v2", "triggers_v1"}),
+    "canvas": frozenset({"actions_v2", "logic_v2"}),
+    "v1_actions": frozenset({"actions_v1"}),
+    "v1_variable_values": frozenset({"actions_v1", "v1_variable_values"}),
+    "steps": frozenset({"actions_v2", "logic_v2"}),
+    "warnings": _STRUCTURAL_DATASETS,
+}
+_INSPECT_SECTIONS: Final[tuple[str, ...]] = (
+    "flow",
+    "published_state",
+    "structural_summary",
+    "inputs",
+    "outputs",
+    "variables",
+    "triggers",
+    "canvas",
+    "v1_actions",
+    "v1_variable_values",
+    "warnings",
+)
+_CONTRACT_SECTIONS: Final[tuple[str, ...]] = (
+    "flow",
+    "published_state",
+    "structural_summary",
+    "inputs",
+    "outputs",
+    "variables",
+    "triggers",
+    "steps",
+    "warnings",
+)
+_DEFAULT_FLOW_SECTIONS: Final[tuple[str, ...]] = ("flow", "published_state", "structural_summary", "warnings")
 
 _ACTION_REGISTRY: Final[dict[str, dict[str, Any]]] = {
     "contract": {
-        "description": "Return a concise, agent-oriented contract for one flow or subflow: declared fields, triggers, ordered checks/actions, bindings, and output assignments.",
-        "params": {"sys_id": "str (32-char)", "name": "str"},
+        "description": "Return progressive contract sections for one flow or subflow. The compact default returns identity, publication state, a bounded structural summary, and warnings.",
+        "params": {
+            "sys_id": "str (32-char)",
+            "name": "str",
+            "sections": "comma-separated: flow,published_state,structural_summary,inputs,outputs,variables,triggers,steps,warnings; '*' selects all",
+            "section_limit": "int (default 100; shared row/node cap)",
+        },
     },
     "inspect": {
-        "description": "Assemble one flow by sys_id or name: header, triggers, inputs/outputs/variables, decoded V2 nodes, canvas tree, snapshot drift.",
-        "params": {"sys_id": "str (32-char)", "name": "str"},
+        "description": "Return progressive inspection sections for one flow. The compact default avoids optional detail reads.",
+        "params": {
+            "sys_id": "str (32-char)",
+            "name": "str",
+            "sections": "comma-separated: flow,published_state,structural_summary,inputs,outputs,variables,triggers,canvas,v1_actions,v1_variable_values,warnings; '*' selects all",
+            "section_limit": "int (default 100; shared row/node cap)",
+        },
     },
     "find_by_table": {
         "description": "Find V1 and V2 flows with record triggers on the given table.",
@@ -506,13 +574,171 @@ def _build_flow_contract(
     }
 
 
+def _parse_sections(sections: str, *, is_contract: bool) -> tuple[list[str], str | None]:
+    available = _CONTRACT_SECTIONS if is_contract else _INSPECT_SECTIONS
+    if not sections.strip():
+        return list(_DEFAULT_FLOW_SECTIONS), None
+    if sections.strip() == "*":
+        return list(available), None
+
+    requested = list(dict.fromkeys(part.strip() for part in sections.split(",") if part.strip()))
+    unknown = [section for section in requested if section not in available]
+    if unknown:
+        return [], f"Unknown section(s): {', '.join(unknown)}. Available: {', '.join(available)}, *."
+    return requested, None
+
+
+def _required_datasets(selected_sections: list[str]) -> set[str]:
+    datasets: set[str] = set()
+    for section in selected_sections:
+        datasets.update(_SECTION_DEPENDENCIES[section])
+    return datasets
+
+
+def _continuation(
+    *,
+    section_limit: int,
+    max_row_limit: int,
+    flow_sys_id: str,
+    source_datasets: tuple[str, ...],
+) -> str:
+    if section_limit < max_row_limit:
+        return f"Re-run with section_limit greater than {section_limit}."
+    query_paths = ", ".join(
+        f"{table} (encoded_query={field}={flow_sys_id})"
+        for table, field in (_DATASET_QUERY_PATHS[name] for name in source_datasets)
+    )
+    return (
+        f"The configured MAX_ROW_LIMIT of {max_row_limit} has been reached; no further continuation is available "
+        f"through flow. Use query with an explicit fields projection and a safe encoded query on: {query_paths}. "
+        "Query safety and row limits still apply."
+    )
+
+
+def _warning_continuation(*, section_limit: int, max_row_limit: int, flow_sys_id: str) -> str:
+    if section_limit < max_row_limit:
+        return f"Re-run with section_limit greater than {section_limit}."
+    return (
+        f"The configured MAX_ROW_LIMIT of {max_row_limit} has been reached; no further continuation is available "
+        "through flow. To complete warning analysis, use query with pagination and these explicit projections: "
+        f"sys_hub_action_instance_v2 (encoded_query=flow={flow_sys_id}, fields=sys_id,action_type); "
+        f"sys_hub_action_instance (encoded_query=flow={flow_sys_id}, fields=sys_id); "
+        f"sys_hub_flow_logic_instance_v2 (encoded_query=flow={flow_sys_id}, fields=sys_id); "
+        f"sys_hub_flow_logic (encoded_query=flow={flow_sys_id}, fields=sys_id); "
+        f"sys_hub_trigger_instance_v2 (encoded_query=flow={flow_sys_id}, fields=sys_id); "
+        f"sys_hub_trigger_instance (encoded_query=flow={flow_sys_id}, fields=sys_id). Then collect every action_type "
+        "sys_id from the V2 actions and query sys_hub_action_type_base "
+        "(encoded_query=sys_idIN<action_type_sys_ids>, fields=sys_id,category,sys_scope) for spoke detection. "
+        "Use limit and offset to continue each read. Query safety and row limits still apply."
+    )
+
+
+def _v1_variable_value_continuation(*, section_limit: int, max_row_limit: int, flow_sys_id: str) -> str:
+    next_step = (
+        f"Re-run with section_limit greater than {section_limit}. "
+        if section_limit < max_row_limit
+        else f"The configured MAX_ROW_LIMIT of {max_row_limit} has been reached. "
+    )
+    return (
+        f"{next_step}For direct recovery, use query with an explicit fields projection and a safe encoded query on "
+        f"sys_hub_action_instance (encoded_query=flow={flow_sys_id}, fields=sys_id) to obtain every action sys_id, "
+        "then query sys_variable_value "
+        "(encoded_query=document=sys_hub_action_instance^document_keyIN<action_sys_ids>, "
+        "fields=document,document_key,variable,value). Use limit and offset to continue each read. "
+        "Query safety and row limits still apply."
+    )
+
+
+def _saturated_datasets(
+    datasets: dict[str, list[dict[str, Any]]],
+    requested_limits: dict[str, int],
+    names: frozenset[str],
+) -> list[str]:
+    return sorted(
+        name
+        for name in names
+        if requested_limits.get(name, 0) > 0 and len(datasets.get(name, [])) >= requested_limits[name]
+    )
+
+
+def _bounded_rows(
+    rows: list[dict[str, Any]],
+    *,
+    section: str,
+    section_limit: int,
+    truncation: dict[str, dict[str, Any]],
+    continuation: str,
+) -> list[dict[str, Any]]:
+    returned = rows[:section_limit]
+    if len(rows) > section_limit:
+        truncation[section] = {
+            "returned": len(returned),
+            "observed_at_least": len(rows),
+            "omitted_at_least": len(rows) - len(returned),
+            "continuation": continuation,
+        }
+    return returned
+
+
+def _structural_summary(datasets: dict[str, list[dict[str, Any]]], section_limit: int) -> dict[str, Any]:
+    counts = {name: min(len(datasets.get(name, [])), section_limit) for name in sorted(_STRUCTURAL_DATASETS)}
+    total_nodes = counts["actions_v2"] + counts["actions_v1"] + counts["logic_v2"] + counts["logic_v1"]
+    return {
+        "counts": counts,
+        "count_semantics": "exact unless truncated=true; truncated dataset counts are lower bounds",
+        "node_count": total_nodes,
+        "trigger_count": counts["triggers_v2"] + counts["triggers_v1"],
+        "versions": [
+            version
+            for version in ("v1", "v2")
+            if any(counts[f"{kind}_{version}"] for kind in ("actions", "logic", "triggers"))
+        ],
+        "truncated": any(len(datasets.get(name, [])) > section_limit for name in _STRUCTURAL_DATASETS),
+        "per_dataset_limit": section_limit,
+    }
+
+
+async def _fetch_flow_datasets(
+    client: ServiceNowClient,
+    resolved_sys_id: str,
+    required: set[str],
+    section_limit: int,
+) -> tuple[dict[str, list[dict[str, Any]]], dict[str, int]]:
+    fetchers = {
+        "inputs": client.list_flow_inputs,
+        "outputs": client.list_flow_outputs,
+        "variables": client.list_flow_variables,
+        "actions_v2": client.list_action_instances_v2,
+        "actions_v1": client.list_action_instances_v1,
+        "logic_v2": client.list_logic_instances_v2,
+        "logic_v1": client.list_logic_instances_v1,
+        "triggers_v2": client.list_trigger_instances_v2,
+        "triggers_v1": client.list_trigger_instances_v1,
+    }
+    names = sorted(required)
+    direct_names = [name for name in names if name != "v1_variable_values"]
+    rows = await asyncio.gather(*(fetchers[name](resolved_sys_id, section_limit + 1) for name in direct_names))
+    datasets = dict(zip(direct_names, rows, strict=True))
+    requested_limits = dict.fromkeys(direct_names, section_limit + 1)
+    if "v1_variable_values" in required:
+        v1_action_ids = sorted(
+            {_v(action.get("sys_id")) for action in datasets.get("actions_v1", []) if _v(action.get("sys_id"))}
+        )
+        datasets["v1_variable_values"] = await client.list_v1_variable_values(v1_action_ids) if v1_action_ids else []
+        requested_limits["v1_variable_values"] = min(len(v1_action_ids) * 10, 5000) if v1_action_ids else 0
+    return datasets, requested_limits
+
+
 async def _action_inspect(
     *,
     sys_id: str,
     name: str,
     settings: Settings,
     auth_provider: BasicAuthProvider,
+    client_factory: ServiceNowClientProvider,
     correlation_id: str,
+    sections: str,
+    section_limit: int,
     is_contract: bool = False,
 ) -> str:
     if sys_id and name:
@@ -521,8 +747,15 @@ async def _action_inspect(
         return _error(correlation_id, "Either sys_id or name is required.")
     if sys_id:
         validate_sys_id(sys_id)
+    selected_sections, section_error = _parse_sections(sections, is_contract=is_contract)
+    if section_error is not None:
+        return _error(correlation_id, section_error)
+    effective_limit = max(
+        1, min(section_limit if section_limit > 0 else _DEFAULT_SECTION_LIMIT, settings.max_row_limit)
+    )
+    required = _required_datasets(selected_sections)
 
-    async with ServiceNowClient(settings, auth_provider) as client:
+    async with client_factory() as client:
         resolved_sys_id, err = await _resolve_inspect_sys_id(client, sys_id, name, correlation_id)
         if err is not None:
             return err
@@ -531,37 +764,227 @@ async def _action_inspect(
         if header is None:
             return _error(correlation_id, f"Flow {resolved_sys_id} not found.")
 
-        inputs = await client.list_flow_inputs(resolved_sys_id)
-        outputs = await client.list_flow_outputs(resolved_sys_id)
-        variables = await client.list_flow_variables(resolved_sys_id)
-        actions_v2 = await client.list_action_instances_v2(resolved_sys_id)
-        actions_v1 = await client.list_action_instances_v1(resolved_sys_id)
-        logic_v2 = await client.list_logic_instances_v2(resolved_sys_id)
-        logic_v1 = await client.list_logic_instances_v1(resolved_sys_id)
-        triggers_v2 = await client.list_trigger_instances_v2(resolved_sys_id)
-        triggers_v1 = await client.list_trigger_instances_v1(resolved_sys_id)
+        datasets, requested_limits = await _fetch_flow_datasets(client, resolved_sys_id, required, effective_limit)
+        truncation: dict[str, dict[str, Any]] = {}
+        inputs = _bounded_rows(
+            datasets.get("inputs", []),
+            section="inputs",
+            section_limit=effective_limit,
+            truncation=truncation,
+            continuation=_continuation(
+                section_limit=effective_limit,
+                max_row_limit=settings.max_row_limit,
+                flow_sys_id=resolved_sys_id,
+                source_datasets=("inputs",),
+            ),
+        )
+        outputs = _bounded_rows(
+            datasets.get("outputs", []),
+            section="outputs",
+            section_limit=effective_limit,
+            truncation=truncation,
+            continuation=_continuation(
+                section_limit=effective_limit,
+                max_row_limit=settings.max_row_limit,
+                flow_sys_id=resolved_sys_id,
+                source_datasets=("outputs",),
+            ),
+        )
+        variables = _bounded_rows(
+            datasets.get("variables", []),
+            section="variables",
+            section_limit=effective_limit,
+            truncation=truncation,
+            continuation=_continuation(
+                section_limit=effective_limit,
+                max_row_limit=settings.max_row_limit,
+                flow_sys_id=resolved_sys_id,
+                source_datasets=("variables",),
+            ),
+        )
+        actions_v2 = datasets.get("actions_v2", [])
+        actions_v1 = datasets.get("actions_v1", [])
+        logic_v2 = datasets.get("logic_v2", [])
+        logic_v1 = datasets.get("logic_v1", [])
+        triggers_v2 = datasets.get("triggers_v2", [])
+        triggers_v1 = datasets.get("triggers_v1", [])
+        node_actions_v2 = actions_v2
+        node_logic_v2 = logic_v2
+        returned_triggers_v2 = triggers_v2
+        returned_triggers_v1 = triggers_v1
+        if "structural_summary" in selected_sections:
+            truncated_datasets = _saturated_datasets(datasets, requested_limits, _STRUCTURAL_DATASETS)
+            if truncated_datasets:
+                truncation["structural_summary"] = {
+                    "datasets": truncated_datasets,
+                    "returned_per_dataset": effective_limit,
+                    "continuation": _continuation(
+                        section_limit=effective_limit,
+                        max_row_limit=settings.max_row_limit,
+                        flow_sys_id=resolved_sys_id,
+                        source_datasets=tuple(truncated_datasets),
+                    ),
+                }
 
-        remote_ids = sorted({_v(t.get("remote_trigger_id")) for t in triggers_v2 if _v(t.get("remote_trigger_id"))})
-        record_triggers = await client.list_record_triggers(remote_ids) if remote_ids else []
+        if "warnings" in selected_sections:
+            saturated_dependencies = _saturated_datasets(datasets, requested_limits, _STRUCTURAL_DATASETS)
+            if saturated_dependencies:
+                truncation["warnings"] = {
+                    "datasets": saturated_dependencies,
+                    "limitation": "Warning analysis covers only the probed rows for the saturated dependencies.",
+                    "continuation": _warning_continuation(
+                        section_limit=effective_limit,
+                        max_row_limit=settings.max_row_limit,
+                        flow_sys_id=resolved_sys_id,
+                    ),
+                }
 
-        action_type_ids = sorted({_v(a.get("action_type")) for a in actions_v2 if _v(a.get("action_type"))})
+        selected_node_section = "steps" if is_contract else "canvas"
+        if selected_node_section in selected_sections:
+            combined_nodes = sorted(
+                [("action", row) for row in actions_v2] + [("logic", row) for row in logic_v2],
+                key=lambda item: _safe_int(_v(item[1].get("order"))),
+            )
+            bounded_nodes = combined_nodes[:effective_limit]
+            if len(combined_nodes) > effective_limit:
+                truncation[selected_node_section] = {
+                    "returned": len(bounded_nodes),
+                    "observed_at_least": len(combined_nodes),
+                    "omitted_at_least": len(combined_nodes) - len(bounded_nodes),
+                    "continuation": _continuation(
+                        section_limit=effective_limit,
+                        max_row_limit=settings.max_row_limit,
+                        flow_sys_id=resolved_sys_id,
+                        source_datasets=("actions_v2", "logic_v2"),
+                    ),
+                }
+            node_actions_v2 = [row for kind, row in bounded_nodes if kind == "action"]
+            node_logic_v2 = [row for kind, row in bounded_nodes if kind == "logic"]
+
+        if "triggers" in selected_sections:
+            all_triggers = [("v2", row) for row in triggers_v2] + [("v1", row) for row in triggers_v1]
+            bounded_triggers = all_triggers[:effective_limit]
+            if len(all_triggers) > effective_limit:
+                truncation["triggers"] = {
+                    "returned": len(bounded_triggers),
+                    "observed_at_least": len(all_triggers),
+                    "omitted_at_least": len(all_triggers) - len(bounded_triggers),
+                    "continuation": _continuation(
+                        section_limit=effective_limit,
+                        max_row_limit=settings.max_row_limit,
+                        flow_sys_id=resolved_sys_id,
+                        source_datasets=("triggers_v2", "triggers_v1"),
+                    ),
+                }
+            returned_triggers_v2 = [row for version, row in bounded_triggers if version == "v2"]
+            returned_triggers_v1 = [row for version, row in bounded_triggers if version == "v1"]
+
+        remote_ids = sorted(
+            {_v(t.get("remote_trigger_id")) for t in returned_triggers_v2 if _v(t.get("remote_trigger_id"))}
+        )
+        record_triggers = (
+            await client.list_record_triggers(remote_ids) if "triggers" in selected_sections and remote_ids else []
+        )
+        if "triggers" in selected_sections and len(remote_ids) > INTERNAL_QUERY_LIMIT:
+            trigger_truncation = truncation.setdefault(
+                "triggers",
+                {
+                    "returned": len(returned_triggers_v2) + len(returned_triggers_v1),
+                    "possible_more": True,
+                },
+            )
+            trigger_truncation["dependency_datasets"] = ["sys_flow_record_trigger"]
+            trigger_truncation["limitation"] = (
+                f"V2 trigger conditions were queried for only {INTERNAL_QUERY_LIMIT} remote trigger ids."
+            )
+            trigger_truncation["continuation"] = (
+                "Batch all remote_trigger_id values from the returned V2 triggers, then use query with an explicit "
+                "fields projection on sys_flow_record_trigger (encoded_query=sys_idIN<remote_trigger_ids>, "
+                "fields=sys_id,condition). Use limit and offset to continue each batch. Query safety and row limits "
+                "still apply."
+            )
+
+        node_action_type_ids = {_v(a.get("action_type")) for a in node_actions_v2 if _v(a.get("action_type"))}
+        warning_action_type_ids = {_v(a.get("action_type")) for a in actions_v2 if _v(a.get("action_type"))}
+        required_action_type_ids: set[str] = set()
+        if selected_node_section in selected_sections:
+            required_action_type_ids.update(node_action_type_ids)
+        if "warnings" in selected_sections:
+            required_action_type_ids.update(warning_action_type_ids)
+        action_type_ids = sorted(required_action_type_ids)
         action_type_rows = await client.get_action_type_definitions(action_type_ids) if action_type_ids else []
+        returned_action_type_ids = {_v(row.get("sys_id")) for row in action_type_rows if _v(row.get("sys_id"))}
+        section_action_type_ids = {
+            selected_node_section: node_action_type_ids,
+            "warnings": warning_action_type_ids,
+        }
+        for section, section_type_ids in section_action_type_ids.items():
+            missing_action_type_ids = sorted(section_type_ids - returned_action_type_ids)
+            if section not in selected_sections or not missing_action_type_ids:
+                continue
+            section_truncation = truncation.setdefault(
+                section,
+                {
+                    "datasets": [],
+                    "limitation": f"{section} has incomplete dependencies.",
+                    "continuation": _warning_continuation(
+                        section_limit=effective_limit,
+                        max_row_limit=settings.max_row_limit,
+                        flow_sys_id=resolved_sys_id,
+                    ),
+                },
+            )
+            section_truncation["missing_action_type_metadata"] = len(missing_action_type_ids)
+            section_truncation["limitation"] = (
+                f"{section} covers only probed structural rows and returned action-type metadata."
+            )
+            section_truncation["continuation"] += (
+                f" Query sys_hub_action_type_base (encoded_query=sys_idIN{','.join(missing_action_type_ids)}, "
+                "fields=sys_id,name,internal_name,sys_scope,category) to recover missing action metadata. Query safety "
+                "and row limits still apply."
+            )
 
         action_input_rows: list[dict[str, Any]] = []
         action_output_rows: list[dict[str, Any]] = []
         schema_limitations: list[str] = []
-        if is_contract and action_type_ids:
+        node_action_type_id_list = sorted(node_action_type_ids)
+        if is_contract and "steps" in selected_sections and node_action_type_id_list:
             try:
-                action_input_rows = await client.list_action_input_definitions(action_type_ids)
+                action_input_rows = await client.list_action_input_definitions(node_action_type_id_list)
             except Exception as exc:
                 schema_limitations.append(f"Action input definitions are unavailable: {exc}")
             try:
-                action_output_rows = await client.list_action_output_definitions(action_type_ids)
+                action_output_rows = await client.list_action_output_definitions(node_action_type_id_list)
             except Exception as exc:
                 schema_limitations.append(f"Action output definitions are unavailable: {exc}")
 
-        v1_action_ids = sorted({_v(a.get("sys_id")) for a in actions_v1 if _v(a.get("sys_id"))})
-        v1_variable_values = await client.list_v1_variable_values(v1_action_ids) if v1_action_ids else []
+        v1_variable_values = datasets.get("v1_variable_values", [])
+        v1_variable_values = _bounded_rows(
+            v1_variable_values,
+            section="v1_variable_values",
+            section_limit=effective_limit,
+            truncation=truncation,
+            continuation=_v1_variable_value_continuation(
+                section_limit=effective_limit,
+                max_row_limit=settings.max_row_limit,
+                flow_sys_id=resolved_sys_id,
+            ),
+        )
+
+        if "v1_variable_values" in selected_sections and _saturated_datasets(
+            datasets, requested_limits, frozenset({"actions_v1"})
+        ):
+            truncation["v1_variable_values"] = {
+                "dependency_datasets": ["actions_v1"],
+                "returned": len(v1_variable_values),
+                "possible_more": True,
+                "limitation": "Variable values were queried only for the probed V1 action instances.",
+                "continuation": _v1_variable_value_continuation(
+                    section_limit=effective_limit,
+                    max_row_limit=settings.max_row_limit,
+                    flow_sys_id=resolved_sys_id,
+                ),
+            }
 
     # Build lookups.
     action_type_lookup = _index_by_sys_id(action_type_rows)
@@ -570,16 +993,20 @@ async def _action_inspect(
     }
 
     # Build canvas nodes (actions + logic, both V2), sorted by ``order``.
-    nodes: list[dict[str, Any]] = [
-        _build_v2_node(row, kind="action", action_type_lookup=action_type_lookup) for row in actions_v2
-    ]
-    nodes.extend(_build_v2_node(row, kind="logic") for row in logic_v2)
-    nodes.sort(key=lambda n: _safe_int(n["order"]))
-    canvas = _assemble_canvas(nodes)
+    canvas: list[dict[str, Any]] = []
+    if selected_node_section in selected_sections:
+        nodes: list[dict[str, Any]] = [
+            _build_v2_node(row, kind="action", action_type_lookup=action_type_lookup) for row in node_actions_v2
+        ]
+        nodes.extend(_build_v2_node(row, kind="logic") for row in node_logic_v2)
+        nodes.sort(key=lambda n: _safe_int(n["order"]))
+        canvas = _assemble_canvas(nodes)
 
     # Triggers - V2 first (stitched), then V1.
-    triggers: list[dict[str, Any]] = [_v2_trigger_entry(row, condition_lookup=condition_lookup) for row in triggers_v2]
-    triggers.extend(_v1_trigger_entry(row) for row in triggers_v1)
+    triggers: list[dict[str, Any]] = []
+    if "triggers" in selected_sections:
+        triggers = [_v2_trigger_entry(row, condition_lookup=condition_lookup) for row in returned_triggers_v2]
+        triggers.extend(_v1_trigger_entry(row) for row in returned_triggers_v1)
 
     master = _v(header.get("master_snapshot"))
     latest = _v(header.get("latest_snapshot"))
@@ -598,7 +1025,7 @@ async def _action_inspect(
         action_type_lookup=action_type_lookup,
     )
 
-    payload: dict[str, Any] = {
+    full_payload: dict[str, Any] = {
         "flow": {
             "sys_id": _v(header.get("sys_id")),
             "name": _d(header.get("name")),
@@ -618,18 +1045,66 @@ async def _action_inspect(
         "variables": [_flatten_record(row) for row in variables],
         "triggers": triggers,
         "canvas": canvas,
-        "v1_actions": [_flatten_record(row) for row in actions_v1],
+        "v1_actions": (
+            [
+                _flatten_record(row)
+                for row in _bounded_rows(
+                    actions_v1,
+                    section="v1_actions",
+                    section_limit=effective_limit,
+                    truncation=truncation,
+                    continuation=_continuation(
+                        section_limit=effective_limit,
+                        max_row_limit=settings.max_row_limit,
+                        flow_sys_id=resolved_sys_id,
+                        source_datasets=("actions_v1",),
+                    ),
+                )
+            ]
+            if "v1_actions" in selected_sections
+            else []
+        ),
         "v1_variable_values": [_flatten_record(row) for row in v1_variable_values],
         "warnings": warnings,
     }
     action_input_definitions = _index_action_definition_fields(action_input_rows, has_default=True)
     action_output_definitions = _index_action_definition_fields(action_output_rows, has_default=False)
-    data = (
-        _build_flow_contract(payload, action_input_definitions, action_output_definitions, schema_limitations)
+    assembled = (
+        _build_flow_contract(full_payload, action_input_definitions, action_output_definitions, schema_limitations)
         if is_contract
-        else payload
+        else full_payload
     )
-    return format_response(data=data, correlation_id=correlation_id)
+    if "v1_variable_values" in selected_sections and requested_limits.get("v1_variable_values") == len(
+        v1_variable_values
+    ):
+        truncation.setdefault(
+            "v1_variable_values",
+            {
+                "returned": len(v1_variable_values),
+                "possible_more": True,
+                "continuation": _v1_variable_value_continuation(
+                    section_limit=effective_limit,
+                    max_row_limit=settings.max_row_limit,
+                    flow_sys_id=resolved_sys_id,
+                ),
+            },
+        )
+    assembled["structural_summary"] = _structural_summary(datasets, effective_limit)
+    data = {section: assembled[section] for section in selected_sections}
+    available_sections = _CONTRACT_SECTIONS if is_contract else _INSPECT_SECTIONS
+    mode = "all" if sections.strip() == "*" else "explicit" if sections.strip() else "compact"
+    selection = {
+        "mode": mode,
+        "requested_sections": ["*"] if mode == "all" else selected_sections if mode == "explicit" else None,
+        "default_sections": list(_DEFAULT_FLOW_SECTIONS),
+        "returned_sections": selected_sections,
+        "omitted_sections": [section for section in available_sections if section not in selected_sections],
+        "section_limit": effective_limit,
+        "truncated": bool(truncation),
+        "truncation": truncation,
+        "dataset_probe_limits": requested_limits,
+    }
+    return format_response(data=data, correlation_id=correlation_id, selection=selection)
 
 
 def _safe_int(value: str) -> int:
@@ -655,13 +1130,14 @@ async def _action_find_by_table(
     table: str,
     settings: Settings,
     auth_provider: BasicAuthProvider,
+    client_factory: ServiceNowClientProvider,
     correlation_id: str,
 ) -> str:
     if not table:
         return _error(correlation_id, "'table' is required for action='find_by_table'.")
     validate_identifier(table)
 
-    async with ServiceNowClient(settings, auth_provider) as client:
+    async with client_factory() as client:
         record_triggers = await client.find_record_triggers_by_table(table)
         remote_ids = sorted({_v(r.get("sys_id")) for r in record_triggers if _v(r.get("sys_id"))})
         v2_triggers = await client.list_v2_triggers_by_remote_ids(remote_ids) if remote_ids else []
@@ -751,6 +1227,7 @@ async def _action_list_triggers(
     limit: int,
     settings: Settings,
     auth_provider: BasicAuthProvider,
+    client_factory: ServiceNowClientProvider,
     correlation_id: str,
 ) -> str:
     if active and active not in {"true", "false"}:
@@ -766,7 +1243,7 @@ async def _action_list_triggers(
     effective_limit = limit if limit and limit > 0 else _DEFAULT_TRIGGER_LIMIT
     effective_limit = max(1, min(effective_limit, settings.max_row_limit))
 
-    async with ServiceNowClient(settings, auth_provider) as client:
+    async with client_factory() as client:
         filtered = await client.list_triggers_filtered(
             trigger_type=trigger_type,
             table=table,
@@ -847,6 +1324,7 @@ def register_tools(
     auth_provider: BasicAuthProvider,
     choices: ChoiceRegistry | None = None,
     dictionary: DictionaryRegistry | None = None,
+    client_factory: ServiceNowClientProvider | None = None,
 ) -> None:
     """Register the unified ``flow`` tool on the MCP server.
 
@@ -855,6 +1333,7 @@ def register_tools(
     across tool groups.
     """
     del choices, dictionary  # unused; signature retained for loader parity
+    client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
 
     @mcp.tool()
     @tool_handler
@@ -867,6 +1346,8 @@ def register_tools(
         trigger_type: str = "",
         active: str = "",
         limit: int = 0,
+        sections: str = "",
+        section_limit: int = 0,
         *,
         correlation_id: str = "",
     ) -> str:
@@ -881,6 +1362,8 @@ def register_tools(
             trigger_type: Trigger type filter (list_triggers, e.g. 'record_update').
             active: 'true' | 'false' filter (list_triggers).
             limit: Row cap for list_triggers (default 100).
+            sections: Comma-separated inspect/contract sections. Empty uses the compact default; '*' returns all.
+            section_limit: Shared cap for selected flow rows/nodes (default 100, max MAX_ROW_LIMIT).
         """
         if action not in _VALID_ACTIONS:
             return _error(
@@ -900,7 +1383,10 @@ def register_tools(
                 name=name,
                 settings=settings,
                 auth_provider=auth_provider,
+                client_factory=client_factory,
                 correlation_id=correlation_id,
+                sections=sections,
+                section_limit=section_limit,
                 is_contract=action == "contract",
             )
 
@@ -909,6 +1395,7 @@ def register_tools(
                 table=table,
                 settings=settings,
                 auth_provider=auth_provider,
+                client_factory=client_factory,
                 correlation_id=correlation_id,
             )
 
@@ -919,5 +1406,6 @@ def register_tools(
             limit=limit,
             settings=settings,
             auth_provider=auth_provider,
+            client_factory=client_factory,
             correlation_id=correlation_id,
         )

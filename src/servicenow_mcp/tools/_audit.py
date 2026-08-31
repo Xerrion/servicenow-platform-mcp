@@ -21,8 +21,10 @@ from dataclasses import dataclass
 from typing import Any, ClassVar, Final
 
 from servicenow_mcp.auth import BasicAuthProvider
-from servicenow_mcp.client import ServiceNowClient
+from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
+from servicenow_mcp.metadata_cache import AsyncMetadataCache
+from servicenow_mcp.telemetry import CacheName, HttpTelemetry
 from servicenow_mcp.tools._dictionary import DictionaryRegistry
 from servicenow_mcp.utils import ServiceNowQuery
 
@@ -162,13 +164,20 @@ class AuditRegistry:
         settings: Settings,
         auth_provider: BasicAuthProvider,
         dictionary: DictionaryRegistry,
+        client_factory: ServiceNowClientProvider | None = None,
+        telemetry: HttpTelemetry | None = None,
     ) -> None:
         self._settings = settings
         self._auth_provider = auth_provider
         self._dictionary = dictionary
-        self._table_audit_cache: dict[str, bool | None] = {}
-        self._field_audit_cache: dict[tuple[str, str], FieldAudit] = {}
-        self._table_field_rows_cache: dict[str, list[dict[str, Any]]] = {}
+        self._client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
+        ttl = settings.metadata_cache_ttl_seconds
+        self._table_audit_cache = AsyncMetadataCache[str, bool | None](
+            name=CacheName.AUDIT_TABLE_CONFIG, ttl_seconds=ttl, telemetry=telemetry
+        )
+        self._field_audit_cache = AsyncMetadataCache[tuple[str, str], FieldAudit](
+            name=CacheName.AUDIT_FIELD_CONFIG, ttl_seconds=ttl, telemetry=telemetry
+        )
 
     # ------------------------------------------------------------------
     # Public API
@@ -186,34 +195,28 @@ class AuditRegistry:
         for any table in the chain (table not registered in
         ``sys_db_object``).
         """
-        if table in self._table_audit_cache:
-            return self._table_audit_cache[table]
 
-        chain = await self.get_chain(table)
-        if not chain:
-            self._table_audit_cache[table] = None
+        async def load() -> bool | None:
+            chain = await self.get_chain(table)
+            if not chain:
+                return None
+
+            async with self._client_factory() as client:
+                rows = await self._fetch_table_audit_rows(client, chain)
+
+            by_name: dict[str, str] = {}
+            for row in rows:
+                name = str(row.get("name") or "").strip()
+                if name:
+                    by_name[name] = str(row.get("sys_audit") or "").strip().lower()
+
+            for current in chain:
+                value = by_name.get(current)
+                if value is not None and value != "":
+                    return value == "true"
             return None
 
-        async with ServiceNowClient(self._settings, self._auth_provider) as client:
-            rows = await self._fetch_table_audit_rows(client, chain)
-
-        by_name: dict[str, str] = {}
-        for row in rows:
-            name = str(row.get("name") or "").strip()
-            if not name:
-                continue
-            by_name[name] = str(row.get("sys_audit") or "").strip().lower()
-
-        resolved: bool | None = None
-        for current in chain:
-            value = by_name.get(current)
-            if value is None or value == "":
-                continue
-            resolved = value == "true"
-            break
-
-        self._table_audit_cache[table] = resolved
-        return resolved
+        return await self._table_audit_cache.get_or_load(table, load)
 
     async def get_field_audit(self, table: str, field: str) -> FieldAudit:
         """Return the resolved field-level audit posture for ``(table, field)``.
@@ -224,58 +227,34 @@ class AuditRegistry:
         in the chain.
         """
         cache_key = (table, field)
-        if cache_key in self._field_audit_cache:
-            return self._field_audit_cache[cache_key]
 
-        chain = await self.get_chain(table)
-        if not chain:
-            return self._cache_field_audit(cache_key, _empty_field_audit())
+        async def load() -> FieldAudit:
+            chain = await self.get_chain(table)
+            if not chain:
+                return _empty_field_audit()
 
-        rows = await self._fetch_field_audit_rows(table, chain, field)
-        rows_by_table = _index_dict_rows_by_table(rows, field)
-        match_table, match_row = _pick_chain_match(chain, rows_by_table)
+            rows = await self._fetch_field_audit_rows(chain, field)
+            rows_by_table = _index_dict_rows_by_table(rows, field)
+            match_table, match_row = _pick_chain_match(chain, rows_by_table)
+            if match_row is None or match_table is None:
+                return _empty_field_audit()
+            return _build_field_audit(match_row, match_table, table)
 
-        if match_row is None or match_table is None:
-            return self._cache_field_audit(cache_key, _empty_field_audit())
-
-        return self._cache_field_audit(
-            cache_key,
-            _build_field_audit(match_row, match_table, table),
-        )
-
-    def _cache_field_audit(self, key: tuple[str, str], value: FieldAudit) -> FieldAudit:
-        """Memoize ``value`` under ``key`` and return it."""
-        self._field_audit_cache[key] = value
-        return value
+        return await self._field_audit_cache.get_or_load(cache_key, load)
 
     def flush(self, table: str | None = None) -> None:
         """Clear cached entries.
 
         ``flush()`` clears everything; ``flush('incident')`` clears the
-        entry for ``incident`` only (plus any ``(incident, *)`` field
-        cache entries and the per-table dictionary row cache).
+        entry for ``incident`` only plus any ``(incident, *)`` field
+        cache entries.
         """
         if table is None:
-            self._table_audit_cache.clear()
-            self._field_audit_cache.clear()
-            self._table_field_rows_cache.clear()
+            self._table_audit_cache.invalidate()
+            self._field_audit_cache.invalidate()
             return
-        self._table_audit_cache.pop(table, None)
-        # ``_table_field_rows_cache`` is keyed by ``"{table}:{field}"``; iterate
-        # to clear every entry that belongs to ``table``. The ``list()`` calls
-        # below snapshot the keys because the loop bodies mutate the dicts;
-        # iterating ``.keys()`` directly would raise ``RuntimeError``. The
-        # trailing suppression comments on each ``list()`` call document the
-        # intentional copy for Sonar's S7504 rule.
-        prefix = f"{table}:"
-        row_keys_snapshot = list(self._table_field_rows_cache.keys())  # NOSONAR(S7504)
-        for row_key in row_keys_snapshot:
-            if row_key.startswith(prefix):
-                self._table_field_rows_cache.pop(row_key, None)
-        field_keys_snapshot = list(self._field_audit_cache.keys())  # NOSONAR(S7504)
-        for field_key in field_keys_snapshot:
-            if field_key[0] == table:
-                self._field_audit_cache.pop(field_key, None)
+        self._table_audit_cache.invalidate(table)
+        self._field_audit_cache.invalidate_where(lambda key: key[0] == table)
         # ``DictionaryRegistry`` owns the super_class chain cache; that is
         # structural metadata (sys_db_object.super_class) which changes only
         # on schema reorganisation, not on audit-config edits. Leave it alone -
@@ -304,22 +283,15 @@ class AuditRegistry:
 
     async def _fetch_field_audit_rows(
         self,
-        table: str,
         chain: list[str],
         field: str,
     ) -> list[dict[str, Any]]:
         """Fetch ``sys_dictionary`` rows for ``element=field`` across the chain.
 
-        Cached per-table-per-field via ``_table_field_rows_cache`` keyed by
-        ``"<table>:<field>"`` so repeat ``check_field`` calls for the same
-        pair within a session do not re-issue the HTTP request.
+        The resolved field configuration cache owns repeat-call suppression.
         """
-        cache_key = f"{table}:{field}"
-        if cache_key in self._table_field_rows_cache:
-            return list(self._table_field_rows_cache[cache_key])
-
         query = ServiceNowQuery().in_list("name", chain).equals("element", field).equals("active", "true").build()
-        async with ServiceNowClient(self._settings, self._auth_provider) as client:
+        async with self._client_factory() as client:
             result = await client.query_records(
                 table="sys_dictionary",
                 query=query,
@@ -327,9 +299,7 @@ class AuditRegistry:
                 limit=max(len(chain), 1),
             )
         records: Any = result.get("records") or []
-        rows: list[dict[str, Any]] = list(records) if isinstance(records, list) else []
-        self._table_field_rows_cache[cache_key] = rows
-        return list(rows)
+        return list(records) if isinstance(records, list) else []
 
     async def get_table_field_rows(self, table: str) -> list[dict[str, Any]]:
         """Fetch every ``sys_dictionary`` row for ``table`` plus its super_class chain.
@@ -342,7 +312,7 @@ class AuditRegistry:
         if not chain:
             return []
         query = ServiceNowQuery().in_list("name", chain).is_not_empty("element").equals("active", "true").build()
-        async with ServiceNowClient(self._settings, self._auth_provider) as client:
+        async with self._client_factory() as client:
             result = await client.query_records(
                 table="sys_dictionary",
                 query=query,

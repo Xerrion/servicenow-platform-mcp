@@ -108,8 +108,10 @@ class TestBuildInvestigationResult:
         result = build_investigation_result("stale_automations", findings)
 
         assert result["investigation"] == "stale_automations"
+        assert result["provenance"] == {"investigation": "stale_automations"}
         assert result["finding_count"] == 1
         assert result["findings"] is findings
+        assert result["findings"][0]["provenance"] == {"investigation": "stale_automations"}
 
     def test_sets_finding_count_from_list_length(self) -> None:
         """finding_count reflects the actual length of the findings list."""

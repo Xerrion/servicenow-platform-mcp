@@ -2,17 +2,21 @@
 
 import importlib
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from urllib.parse import urlparse
 
 from mcp.server.fastmcp import FastMCP
 
 from servicenow_mcp.auth import create_auth
 from servicenow_mcp.choices import ChoiceRegistry
+from servicenow_mcp.client import ServiceNowClientFactory
 from servicenow_mcp.config import Settings
 from servicenow_mcp.mcp_state import attach_servicenow_state
 from servicenow_mcp.packages import _TOOL_GROUP_MODULES, get_package, list_packages
 from servicenow_mcp.sentry import capture_exception as sentry_capture
 from servicenow_mcp.sentry import set_sentry_context, setup_sentry, shutdown_sentry
+from servicenow_mcp.telemetry import HttpTelemetry, TelemetryAsyncClient
 from servicenow_mcp.tools._dictionary import DictionaryRegistry
 from servicenow_mcp.utils import serialize
 
@@ -35,11 +39,28 @@ def create_mcp_server() -> FastMCP:
         },
     )
 
-    mcp = FastMCP("servicenow-platform-mcp")
+    telemetry = HttpTelemetry()
+    http_client = TelemetryAsyncClient(
+        telemetry=telemetry,
+        is_shared_pool=True,
+        timeout=settings.httpx_timeout_seconds,
+    )
+    client_factory = ServiceNowClientFactory(settings, auth_provider, http_client)
 
-    choices = ChoiceRegistry(settings, auth_provider)
-    dictionary = DictionaryRegistry(settings, auth_provider)
-    attach_servicenow_state(mcp, settings, auth_provider, choices, dictionary)
+    @asynccontextmanager
+    async def lifespan(mcp_server: FastMCP) -> AsyncIterator[None]:
+        del mcp_server
+        try:
+            yield
+        finally:
+            if not http_client.is_closed:
+                await http_client.aclose()
+
+    mcp = FastMCP("servicenow-platform-mcp", lifespan=lifespan)
+
+    choices = ChoiceRegistry(settings, auth_provider, client_factory, telemetry)
+    dictionary = DictionaryRegistry(settings, auth_provider, client_factory, telemetry)
+    attach_servicenow_state(mcp, settings, auth_provider, choices, dictionary, client_factory, telemetry)
 
     # Always register the list_tool_packages tool
     @mcp.tool()
@@ -68,6 +89,7 @@ def create_mcp_server() -> FastMCP:
                         auth_provider,
                         choices=choices,
                         dictionary=dictionary,
+                        client_factory=client_factory,
                     )
                     logger.info("Loaded tool group: %s", group_name)
             except ImportError as e:

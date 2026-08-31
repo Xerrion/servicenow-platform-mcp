@@ -9,6 +9,17 @@
 
 ## [Unreleased]
 
+### Changed
+
+* Repeated calls now reuse a server-lifetime shared HTTP connection pool with bounded request telemetry. Direct `ServiceNowClient` instances retain independent transport ownership.
+* Common reads now use explicit field projections and bounded sections. List-mode `query` requires `fields`; use `fields="*"` only for intentional full records. `record_read`, `describe`, and `flow` responses expose selection and truncation metadata for continuation.
+* Added `METADATA_CACHE_TTL_SECONDS` (default 300, valid range 1-86400) for bounded choices, dictionary, script-field, and audit-configuration metadata caching. Mutable records, query results, flows, attachments, previews, and audit row counts remain uncached.
+* Investigation findings now include provenance, and `investigate(action="explain", name=..., element_id=...)` supports direct dispatch while preserving legacy trial dispatch when `name` is omitted.
+
+### Removed
+
+* Removed the public `build_query` MCP tool. Pass ServiceNow encoded query strings directly to `query(encoded_query=...)`; custom packages that name `build_query` are invalid.
+
 ### Added
 
 * `flow` unified tool for read-only Flow Designer inspection (Washington DC V2 + V1 fallback). Five actions: `inspect`, `find_by_table`, `decode_values`, `list_triggers`, `describe`. Available in `full` and `readonly` presets.
@@ -28,7 +39,7 @@
 * **loader simplification**: every tool group module now uses the unconditional 4-arg `register_tools(mcp, settings, auth_provider, choices=choices)` signature. The `domain_` prefix branching in `server.py` was removed.
 * **state management**: `QueryTokenStore` was removed; only `PreviewTokenStore` and `_BaseTokenStore` remain in `state.py`.
 
-Migration: see [`docs/agent-recipes.md`](docs/agent-recipes.md) for the canonical migration patterns and 10 worked recipes covering the new 12-tool surface.
+Migration: see [`docs/agent-recipes.md`](docs/agent-recipes.md) for the canonical migration patterns and worked recipes covering the unified tool surface.
 
 
 ### Added

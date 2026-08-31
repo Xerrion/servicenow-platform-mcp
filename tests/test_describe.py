@@ -43,7 +43,7 @@ class TestDescribe:
     """Tests for the unified describe tool (mirrors the legacy table_describe coverage)."""
 
     @staticmethod
-    def _mock_dictionary() -> None:
+    def _mock_dictionary(total: int = 2) -> None:
         """Default sys_dictionary mock with two fields: number, state."""
         respx.get(f"{BASE_URL}/api/now/table/sys_dictionary").mock(
             return_value=httpx.Response(
@@ -78,6 +78,7 @@ class TestDescribe:
                         },
                     ]
                 },
+                headers={"X-Total-Count": str(total)},
             )
         )
 
@@ -127,7 +128,16 @@ class TestDescribe:
         assert result["status"] == "success"
         data = result["data"]
         assert data["field_count"] == 2
+        assert data["total_field_count"] == 2
         assert "documentation" not in data
+        assert result["selection"] == {
+            "mode": "compact",
+            "requested_fields": None,
+            "returned_fields": ["number", "state"],
+            "omitted_count": 0,
+            "truncated": False,
+            "next_offset": None,
+        }
 
         first, second = data["fields"]
         assert first == {
@@ -156,7 +166,7 @@ class TestDescribe:
         self._mock_choices()
 
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["describe"](table="incident", verbose=True)
+        raw = await tools["describe"](table="incident", fields="*", verbose=True)
         result = decode_response(raw)
 
         assert result["status"] == "success"
@@ -170,6 +180,7 @@ class TestDescribe:
         assert "sys_scope" not in first
         assert "attributes" not in first
         assert "default_value" not in first
+        assert result["selection"]["mode"] == "all"
 
     @pytest.mark.asyncio()
     @respx.mock
@@ -187,6 +198,41 @@ class TestDescribe:
         names = [f["name"] for f in result["data"]["fields"]]
         assert names == ["state"]
         assert any("priority" in w for w in result.get("warnings", []))
+        assert result["selection"]["mode"] == "explicit"
+        dictionary_call = next(call for call in respx.calls if call.request.url.path.endswith("/sys_dictionary"))
+        assert "elementINstate%2Cpriority" in str(dictionary_call.request.url)
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_compact_default_has_continuation_metadata(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        self._mock_dictionary(total=40)
+        self._mock_db_object()
+        self._mock_choices()
+
+        tools = _register_and_get_tools(settings, auth_provider)
+        result = decode_response(await tools["describe"](table="incident", field_limit=2, field_offset=10))
+
+        assert result["status"] == "success"
+        assert result["selection"]["truncated"] is True
+        assert result["selection"]["next_offset"] == 12
+        assert result["selection"]["omitted_count"] == 38
+        dictionary_call = next(call for call in respx.calls if call.request.url.path.endswith("/sys_dictionary"))
+        assert dictionary_call.request.url.params["sysparm_limit"] == "2"
+        assert dictionary_call.request.url.params["sysparm_offset"] == "10"
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_invalid_page_returns_error_without_io(
+        self, settings: Settings, auth_provider: BasicAuthProvider
+    ) -> None:
+        tools = _register_and_get_tools(settings, auth_provider)
+        result = decode_response(await tools["describe"](table="incident", field_limit=0))
+
+        assert result["status"] == "error"
+        assert "field_limit" in result["error"]["message"]
+        assert not respx.calls
 
     @pytest.mark.asyncio()
     @respx.mock
@@ -216,7 +262,7 @@ class TestDescribe:
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["describe"](table="incident", include_docs=True)
+        raw = await tools["describe"](table="incident", fields="*", include_docs=True)
         result = decode_response(raw)
 
         assert result["status"] == "success"
@@ -239,7 +285,7 @@ class TestDescribe:
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["describe"](table="incident")
+        raw = await tools["describe"](table="incident", fields="*")
         result = decode_response(raw)
 
         assert result["status"] == "success"
@@ -260,7 +306,7 @@ class TestDescribe:
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["describe"](table="incident")
+        raw = await tools["describe"](table="incident", fields="*")
         result = decode_response(raw)
 
         assert result["status"] == "success"

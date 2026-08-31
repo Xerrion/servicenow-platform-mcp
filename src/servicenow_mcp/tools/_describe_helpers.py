@@ -10,7 +10,7 @@ import logging
 from typing import Any
 
 from servicenow_mcp.auth import BasicAuthProvider
-from servicenow_mcp.client import ServiceNowClient
+from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.policy import INTERNAL_QUERY_LIMIT
 from servicenow_mcp.utils import ServiceNowQuery
@@ -59,6 +59,18 @@ DESCRIBE_NOISE_FIELDS: frozenset[str] = frozenset(
         "sizeclass",
     }
 )
+
+DEFAULT_DESCRIBE_FIELD_LIMIT = 25
+
+_SLIM_METADATA_FIELDS: list[str] = [
+    "element",
+    "column_label",
+    "internal_type",
+    "max_length",
+    "mandatory",
+    "read_only",
+    "reference",
+]
 
 
 def _ref_value(raw: Any) -> str:
@@ -140,6 +152,7 @@ def _parse_fields_filter(fields: str) -> list[str]:
 async def _fetch_choice_counts(
     client: ServiceNowClient,
     table: str,
+    fields: list[str],
     warnings: list[str],
 ) -> dict[str, int]:
     """Fetch sys_choice records for ``table`` and return per-field counts.
@@ -149,10 +162,12 @@ async def _fetch_choice_counts(
     ``warnings`` in place. The truncation warning is appended when the row
     count meets the internal query limit.
     """
+    if not fields:
+        return {}
     try:
         choices_resp = await client.query_records(
             "sys_choice",
-            ServiceNowQuery().equals("name", table).build(),
+            ServiceNowQuery().equals("name", table).in_list("element", fields).build(),
             fields=["element"],
             limit=INTERNAL_QUERY_LIMIT,
         )
@@ -170,6 +185,7 @@ async def _fetch_choice_counts(
 async def _fetch_documentation(
     client: ServiceNowClient,
     table: str,
+    fields: list[str],
     warnings: list[str],
 ) -> dict[str, dict[str, Any]]:
     """Fetch sys_documentation rows for ``table`` keyed by element name.
@@ -178,9 +194,11 @@ async def _fetch_documentation(
     via the ``include_docs`` flag). Appends a truncation warning to
     ``warnings`` in place when the row count meets the 500-row cap.
     """
+    if not fields:
+        return {}
     docs_result = await client.query_records(
         "sys_documentation",
-        ServiceNowQuery().equals("name", table).build(),
+        ServiceNowQuery().equals("name", table).in_list("element", fields).build(),
         fields=["element", "label", "help", "hint", "url"],
         limit=500,
     )
@@ -216,8 +234,11 @@ async def _describe_impl(
     verbose: bool,
     include_docs: bool,
     requested_fields: list[str],
+    field_offset: int,
+    field_limit: int,
     settings: Settings,
     auth_provider: BasicAuthProvider,
+    client_factory: ServiceNowClientProvider,
 ) -> tuple[dict[str, Any], list[str]]:
     """Run the post-validation orchestration for the ``describe`` tool.
 
@@ -229,8 +250,26 @@ async def _describe_impl(
     ``format_response``.
     """
     warnings: list[str] = []
-    async with ServiceNowClient(settings, auth_provider) as client:
-        metadata = await client.get_metadata(table)
+    is_all_fields = field_limit >= 1_000_000
+    async with client_factory() as client:
+        metadata_query = ServiceNowQuery().equals("name", table).is_not_empty("element")
+        if requested_fields:
+            metadata_query.in_list("element", requested_fields)
+        metadata_query.order_by("element")
+        metadata_result = await client.query_records(
+            "sys_dictionary",
+            metadata_query.build(),
+            fields=None if verbose else _SLIM_METADATA_FIELDS,
+            limit=(INTERNAL_QUERY_LIMIT if is_all_fields else max(len(requested_fields), field_limit)),
+            offset=0 if requested_fields or is_all_fields else field_offset,
+        )
+        metadata = metadata_result.get("records", [])
+        if requested_fields:
+            total_field_count = len(metadata)
+        else:
+            total_field_count = metadata_result.get("count", 0)
+            if not total_field_count:
+                total_field_count = len(metadata)
         table_meta = await client.query_records(
             "sys_db_object",
             ServiceNowQuery().equals("name", table).build(),
@@ -238,10 +277,11 @@ async def _describe_impl(
             limit=1,
         )
         table_info = table_meta.get("records", [{}])[0] if table_meta.get("records") else {}
-        choice_counts = await _fetch_choice_counts(client, table, warnings)
+        returned_names = [str(column.get("element") or "") for column in metadata if column.get("element")]
+        choice_counts = await _fetch_choice_counts(client, table, returned_names, warnings)
         docs: dict[str, dict[str, Any]] = {}
         if include_docs:
-            docs = await _fetch_documentation(client, table, warnings)
+            docs = await _fetch_documentation(client, table, returned_names, warnings)
 
     field_list = (
         _build_verbose_field_list(metadata, choice_counts)
@@ -250,11 +290,30 @@ async def _describe_impl(
     )
     if requested_fields:
         field_list = _apply_fields_filter(field_list, requested_fields, warnings)
+        selection: dict[str, Any] = {
+            "mode": "explicit",
+            "requested_fields": requested_fields,
+            "returned_fields": [str(field.get("name") or field.get("element") or "") for field in field_list],
+            "omitted_count": len(requested_fields) - len(field_list),
+            "truncated": False,
+        }
+    else:
+        end = field_offset + len(field_list)
+        selection = {
+            "mode": "all" if is_all_fields else "compact",
+            "requested_fields": None,
+            "returned_fields": [str(field.get("name") or field.get("element") or "") for field in field_list],
+            "omitted_count": max(total_field_count - len(field_list), 0),
+            "truncated": not is_all_fields and end < total_field_count,
+            "next_offset": end if not is_all_fields and end < total_field_count else None,
+        }
 
     data: dict[str, Any] = {
         "table": table_info,
         "fields": field_list,
         "field_count": len(field_list),
+        "total_field_count": total_field_count,
+        "selection": selection,
     }
     if include_docs:
         data["documentation"] = docs

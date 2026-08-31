@@ -108,10 +108,33 @@ async def test_run_dispatches_to_module_run(settings: Settings, auth_provider: B
 
     assert result["status"] == "success"
     assert result["data"]["marker"] == "ok"
+    assert result["data"]["provenance"] == {"investigation": "my_stub"}
 
     stub_module.run.assert_awaited_once()
     _client_arg, params_arg = stub_module.run.await_args.args
     assert params_arg == {"stale_days": 30, "limit": 5}
+
+
+@pytest.mark.asyncio()
+async def test_run_findings_contain_registered_provenance(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    """A real investigation result identifies its registered source on each finding."""
+    tools = _register_and_get_tools(settings, auth_provider)
+    client = AsyncMock()
+    client.query_records.side_effect = [
+        {"records": [{"sys_id": "flow1", "name": "Flow"}]},
+        {"records": []},
+        {"records": []},
+        {"records": []},
+    ]
+    cm = AsyncMock()
+    cm.__aenter__.return_value = client
+    cm.__aexit__.return_value = False
+
+    with patch("servicenow_mcp.tools.investigate.ServiceNowClient", return_value=cm):
+        raw = await tools["investigate"](action="run", name="stale_automations")
+    result = decode_response(raw)
+
+    assert result["data"]["findings"][0]["provenance"] == {"investigation": "stale_automations"}
 
 
 @pytest.mark.asyncio()
@@ -186,6 +209,85 @@ async def test_explain_dispatches_to_module_explain(settings: Settings, auth_pro
     stub_module.explain.assert_awaited_once()
     _client_arg, element_arg = stub_module.explain.await_args.args
     assert element_arg == "sys_flow_context:fc001"
+    assert result["selection"]["dispatch"] == {
+        "mode": "trial",
+        "investigation": "my_stub",
+        "attempted": ["my_stub"],
+    }
+
+
+@pytest.mark.asyncio()
+async def test_explain_direct_dispatch_invokes_only_named_module(
+    settings: Settings, auth_provider: BasicAuthProvider
+) -> None:
+    """A supplied provenance name dispatches once and does not fall through on decline."""
+    selected = type("StubModule", (), {})()
+    selected.explain = AsyncMock(return_value={"error": "selected module declined"})
+    other = type("StubModule", (), {})()
+    other.explain = AsyncMock(return_value={"explanation": "must not run"})
+    fake_registry = {"selected": selected, "other": other}
+
+    with patch("servicenow_mcp.tools.investigate.INVESTIGATION_REGISTRY", fake_registry):
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["investigate"](
+            action="explain",
+            name="selected",
+            element_id="sys_flow_context:fc001",
+        )
+    result = decode_response(raw)
+
+    assert result["data"] == {"error": "selected module declined"}
+    selected.explain.assert_awaited_once()
+    other.explain.assert_not_awaited()
+    assert result["selection"]["dispatch"] == {
+        "mode": "direct",
+        "investigation": "selected",
+        "attempted": ["selected"],
+    }
+
+
+@pytest.mark.asyncio()
+async def test_explain_unknown_direct_name_fails_before_io(
+    settings: Settings, auth_provider: BasicAuthProvider
+) -> None:
+    """An invalid direct selector is rejected before a client context is created."""
+    with patch("servicenow_mcp.tools.investigate.ServiceNowClient") as client_factory:
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["investigate"](
+            action="explain",
+            name="unknown",
+            element_id="sys_flow_context:fc001",
+        )
+    result = decode_response(raw)
+
+    assert result["status"] == "error"
+    assert "Unknown investigation 'unknown'" in result["error"]["message"]
+    client_factory.assert_not_called()
+
+
+@pytest.mark.asyncio()
+async def test_explain_legacy_trial_dispatch_continues_after_decline(
+    settings: Settings, auth_provider: BasicAuthProvider
+) -> None:
+    """Without a selector, explain keeps trial dispatch and reports all attempts."""
+    first = type("StubModule", (), {})()
+    first.explain = AsyncMock(return_value={"error": "declined"})
+    second = type("StubModule", (), {})()
+    second.explain = AsyncMock(return_value={"explanation": "accepted"})
+    fake_registry = {"first": first, "second": second}
+
+    with patch("servicenow_mcp.tools.investigate.INVESTIGATION_REGISTRY", fake_registry):
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["investigate"](action="explain", element_id="syslog:log1")
+    result = decode_response(raw)
+
+    first.explain.assert_awaited_once()
+    second.explain.assert_awaited_once()
+    assert result["selection"]["dispatch"] == {
+        "mode": "trial",
+        "investigation": "second",
+        "attempted": ["first", "second"],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -204,6 +306,7 @@ async def test_describe_with_no_name_returns_directory(settings: Settings, auth_
 
     assert result["status"] == "success"
     assert result["data"]["investigations"] == sorted(INVESTIGATION_REGISTRY.keys())
+    assert result["data"]["actions"]["explain"]["params"]["name"].startswith("registered investigation name")
     for expected in (
         "stale_automations",
         "deprecated_apis",

@@ -36,9 +36,9 @@ def _register_and_get_tools(
 
 
 def _make_choices(settings: Settings, auth_provider: BasicAuthProvider) -> ChoiceRegistry:
-    """Return a ``ChoiceRegistry`` instance pre-marked as fetched (no real I/O)."""
+    """Return a ``ChoiceRegistry`` instance seeded with an empty fresh cache."""
     choices = ChoiceRegistry(settings, auth_provider)
-    choices._fetched = True
+    choices._metadata_cache.seed("all", choices._cache)
     return choices
 
 

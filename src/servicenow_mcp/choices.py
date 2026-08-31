@@ -1,13 +1,14 @@
 """Lazy-loaded choice list registry backed by sys_choice."""
 
-import asyncio
 import logging
 from typing import Any, ClassVar
 
 from servicenow_mcp.auth import BasicAuthProvider
-from servicenow_mcp.client import ServiceNowClient
+from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
+from servicenow_mcp.metadata_cache import AsyncMetadataCache
 from servicenow_mcp.sentry import capture_exception as sentry_capture
+from servicenow_mcp.telemetry import CacheName, HttpTelemetry
 
 
 logger = logging.getLogger(__name__)
@@ -60,7 +61,7 @@ class ChoiceRegistry:
     """Lazy-loaded choice list cache backed by sys_choice.
 
     Fetches real choice values from the instance on first access and caches
-    them for the server's lifetime. Falls back to OOTB defaults on failure.
+    them for the configured metadata TTL. Falls back to OOTB defaults on failure.
     """
 
     # OOTB defaults - consolidated from all domain tools.
@@ -121,15 +122,23 @@ class ChoiceRegistry:
 
     _settings: Settings
     _auth_provider: BasicAuthProvider
-    _fetched: bool
-    _lock: asyncio.Lock
 
-    def __init__(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        auth_provider: BasicAuthProvider,
+        client_factory: ServiceNowClientProvider | None = None,
+        telemetry: HttpTelemetry | None = None,
+    ) -> None:
         self._settings = settings
         self._auth_provider = auth_provider
+        self._client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
         self._cache: dict[tuple[str, str], dict[str, str]] = {}
-        self._fetched = False
-        self._lock = asyncio.Lock()
+        self._metadata_cache = AsyncMetadataCache[str, dict[tuple[str, str], dict[str, str]]](
+            name=CacheName.CHOICES,
+            ttl_seconds=settings.metadata_cache_ttl_seconds,
+            telemetry=telemetry,
+        )
 
     async def resolve(self, table: str, field: str, label: str) -> str:
         """Resolve a human-readable label to its stored value.
@@ -153,59 +162,50 @@ class ChoiceRegistry:
             table: ServiceNow table name.
             field: Field name.
         """
-        await self._ensure_fetched()
-        return self._cache.get((table, field), {})
+        cache = await self._ensure_fetched()
+        return cache.get((table, field), {})
 
-    async def _ensure_fetched(self) -> None:
-        """Fetch choices from sys_choice on first access.
+    async def _ensure_fetched(self) -> dict[tuple[str, str], dict[str, str]]:
+        """Return fresh choices, with one shared instance load at a time."""
 
-        Uses an asyncio.Lock to prevent duplicate fetches under concurrency.
-        On any failure, populates cache from OOTB defaults and logs a warning.
-        """
-        if self._fetched:
-            return
+        async def load() -> dict[tuple[str, str], dict[str, str]]:
+            loaded = await self._fetch_from_instance()
+            return self._cache if loaded is None else loaded
 
-        async with self._lock:
-            if self._fetched:  # Double-check after acquiring lock
-                return
+        try:
+            self._cache = await self._metadata_cache.get_or_load("all", load)
+        except Exception as e:
+            logger.warning(
+                "Failed to fetch choice lists from instance; using OOTB defaults",
+                exc_info=True,
+            )
+            sentry_capture(e)
+            return {key: dict(value) for key, value in self._DEFAULTS.items()}
+        return self._cache
 
-            try:
-                await self._fetch_from_instance()
-            except Exception as e:
-                logger.warning(
-                    "Failed to fetch choice lists from instance; using OOTB defaults",
-                    exc_info=True,
-                )
-                sentry_capture(e)
-                self._cache = {k: dict(v) for k, v in self._DEFAULTS.items()}
-
-            self._fetched = True
-
-    async def _fetch_from_instance(self) -> None:
+    async def _fetch_from_instance(self) -> dict[tuple[str, str], dict[str, str]] | None:
         """Query sys_choice for all tracked table/field combinations."""
         from servicenow_mcp.utils import ServiceNowQuery
 
         tracked = list(self._DEFAULTS.keys())
         if not tracked:
             self._cache = {}
-            return
+            return self._cache
 
-        # Build the query using new_query for OR across table/field pairs
-        q = ServiceNowQuery()
+        query = ServiceNowQuery()
         first_table, first_field = tracked[0]
-        q = q.equals("name", first_table).equals("element", first_field)
+        query = query.equals("name", first_table).equals("element", first_field)
         for table, field in tracked[1:]:
-            q = q.new_query().equals("name", table).equals("element", field)
+            query = query.new_query().equals("name", table).equals("element", field)
 
-        query_str = q.build()
-
-        async with ServiceNowClient(self._settings, self._auth_provider) as client:
+        async with self._client_factory() as client:
             result = await client.query_records(
                 table="sys_choice",
-                query=query_str,
+                query=query.build(),
                 fields=["name", "element", "label", "value"],
                 limit=500,
             )
 
         grouped = _group_choice_records(result.get("records", []))
         self._cache = _merge_with_defaults(grouped, self._DEFAULTS)
+        return self._cache

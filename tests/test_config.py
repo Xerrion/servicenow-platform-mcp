@@ -150,6 +150,20 @@ class TestSettings:
 
         assert settings.max_row_limit == 100
 
+    def test_metadata_cache_ttl_default_and_validation(self) -> None:
+        """Metadata cache TTL defaults to five minutes and must stay positive."""
+        from servicenow_mcp.config import Settings
+
+        with patch.dict("os.environ", self._make_env(), clear=True):
+            settings = Settings(_env_file=None)
+        assert settings.metadata_cache_ttl_seconds == 300
+
+        with (
+            patch.dict("os.environ", self._make_env(METADATA_CACHE_TTL_SECONDS="0"), clear=True),
+            pytest.raises(ValueError, match="between 1 and 86400"),
+        ):
+            Settings(_env_file=None)
+
     def test_custom_max_row_limit(self) -> None:
         """MAX_ROW_LIMIT can be overridden."""
         from servicenow_mcp.config import Settings

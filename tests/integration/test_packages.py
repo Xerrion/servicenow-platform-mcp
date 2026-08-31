@@ -17,21 +17,19 @@ pytestmark = pytest.mark.integration
 #
 # Group -> tool count:
 #   query (1), describe (1), record_write (2: record_write + record_apply),
-#   attachment (2: attachment + attachment_write), investigate (1),
-#   resolve_choice (1), service_catalog (1).
+#   record_read (1), attachment (2: attachment + attachment_write),
+#   investigate (1), resolve_choice (1), service_catalog (1), audit (1),
+#   flow (1), code_search (1).
 #
 # Note: ``readonly`` and ``core_readonly`` both load the ``attachment`` group,
 # which registers both read AND write attachment tools (write tools are
 # blocked at runtime by ``write_gate`` in production). This is documented in
 # ``packages.py``.
 EXPECTED_TOOL_COUNTS: dict[str, int] = {
-    # full preset: 1 always-on plus 9 unified tools (query, describe, two
-    # record_write tools, two attachment tools, investigate, resolve_choice,
-    # service_catalog) = 10.
-    "full": 10,
-    # readonly preset: 1 always-on plus query, describe, two attachment tools,
-    # investigate, resolve_choice = 7.
-    "readonly": 7,
+    # full preset: 1 always-on plus 13 package tools.
+    "full": 14,
+    # readonly preset: 1 always-on plus 10 package tools.
+    "readonly": 11,
     # core_readonly preset: 1 always-on plus query, describe, two attachment
     # tools = 5.
     "core_readonly": 5,
@@ -121,11 +119,14 @@ class TestPackageLoading:
             "describe",
             "record_write",
             "record_apply",
+            "record_read",
             "attachment",
             "attachment_write",
             "investigate",
             "resolve_choice",
             "service_catalog",
+            "audit",
+            "flow",
+            "code_search",
         }
-        missing = expected - tool_names
-        assert not missing, f"Full package missing unified tools: {missing}"
+        assert tool_names == expected

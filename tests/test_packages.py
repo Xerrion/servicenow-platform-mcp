@@ -1,7 +1,7 @@
 """Tests for the unified tool package registry.
 
 Phase 3b collapsed 14 legacy presets into 4 (``full``, ``readonly``,
-``core_readonly``, ``none``) and 21 legacy tool groups into 7 unified
+``core_readonly``, ``none``) and 21 legacy tool groups into unified
 groups under ``servicenow_mcp.tools.*``.
 """
 
@@ -25,6 +25,7 @@ EXPECTED_GROUPS = {
     "record_write",
     "record_read",
     "attachment",
+    "attachment_write",
     "investigate",
     "resolve_choice",
     "service_catalog",
@@ -42,7 +43,7 @@ class TestPackageRegistry:
 
     def test_full_contains_all_unified_groups(self) -> None:
         assert set(PACKAGE_REGISTRY["full"]) == EXPECTED_GROUPS
-        assert len(PACKAGE_REGISTRY["full"]) == 11
+        assert len(PACKAGE_REGISTRY["full"]) == 12
 
     def test_full_public_surface_stays_at_fourteen_tools(self, settings: Any) -> None:
         """Optimization changes do not add or remove public tools."""
@@ -72,6 +73,7 @@ class TestPackageRegistry:
         assert readonly < full
         # readonly excludes mutating groups
         assert "record_write" not in readonly
+        assert "attachment_write" not in readonly
         assert "service_catalog" not in readonly
         # record_read is read-only and included
         assert "record_read" in readonly

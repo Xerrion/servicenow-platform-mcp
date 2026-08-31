@@ -10,7 +10,7 @@
 
 # servicenow-platform-mcp
 
-A comprehensive [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for ServiceNow. Provides 14 unified tools in 11 tool groups for platform introspection, change intelligence, debugging, record management, and automated investigations.
+A comprehensive [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for ServiceNow. Provides 14 unified tools in 12 tool groups for platform introspection, change intelligence, debugging, record management, and automated investigations.
 
 ## Quick Start
 
@@ -168,11 +168,12 @@ Control which tools are loaded with `MCP_TOOL_PACKAGE`.
 | Package | Tools | Description |
 |---------|-------|-------------|
 | `full` | 14 | All unified tools, including `audit`, `flow`, and `code_search` (default) |
-| `readonly` | 11 | Includes `record_read`, `audit`, `flow`, `code_search`, and `attachment_write` (write_gate blocks in prod) |
-| `core_readonly` | 5 | Minimal read surface (includes `attachment_write`) |
+| `readonly` | 10 | Includes `record_read`, `audit`, `flow`, `code_search`, and attachment reads |
+| `core_readonly` | 4 | Minimal read surface with attachment reads |
 | `none` | 1 | Just `list_tool_packages` |
 
 Custom packages are supported via comma-separated tool names: `MCP_TOOL_PACKAGE="query,describe,attachment"`.
+The `attachment` group is read-only. Add `attachment_write` explicitly to opt in to upload and delete operations.
 
 ## Safety
 

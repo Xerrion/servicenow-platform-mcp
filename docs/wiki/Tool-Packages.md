@@ -2,7 +2,7 @@
 
 Tool packages control which tools are loaded when the server starts. Configure the active package via the `MCP_TOOL_PACKAGE` environment variable.
 
-The server has 11 tool groups and 4 focused presets. The public `full` surface contains 14 tools. For a complete reference of every tool, see [[Tool-Reference]]. For security guardrails that apply across all packages, see [[Safety-and-Policy]].
+The server has 12 tool groups and 4 focused presets. The public `full` surface contains 14 tools. For a complete reference of every tool, see [[Tool-Reference]]. For security guardrails that apply across all packages, see [[Safety-and-Policy]].
 
 ---
 
@@ -11,8 +11,8 @@ The server has 11 tool groups and 4 focused presets. The public `full` surface c
 | Package | Total MCP Tools | Description |
 |---|---|---|
 | `full` (default) | 14 | All unified tools, including `audit`, `flow`, and `code_search` |
-| `readonly` | 11 | Includes `record_read`, `audit`, `flow`, `code_search`, and `attachment_write` (runtime write gating blocks in prod) |
-| `core_readonly` | 5 | Minimal read-only core: `query`, `describe`, `attachment`, `attachment_write`, `list_tool_packages` |
+| `readonly` | 10 | Includes `record_read`, `audit`, `flow`, `code_search`, and attachment reads |
+| `core_readonly` | 4 | Minimal read-only core: `query`, `describe`, `attachment`, `list_tool_packages` |
 | `none` | 1 | No tools loaded - only `list_tool_packages` is available |
 
 ---
@@ -25,17 +25,13 @@ The `list_tool_packages` tool is always available and returns the active registr
 
 `query`, `describe`, `record_read`, `record_write`, `record_apply`, `attachment`, `attachment_write`, `investigate`, `resolve_choice`, `service_catalog`, `audit`, `flow`, `code_search`.
 
-### `readonly` (10 package tools)
+### `readonly` (9 package tools)
 
-`query`, `describe`, `record_read`, `attachment`, `attachment_write`, `investigate`, `resolve_choice`, `audit`, `flow`, `code_search`.
+`query`, `describe`, `record_read`, `attachment`, `investigate`, `resolve_choice`, `audit`, `flow`, `code_search`.
 
-*Note: While `attachment_write` is included at the MCP layer, the underlying `write_gate` check will block deletions and uploads if `SERVICENOW_ENV` is set to production.*
+### `core_readonly` (3 package tools)
 
-### `core_readonly` (4 package tools)
-
-`query`, `describe`, `attachment`, `attachment_write`.
-
-*Note: `attachment_write` is included for symmetry; mutations are blocked in production via write gating.*
+`query`, `describe`, `attachment`.
 
 ---
 
@@ -46,6 +42,8 @@ You can create a custom package by setting `MCP_TOOL_PACKAGE` to a comma-separat
 ```bash
 MCP_TOOL_PACKAGE="query,describe,attachment"
 ```
+
+The `attachment` group registers only the read tool. Add `attachment_write` explicitly to opt in to attachment upload and delete. Runtime write gating still applies to the opt-in group.
 
 ### Migration from v0.9.x
 

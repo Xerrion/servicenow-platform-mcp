@@ -27,8 +27,8 @@ Ask the user:
 
 2. **Do you want all tools or a specific subset?**
    - **All tools** (default) - set `MCP_TOOL_PACKAGE=full` (14 tools, including `audit` and `flow`)
-   - **Read-only** - set `MCP_TOOL_PACKAGE=readonly` (11 tools, including `audit` and `flow`)
-   - **Minimal** - set `MCP_TOOL_PACKAGE=core_readonly` (5 tools: query, describe, attachment, attachment_write, list_tool_packages)
+   - **Read-only** - set `MCP_TOOL_PACKAGE=readonly` (10 tools, including `audit`, `flow`, and attachment reads)
+   - **Minimal** - set `MCP_TOOL_PACKAGE=core_readonly` (4 tools: query, describe, attachment, list_tool_packages)
    - **Custom** - comma-separated tool names (e.g., `query,describe,attachment`)
 
 ## Step 2: Choose MCP Client
@@ -175,7 +175,7 @@ Commits a write operation previously staged with `record_write(preview=true)`. T
 Dispatcher for read operations: `list`, `get`, `download`.
 
 ### attachment_write
-Dispatcher for write operations: `upload`, `delete`. Included in all standard packages; blocked in production via runtime write gating.
+Dispatcher for write operations: `upload`, `delete`. Included in `full` or available as the explicit `attachment_write` custom group; blocked in production via runtime write gating.
 
 ### investigate
 Runs automated diagnostic modules. Actions: `run` (execute module) or `explain` (interpret findings). Includes: `stale_automations`, `table_health`, `performance_bottlenecks`, and more.

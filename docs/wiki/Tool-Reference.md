@@ -125,7 +125,7 @@ Unified dispatcher for reading and downloading record attachments.
   ```
 
 ### `attachment_write`
-Dispatcher for attachment mutations. Included in all packages; blocked in production via write gating.
+Dispatcher for attachment mutations. Included in `full` or available as the explicit `attachment_write` custom group. Runtime write gating applies to every action.
 
 - **Actions:**
   - `upload`: Upload a base64-encoded file.

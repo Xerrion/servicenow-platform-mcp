@@ -41,13 +41,14 @@ The `MCP_TOOL_PACKAGE` variable controls the available tool surface.
 
 ### Presets
 - `full`: 14 total tools (13 package tools plus always-on `list_tool_packages`; includes `code_search`).
-- `readonly`: 11 total tools (excludes `record_write`, `record_apply`, and `service_catalog`; includes `record_read`, `audit`, `flow`, and `code_search`).
-- `core_readonly`: 5 total tools (`query`, `describe`, `attachment`, `attachment_write`, `list_tool_packages`).
+- `readonly`: 10 total tools (excludes all write tools and `service_catalog`; includes `record_read`, `attachment`, `audit`, `flow`, and `code_search`).
+- `core_readonly`: 4 total tools (`query`, `describe`, `attachment`, `list_tool_packages`).
 - `none`: Only `list_tool_packages`.
 
 ### Custom Packages
 You can list specific tools: `MCP_TOOL_PACKAGE="query,describe,investigate"`. `build_query` is not a valid tool name.
 *Note: `service_catalog` and `record_write` are now tool names. `record_write` should typically be paired with `record_apply` for the preview flow.*
+The `attachment` group is read-only. Add `attachment_write` explicitly to opt in to attachment upload and delete.
 
 ## Metadata Cache
 

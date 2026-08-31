@@ -1,26 +1,21 @@
 """Tool package registry and loader for the ServiceNow MCP server.
 
-The unified tool surface exposes 11 tool groups across 4 preset packages:
+The unified tool surface exposes 12 tool groups across 4 preset packages:
 
 Groups (registered modules under ``servicenow_mcp.tools``):
     ``query``, ``describe``, ``record_write``, ``record_read``,
-    ``attachment``, ``investigate``, ``resolve_choice``,
+    ``attachment``, ``attachment_write``, ``investigate``, ``resolve_choice``,
     ``service_catalog``, ``audit``, ``flow``, ``code_search``.
 
 Note: the ``record_write`` group registers both ``record_write`` and
-``record_apply`` tools; the ``attachment`` group registers both
-``attachment`` (read) and ``attachment_write`` tools. There is no
-separate ``attachment_write`` group - read and write live in one
-module and write paths are gated by ``write_gate``/``can_write``.
+``record_apply`` tools. Attachment reads and writes use separate groups;
+``attachment_write`` remains gated at runtime by ``write_gate``.
 
 Presets:
-    ``full``           - every group (full surface).
+    ``full``           - every group (full surface, including attachment writes).
     ``readonly``       - query + describe + record_read + attachment +
                        investigate + resolve_choice + audit + flow +
-                       code_search
-                       (still loads attachment which carries write tools;
-                       those are blocked at runtime in production by
-                       ``write_gate``).
+                       code_search.
     ``core_readonly``  - query + describe + attachment only.
     ``none``           - no tool groups loaded; only ``list_tool_packages``
                        is registered by the server bootstrap.
@@ -39,6 +34,7 @@ _TOOL_GROUP_MODULES: dict[str, str] = {
     "record_write": "servicenow_mcp.tools.record_write",
     "record_read": "servicenow_mcp.tools.record_read",
     "attachment": "servicenow_mcp.tools.attachment",
+    "attachment_write": "servicenow_mcp.tools.attachment_write",
     "investigate": "servicenow_mcp.tools.investigate",
     "resolve_choice": "servicenow_mcp.tools.resolve_choice",
     "service_catalog": "servicenow_mcp.tools.service_catalog",
@@ -49,12 +45,6 @@ _TOOL_GROUP_MODULES: dict[str, str] = {
 
 # Registry mapping package names to lists of tool group names.
 # Tool groups correspond to modules in servicenow_mcp.tools.
-#
-# Caveat: ``readonly`` and ``core_readonly`` both include the ``attachment``
-# group, which registers both read AND write attachment tools. The write
-# tools are blocked at runtime in production by ``write_gate``. To get a
-# truly read-only attachment surface, the ``attachment`` module would need
-# to be split into separate read / write groups.
 PACKAGE_REGISTRY: dict[str, list[str]] = {
     "full": [
         "query",
@@ -62,6 +52,7 @@ PACKAGE_REGISTRY: dict[str, list[str]] = {
         "record_write",
         "record_read",
         "attachment",
+        "attachment_write",
         "investigate",
         "resolve_choice",
         "service_catalog",

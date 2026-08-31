@@ -114,7 +114,8 @@ src/servicenow_mcp/
         query.py
         describe.py
         record_write.py # Registers both record_write and record_apply
-        attachment.py   # Registers both attachment and attachment_write
+        attachment.py       # Registers attachment reads
+        attachment_write.py # Registers gated attachment writes
         investigate.py
         resolve_choice.py
         service_catalog.py

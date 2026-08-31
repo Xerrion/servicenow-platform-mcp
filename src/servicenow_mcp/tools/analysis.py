@@ -31,7 +31,8 @@ _VALID_ACTIONS: Final[frozenset[str]] = frozenset({"ritm_variables", "journal_hi
 _DEFAULT_WINDOW_DAYS: Final[int] = 90
 _JOURNAL_FIELDS: Final[frozenset[str]] = frozenset({"comments", "work_notes", "close_notes"})
 _JOURNAL_TYPES: Final[frozenset[str]] = frozenset({"journal", "journal_input", "journal_list"})
-_MRVS_TYPES: Final[frozenset[str]] = frozenset({"multi_row_variable_set", "21"})
+_MRVS_TYPES: Final[frozenset[str]] = frozenset({"multi_row_variable_set"})
+_LIST_COLLECTOR_TYPES: Final[frozenset[str]] = frozenset({"list_collector", "21"})
 _SENSITIVE_VARIABLE_RE: Final[re.Pattern[str]] = re.compile(
     r"password|token|secret|credential|api[\s_-]*key|private[\s_-]*key",
     re.IGNORECASE,
@@ -99,6 +100,16 @@ def _is_sensitive_definition(definition: dict[str, Any]) -> bool:
     )
 
 
+def _has_complete_definition_metadata(definition: dict[str, Any]) -> bool:
+    return all(resolve_ref_value(definition.get(key)) for key in ("name", "question_text"))
+
+
+def _is_multi_value(variable_type: str, raw_value: str, definition_count: int) -> bool:
+    if variable_type.lower() in _LIST_COLLECTOR_TYPES:
+        return len([value for value in raw_value.split(",") if value.strip()]) > 1
+    return definition_count > 1
+
+
 async def _ritm_variables(
     client: ServiceNowClient,
     *,
@@ -108,7 +119,13 @@ async def _ritm_variables(
     settings: Settings,
     correlation_id: str,
 ) -> str:
-    for table in ("sc_req_item", "sc_item_option_mtom", "sc_item_option", "item_option_new"):
+    for table in (
+        "sc_req_item",
+        "sc_item_option_mtom",
+        "sc_item_option",
+        "item_option_new",
+        "sc_multi_row_question_answer",
+    ):
         check_table_access(table)
     validate_sys_id(sys_id)
     effective_limit, effective_offset = _effective_page(limit, offset, settings)
@@ -116,6 +133,18 @@ async def _ritm_variables(
         target = await client.get_record("sc_req_item", sys_id, fields=["sys_id"])
     except NotFoundError:
         return _error(correlation_id, "Requested item was not found.")
+
+    mrvs_result = await client.query_records(
+        "sc_multi_row_question_answer",
+        ServiceNowQuery()
+        .equals("parent_id", sys_id)
+        .equals("parent_table_name", "sc_req_item")
+        .order_by("sys_id")
+        .build(),
+        fields=["sys_id"],
+        limit=min(effective_limit, 1),
+    )
+    has_mrvs = bool(_records(mrvs_result))
 
     links_result = await client.query_records(
         "sc_item_option_mtom",
@@ -190,13 +219,19 @@ async def _ritm_variables(
         raw_value = resolve_ref_value(submitted_option.get("value"))
         variable_type = resolve_ref_value(definition.get("type"))
         reference_target = resolve_ref_value(definition.get("reference"))
-        is_masked = _is_sensitive_definition(definition)
+        has_complete_metadata = _has_complete_definition_metadata(definition)
+        is_masked = not has_complete_metadata or _is_sensitive_definition(definition)
         is_mrvs = variable_type.lower() in _MRVS_TYPES
+        is_list_collector = variable_type.lower() in _LIST_COLLECTOR_TYPES
+        if not has_complete_metadata:
+            warnings.append(
+                "One or more variable definitions had incomplete metadata; affected answers were conservatively masked."
+            )
         if is_mrvs:
             warnings.append(
                 "Multi-row variable-set answers are not decoded because no stable Table API representation is guaranteed."
             )
-        if reference_target and raw_value:
+        if (reference_target or is_list_collector) and raw_value:
             warnings.append(
                 "Reference answers retain raw sys_ids because a generic display field cannot be resolved reliably."
             )
@@ -211,12 +246,38 @@ async def _ritm_variables(
                 "label": resolve_ref_value(definition.get("question_text")),
                 "type": variable_type,
                 "raw_value": MASK_VALUE if is_masked else raw_value,
-                "display_value": MASK_VALUE if is_masked else (None if reference_target else raw_value),
+                "display_value": MASK_VALUE
+                if is_masked
+                else (None if reference_target or is_list_collector else raw_value),
                 "reference_target": reference_target or None,
                 "variable_set": resolve_ref_value(definition.get("variable_set")) or None,
-                "multi_value": definition_counts.get(definition_id, 0) > 1,
+                "multi_value": _is_multi_value(
+                    variable_type,
+                    raw_value,
+                    definition_counts.get(definition_id, 0),
+                ),
                 "masked": is_masked,
-                "status": "unsupported_mrvs" if is_mrvs else "resolved",
+                "status": (
+                    "inaccessible_definition_metadata"
+                    if not has_complete_metadata
+                    else ("unsupported_mrvs" if is_mrvs else "resolved")
+                ),
+            }
+        )
+
+    if has_mrvs:
+        warnings.append(
+            "Multi-row variable-set answers are present but are not decoded or retrieved from their payload fields."
+        )
+        entries.append(
+            {
+                "answer_sys_id": None,
+                "definition_sys_id": None,
+                "raw_value": None,
+                "display_value": None,
+                "multi_value": True,
+                "masked": False,
+                "status": "unsupported_mrvs",
             }
         )
 

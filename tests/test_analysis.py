@@ -19,6 +19,12 @@ BASE_URL = "https://test.service-now.com"
 SYS_ID = "a" * 32
 
 
+@pytest.fixture()
+def auth_provider(settings: Settings) -> BasicAuthProvider:
+    """Create a basic authentication provider for analysis tests."""
+    return BasicAuthProvider(settings)
+
+
 def _tools(settings: Settings, auth_provider: BasicAuthProvider) -> dict[str, Any]:
     mcp = MCPServer("test")
     register_tools(mcp, settings, auth_provider)
@@ -42,6 +48,9 @@ async def test_ritm_variables_masks_sensitive_answer_and_paginates(
     definition_id = "c" * 32
     respx.get(f"{BASE_URL}/api/now/table/sc_req_item/{SYS_ID}").mock(
         return_value=httpx.Response(200, json={"result": {"sys_id": SYS_ID}})
+    )
+    respx.get(f"{BASE_URL}/api/now/table/sc_multi_row_question_answer").mock(
+        return_value=httpx.Response(200, json={"result": []})
     )
     respx.get(f"{BASE_URL}/api/now/table/sc_item_option_mtom").mock(
         return_value=httpx.Response(
@@ -89,6 +98,9 @@ async def test_ritm_variables_empty_or_orphaned(settings: Settings, auth_provide
     respx.get(f"{BASE_URL}/api/now/table/sc_req_item/{SYS_ID}").mock(
         return_value=httpx.Response(200, json={"result": {"sys_id": SYS_ID}})
     )
+    respx.get(f"{BASE_URL}/api/now/table/sc_multi_row_question_answer").mock(
+        return_value=httpx.Response(200, json={"result": []})
+    )
     links = respx.get(f"{BASE_URL}/api/now/table/sc_item_option_mtom").mock(
         return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
     )
@@ -122,13 +134,16 @@ async def test_ritm_variables_missing_and_invalid(settings: Settings, auth_provi
 
 @pytest.mark.asyncio()
 @respx.mock
-async def test_ritm_variables_marks_reference_mrvs_and_duplicate_answers(
+async def test_ritm_variables_handles_list_collector_and_duplicate_answers(
     settings: Settings, auth_provider: BasicAuthProvider
 ) -> None:
     option_id = "b" * 32
     definition_id = "c" * 32
     respx.get(f"{BASE_URL}/api/now/table/sc_req_item/{SYS_ID}").mock(
         return_value=httpx.Response(200, json={"result": {"sys_id": SYS_ID}})
+    )
+    respx.get(f"{BASE_URL}/api/now/table/sc_multi_row_question_answer").mock(
+        return_value=httpx.Response(200, json={"result": []})
     )
     respx.get(f"{BASE_URL}/api/now/table/sc_item_option_mtom").mock(
         return_value=httpx.Response(
@@ -144,7 +159,15 @@ async def test_ritm_variables_marks_reference_mrvs_and_duplicate_answers(
     respx.get(f"{BASE_URL}/api/now/table/sc_item_option").mock(
         return_value=httpx.Response(
             200,
-            json={"result": [{"sys_id": option_id, "item_option_new": definition_id, "value": "f" * 32}]},
+            json={
+                "result": [
+                    {
+                        "sys_id": option_id,
+                        "item_option_new": definition_id,
+                        "value": f"{'f' * 32},{'h' * 32}",
+                    }
+                ]
+            },
         )
     )
     respx.get(f"{BASE_URL}/api/now/table/item_option_new").mock(
@@ -165,10 +188,214 @@ async def test_ritm_variables_marks_reference_mrvs_and_duplicate_answers(
         )
     )
     result = decode_response(await _tools(settings, auth_provider)["analysis"](action="ritm_variables", sys_id=SYS_ID))
-    assert [entry["status"] for entry in result["data"]["entries"]] == ["unsupported_mrvs", "unsupported_mrvs"]
+    assert [entry["status"] for entry in result["data"]["entries"]] == ["resolved", "resolved"]
+    assert all(entry["multi_value"] is True for entry in result["data"]["entries"])
     assert all(entry["display_value"] is None for entry in result["data"]["entries"])
-    assert any("raw sys_ids" in warning for warning in result["warnings"])
+    assert sum("raw sys_ids" in warning for warning in result["warnings"]) == 1
     assert any("Duplicate" in warning for warning in result["warnings"])
+
+
+@pytest.mark.asyncio()
+@respx.mock
+async def test_ritm_variables_discloses_mrvs_presence_without_payload(
+    settings: Settings, auth_provider: BasicAuthProvider
+) -> None:
+    respx.get(f"{BASE_URL}/api/now/table/sc_req_item/{SYS_ID}").mock(
+        return_value=httpx.Response(200, json={"result": {"sys_id": SYS_ID}})
+    )
+
+    def mrvs_handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params["sysparm_query"] == (
+            f"parent_id={SYS_ID}^parent_table_name=sc_req_item^ORDERBYsys_id"
+        )
+        assert request.url.params["sysparm_fields"] == "sys_id"
+        assert request.url.params["sysparm_limit"] == "1"
+        return httpx.Response(200, json={"result": [{"sys_id": "b" * 32}]})
+
+    respx.get(f"{BASE_URL}/api/now/table/sc_multi_row_question_answer").mock(side_effect=mrvs_handler)
+    respx.get(f"{BASE_URL}/api/now/table/sc_item_option_mtom").mock(
+        return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+    )
+
+    result = decode_response(
+        await _tools(settings, auth_provider)["analysis"](action="ritm_variables", sys_id=SYS_ID, limit=2, offset=4)
+    )
+    assert result["data"]["entries"] == [
+        {
+            "answer_sys_id": None,
+            "definition_sys_id": None,
+            "raw_value": None,
+            "display_value": None,
+            "multi_value": True,
+            "masked": False,
+            "status": "unsupported_mrvs",
+        }
+    ]
+    assert len(result["warnings"]) == 1
+    assert "payload" in result["warnings"][0]
+    assert result["pagination"] == {"offset": 4, "limit": 2, "total": 0}
+
+
+@pytest.mark.asyncio()
+@respx.mock
+async def test_ritm_variables_deduplicates_mrvs_warnings(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    option_id = "b" * 32
+    definition_id = "c" * 32
+    respx.get(f"{BASE_URL}/api/now/table/sc_req_item/{SYS_ID}").mock(
+        return_value=httpx.Response(200, json={"result": {"sys_id": SYS_ID}})
+    )
+    respx.get(f"{BASE_URL}/api/now/table/sc_multi_row_question_answer").mock(
+        return_value=httpx.Response(200, json={"result": [{"sys_id": "d" * 32}]})
+    )
+    respx.get(f"{BASE_URL}/api/now/table/sc_item_option_mtom").mock(
+        return_value=httpx.Response(
+            200,
+            json={"result": [{"sys_id": "e" * 32, "sc_item_option": option_id}]},
+        )
+    )
+    respx.get(f"{BASE_URL}/api/now/table/sc_item_option").mock(
+        return_value=httpx.Response(
+            200,
+            json={"result": [{"sys_id": option_id, "item_option_new": definition_id, "value": ""}]},
+        )
+    )
+    respx.get(f"{BASE_URL}/api/now/table/item_option_new").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "result": [
+                    {
+                        "sys_id": definition_id,
+                        "name": "rows",
+                        "question_text": "Rows",
+                        "type": "multi_row_variable_set",
+                        "reference": "",
+                        "variable_set": "f" * 32,
+                    }
+                ]
+            },
+        )
+    )
+
+    result = decode_response(await _tools(settings, auth_provider)["analysis"](action="ritm_variables", sys_id=SYS_ID))
+    assert [entry["status"] for entry in result["data"]["entries"]] == ["unsupported_mrvs", "unsupported_mrvs"]
+    assert len(result["warnings"]) == 2
+    assert len(set(result["warnings"])) == 2
+
+
+@pytest.mark.asyncio()
+@pytest.mark.parametrize(
+    ("name", "question_text"),
+    [
+        (None, "Credential"),
+        ("credential", None),
+        ("", ""),
+    ],
+)
+@respx.mock
+async def test_ritm_variables_masks_incomplete_definition_metadata(
+    settings: Settings,
+    auth_provider: BasicAuthProvider,
+    name: str | None,
+    question_text: str | None,
+) -> None:
+    option_id = "b" * 32
+    definition_id = "c" * 32
+    secret = "synthetic-secret"
+    respx.get(f"{BASE_URL}/api/now/table/sc_req_item/{SYS_ID}").mock(
+        return_value=httpx.Response(200, json={"result": {"sys_id": SYS_ID}})
+    )
+    respx.get(f"{BASE_URL}/api/now/table/sc_multi_row_question_answer").mock(
+        return_value=httpx.Response(200, json={"result": []})
+    )
+    respx.get(f"{BASE_URL}/api/now/table/sc_item_option_mtom").mock(
+        return_value=httpx.Response(
+            200,
+            json={"result": [{"sys_id": "d" * 32, "sc_item_option": option_id}]},
+        )
+    )
+    respx.get(f"{BASE_URL}/api/now/table/sc_item_option").mock(
+        return_value=httpx.Response(
+            200,
+            json={"result": [{"sys_id": option_id, "item_option_new": definition_id, "value": secret}]},
+        )
+    )
+    definition = {
+        "sys_id": definition_id,
+        "type": "string",
+        "reference": "",
+        "variable_set": "",
+    }
+    if name is not None:
+        definition["name"] = name
+    if question_text is not None:
+        definition["question_text"] = question_text
+    respx.get(f"{BASE_URL}/api/now/table/item_option_new").mock(
+        return_value=httpx.Response(200, json={"result": [definition]})
+    )
+
+    result = decode_response(await _tools(settings, auth_provider)["analysis"](action="ritm_variables", sys_id=SYS_ID))
+    entry = result["data"]["entries"][0]
+    assert entry["status"] == "inaccessible_definition_metadata"
+    assert entry["raw_value"] == "***MASKED***"
+    assert entry["display_value"] == "***MASKED***"
+    assert entry["masked"] is True
+    assert secret not in str(result)
+    assert result["warnings"] == [
+        "One or more variable definitions had incomplete metadata; affected answers were conservatively masked."
+    ]
+
+
+@pytest.mark.asyncio()
+@respx.mock
+async def test_ritm_variables_deduplicates_incomplete_metadata_warning(
+    settings: Settings, auth_provider: BasicAuthProvider
+) -> None:
+    option_ids = ["b" * 32, "c" * 32]
+    definition_ids = ["d" * 32, "e" * 32]
+    respx.get(f"{BASE_URL}/api/now/table/sc_req_item/{SYS_ID}").mock(
+        return_value=httpx.Response(200, json={"result": {"sys_id": SYS_ID}})
+    )
+    respx.get(f"{BASE_URL}/api/now/table/sc_multi_row_question_answer").mock(
+        return_value=httpx.Response(200, json={"result": []})
+    )
+    respx.get(f"{BASE_URL}/api/now/table/sc_item_option_mtom").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "result": [
+                    {"sys_id": "f" * 32, "sc_item_option": option_ids[0]},
+                    {"sys_id": "g" * 32, "sc_item_option": option_ids[1]},
+                ]
+            },
+        )
+    )
+    respx.get(f"{BASE_URL}/api/now/table/sc_item_option").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "result": [
+                    {"sys_id": option_ids[0], "item_option_new": definition_ids[0], "value": "synthetic-one"},
+                    {"sys_id": option_ids[1], "item_option_new": definition_ids[1], "value": "synthetic-two"},
+                ]
+            },
+        )
+    )
+    respx.get(f"{BASE_URL}/api/now/table/item_option_new").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "result": [
+                    {"sys_id": definition_ids[0], "name": "one", "type": "string", "reference": ""},
+                    {"sys_id": definition_ids[1], "question_text": "Two", "type": "string", "reference": ""},
+                ]
+            },
+        )
+    )
+
+    result = decode_response(await _tools(settings, auth_provider)["analysis"](action="ritm_variables", sys_id=SYS_ID))
+    assert all(entry["status"] == "inaccessible_definition_metadata" for entry in result["data"]["entries"])
+    assert len(result["warnings"]) == 1
 
 
 @pytest.mark.asyncio()

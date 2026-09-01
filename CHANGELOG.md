@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.12.0](https://github.com/Xerrion/servicenow-platform-mcp/compare/v0.11.0...v0.12.0) (2026-09-01)
+
+
+### Features
+
+* add read-only record analysis ([#153](https://github.com/Xerrion/servicenow-platform-mcp/issues/153)) ([ffc6126](https://github.com/Xerrion/servicenow-platform-mcp/commit/ffc61262dc9621c86392c43c9d6182e7b3af9b6b))
+
+
+### Documentation
+
+* update README and installation guide ([#155](https://github.com/Xerrion/servicenow-platform-mcp/issues/155)) ([adb3655](https://github.com/Xerrion/servicenow-platform-mcp/commit/adb3655a7db9c308163fe66cc25c613563890023))
+
 ## [0.11.0](https://github.com/Xerrion/servicenow-platform-mcp/compare/v0.10.0...v0.11.0) (2026-08-31)
 
 

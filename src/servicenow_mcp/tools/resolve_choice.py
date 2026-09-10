@@ -23,9 +23,9 @@ from servicenow_mcp.utils import format_response, validate_identifier
 TOOL_NAMES: list[str] = ["resolve_choice"]
 
 
-def _error(correlation_id: str, message: str) -> str:
+def _error(message: str) -> str:
     """Serialize a standard error envelope."""
-    return format_response(data=None, correlation_id=correlation_id, status="error", error=message)
+    return format_response(data=None, status="error", error=message)
 
 
 def register_tools(
@@ -50,8 +50,6 @@ def register_tools(
         table: str,
         field: str,
         label: str = "",
-        *,
-        correlation_id: str = "",
     ) -> str:
         """Resolve a choice label to its underlying value via ChoiceRegistry.
 
@@ -66,13 +64,12 @@ def register_tools(
         check_table_access(table)
 
         if choices is None:
-            return _error(correlation_id, "ChoiceRegistry not configured.")
+            return _error("ChoiceRegistry not configured.")
 
         if not label:
             mapping = await choices.get_choices(table, field)
             return format_response(
                 data={"table": table, "field": field, "choices": mapping},
-                correlation_id=correlation_id,
             )
 
         value = await choices.resolve(table, field, label)
@@ -86,6 +83,5 @@ def register_tools(
             ]
         return format_response(
             data={"table": table, "field": field, "label": label, "value": value},
-            correlation_id=correlation_id,
             warnings=warnings,
         )

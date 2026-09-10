@@ -128,7 +128,7 @@ Write gating uses a function-based approach. There is **no** `WriteGatingError` 
 from servicenow_mcp.policy import write_gate, can_write, write_blocked_reason
 
 # In tool functions - returns error envelope string if blocked, None if allowed
-gate = write_gate("incident", settings, correlation_id)
+gate = write_gate("incident", settings)
 if gate:
     return gate  # Already a serialized error response
 
@@ -153,18 +153,16 @@ This is the most important pattern in the codebase. Located in `decorators.py`.
 ```python
 @mcp.tool()
 @tool_handler
-async def my_tool(param: str, correlation_id: str = "") -> str:
-    # correlation_id is auto-injected, never passed by MCP caller
+async def my_tool(param: str) -> str:
     ...
-    return format_response(data=result, correlation_id=correlation_id)
+    return format_response(data=result)
 ```
 
 What `@tool_handler` does:
 
-1. Auto-generates `correlation_id` via `generate_correlation_id()` (UUID4).
-2. Wraps the function call in `safe_tool_call()` which catches `ForbiddenError` and `Exception`, returning serialized error envelopes.
-3. Hides `correlation_id` from the MCPServer tool schema by overriding `__signature__` and deleting `__wrapped__`.
-4. Sets Sentry tags (`tool.name`, `tool.correlation_id`) and context with tool name, correlation_id, and args.
+1. Wraps the function call in `safe_tool_call()` which catches exceptions and returns serialized error envelopes.
+2. Preserves the callable signature through `functools.wraps`; no internal arguments are injected.
+3. Sets the Sentry `tool.name` tag and context with tool name and redacted args.
 
 ## 📊 Response Format
 
@@ -173,7 +171,6 @@ All tools return a serialized JSON string via `format_response()`:
 ```python
 format_response(
     data=...,               # Any serializable data
-    correlation_id=...,     # Auto-injected by @tool_handler
     status="success",       # "success" or "error"
     error=None,             # str | dict | None
     pagination=None,        # dict | None
@@ -184,7 +181,7 @@ format_response(
 Error response example:
 
 ```python
-return format_response(data=None, correlation_id=correlation_id, status="error", error="Something failed")
+return format_response(data=None, status="error", error="Something failed")
 ```
 
 ## 🛡 Policy Layer
@@ -245,12 +242,12 @@ def register_tools(
 
     @mcp.tool()
     @tool_handler
-    async def tool_name(param: str, correlation_id: str = "") -> str:
+    async def tool_name(param: str) -> str:
         validate_identifier(param)
         check_table_access(param)
         async with ServiceNowClient(settings, auth_provider) as client:
             result = await client.some_method(param)
-        return format_response(data=result, correlation_id=correlation_id)
+        return format_response(data=result)
 ```
 
 The SDK v2 tool decorators remain `@mcp.tool()` and `@tool_handler`. The server is created with `MCPServer("servicenow-platform-mcp")` and runs over stdio with `mcp.run(transport="stdio")`.
@@ -450,6 +447,9 @@ The registry contains 4 preset packages and 13 tool groups. Tool groups are load
 
 ### Compact Reads and Selection Metadata
 
+- Envelopes contain no server-internal `correlation_id`; ServiceNow record fields with that name are preserved. Sentry context and exception capture remain active.
+- The `query` schema requires only `table`. Optional string inputs default to null, not empty strings. Empty or null filters are omitted from outbound requests; zero offsets, false display-value flags, and limits are preserved.
+- Selection metadata does not include the redundant `omitted` field. Other selection and continuation fields remain unchanged.
 - `query` list mode requires an explicit `fields` projection. `fields="*"` requests all fields; `sys_id` is always included. Exact `sys_id` mode defaults to `sys_id,sys_updated_on` and also accepts an explicit projection or `*`. Aggregate mode is unchanged.
 - `record_read` accepts `fields`. Empty selection returns compact identity/update fields plus discovered script-bearing fields; `*` returns the full masked record. `script_fields` remains in the response and `sys_id` is always included.
 - `describe` resolves the bounded `super_class` chain child-first, de-duplicates child overrides, preserves `inherited_from`, and then returns an alphabetical page of 25 fields when `fields` is empty. `field_offset` and `field_limit` (1-100) continue the page; `fields="*"` requests all fields.

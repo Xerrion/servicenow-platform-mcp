@@ -66,7 +66,7 @@ class TestQueryMode:
         result = decode_response(await tools["query"](table="incident", fields="number", limit=100, offset=2))
 
         assert result["status"] == "success"
-        assert result["correlation_id"]
+        assert "correlation_id" not in result
         assert "warnings" not in result
         assert result["pagination"] == {"offset": 2, "limit": 5, "total": total}
         assert result["selection"]["returned_fields"] == ["sys_id", "number"]
@@ -107,7 +107,6 @@ class TestQueryMode:
             "mode": "explicit",
             "requested_fields": ["number", "password"],
             "returned_fields": ["sys_id", "number", "password"],
-            "omitted": "all fields outside the projection",
             "sys_id_added": True,
         }
 

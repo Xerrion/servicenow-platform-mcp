@@ -352,41 +352,41 @@ class TestGateWrite:
         """A normal writable table in dev returns None (allowed)."""
         from servicenow_mcp.policy import gate_write
 
-        assert gate_write("incident", settings, "cid-1") is None
+        assert gate_write("incident", settings) is None
 
     def test_denied_table_returns_envelope(self, settings: Settings) -> None:
         """A deny-listed table returns a serialized error envelope (no raise)."""
         from servicenow_mcp.policy import gate_write
 
-        result = gate_write("sys_user_has_password", settings, "cid-2")
+        result = gate_write("sys_user_has_password", settings)
         assert isinstance(result, str)
         decoded = json.loads(result)
         assert decoded["status"] == "error"
         assert "denied" in decoded["error"]["message"]
-        assert decoded["correlation_id"] == "cid-2"
+        assert "correlation_id" not in decoded
 
     def test_production_returns_error_envelope(self, prod_settings: Settings) -> None:
         """Production environment returns a serialized error envelope."""
         from servicenow_mcp.policy import gate_write
 
-        result = gate_write("incident", prod_settings, "cid-3")
+        result = gate_write("incident", prod_settings)
         assert isinstance(result, str)
         decoded = json.loads(result)
         assert decoded["status"] == "error"
         # Error strings are serialized via format_response as {"message": "..."}
         assert "production" in decoded["error"]["message"]
-        assert decoded["correlation_id"] == "cid-3"
+        assert "correlation_id" not in decoded
 
     def test_invalid_identifier_returns_envelope(self, settings: Settings) -> None:
         """Invalid table identifiers return an error envelope rather than raising."""
         from servicenow_mcp.policy import gate_write
 
-        result = gate_write("bad table name!", settings, "cid-4")
+        result = gate_write("bad table name!", settings)
         assert isinstance(result, str)
         decoded = json.loads(result)
         assert decoded["status"] == "error"
         assert "Invalid table identifier" in decoded["error"]["message"]
-        assert decoded["correlation_id"] == "cid-4"
+        assert "correlation_id" not in decoded
 
 
 class TestMaskRecordDispatch:

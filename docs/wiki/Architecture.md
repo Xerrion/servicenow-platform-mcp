@@ -86,7 +86,6 @@ Every tool returns a standardized envelope:
 ```json
 {
   "status": "success",
-  "correlation_id": "uuid-v4",
   "data": { ... },
   "pagination": { "offset": 0, "limit": 100, "total": 500 },
   "selection": { "mode": "explicit", "returned_fields": ["sys_id", "number"] },
@@ -107,9 +106,12 @@ The `QueryTokenStore` from previous versions has been deleted as agents now pass
 
 The `@tool_handler` decorator (in `decorators.py`) wraps every tool invocation:
 
-1. **Correlation ID:** Generates a unique UUID4 for the request.
-2. **Sentry Context:** Attaches tool names and arguments to the Sentry scope.
-3. **Safe Execution:** Wraps the tool in `safe_tool_call()`, which catches all exceptions (including `ForbiddenError` and `PolicyError`) and returns them as `status: "error"` JSON envelopes.
+1. **Sentry Context:** Attaches tool names and arguments to the Sentry scope.
+2. **Safe Execution:** Wraps the tool in `safe_tool_call()`, which catches all exceptions (including `ForbiddenError` and `PolicyError`) and returns them as `status: "error"` JSON envelopes.
+
+The decorator preserves the tool signature without injecting internal arguments.
+Response envelopes contain no server-internal correlation ID. ServiceNow record
+fields named `correlation_id` and outbound HTTP tracing headers are unchanged.
 
 ## Source Layout
 

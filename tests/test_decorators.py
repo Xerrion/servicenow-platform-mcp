@@ -2,7 +2,6 @@
 
 import inspect
 import json
-import uuid
 from typing import Any
 from unittest.mock import patch
 
@@ -15,66 +14,40 @@ from tests.helpers import get_registered_tools
 class TestToolHandler:
     """Tests for the tool_handler decorator."""
 
-    async def test_injects_correlation_id(self) -> None:
-        """Decorator injects a correlation_id kwarg at call time."""
-        captured: dict[str, str] = {}
+    def test_preserves_signature(self) -> None:
+        """Tool inputs and defaults remain available to schema introspection."""
 
         @tool_handler
-        async def my_tool(table: str, *, correlation_id: str) -> str:
-            captured["correlation_id"] = correlation_id
-            return format_response(data={"table": table}, correlation_id=correlation_id)
-
-        result = await my_tool("incident")
-        assert captured["correlation_id"]  # non-empty UUID
-        parsed = json.loads(result)
-        assert isinstance(parsed, dict)
-        assert parsed["status"] == "success"
-        assert parsed["correlation_id"] == captured["correlation_id"]
-
-    async def test_correlation_id_is_uuid(self) -> None:
-        """Injected correlation_id is a valid UUID string."""
-        captured: dict[str, str] = {}
-
-        @tool_handler
-        async def my_tool(*, correlation_id: str) -> str:
-            captured["cid"] = correlation_id
-            return format_response(data=None, correlation_id=correlation_id)
-
-        await my_tool()
-        uuid.UUID(captured["cid"])  # Raises if not valid UUID
-
-    def test_hides_correlation_id_from_signature(self) -> None:
-        """The correlation_id parameter is hidden from inspect.signature()."""
-
-        @tool_handler
-        async def my_tool(_table: str, _limit: int = 10, *, correlation_id: str) -> str:
-            return format_response(data=None, correlation_id=correlation_id)
+        async def my_tool(_table: str, _limit: int = 10) -> str:
+            return format_response(data=None)
 
         sig = inspect.signature(my_tool)
         param_names = list(sig.parameters.keys())
         assert "correlation_id" not in param_names
         assert "_table" in param_names
         assert "_limit" in param_names
+        assert sig.parameters["_limit"].default == 10
 
     def test_preserves_function_name(self) -> None:
         """functools.wraps preserves __name__ and __doc__."""
 
         @tool_handler
-        async def my_tool(_table: str, *, correlation_id: str) -> str:
+        async def my_tool(_table: str) -> str:
             """My tool docstring."""
-            return format_response(data=None, correlation_id=correlation_id)
+            return format_response(data=None)
 
         assert my_tool.__name__ == "my_tool"
         assert my_tool.__doc__ == "My tool docstring."
 
-    def test_no_wrapped_attribute(self) -> None:
-        """__wrapped__ is deleted to prevent inspect.signature from following it."""
+    def test_preserves_wrapped_function(self) -> None:
+        """Standard functools metadata needs no custom signature override."""
 
         @tool_handler
-        async def my_tool(*, correlation_id: str) -> str:
-            return format_response(data=None, correlation_id=correlation_id)
+        async def my_tool() -> str:
+            return format_response(data=None)
 
-        assert not hasattr(my_tool, "__wrapped__")
+        assert inspect.unwrap(my_tool) is not my_tool
+        assert not hasattr(my_tool, "__signature__")
 
     async def test_catches_generic_exception(self) -> None:
         """Exceptions in the tool body are caught and returned as opaque envelopes.
@@ -85,8 +58,7 @@ class TestToolHandler:
         """
 
         @tool_handler
-        async def my_tool(*, correlation_id: str) -> str:
-            _ = correlation_id
+        async def my_tool() -> str:
             raise RuntimeError("something broke")
 
         result = await my_tool()
@@ -96,14 +68,13 @@ class TestToolHandler:
         message = parsed["error"]["message"]
         assert "something broke" not in message
         assert message.startswith("Internal error")
-        assert parsed["correlation_id"] in message
+        assert "correlation_id" not in parsed
 
     async def test_catches_forbidden_error(self) -> None:
         """ForbiddenError is caught and returned as an ACL denial error envelope."""
 
         @tool_handler
-        async def my_tool(*, correlation_id: str) -> str:
-            _ = correlation_id
+        async def my_tool() -> str:
             raise ForbiddenError("ACL blocked")
 
         result = await my_tool()
@@ -117,28 +88,27 @@ class TestToolHandler:
         captured: dict[str, Any] = {}
 
         @tool_handler
-        async def my_tool(table: str, fields: str = "", *, correlation_id: str) -> str:
+        async def my_tool(table: str, fields: str = "") -> str:
             captured["table"] = table
             captured["fields"] = fields
-            return format_response(data={"ok": True}, correlation_id=correlation_id)
+            return format_response(data={"ok": True})
 
         await my_tool("incident", fields="name,state")
         assert captured["table"] == "incident"
         assert captured["fields"] == "name,state"
 
-    async def test_unique_correlation_ids_per_call(self) -> None:
-        """Each invocation gets a unique correlation_id."""
-        ids: list[str] = []
+    async def test_no_internal_arguments_injected(self) -> None:
+        """Repeated calls receive only the caller's inputs."""
+        calls: list[dict[str, Any]] = []
 
         @tool_handler
-        async def my_tool(*, correlation_id: str) -> str:
-            ids.append(correlation_id)
-            return format_response(data=None, correlation_id=correlation_id)
+        async def my_tool(**kwargs: Any) -> str:
+            calls.append(kwargs)
+            return format_response(data=None)
 
         await my_tool()
         await my_tool()
-        assert len(ids) == 2
-        assert ids[0] != ids[1]
+        assert calls == [{}, {}]
 
     async def test_works_with_mcp_server_tool_registration(self) -> None:
         """Verify the decorator works with @mcp.tool() registration."""
@@ -148,13 +118,13 @@ class TestToolHandler:
 
         @mcp.tool()
         @tool_handler
-        async def test_tool(table: str, *, correlation_id: str) -> str:
+        async def test_tool(table: str) -> str:
             """A test tool.
 
             Args:
                 table: The table name.
             """
-            return format_response(data={"table": table}, correlation_id=correlation_id)
+            return format_response(data={"table": table})
 
         # Check the tool was registered
         tools = await get_registered_tools(mcp)
@@ -181,12 +151,6 @@ class TestToolHandler:
 
 class TestRedactArgs:
     """Sensitive arg names are redacted before being attached to Sentry context."""
-
-    def test_drops_correlation_id(self) -> None:
-        """``correlation_id`` is dropped (sent as a separate context field)."""
-        out = _redact_args({"correlation_id": "abc", "table": "incident"})
-        assert "correlation_id" not in out
-        assert out == {"table": "incident"}
 
     def test_redacts_known_sensitive_keys(self) -> None:
         """All canonical sensitive keys are replaced with the redaction marker."""
@@ -246,10 +210,8 @@ class TestRedactArgs:
                 table: str,
                 data: str = "",
                 password: str = "",
-                *,
-                correlation_id: str,
             ) -> str:
-                return format_response(data=None, correlation_id=correlation_id)
+                return format_response(data=None)
 
             await my_tool(
                 table="incident",

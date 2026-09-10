@@ -196,7 +196,7 @@ async def test_public_pkce_loopback_exchange_and_bearer_request(
             await client.get_record("incident", "test-id")
         launch.assert_awaited_once()
     assert token_route.call_count == 1
-    assert not api_route.calls.last.request.url.query
+    assert dict(api_route.calls.last.request.url.params) == {"sysparm_display_value": "false"}
     assert api_route.calls.last.request.headers["Authorization"] == "Bearer test+opaque/token=="
     assert "x-sn-apikey" not in api_route.calls.last.request.headers
     assert "X-Correlation-ID" in api_route.calls.last.request.headers
@@ -705,6 +705,6 @@ async def test_auth_failure_keeps_tool_error_envelope(settings: Settings) -> Non
         result = decode_response(await get_tool_functions(server)["query"](table="incident", fields="sys_id"))
     assert result["status"] == "error"
     assert result["data"] is None
-    assert result["correlation_id"]
+    assert "correlation_id" not in result
     assert "Authorization denied" in str(result["error"])
     assert not respx.calls

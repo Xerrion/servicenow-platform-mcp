@@ -179,7 +179,7 @@ async def test_ritm_variables_handles_list_collector_and_duplicate_answers(
     )
 
     def definitions_handler(request: httpx.Request) -> httpx.Response:
-        assert "sysparm_display_value" not in request.url.params
+        assert request.url.params["sysparm_display_value"] == "false"
         return httpx.Response(
             200,
             json={

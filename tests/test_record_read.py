@@ -99,6 +99,20 @@ class TestArgumentValidation:
 class TestSysIdLookup:
     """Happy/error paths when ``sys_id`` is supplied."""
 
+    @pytest.mark.parametrize("fields", ["", "correlation_id", "*"])
+    @respx.mock
+    async def test_selection_omits_redundant_metadata(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider, fields: str
+    ) -> None:
+        dictionary = _stub_dictionary(settings, auth_provider, ["sys_id", "name", "correlation_id"])
+        record = {"sys_id": SYS_ID_BR, "correlation_id": "external-record-id"}
+        respx.get(f"{BASE_URL}/api/now/table/incident/{SYS_ID_BR}").respond(200, json={"result": record})
+        tools = _register_and_get_tools(settings, auth_provider, dictionary=dictionary)
+        result = decode_response(await tools["record_read"](table="incident", sys_id=SYS_ID_BR, fields=fields))
+        assert result["status"] == "success"
+        assert "omitted" not in result["selection"]
+        assert result["data"]["record"]["correlation_id"] == "external-record-id"
+
     @pytest.mark.asyncio()
     @respx.mock
     async def test_sys_id_happy_path(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:

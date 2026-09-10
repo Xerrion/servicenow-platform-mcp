@@ -1,9 +1,8 @@
-"""Utility functions for correlation IDs, response formatting and query building."""
+"""Utility functions for response formatting and query building."""
 
 import json
 import logging
 import re
-import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any, override
 
@@ -120,11 +119,6 @@ def sanitize_query_value(value: str | dict[str, Any] | None) -> str:
     return value.replace("^", "^^")
 
 
-def generate_correlation_id() -> str:
-    """Generate a unique correlation ID for request tracing."""
-    return str(uuid.uuid4())
-
-
 def serialize(data: Any) -> str:
     """Serialize *data* to a JSON string suitable for MCP tool output."""
     try:
@@ -133,14 +127,11 @@ def serialize(data: Any) -> str:
         logger.warning("JSON serialization failed", exc_info=True)
         sentry_capture(e)
         envelope: dict[str, Any] = {"status": "error", "error": {"message": "Serialization failed"}}
-        if isinstance(data, dict) and isinstance(data.get("correlation_id"), str):
-            envelope["correlation_id"] = data["correlation_id"]
         return json.dumps(envelope)
 
 
 def format_response(
     data: Any,
-    correlation_id: str,
     status: str = "success",
     error: str | dict[str, str] | None = None,
     pagination: dict[str, int] | None = None,
@@ -154,7 +145,6 @@ def format_response(
     lists are omitted; data and supplied pagination/selection are preserved.
     """
     response: dict[str, Any] = {
-        "correlation_id": correlation_id,
         "status": status,
         "data": data,
     }
@@ -726,7 +716,6 @@ class ServiceNowQuery:
 
 async def safe_tool_call(
     fn: Callable[[], Awaitable[str]],
-    correlation_id: str,
 ) -> str:
     """Wrap an MCP tool body with standard error handling.
 
@@ -739,7 +728,6 @@ async def safe_tool_call(
         sentry_capture(e)
         return format_response(
             data=None,
-            correlation_id=correlation_id,
             status="error",
             error=f"Access denied by ServiceNow ACL: {e}",
         )
@@ -747,7 +735,6 @@ async def safe_tool_call(
         sentry_capture(e)
         return format_response(
             data=None,
-            correlation_id=correlation_id,
             status="error",
             error=f"Access forbidden by ServiceNow: {e}",
         )
@@ -758,7 +745,6 @@ async def safe_tool_call(
         sentry_capture(e)
         return format_response(
             data=None,
-            correlation_id=correlation_id,
             status="error",
             error=str(e),
         )
@@ -769,7 +755,6 @@ async def safe_tool_call(
         sentry_capture(e)
         return format_response(
             data=None,
-            correlation_id=correlation_id,
             status="error",
             error=str(e),
         )
@@ -778,14 +763,10 @@ async def safe_tool_call(
         # Log full detail locally for operators but return an opaque message to
         # the caller so we do not leak internal hostnames, file paths, or
         # platform stack fragments.
-        logger.exception(
-            "Unhandled exception in tool",
-            extra={"correlation_id": correlation_id},
-        )
+        logger.exception("Unhandled exception in tool")
         sentry_capture(e)
         return format_response(
             data=None,
-            correlation_id=correlation_id,
             status="error",
-            error=f"Internal error (correlation_id={correlation_id})",
+            error="Internal error",
         )

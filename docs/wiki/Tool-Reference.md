@@ -2,7 +2,7 @@
 
 Complete reference for all 15 tools in the 13 tool groups provided by the ServiceNow Platform MCP server. The tools use dispatcher patterns and ServiceNow encoded queries.
 
-All tools return responses as JSON strings with a standardized envelope containing `correlation_id`, `status`, `data`, and optionally `pagination`, `selection`, and `warnings`. See [[Architecture]] for details on the response format.
+Tools return responses as JSON strings with `status`, `data`, and optional `error`, `pagination`, `selection`, and `warnings`. Envelopes contain no server-internal correlation ID. ServiceNow record fields named `correlation_id` are unchanged. Selection metadata no longer includes `omitted`; continuation metadata is unchanged.
 
 For security guardrails that apply across all tools, see [[Safety-and-Policy]]. For worked examples of complex queries and multi-tool workflows, see [Agent Recipes](../../docs/agent-recipes.md).
 
@@ -40,6 +40,8 @@ Search and retrieve records from any table using ServiceNow encoded query string
   ```
 
 ServiceNow encoded queries are the only supported query construction interface. Copy a filter breadcrumb from a ServiceNow list, or construct the encoded query string directly, then pass it in `encoded_query`. Query safety still applies.
+
+Only `table` is required by the `query` schema. Optional string inputs default to null, so callers can omit unused arguments instead of passing empty strings. List mode still requires `fields`. Empty or null filters are not sent to ServiceNow. Numeric defaults and false display-value flags remain meaningful values.
 
 ### `describe`
 

@@ -41,7 +41,7 @@ class TestCodeSearch:
     async def test_schema_exposes_agent_callable_parameters(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
-        """The MCP schema exposes callable inputs and hides injected correlation_id."""
+        """The MCP schema exposes only callable inputs."""
         from mcp.server import MCPServer
 
         from servicenow_mcp.tools.code_search import register_tools
@@ -111,7 +111,7 @@ class TestCodeSearch:
         result = decode_response(await tools["code_search"](term="foo", limit=100, extended_matching=extended_matching))
 
         assert result["status"] == "success"
-        assert result["correlation_id"]
+        assert "correlation_id" not in result
         assert result["data"] == payload
         assert "warnings" not in result
         assert result["pagination"] == {"limit": 5}

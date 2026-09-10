@@ -27,9 +27,9 @@ TOOL_NAMES: list[str] = ["attachment_write"]
 _VALID_WRITE_ACTIONS: Final[frozenset[str]] = frozenset({"upload", "delete"})
 
 
-def _err(correlation_id: str, message: str) -> str:
+def _err(message: str) -> str:
     """Return a serialized error envelope with the given message."""
-    return format_response(data=None, correlation_id=correlation_id, status="error", error=message)
+    return format_response(data=None, status="error", error=message)
 
 
 def _validate_write_args(
@@ -39,28 +39,26 @@ def _validate_write_args(
     file_name: str,
     content_base64: str,
     sys_id: str,
-    correlation_id: str,
 ) -> str | None:
     """Return an error envelope if the write action arguments are invalid."""
     if action not in _VALID_WRITE_ACTIONS:
         return _err(
-            correlation_id,
             f"Unknown action {action!r}. Valid actions: {sorted(_VALID_WRITE_ACTIONS)}.",
         )
 
     if action == "upload":
         if not table:
-            return _err(correlation_id, "table is required for action='upload'.")
+            return _err("table is required for action='upload'.")
         if not table_sys_id:
-            return _err(correlation_id, "table_sys_id is required for action='upload'.")
+            return _err("table_sys_id is required for action='upload'.")
         if not file_name:
-            return _err(correlation_id, "file_name is required for action='upload'.")
+            return _err("file_name is required for action='upload'.")
         if not content_base64:
-            return _err(correlation_id, "content_base64 is required for action='upload'.")
+            return _err("content_base64 is required for action='upload'.")
         return None
 
     if not sys_id:
-        return _err(correlation_id, "sys_id is required for action='delete'.")
+        return _err("sys_id is required for action='delete'.")
     return None
 
 
@@ -76,7 +74,6 @@ async def _run_upload(
     file_name: str,
     content_base64: str,
     content_type: str,
-    correlation_id: str,
 ) -> str:
     """Decode and upload base64 attachment content."""
     content = decode_content_base64(content_base64)
@@ -89,27 +86,25 @@ async def _run_upload(
         content=content,
         content_type=content_type,
     )
-    return format_response(data=result, correlation_id=correlation_id)
+    return format_response(data=result)
 
 
 async def _run_delete(
     client: ServiceNowClient,
     sys_id: str,
     settings: Settings,
-    correlation_id: str,
 ) -> str:
     """Resolve the owning table, apply the table gate, and delete the attachment."""
     metadata = await client.get_attachment(sys_id)
     table_name = get_attachment_table_name(metadata)
 
-    blocked = gate_write(table_name, settings, correlation_id)
+    blocked = gate_write(table_name, settings)
     if blocked:
         return blocked
 
     await client.delete_attachment(sys_id)
     return format_response(
         data={"sys_id": sys_id, "table_name": table_name, "deleted": True},
-        correlation_id=correlation_id,
     )
 
 
@@ -138,8 +133,6 @@ def register_tools(
         content_base64: str = "",
         content_type: str = "application/octet-stream",
         sys_id: str = "",
-        *,
-        correlation_id: str = "",
     ) -> str:
         """Write attachments. action: 'upload' | 'delete'.
 
@@ -152,7 +145,7 @@ def register_tools(
             content_type: MIME type (upload, default 'application/octet-stream').
             sys_id: Attachment sys_id (delete).
         """
-        err = _validate_write_args(action, table, table_sys_id, file_name, content_base64, sys_id, correlation_id)
+        err = _validate_write_args(action, table, table_sys_id, file_name, content_base64, sys_id)
         if err:
             return err
 
@@ -160,14 +153,13 @@ def register_tools(
             validate_identifier(table)
             validate_sys_id(table_sys_id)
 
-            blocked = gate_write(table, settings, correlation_id)
+            blocked = gate_write(table, settings)
             if blocked:
                 return blocked
 
             estimated_size = _estimate_decoded_size(content_base64)
             if estimated_size > MAX_ATTACHMENT_BYTES:
                 return _err(
-                    correlation_id,
                     f"Attachment upload size {estimated_size} bytes exceeds the maximum supported size of "
                     f"{MAX_ATTACHMENT_BYTES} bytes",
                 )
@@ -180,14 +172,13 @@ def register_tools(
                     file_name,
                     content_base64,
                     content_type,
-                    correlation_id,
                 )
 
         validate_sys_id(sys_id)
 
-        env_blocked = production_write_blocked(settings, correlation_id)
+        env_blocked = production_write_blocked(settings)
         if env_blocked:
             return env_blocked
 
         async with client_factory() as client:
-            return await _run_delete(client, sys_id, settings, correlation_id)
+            return await _run_delete(client, sys_id, settings)

@@ -160,9 +160,9 @@ _ACTION_REGISTRY: Final[dict[str, dict[str, Any]]] = {
 # ---------------------------------------------------------------------------
 
 
-def _error(correlation_id: str, message: str) -> str:
+def _error(message: str) -> str:
     """Serialize a standard error envelope."""
-    return format_response(data=None, correlation_id=correlation_id, status="error", error=message)
+    return format_response(data=None, status="error", error=message)
 
 
 def _v(field: Any) -> str:
@@ -328,7 +328,6 @@ async def _resolve_inspect_sys_id(
     client: ServiceNowClient,
     sys_id: str,
     name: str,
-    correlation_id: str,
 ) -> tuple[str, str | None]:
     """Resolve the flow ``sys_id`` for ``inspect``.
 
@@ -341,15 +340,14 @@ async def _resolve_inspect_sys_id(
         return sys_id, None
     matches = await client.find_flows_by_name(name)
     if len(matches) == 0:
-        return "", _error(correlation_id, f"No flow found with name {name!r}.")
+        return "", _error(f"No flow found with name {name!r}.")
     if len(matches) > 1:
         return "", _error(
-            correlation_id,
             f"Name {name!r} is ambiguous ({len(matches)} flows match); pass sys_id instead.",
         )
     resolved = _v(matches[0].get("sys_id"))
     if not resolved:
-        return "", _error(correlation_id, f"Resolved flow for {name!r} has no sys_id.")
+        return "", _error(f"Resolved flow for {name!r} has no sys_id.")
     return resolved, None
 
 
@@ -753,20 +751,19 @@ async def _action_inspect(
     settings: Settings,
     auth_provider: OAuthPKCEProvider,
     client_factory: ServiceNowClientProvider,
-    correlation_id: str,
     sections: str,
     section_limit: int,
     is_contract: bool = False,
 ) -> str:
     if sys_id and name:
-        return _error(correlation_id, "Provide exactly one of sys_id or name (not both).")
+        return _error("Provide exactly one of sys_id or name (not both).")
     if not sys_id and not name:
-        return _error(correlation_id, "Either sys_id or name is required.")
+        return _error("Either sys_id or name is required.")
     if sys_id:
         validate_sys_id(sys_id)
     selected_sections, section_error = _parse_sections(sections, is_contract=is_contract)
     if section_error is not None:
-        return _error(correlation_id, section_error)
+        return _error(section_error)
     effective_limit = max(
         1,
         min(
@@ -777,13 +774,13 @@ async def _action_inspect(
     required = _required_datasets(selected_sections)
 
     async with client_factory() as client:
-        resolved_sys_id, err = await _resolve_inspect_sys_id(client, sys_id, name, correlation_id)
+        resolved_sys_id, err = await _resolve_inspect_sys_id(client, sys_id, name)
         if err is not None:
             return err
 
         header = await client.get_flow_by_sys_id(resolved_sys_id)
         if header is None:
-            return _error(correlation_id, f"Flow {resolved_sys_id} not found.")
+            return _error(f"Flow {resolved_sys_id} not found.")
 
         datasets, requested_limits = await _fetch_flow_datasets(client, resolved_sys_id, required, effective_limit)
         truncation: dict[str, dict[str, Any]] = {}
@@ -1130,7 +1127,7 @@ async def _action_inspect(
         "truncation": truncation,
         "dataset_probe_limits": requested_limits,
     }
-    return format_response(data=data, correlation_id=correlation_id, selection=selection)
+    return format_response(data=data, selection=selection)
 
 
 def _safe_int(value: str) -> int:
@@ -1168,10 +1165,9 @@ async def _action_find_by_table(
     settings: Settings,
     auth_provider: OAuthPKCEProvider,
     client_factory: ServiceNowClientProvider,
-    correlation_id: str,
 ) -> str:
     if not table:
-        return _error(correlation_id, "'table' is required for action='find_by_table'.")
+        return _error("'table' is required for action='find_by_table'.")
     validate_identifier(table)
 
     async with client_factory() as client:
@@ -1219,7 +1215,7 @@ async def _action_find_by_table(
         "flows": flows,
         "unresolved_flow_ids": unresolved_ids,
     }
-    return format_response(data=payload, correlation_id=correlation_id, warnings=warnings or None)
+    return format_response(data=payload, warnings=warnings or None)
 
 
 def _collect_flow_versions(
@@ -1262,16 +1258,15 @@ def _find_by_table_entry(
 # ---------------------------------------------------------------------------
 
 
-def _action_decode_values(*, value: str, correlation_id: str) -> str:
+def _action_decode_values(*, value: str) -> str:
     if not value:
-        return _error(correlation_id, "'value' is required for action='decode_values'.")
+        return _error("'value' is required for action='decode_values'.")
     try:
         decoded = decode_values(value)
     except ValueError as exc:
-        return _error(correlation_id, str(exc))
+        return _error(str(exc))
     return format_response(
         data={"decoded": decoded, "encoding": "gzip+base64+json"},
-        correlation_id=correlation_id,
     )
 
 
@@ -1289,11 +1284,9 @@ async def _action_list_triggers(
     settings: Settings,
     auth_provider: OAuthPKCEProvider,
     client_factory: ServiceNowClientProvider,
-    correlation_id: str,
 ) -> str:
     if active and active not in {"true", "false"}:
         return _error(
-            correlation_id,
             f"'active' must be 'true', 'false', or '' (got {active!r}).",
         )
     if table:
@@ -1331,7 +1324,6 @@ async def _action_list_triggers(
     }
     return format_response(
         data=payload,
-        correlation_id=correlation_id,
         pagination={"limit": effective_limit, "offset": 0, "total": len(triggers)},
         warnings=(
             [
@@ -1381,11 +1373,10 @@ def _trigger_with_flow(
 # ---------------------------------------------------------------------------
 
 
-def _action_describe(correlation_id: str) -> str:
+def _action_describe() -> str:
     """Return the action registry without making any platform calls."""
     return format_response(
         data={"actions": _ACTION_REGISTRY},
-        correlation_id=correlation_id,
     )
 
 
@@ -1424,8 +1415,6 @@ def register_tools(
         limit: int = 0,
         sections: str = "",
         section_limit: int = 0,
-        *,
-        correlation_id: str = "",
     ) -> str:
         """Inspect Flow Designer flows, triggers, and value blobs (read-only).
 
@@ -1443,15 +1432,14 @@ def register_tools(
         """
         if action not in _VALID_ACTIONS:
             return _error(
-                correlation_id,
                 f"Unknown action {action!r}. Expected one of: {sorted(_VALID_ACTIONS)}.",
             )
 
         if action == "describe":
-            return _action_describe(correlation_id)
+            return _action_describe()
 
         if action == "decode_values":
-            return _action_decode_values(value=value, correlation_id=correlation_id)
+            return _action_decode_values(value=value)
 
         if action in {"contract", "inspect"}:
             return await _action_inspect(
@@ -1460,7 +1448,6 @@ def register_tools(
                 settings=settings,
                 auth_provider=auth_provider,
                 client_factory=client_factory,
-                correlation_id=correlation_id,
                 sections=sections,
                 section_limit=section_limit,
                 is_contract=action == "contract",
@@ -1472,7 +1459,6 @@ def register_tools(
                 settings=settings,
                 auth_provider=auth_provider,
                 client_factory=client_factory,
-                correlation_id=correlation_id,
             )
 
         return await _action_list_triggers(
@@ -1483,5 +1469,4 @@ def register_tools(
             settings=settings,
             auth_provider=auth_provider,
             client_factory=client_factory,
-            correlation_id=correlation_id,
         )

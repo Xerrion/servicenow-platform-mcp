@@ -157,7 +157,7 @@ def enforce_query_safety(
     return {"limit": effective_limit}
 
 
-def write_gate(table: str, settings: Settings, correlation_id: str) -> str | None:
+def write_gate(table: str, settings: Settings) -> str | None:
     """Check write access and return a JSON error envelope if blocked, or None if allowed.
 
     This helper is used by tool functions to gate write operations early.
@@ -166,7 +166,6 @@ def write_gate(table: str, settings: Settings, correlation_id: str) -> str | Non
     Args:
         table: The table name being accessed.
         settings: The application settings (used to check production environment).
-        correlation_id: The correlation ID for the operation.
 
     Returns:
         A JSON error envelope if writes are blocked, or None if allowed.
@@ -178,14 +177,13 @@ def write_gate(table: str, settings: Settings, correlation_id: str) -> str | Non
     if reason:
         return format_response(
             data=None,
-            correlation_id=correlation_id,
             status="error",
             error=reason,
         )
     return None
 
 
-def production_write_blocked(settings: Settings, correlation_id: str) -> str | None:
+def production_write_blocked(settings: Settings) -> str | None:
     """Return an error envelope if writes are blocked by environment, else None.
 
     This is the env-level half of ``write_gate``, callable when the target
@@ -207,7 +205,6 @@ def production_write_blocked(settings: Settings, correlation_id: str) -> str | N
         return None
     return format_response(
         data=None,
-        correlation_id=correlation_id,
         status="error",
         error="Write operations are blocked in production environments",
     )
@@ -244,7 +241,7 @@ def write_blocked_reason(table: str, settings: Settings) -> str | None:
     return None
 
 
-def gate_write(table: str, settings: Settings, correlation_id: str) -> str | None:
+def gate_write(table: str, settings: Settings) -> str | None:
     """Combined identifier validation + table access check + write gate.
 
     Returns a serialized error envelope (str) when the write must be blocked,
@@ -263,7 +260,6 @@ def gate_write(table: str, settings: Settings, correlation_id: str) -> str | Non
     except ValueError as e:
         return format_response(
             data=None,
-            correlation_id=correlation_id,
             status="error",
             error=f"Invalid table identifier: {e}",
         )
@@ -272,11 +268,10 @@ def gate_write(table: str, settings: Settings, correlation_id: str) -> str | Non
     except PolicyError as e:
         return format_response(
             data=None,
-            correlation_id=correlation_id,
             status="error",
             error=str(e),
         )
-    return write_gate(table, settings, correlation_id)
+    return write_gate(table, settings)
 
 
 def mask_record(table: str, record: dict[str, Any]) -> dict[str, Any]:

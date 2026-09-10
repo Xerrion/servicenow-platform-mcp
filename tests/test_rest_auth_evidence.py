@@ -40,7 +40,7 @@ async def test_safe_evidence_reaches_tool_error_without_replay(settings: Setting
             await client.query_records("incident", "short_description=private")
             return "unreachable"
 
-        result = json.loads(await safe_tool_call(call, "test-correlation"))
+        result = json.loads(await safe_tool_call(call))
 
     assert result["status"] == "error"
     message = result["error"]["message"]

@@ -4,6 +4,17 @@
 
 ### Breaking changes
 
+- Response envelopes no longer include the server-internal `correlation_id`.
+  Tool handling no longer generates or injects it. Sentry tool context and
+  exception capture remain enabled. ServiceNow record fields named
+  `correlation_id` and outbound HTTP tracing headers are unchanged.
+- Removed redundant `selection.omitted` metadata. Other selection and
+  continuation metadata are unchanged.
+- Optional `query` string inputs now default to null, not empty strings.
+  Omit unused arguments; `fields` is still required in list mode. Empty or
+  null filters are not sent to ServiceNow. Zero offsets, false display-value
+  flags, and valid limits are preserved. Refresh cached MCP tool schemas.
+
 - Outbound ServiceNow calls now use only public OAuth authorization-code PKCE S256. Remove
   `SERVICENOW_API_KEY`, `SERVICENOW_USERNAME`, and
   `SERVICENOW_PASSWORD`; non-empty legacy settings are rejected. Configure

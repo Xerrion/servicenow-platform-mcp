@@ -62,8 +62,8 @@ _ACTION_REGISTRY: Final[dict[str, dict[str, Any]]] = {
 }
 
 
-def _error(correlation_id: str, message: str) -> str:
-    return format_response(data=None, correlation_id=correlation_id, status="error", error=message)
+def _error(message: str) -> str:
+    return format_response(data=None, status="error", error=message)
 
 
 def _records(result: dict[str, Any]) -> list[dict[str, Any]]:
@@ -124,7 +124,6 @@ async def _ritm_variables(
     limit: int,
     offset: int,
     settings: Settings,
-    correlation_id: str,
 ) -> str:
     for table in (
         "sc_req_item",
@@ -139,7 +138,7 @@ async def _ritm_variables(
     try:
         target = await client.get_record("sc_req_item", sys_id, fields=["sys_id"])
     except NotFoundError:
-        return _error(correlation_id, "Requested item was not found.")
+        return _error("Requested item was not found.")
 
     mrvs_result = await client.query_records(
         "sc_multi_row_question_answer",
@@ -292,7 +291,6 @@ async def _ritm_variables(
             "entry_count": len(entries),
             "entries": entries,
         },
-        correlation_id=correlation_id,
         pagination={"offset": effective_offset, "limit": effective_limit, "total": total},
         selection={
             "mode": "submitted_answers",
@@ -329,7 +327,6 @@ async def _journal_history(
     offset: int,
     settings: Settings,
     dictionary: DictionaryRegistry,
-    correlation_id: str,
 ) -> str:
     validate_identifier(table)
     check_table_access(table)
@@ -345,13 +342,13 @@ async def _journal_history(
         if name not in dictionary_fields or dictionary_fields[name].internal_type not in _JOURNAL_TYPES
     ]
     if invalid:
-        return _error(correlation_id, f"Field(s) are not journal-compatible on table {table!r}: {','.join(invalid)}.")
+        return _error(f"Field(s) are not journal-compatible on table {table!r}: {','.join(invalid)}.")
 
     target = await client.query_records(
         table, ServiceNowQuery().equals("sys_id", sys_id).build(), fields=["sys_id"], limit=1
     )
     if not _records(target):
-        return _error(correlation_id, "Target record was not found.")
+        return _error("Target record was not found.")
     query = (
         ServiceNowQuery()
         .equals("name", table)
@@ -384,7 +381,6 @@ async def _journal_history(
             "entry_count": len(entries),
             "entries": entries,
         },
-        correlation_id=correlation_id,
         pagination={"offset": effective_offset, "limit": effective_limit, "total": total},
         selection={
             "mode": "journal_fields",
@@ -420,8 +416,6 @@ def register_tools(
         window_days: int = 0,
         limit: int = 0,
         offset: int = 0,
-        *,
-        correlation_id: str = "",
     ) -> str:
         """Run bounded, read-only analysis over catalog answers or journals.
 
@@ -436,11 +430,11 @@ def register_tools(
             offset: Zero-based row offset.
         """
         if action not in _VALID_ACTIONS:
-            return _error(correlation_id, f"Unknown action {action!r}. Expected one of: {sorted(_VALID_ACTIONS)}.")
+            return _error(f"Unknown action {action!r}. Expected one of: {sorted(_VALID_ACTIONS)}.")
         if action == "describe":
-            return format_response(data={"actions": _ACTION_REGISTRY}, correlation_id=correlation_id)
+            return format_response(data={"actions": _ACTION_REGISTRY})
         if not sys_id:
-            return _error(correlation_id, f"sys_id is required for action={action!r}.")
+            return _error(f"sys_id is required for action={action!r}.")
         async with client_factory() as client:
             if action == "ritm_variables":
                 return await _ritm_variables(
@@ -449,10 +443,9 @@ def register_tools(
                     limit=limit,
                     offset=offset,
                     settings=settings,
-                    correlation_id=correlation_id,
                 )
             if not table:
-                return _error(correlation_id, "table is required for action='journal_history'.")
+                return _error("table is required for action='journal_history'.")
             return await _journal_history(
                 client,
                 table=table,
@@ -464,5 +457,4 @@ def register_tools(
                 offset=offset,
                 settings=settings,
                 dictionary=dictionary_registry,
-                correlation_id=correlation_id,
             )

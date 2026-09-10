@@ -32,9 +32,9 @@ _COMPACT_IDENTITY_FIELDS: tuple[str, ...] = (
 )
 
 
-def _err(correlation_id: str, message: str) -> str:
+def _err(message: str) -> str:
     """Return a serialized error envelope with the given message."""
-    return format_response(data=None, correlation_id=correlation_id, status="error", error=message)
+    return format_response(data=None, status="error", error=message)
 
 
 def _script_field_summary(fields: list[ScriptField]) -> list[dict[str, object]]:
@@ -50,18 +50,18 @@ def _script_field_summary(fields: list[ScriptField]) -> list[dict[str, object]]:
     ]
 
 
-def _parse_requested_fields(fields: str, correlation_id: str) -> tuple[list[str] | None, str] | str:
+def _parse_requested_fields(fields: str) -> tuple[list[str] | None, str] | str:
     """Parse the record projection before any ServiceNow request."""
     if fields.strip() == "*":
         return None, "all"
     requested = [name.strip() for name in fields.split(",") if name.strip()]
     if "*" in requested:
-        return _err(correlation_id, "fields='*' must be used alone.")
+        return _err("fields='*' must be used alone.")
     for name in requested:
         try:
             validate_identifier(name)
         except ValueError as exc:
-            return _err(correlation_id, f"Invalid field projection: {exc}")
+            return _err(f"Invalid field projection: {exc}")
     return requested, "explicit" if requested else "compact"
 
 
@@ -87,8 +87,6 @@ def register_tools(
         sys_id: str = "",
         name: str = "",
         fields: str = "",
-        *,
-        correlation_id: str = "",
     ) -> str:
         """Fetch a record by sys_id or name from any table.
 
@@ -111,19 +109,19 @@ def register_tools(
         """
         # --- 1. Validate table identifier ----------------------------------
         if not table:
-            return _err(correlation_id, "table is required.")
+            return _err("table is required.")
         validate_identifier(table)
 
         # --- 2. Require exactly one of sys_id/name -------------------------
         if sys_id and name:
-            return _err(correlation_id, "Provide exactly one of sys_id or name, not both.")
+            return _err("Provide exactly one of sys_id or name, not both.")
         if not sys_id and not name:
-            return _err(correlation_id, "Provide exactly one of sys_id or name.")
+            return _err("Provide exactly one of sys_id or name.")
 
         # --- 3. Policy gate ------------------------------------------------
         check_table_access(table)
 
-        parsed = _parse_requested_fields(fields, correlation_id)
+        parsed = _parse_requested_fields(fields)
         if isinstance(parsed, str):
             return parsed
         requested_fields, selection_mode = parsed
@@ -138,7 +136,6 @@ def register_tools(
             unknown_fields = [field for field in requested_fields if field != "sys_id" and field not in known_fields]
             if unknown_fields:
                 return _err(
-                    correlation_id,
                     f"Unknown field(s) for table {table!r}: {','.join(unknown_fields)}.",
                 )
 
@@ -154,7 +151,7 @@ def register_tools(
 
         # --- 5. Resolve target sys_id and fetch one projected record --------
         async with client_factory() as client:
-            resolved_sys_id, err = await _resolve_record_sys_id(client, table, sys_id, name, correlation_id)
+            resolved_sys_id, err = await _resolve_record_sys_id(client, table, sys_id, name)
             if err:
                 return err
             assert resolved_sys_id is not None
@@ -166,7 +163,6 @@ def register_tools(
             "mode": selection_mode,
             "requested_fields": "*" if selection_mode == "all" else (requested_fields or None),
             "returned_fields": returned_fields,
-            "omitted": [] if selection_mode == "all" else "all fields outside the projection",
             "sys_id_added": selection_mode == "explicit"
             and requested_fields is not None
             and "sys_id" not in requested_fields,
@@ -179,6 +175,5 @@ def register_tools(
                 "record": masked_record,
                 "script_fields": _script_field_summary(script_fields),
             },
-            correlation_id=correlation_id,
             selection=selection,
         )

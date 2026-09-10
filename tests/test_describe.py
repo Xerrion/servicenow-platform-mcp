@@ -347,8 +347,8 @@ class TestDescribe:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_includes_correlation_id(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-        """Response always contains a correlation_id."""
+    async def test_omits_correlation_id(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+        """Response contains no internal correlation ID."""
         respx.get(f"{BASE_URL}/api/now/table/sys_dictionary").mock(
             return_value=httpx.Response(200, json={"result": []})
         )
@@ -361,8 +361,7 @@ class TestDescribe:
         raw = await tools["describe"](table="incident")
         result = decode_response(raw)
 
-        assert "correlation_id" in result
-        assert len(result["correlation_id"]) > 0
+        assert "correlation_id" not in result
 
     @pytest.mark.asyncio()
     async def test_inherited_fields_are_deduplicated_with_child_override(

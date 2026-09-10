@@ -84,7 +84,7 @@ class TestServiceNowClientGetRecord:
     async def test_get_record_without_display_values(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
-        """Omits display_value param when display_values is False."""
+        """Preserves an explicit false display_value parameter."""
         from servicenow_mcp.client import ServiceNowClient
 
         route = respx.get(f"{BASE_URL}/api/now/table/incident/abc123").mock(
@@ -98,7 +98,7 @@ class TestServiceNowClientGetRecord:
             await client.get_record("incident", "abc123", display_values=False)
 
         assert route.calls.last is not None
-        assert "sysparm_display_value" not in str(route.calls.last.request.url)
+        assert route.calls.last.request.url.params["sysparm_display_value"] == "false"
 
     @pytest.mark.asyncio()
     @respx.mock
@@ -327,7 +327,7 @@ class TestServiceNowClientQueryRecords:
     async def test_query_records_without_display_values(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
-        """Omits display_value param when display_values is False."""
+        """Preserves an explicit false display_value parameter."""
         from servicenow_mcp.client import ServiceNowClient
 
         route = respx.get(f"{BASE_URL}/api/now/table/incident").mock(
@@ -342,7 +342,7 @@ class TestServiceNowClientQueryRecords:
             await client.query_records("incident", "active=true", display_values=False)
 
         assert route.calls.last is not None
-        assert "sysparm_display_value" not in str(route.calls.last.request.url)
+        assert route.calls.last.request.url.params["sysparm_display_value"] == "false"
 
 
 class TestServiceNowClientAttachmentMethods:
@@ -391,7 +391,7 @@ class TestServiceNowClientAttachmentMethods:
 
         assert route.calls.last is not None
         params = route.calls.last.request.url.params
-        assert "sysparm_offset" not in params
+        assert params["sysparm_offset"] == "0"
         assert params["sysparm_query"] == "ORDERBYsys_created_on"
 
     @pytest.mark.asyncio()

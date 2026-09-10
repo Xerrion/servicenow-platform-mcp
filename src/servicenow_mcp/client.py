@@ -243,11 +243,9 @@ class ServiceNowClient:
     ) -> dict[str, Any]:
         """Fetch a single record by sys_id."""
         http = self._ensure_client()
-        params: dict[str, str] = {}
+        params: dict[str, str] = {"sysparm_display_value": str(display_values).lower()}
         if fields:
             params["sysparm_fields"] = ",".join(fields)
-        if display_values:
-            params["sysparm_display_value"] = "true"
 
         response = await http.get(
             self._table_url(table, sys_id),
@@ -260,7 +258,7 @@ class ServiceNowClient:
     async def query_records(
         self,
         table: str,
-        query: str,
+        query: str | None = None,
         fields: list[str] | None = None,
         limit: int = 100,
         offset: int = 0,
@@ -270,16 +268,16 @@ class ServiceNowClient:
         """Query records with encoded query string."""
         http = self._ensure_client()
         params: dict[str, str] = {
-            "sysparm_query": query,
             "sysparm_limit": str(limit),
             "sysparm_offset": str(offset),
+            "sysparm_display_value": str(display_values).lower(),
         }
+        if query:
+            params["sysparm_query"] = query
         if fields:
             params["sysparm_fields"] = ",".join(fields)
         if order_by:
             params["sysparm_orderby"] = order_by
-        if display_values:
-            params["sysparm_display_value"] = "true"
 
         response = await http.get(
             self._table_url(table),
@@ -292,7 +290,7 @@ class ServiceNowClient:
 
     async def list_attachments(
         self,
-        query: str = "",
+        query: str | None = None,
         limit: int = 100,
         offset: int = 0,
         order_by: str | None = None,
@@ -301,6 +299,7 @@ class ServiceNowClient:
         http = self._ensure_client()
         params: dict[str, str] = {
             "sysparm_limit": str(limit),
+            "sysparm_offset": str(offset),
         }
         effective_query = query
         if order_by:
@@ -308,8 +307,6 @@ class ServiceNowClient:
             effective_query = f"{query}^{order_clause}" if query else order_clause
         if effective_query:
             params["sysparm_query"] = effective_query
-        if offset:
-            params["sysparm_offset"] = str(offset)
 
         response = await http.get(
             self._attachment_url(),
@@ -414,7 +411,7 @@ class ServiceNowClient:
     async def aggregate(
         self,
         table: str,
-        query: str,
+        query: str | None = None,
         group_by: str | None = None,
         avg_fields: list[str] | None = None,
         min_fields: list[str] | None = None,
@@ -431,9 +428,11 @@ class ServiceNowClient:
         """
         http = self._ensure_client()
         params: dict[str, str] = {
-            "sysparm_query": query,
             "sysparm_count": "true",
+            "sysparm_display_value": str(display_value).lower(),
         }
+        if query:
+            params["sysparm_query"] = query
         if group_by:
             params["sysparm_group_by"] = group_by
         if avg_fields:
@@ -448,8 +447,6 @@ class ServiceNowClient:
             params["sysparm_orderby"] = order_by
         if having:
             params["sysparm_having"] = having
-        if display_value:
-            params["sysparm_display_value"] = "true"
 
         response = await http.get(
             self._stats_url(table),
@@ -768,11 +765,13 @@ class ServiceNowClient:
     async def sc_get_catalogs(
         self,
         limit: int | None = None,
-        text: str = "",
+        text: str | None = None,
     ) -> Any:
         """Retrieve list of catalogs the user has access to."""
         http = self._ensure_client()
-        params: dict[str, str] = {"sysparm_text": text}
+        params: dict[str, str] = {}
+        if text:
+            params["sysparm_text"] = text
         if limit is not None:
             params["sysparm_limit"] = str(limit)
 
@@ -833,13 +832,15 @@ class ServiceNowClient:
         self,
         limit: int | None = None,
         offset: int | None = None,
-        text: str = "",
-        catalog: str = "",
-        category: str = "",
+        text: str | None = None,
+        catalog: str | None = None,
+        category: str | None = None,
     ) -> Any:
         """Retrieve list of catalog items."""
         http = self._ensure_client()
-        params: dict[str, str] = {"sysparm_text": text}
+        params: dict[str, str] = {}
+        if text:
+            params["sysparm_text"] = text
         if limit is not None:
             params["sysparm_limit"] = str(limit)
         if offset is not None:
@@ -1221,10 +1222,11 @@ class ServiceNowClient:
     ) -> tuple[list[dict[str, Any]], int | None]:
         http = self._ensure_client()
         params = {
-            "sysparm_query": query,
             "sysparm_display_value": "all",
             "sysparm_limit": str(limit),
         }
+        if query:
+            params["sysparm_query"] = query
         if fields:
             params["sysparm_fields"] = fields
         response = await http.get(self._table_url(table), headers=await self._headers(), params=params)

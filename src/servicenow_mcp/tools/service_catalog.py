@@ -55,9 +55,9 @@ _SYS_ID_ACTIONS: Final[frozenset[str]] = frozenset({"catalog_get", "category_get
 # ---------------------------------------------------------------------------
 
 
-def _err(correlation_id: str, message: str) -> str:
+def _err(message: str) -> str:
     """Return a serialized error envelope with the given message."""
-    return format_response(data=None, correlation_id=correlation_id, status="error", error=message)
+    return format_response(data=None, status="error", error=message)
 
 
 # ---------------------------------------------------------------------------
@@ -70,23 +70,21 @@ def _validate_args(
     sys_id: str,
     item_sys_id: str,
     catalog_sys_id: str,
-    correlation_id: str,
 ) -> str | None:
     """Return error envelope if ``action`` / argument combination is invalid."""
     if action not in _VALID_ACTIONS:
         return _err(
-            correlation_id,
             f"Unknown action {action!r}. Valid actions: {sorted(_VALID_ACTIONS)}.",
         )
 
     if action in _SYS_ID_ACTIONS and not sys_id:
-        return _err(correlation_id, f"sys_id is required for action={action!r}.")
+        return _err(f"sys_id is required for action={action!r}.")
 
     if action == "categories_list" and not catalog_sys_id:
-        return _err(correlation_id, "catalog_sys_id is required for action='categories_list'.")
+        return _err("catalog_sys_id is required for action='categories_list'.")
 
     if action in {"order_now", "add_to_cart"} and not item_sys_id:
-        return _err(correlation_id, f"item_sys_id is required for action={action!r}.")
+        return _err(f"item_sys_id is required for action={action!r}.")
 
     return None
 
@@ -96,16 +94,16 @@ def _validate_args(
 # ---------------------------------------------------------------------------
 
 
-async def _run_catalogs_list(client: ServiceNowClient, limit: int, text: str, correlation_id: str) -> str:
+async def _run_catalogs_list(client: ServiceNowClient, limit: int, text: str | None) -> str:
     """Execute ``catalogs_list``: list catalogs visible to the caller."""
     result = await client.sc_get_catalogs(limit=limit, text=text)
-    return format_response(data=result, correlation_id=correlation_id)
+    return format_response(data=result)
 
 
-async def _run_catalog_get(client: ServiceNowClient, sys_id: str, correlation_id: str) -> str:
+async def _run_catalog_get(client: ServiceNowClient, sys_id: str) -> str:
     """Execute ``catalog_get``: fetch one catalog by sys_id."""
     result = await client.sc_get_catalog(sys_id)
-    return format_response(data=result, correlation_id=correlation_id)
+    return format_response(data=result)
 
 
 async def _run_categories_list(
@@ -114,7 +112,6 @@ async def _run_categories_list(
     limit: int,
     offset: int,
     top_level_only: bool,
-    correlation_id: str,
 ) -> str:
     """Execute ``categories_list``: list categories of a catalog."""
     result = await client.sc_get_catalog_categories(
@@ -123,23 +120,22 @@ async def _run_categories_list(
         offset=offset,
         top_level_only=top_level_only,
     )
-    return format_response(data=result, correlation_id=correlation_id)
+    return format_response(data=result)
 
 
-async def _run_category_get(client: ServiceNowClient, sys_id: str, correlation_id: str) -> str:
+async def _run_category_get(client: ServiceNowClient, sys_id: str) -> str:
     """Execute ``category_get``: fetch one category by sys_id."""
     result = await client.sc_get_category(sys_id)
-    return format_response(data=result, correlation_id=correlation_id)
+    return format_response(data=result)
 
 
 async def _run_items_list(
     client: ServiceNowClient,
     limit: int,
     offset: int,
-    text: str,
-    catalog: str,
-    category: str,
-    correlation_id: str,
+    text: str | None,
+    catalog: str | None,
+    category: str | None,
 ) -> str:
     """Execute ``items_list``: list catalog items with optional filters."""
     result = await client.sc_get_items(
@@ -149,59 +145,57 @@ async def _run_items_list(
         catalog=catalog,
         category=category,
     )
-    return format_response(data=result, correlation_id=correlation_id)
+    return format_response(data=result)
 
 
-async def _run_item_get(client: ServiceNowClient, sys_id: str, correlation_id: str) -> str:
+async def _run_item_get(client: ServiceNowClient, sys_id: str) -> str:
     """Execute ``item_get``: fetch one catalog item by sys_id."""
     result = await client.sc_get_item(sys_id)
-    return format_response(data=result, correlation_id=correlation_id)
+    return format_response(data=result)
 
 
-async def _run_item_variables(client: ServiceNowClient, sys_id: str, correlation_id: str) -> str:
+async def _run_item_variables(client: ServiceNowClient, sys_id: str) -> str:
     """Execute ``item_variables``: fetch the form variables for a catalog item."""
     result = await client.sc_get_item_variables(sys_id)
-    return format_response(data=result, correlation_id=correlation_id)
+    return format_response(data=result)
 
 
 async def _run_order_now(
     client: ServiceNowClient,
     item_sys_id: str,
     parsed_vars: dict[str, Any] | None,
-    correlation_id: str,
 ) -> str:
     """Execute ``order_now``: order a catalog item directly, bypassing the cart."""
     result = await client.sc_order_now(item_sys_id, variables=parsed_vars)
-    return format_response(data=result, correlation_id=correlation_id)
+    return format_response(data=result)
 
 
 async def _run_add_to_cart(
     client: ServiceNowClient,
     item_sys_id: str,
     parsed_vars: dict[str, Any] | None,
-    correlation_id: str,
 ) -> str:
     """Execute ``add_to_cart``: add a catalog item to the caller's cart."""
     result = await client.sc_add_to_cart(item_sys_id, variables=parsed_vars)
-    return format_response(data=result, correlation_id=correlation_id)
+    return format_response(data=result)
 
 
-async def _run_cart_get(client: ServiceNowClient, correlation_id: str) -> str:
+async def _run_cart_get(client: ServiceNowClient) -> str:
     """Execute ``cart_get``: retrieve the caller's current cart."""
     result = await client.sc_get_cart()
-    return format_response(data=result, correlation_id=correlation_id)
+    return format_response(data=result)
 
 
-async def _run_cart_submit(client: ServiceNowClient, correlation_id: str) -> str:
+async def _run_cart_submit(client: ServiceNowClient) -> str:
     """Execute ``cart_submit``: submit the caller's cart as an order."""
     result = await client.sc_submit_order()
-    return format_response(data=result, correlation_id=correlation_id)
+    return format_response(data=result)
 
 
-async def _run_cart_checkout(client: ServiceNowClient, correlation_id: str) -> str:
+async def _run_cart_checkout(client: ServiceNowClient) -> str:
     """Execute ``cart_checkout``: two-step checkout for the caller's cart."""
     result = await client.sc_checkout()
-    return format_response(data=result, correlation_id=correlation_id)
+    return format_response(data=result)
 
 
 # ---------------------------------------------------------------------------
@@ -231,15 +225,13 @@ def register_tools(
         sys_id: str = "",
         item_sys_id: str = "",
         catalog_sys_id: str = "",
-        catalog: str = "",
-        category: str = "",
-        text: str = "",
+        catalog: str | None = None,
+        category: str | None = None,
+        text: str | None = None,
         variables: str = "",
         limit: int = 20,
         offset: int = 0,
         top_level_only: bool = False,
-        *,
-        correlation_id: str = "",
     ) -> str:
         """Service Catalog operations. Dispatch on ``action``.
 
@@ -259,7 +251,7 @@ def register_tools(
             top_level_only: Return only top-level categories (categories_list).
         """
         # --- 1. Argument validation (early exit) -------------------------
-        err = _validate_args(action, sys_id, item_sys_id, catalog_sys_id, correlation_id)
+        err = _validate_args(action, sys_id, item_sys_id, catalog_sys_id)
         if err:
             return err
 
@@ -273,14 +265,13 @@ def register_tools(
 
         if action == "order_now":
             validate_sys_id(item_sys_id)
-            blocked = gate_write("sc_req_item", settings, correlation_id)
+            blocked = gate_write("sc_req_item", settings)
             if blocked:
                 return blocked
             if variables:
                 parsed = parse_payload_json(
                     variables,
                     field_name="variables",
-                    correlation_id=correlation_id,
                     validate_keys=False,
                 )
                 if isinstance(parsed, str):
@@ -289,14 +280,13 @@ def register_tools(
 
         elif action == "add_to_cart":
             validate_sys_id(item_sys_id)
-            blocked = gate_write("sc_cart_item", settings, correlation_id)
+            blocked = gate_write("sc_cart_item", settings)
             if blocked:
                 return blocked
             if variables:
                 parsed = parse_payload_json(
                     variables,
                     field_name="variables",
-                    correlation_id=correlation_id,
                     validate_keys=False,
                 )
                 if isinstance(parsed, str):
@@ -304,7 +294,7 @@ def register_tools(
                 parsed_vars = parsed
 
         elif action in {"cart_submit", "cart_checkout"}:
-            blocked = gate_write("sc_request", settings, correlation_id)
+            blocked = gate_write("sc_request", settings)
             if blocked:
                 return blocked
 
@@ -314,26 +304,26 @@ def register_tools(
         # --- 4. Dispatch -------------------------------------------------
         async with client_factory() as client:
             if action == "catalogs_list":
-                return await _run_catalogs_list(client, limit, text, correlation_id)
+                return await _run_catalogs_list(client, limit, text)
             if action == "catalog_get":
-                return await _run_catalog_get(client, sys_id, correlation_id)
+                return await _run_catalog_get(client, sys_id)
             if action == "categories_list":
-                return await _run_categories_list(client, catalog_sys_id, limit, offset, top_level_only, correlation_id)
+                return await _run_categories_list(client, catalog_sys_id, limit, offset, top_level_only)
             if action == "category_get":
-                return await _run_category_get(client, sys_id, correlation_id)
+                return await _run_category_get(client, sys_id)
             if action == "items_list":
-                return await _run_items_list(client, limit, offset, text, catalog, category, correlation_id)
+                return await _run_items_list(client, limit, offset, text, catalog, category)
             if action == "item_get":
-                return await _run_item_get(client, sys_id, correlation_id)
+                return await _run_item_get(client, sys_id)
             if action == "item_variables":
-                return await _run_item_variables(client, sys_id, correlation_id)
+                return await _run_item_variables(client, sys_id)
             if action == "order_now":
-                return await _run_order_now(client, item_sys_id, parsed_vars, correlation_id)
+                return await _run_order_now(client, item_sys_id, parsed_vars)
             if action == "add_to_cart":
-                return await _run_add_to_cart(client, item_sys_id, parsed_vars, correlation_id)
+                return await _run_add_to_cart(client, item_sys_id, parsed_vars)
             if action == "cart_get":
-                return await _run_cart_get(client, correlation_id)
+                return await _run_cart_get(client)
             if action == "cart_submit":
-                return await _run_cart_submit(client, correlation_id)
+                return await _run_cart_submit(client)
             # cart_checkout (only remaining action; validated at top)
-            return await _run_cart_checkout(client, correlation_id)
+            return await _run_cart_checkout(client)

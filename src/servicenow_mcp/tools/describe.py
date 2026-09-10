@@ -63,7 +63,6 @@ def _script_field_summary(fields: list[ScriptField]) -> list[dict[str, object]]:
 async def _run_list_script_fields(
     table: str,
     dictionary: DictionaryRegistry,
-    correlation_id: str,
 ) -> str:
     """Resolve script-bearing fields for ``table`` via ``DictionaryRegistry``.
 
@@ -73,7 +72,6 @@ async def _run_list_script_fields(
     if not table:
         return format_response(
             data=None,
-            correlation_id=correlation_id,
             status="error",
             error="table is required when action='list_script_fields'.",
         )
@@ -91,7 +89,6 @@ async def _run_list_script_fields(
             "script_fields": _script_field_summary(script_fields),
             "count": len(script_fields),
         },
-        correlation_id=correlation_id,
     )
 
 
@@ -100,7 +97,6 @@ async def _run_list_tables(
     settings: Settings,
     auth_provider: OAuthPKCEProvider,
     client_factory: ServiceNowClientProvider,
-    correlation_id: str,
 ) -> str:
     """List tables from ``sys_db_object``, optionally filtered by name/label.
 
@@ -132,7 +128,6 @@ async def _run_list_tables(
 
     return format_response(
         data={"tables": tables, "count": len(tables)},
-        correlation_id=correlation_id,
         warnings=warnings or None,
     )
 
@@ -169,8 +164,6 @@ def register_tools(
         name_filter: str = "",
         field_offset: int = 0,
         field_limit: int = DEFAULT_DESCRIBE_FIELD_LIMIT,
-        *,
-        correlation_id: str = "",
     ) -> str:
         """Return slim field metadata for a table, or list tables / script fields.
 
@@ -198,18 +191,16 @@ def register_tools(
             if action not in _VALID_DESCRIBE_ACTIONS:
                 return format_response(
                     data=None,
-                    correlation_id=correlation_id,
                     status="error",
                     error=f"Unknown describe action {action!r}. Valid actions: {sorted(_VALID_DESCRIBE_ACTIONS)}.",
                 )
             if action == "list_tables":
-                return await _run_list_tables(name_filter, settings, auth_provider, client_factory, correlation_id)
-            return await _run_list_script_fields(table, dict_registry, correlation_id)
+                return await _run_list_tables(name_filter, settings, auth_provider, client_factory)
+            return await _run_list_script_fields(table, dict_registry)
 
         if not table:
             return format_response(
                 data=None,
-                correlation_id=correlation_id,
                 status="error",
                 error="table is required when action is not set.",
             )
@@ -220,14 +211,12 @@ def register_tools(
         if field_offset < 0:
             return format_response(
                 data=None,
-                correlation_id=correlation_id,
                 status="error",
                 error="field_offset must be zero or greater.",
             )
         if not 1 <= field_limit <= 100:
             return format_response(
                 data=None,
-                correlation_id=correlation_id,
                 status="error",
                 error="field_limit must be between 1 and 100.",
             )
@@ -237,7 +226,6 @@ def register_tools(
         if "*" in requested_fields:
             return format_response(
                 data=None,
-                correlation_id=correlation_id,
                 status="error",
                 error="fields='*' must be used alone.",
             )
@@ -269,7 +257,6 @@ def register_tools(
         selection = data.pop("selection")
         return format_response(
             data=data,
-            correlation_id=correlation_id,
             warnings=warnings or None,
             selection=selection,
         )

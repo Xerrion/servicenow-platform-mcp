@@ -47,7 +47,6 @@ async def _check_mandatory_or_error(
     client: ServiceNowClient,
     table: str,
     data: dict[str, Any],
-    correlation_id: str,
     dictionary: DictionaryRegistry,
 ) -> str | None:
     """Check for missing mandatory fields and return error response if any, else None."""
@@ -55,7 +54,6 @@ async def _check_mandatory_or_error(
     if missing:
         return format_response(
             data={"table": table, "missing_fields": missing},
-            correlation_id=correlation_id,
             status="error",
             error=f"Missing mandatory fields for table '{table}': {', '.join(missing)}",
         )
@@ -67,7 +65,6 @@ async def _resolve_record_sys_id(
     table: str,
     sys_id: str,
     name: str,
-    correlation_id: str,
 ) -> tuple[str | None, str | None]:
     """Resolve the target sys_id for ``record_read``.
 
@@ -95,14 +92,12 @@ async def _resolve_record_sys_id(
     if not records:
         return None, format_response(
             data=None,
-            correlation_id=correlation_id,
             status="error",
             error=f"No record found with name={name!r} on table {table!r}.",
         )
     if len(records) > 1:
         return None, format_response(
             data=None,
-            correlation_id=correlation_id,
             status="error",
             error=f"Ambiguous name={name!r} on table {table!r}: multiple records match.",
         )

@@ -51,14 +51,14 @@ _ACTION_REGISTRY: Final[dict[str, dict[str, Any]]] = {
 }
 
 
-def _error(correlation_id: str, message: str) -> str:
+def _error(message: str) -> str:
     """Serialize a standard error envelope."""
-    return format_response(data=None, correlation_id=correlation_id, status="error", error=message)
+    return format_response(data=None, status="error", error=message)
 
 
-def _unknown_investigation_error(correlation_id: str, name: str) -> str:
+def _unknown_investigation_error(name: str) -> str:
     available = ", ".join(sorted(INVESTIGATION_REGISTRY.keys()))
-    return _error(correlation_id, f"Unknown investigation '{name}'. Available: {available}")
+    return _error(f"Unknown investigation '{name}'. Available: {available}")
 
 
 async def _run_action(
@@ -67,17 +67,16 @@ async def _run_action(
     settings: Settings,
     auth_provider: OAuthPKCEProvider,
     client_factory: ServiceNowClientProvider,
-    correlation_id: str,
 ) -> str:
     if not name:
-        return _error(correlation_id, "'name' is required when action='run'.")
+        return _error("'name' is required when action='run'.")
 
     module = INVESTIGATION_REGISTRY.get(name)
     if module is None:
-        return _unknown_investigation_error(correlation_id, name)
+        return _unknown_investigation_error(name)
 
     if params:
-        parsed = parse_payload_json(params, field_name="params", correlation_id=correlation_id, validate_keys=False)
+        parsed = parse_payload_json(params, field_name="params", validate_keys=False)
         if isinstance(parsed, str):
             return parsed
         params_dict: dict[str, Any] = parsed
@@ -99,26 +98,24 @@ async def _run_action(
             if isinstance(finding, dict):
                 finding["provenance"] = {"investigation": name}
 
-    return format_response(data=result, correlation_id=correlation_id)
+    return format_response(data=result)
 
 
-def _describe_action(correlation_id: str, name: str) -> str:
+def _describe_action(name: str) -> str:
     if not name:
         return format_response(
             data={"investigations": sorted(INVESTIGATION_REGISTRY.keys()), "actions": _ACTION_REGISTRY},
-            correlation_id=correlation_id,
         )
 
     module = INVESTIGATION_REGISTRY.get(name)
     if module is None:
-        return _unknown_investigation_error(correlation_id, name)
+        return _unknown_investigation_error(name)
 
     params: dict[str, dict[str, Any]] = getattr(module, "PARAMS", {})
     doc = (module.__doc__ or "").strip()
     description = doc.splitlines()[0] if doc else name
     return format_response(
         data={"name": name, "description": description, "params": params, "actions": _ACTION_REGISTRY},
-        correlation_id=correlation_id,
     )
 
 
@@ -128,20 +125,19 @@ async def _explain_action(
     settings: Settings,
     auth_provider: OAuthPKCEProvider,
     client_factory: ServiceNowClientProvider,
-    correlation_id: str,
 ) -> str:
     if not element_id:
-        return _error(correlation_id, "'element_id' is required when action='explain'.")
+        return _error("'element_id' is required when action='explain'.")
     selected_module = INVESTIGATION_REGISTRY.get(name) if name else None
     if name and selected_module is None:
-        return _unknown_investigation_error(correlation_id, name)
+        return _unknown_investigation_error(name)
 
     # Format guard before any I/O. ``parse_element_id`` enforces the 'table:sys_id'
     # shape; the table-allowlist check happens inside each module's explain.
     try:
         table, sys_id = parse_element_id(element_id)
     except ValueError as exc:
-        return _error(correlation_id, str(exc))
+        return _error(str(exc))
     validate_identifier(table)
     validate_identifier(sys_id)
 
@@ -154,7 +150,6 @@ async def _explain_action(
             result = await selected_module.explain(client, element_id)
         return format_response(
             data=result,
-            correlation_id=correlation_id,
             selection={"dispatch": {"mode": "direct", "investigation": name, "attempted": [name]}},
         )
 
@@ -170,7 +165,6 @@ async def _explain_action(
                 continue
             return format_response(
                 data=result,
-                correlation_id=correlation_id,
                 selection={
                     "dispatch": {
                         "mode": "trial",
@@ -185,7 +179,6 @@ async def _explain_action(
     }
     return format_response(
         data=fallback,
-        correlation_id=correlation_id,
         selection={"dispatch": {"mode": "trial", "investigation": None, "attempted": attempted}},
     )
 
@@ -214,8 +207,6 @@ def register_tools(
         name: str = "",
         params: str = "{}",
         element_id: str = "",
-        *,
-        correlation_id: str = "",
     ) -> str:
         """Run an investigation or explain a finding.
 
@@ -230,7 +221,6 @@ def register_tools(
         """
         if action not in _VALID_ACTIONS:
             return _error(
-                correlation_id,
                 f"Unknown action {action!r}. Expected one of: {sorted(_VALID_ACTIONS)}.",
             )
 
@@ -241,11 +231,10 @@ def register_tools(
                 settings=settings,
                 auth_provider=auth_provider,
                 client_factory=client_factory,
-                correlation_id=correlation_id,
             )
 
         if action == "describe":
-            return _describe_action(correlation_id, name)
+            return _describe_action(name)
 
         return await _explain_action(
             element_id=element_id,
@@ -253,5 +242,4 @@ def register_tools(
             settings=settings,
             auth_provider=auth_provider,
             client_factory=client_factory,
-            correlation_id=correlation_id,
         )

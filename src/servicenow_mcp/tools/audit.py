@@ -84,9 +84,9 @@ _ACTION_REGISTRY: Final[dict[str, dict[str, Any]]] = {
 # ---------------------------------------------------------------------------
 
 
-def _error(correlation_id: str, message: str) -> str:
+def _error(message: str) -> str:
     """Serialize a standard error envelope."""
-    return format_response(data=None, correlation_id=correlation_id, status="error", error=message)
+    return format_response(data=None, status="error", error=message)
 
 
 def _window_days_or_default(window_days: int) -> int:
@@ -251,7 +251,6 @@ async def _action_check_field(
     auth_provider: OAuthPKCEProvider,
     client_factory: ServiceNowClientProvider,
     registry: AuditRegistry,
-    correlation_id: str,
 ) -> str:
     validate_identifier(table)
     check_table_access(table)
@@ -285,7 +284,7 @@ async def _action_check_field(
         window_note=note,
         chain=chain,
     )
-    return format_response(data=payload, correlation_id=correlation_id)
+    return format_response(data=payload)
 
 
 async def _action_check_fields(
@@ -297,17 +296,15 @@ async def _action_check_fields(
     auth_provider: OAuthPKCEProvider,
     client_factory: ServiceNowClientProvider,
     registry: AuditRegistry,
-    correlation_id: str,
 ) -> str:
     validate_identifier(table)
     check_table_access(table)
 
     fields = [item.strip() for item in fields_csv.split(",") if item.strip()]
     if not fields:
-        return _error(correlation_id, "fields_csv must list at least one field.")
+        return _error("fields_csv must list at least one field.")
     if len(fields) > _MAX_FIELDS_PER_BATCH:
         return _error(
-            correlation_id,
             f"At most {_MAX_FIELDS_PER_BATCH} fields per check_fields call (got {len(fields)}).",
         )
     for name in fields:
@@ -369,14 +366,13 @@ async def _action_check_fields(
         },
         "results": results,
     }
-    return format_response(data=payload, correlation_id=correlation_id)
+    return format_response(data=payload)
 
 
 async def _action_check_table(
     *,
     table: str,
     registry: AuditRegistry,
-    correlation_id: str,
 ) -> str:
     validate_identifier(table)
     check_table_access(table)
@@ -419,7 +415,7 @@ async def _action_check_table(
         "table_audit": table_audit,
         "field_overrides": overrides,
     }
-    return format_response(data=payload, correlation_id=correlation_id)
+    return format_response(data=payload)
 
 
 async def _action_history(
@@ -432,12 +428,11 @@ async def _action_history(
     settings: Settings,
     auth_provider: OAuthPKCEProvider,
     client_factory: ServiceNowClientProvider,
-    correlation_id: str,
 ) -> str:
     validate_identifier(table)
     check_table_access(table)
     if not sys_id:
-        return _error(correlation_id, "sys_id is required for action='history'.")
+        return _error("sys_id is required for action='history'.")
     validate_sys_id(sys_id)
 
     explicit_since = since.strip() if since else ""
@@ -485,14 +480,13 @@ async def _action_history(
         "entry_count": len(masked),
         "entries": masked,
     }
-    return format_response(data=payload, correlation_id=correlation_id)
+    return format_response(data=payload)
 
 
-def _action_describe(correlation_id: str) -> str:
+def _action_describe() -> str:
     """Return the action registry without making any platform calls."""
     return format_response(
         data={"actions": _ACTION_REGISTRY},
-        correlation_id=correlation_id,
     )
 
 
@@ -539,8 +533,6 @@ def register_tools(
         since: str = "",
         window_days: int = 0,
         limit: int = 0,
-        *,
-        correlation_id: str = "",
     ) -> str:
         """Inspect ServiceNow audit posture (table/field config) and audit trail.
 
@@ -561,12 +553,11 @@ def register_tools(
         """
         if action not in _VALID_ACTIONS:
             return _error(
-                correlation_id,
                 f"Unknown action {action!r}. Expected one of: {sorted(_VALID_ACTIONS)}.",
             )
 
         if action == "describe":
-            return _action_describe(correlation_id)
+            return _action_describe()
 
         if action == "check_field":
             return await _action_check_field(
@@ -577,7 +568,6 @@ def register_tools(
                 auth_provider=auth_provider,
                 client_factory=client_factory,
                 registry=audit_registry,
-                correlation_id=correlation_id,
             )
 
         if action == "check_fields":
@@ -589,14 +579,12 @@ def register_tools(
                 auth_provider=auth_provider,
                 client_factory=client_factory,
                 registry=audit_registry,
-                correlation_id=correlation_id,
             )
 
         if action == "check_table":
             return await _action_check_table(
                 table=table,
                 registry=audit_registry,
-                correlation_id=correlation_id,
             )
 
         return await _action_history(
@@ -608,5 +596,4 @@ def register_tools(
             settings=settings,
             auth_provider=auth_provider,
             client_factory=client_factory,
-            correlation_id=correlation_id,
         )

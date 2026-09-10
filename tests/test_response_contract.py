@@ -12,6 +12,7 @@ from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.tools.query import register_tools
+from servicenow_mcp.tools.service_catalog import register_tools as register_catalog_tools
 from servicenow_mcp.utils import format_response
 
 
@@ -142,6 +143,37 @@ async def test_catalog_client_omits_empty_filters(settings: Settings, empty: str
         await client.sc_get_items(text=empty, catalog=empty, category=empty, limit=5, offset=0)
     assert dict(catalogs.calls.last.request.url.params) == {}
     assert dict(items.calls.last.request.url.params) == {"sysparm_limit": "5", "sysparm_offset": "0"}
+
+
+async def test_catalog_schema_has_nullable_filters(settings: Settings) -> None:
+    mcp = MCPServer("test")
+    register_catalog_tools(mcp, settings, OAuthPKCEProvider(settings))
+    schema = (await mcp.list_tools())[0].input_schema
+    assert schema["required"] == ["action"]
+    assert "correlation_id" not in schema["properties"]
+    for name in ("text", "catalog", "category"):
+        parameter = schema["properties"][name]
+        assert parameter["default"] is None
+        assert {choice["type"] for choice in parameter["anyOf"]} == {"string", "null"}
+
+
+@pytest.mark.parametrize("empty", ["omitted", "", None])
+@pytest.mark.parametrize("action", ["catalogs_list", "items_list"])
+@respx.mock
+async def test_catalog_mcp_calls_omit_empty_filters(settings: Settings, empty: str | None, action: str) -> None:
+    path = "catalogs" if action == "catalogs_list" else "items"
+    route = respx.get(f"{BASE_URL}/api/sn_sc/servicecatalog/{path}").respond(200, json={"result": []})
+    mcp = MCPServer("test")
+    register_catalog_tools(mcp, settings, OAuthPKCEProvider(settings))
+    optional = {} if empty == "omitted" else dict.fromkeys(("text", "catalog", "category"), empty)
+    result = await mcp.call_tool("service_catalog", {"action": action, **optional})
+    assert result.result_type == "complete"
+    assert isinstance(result.structured_content, dict)
+    assert json.loads(result.structured_content["result"]) == {"status": "success", "data": []}
+    expected = {"sysparm_limit": "20"}
+    if action == "items_list":
+        expected["sysparm_offset"] = "0"
+    assert dict(route.calls.last.request.url.params) == expected
 
 
 @respx.mock

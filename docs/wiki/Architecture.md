@@ -98,7 +98,10 @@ disable global protection. See [[Configuration]] for policy migration.
 
 ### Registration Pattern
 
-The loader uses one `register_tools()` signature for all tool groups:
+The loader injects dependencies by parameter name. Each `register_tools()`
+function declares only the dependencies its module consumes. Available names
+are `mcp`, `settings`, `auth_provider`, `choices`, `dictionary`, and
+`client_factory`. For example, a tool without registries uses:
 
 ```python
 from mcp.server import MCPServer
@@ -108,13 +111,14 @@ def register_tools(
     mcp: MCPServer,
     settings: Settings,
     auth_provider: OAuthPKCEProvider,
-    choices: ChoiceRegistry | None = None,
-    dictionary: DictionaryRegistry | None = None,
     client_factory: ServiceNowClientProvider | None = None,
 ) -> None: ...
 ```
 
 The bootstrap process dynamically imports modules from `servicenow_mcp.tools` and registers them.
+`query` also accepts both registries. Dictionary consumers accept `dictionary`;
+`resolve_choice` accepts only `mcp` and `choices`. Tests can inject the same
+dependencies directly without unused parity arguments.
 
 The server is constructed as `MCPServer("servicenow-platform-mcp")`. Tool decorators remain `@mcp.tool()` and `@tool_handler`. The entry point runs `mcp.run(transport="stdio")`.
 

@@ -4,6 +4,11 @@
 
 ### Breaking changes
 
+- Removed the unused Python compatibility method `ServiceNowClient.download_attachment_by_name`.
+  Python callers must resolve attachment metadata, then use `download_attachment(sys_id)`.
+  The MCP `attachment(action="download_by_name", ...)` path is unchanged.
+- Internal tool registration functions now declare only consumed dependencies. The loader
+  injects them by parameter name; direct callers must omit removed parity-only arguments.
 - Response envelopes no longer include the server-internal `correlation_id`.
   Tool handling no longer generates or injects it. Sentry tool context and
   exception capture remain enabled. ServiceNow record fields named

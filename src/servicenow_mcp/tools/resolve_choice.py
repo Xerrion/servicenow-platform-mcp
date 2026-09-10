@@ -10,13 +10,9 @@ from __future__ import annotations
 
 from mcp.server import MCPServer
 
-from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.choices import ChoiceRegistry
-from servicenow_mcp.client import ServiceNowClientProvider
-from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.policy import check_table_access
-from servicenow_mcp.tools._dictionary import DictionaryRegistry
 from servicenow_mcp.utils import format_response, validate_identifier
 
 
@@ -30,19 +26,9 @@ def _error(message: str) -> str:
 
 def register_tools(
     mcp: MCPServer,
-    settings: Settings,
-    auth_provider: OAuthPKCEProvider,
     choices: ChoiceRegistry | None = None,
-    dictionary: DictionaryRegistry | None = None,
-    client_factory: ServiceNowClientProvider | None = None,
 ) -> None:
-    """Register the unified ``resolve_choice`` tool on the MCP server.
-
-    The registry is the only collaborator this tool needs; ``settings`` and
-    ``auth_provider`` are accepted to match the loader contract used by
-    ``server.py`` for every unified tool.
-    """
-    del settings, auth_provider, dictionary, client_factory  # unused; signature retained for loader parity
+    """Register ``resolve_choice``; calls return an error if no registry is supplied."""
 
     @mcp.tool()
     @tool_handler

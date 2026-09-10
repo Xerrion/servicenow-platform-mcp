@@ -15,7 +15,6 @@ import logging
 from mcp.server import MCPServer
 
 from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.choices import ChoiceRegistry
 from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
@@ -136,18 +135,10 @@ def register_tools(
     mcp: MCPServer,
     settings: Settings,
     auth_provider: OAuthPKCEProvider,
-    choices: ChoiceRegistry | None = None,
     dictionary: DictionaryRegistry | None = None,
     client_factory: ServiceNowClientProvider | None = None,
 ) -> None:
-    """Register the unified ``describe`` tool on the MCP server.
-
-    Mirrors the unified-tool registration signature used by ``server.py`` for
-    ``unified.*`` modules. ``choices`` is unused by ``describe``; ``dictionary``
-    powers ``action='list_script_fields'``.
-    """
-    del choices  # unused; signature retained for loader parity
-
+    """Register the unified ``describe`` tool with optional shared dictionary metadata."""
     client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
     if dictionary is None:
         dictionary = DictionaryRegistry(settings, auth_provider, client_factory)

@@ -11,7 +11,6 @@ import respx
 from mcp.server import MCPServer
 
 from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.choices import ChoiceRegistry
 from servicenow_mcp.config import Settings
 from servicenow_mcp.tools._audit import attribute_has_no_audit
 from servicenow_mcp.tools._dictionary import DictionaryRegistry
@@ -42,12 +41,11 @@ def auth_provider(settings: Settings) -> OAuthPKCEProvider:
 def _register_and_get_tools(
     settings: Settings,
     auth_provider: OAuthPKCEProvider,
-    choices: ChoiceRegistry | None = None,
     dictionary: DictionaryRegistry | None = None,
 ) -> dict[str, Any]:
     """Register the unified ``audit`` tool on a fresh MCP and return callables."""
     mcp = MCPServer("test")
-    register_tools(mcp, settings, auth_provider, choices=choices, dictionary=dictionary)
+    register_tools(mcp, settings, auth_provider, dictionary=dictionary)
     return get_tool_functions(mcp)
 
 

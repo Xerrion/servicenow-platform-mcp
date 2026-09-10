@@ -9,18 +9,17 @@ from typing import Any
 __all__ = ["PreviewTokenStore"]
 
 
-class _BaseTokenStore:
-    """Base class for UUID-keyed, TTL-expiring in-memory token stores.
+class PreviewTokenStore:
+    """In-memory store for single-use preview/apply tokens with TTL.
 
-    Provides create/get lifecycle with automatic expiry sweeping.
-    Subclasses set ``_store_label`` to customize the full-store error message.
+    Tokens are UUID strings mapped to payloads (table, sys_id, changes).
+    Expired tokens are automatically rejected on get/consume.
 
     All public mutating methods are ``async`` and serialize access through an
     ``asyncio.Lock`` so that read-then-write sequences (sweep + capacity check
     + insert, expiry check + pop) are atomic with respect to other coroutines.
     """
 
-    _store_label: str = "Token"
     _ttl: int
     _max_size: int
 
@@ -42,7 +41,7 @@ class _BaseTokenStore:
         async with self._lock:
             self._sweep_expired_locked()
             if len(self._store) >= self._max_size:
-                raise RuntimeError(f"{self._store_label} store is full")
+                raise RuntimeError("Preview token store is full")
             token = str(uuid.uuid4())
             self._store[token] = {
                 "payload": payload,
@@ -76,16 +75,6 @@ class _BaseTokenStore:
                 self._store.pop(token, None)
                 return None
             return entry["payload"]
-
-
-class PreviewTokenStore(_BaseTokenStore):
-    """In-memory store for preview/apply tokens with TTL.
-
-    Tokens are UUID strings mapped to payloads (table, sys_id, changes).
-    Expired tokens are automatically rejected on get/consume.
-    """
-
-    _store_label: str = "Preview token"
 
     async def consume(self, token: str) -> dict[str, Any] | None:
         """Return the payload and remove the token. Returns None if expired/missing.

@@ -6,7 +6,6 @@ import re
 import uuid
 from collections.abc import Callable
 from typing import Any
-from urllib.parse import quote
 
 import httpx
 
@@ -124,11 +123,6 @@ class ServiceNowClient:
         if sys_id is None:
             return f"{self._attachment_url()}/file"
         return f"{self._attachment_url(sys_id)}/file"
-
-    def _attachment_file_by_name_url(self, table_sys_id: str, file_name: str) -> str:
-        """Build the Attachment by-name download URL."""
-        validate_sys_id(table_sys_id)
-        return f"{self._attachment_url()}/{table_sys_id}/{quote(file_name, safe='')}/file"
 
     async def _headers(self) -> dict[str, str]:
         """Build request headers including auth and correlation ID."""
@@ -367,16 +361,6 @@ class ServiceNowClient:
         http = self._ensure_client()
         response = await http.get(
             self._attachment_file_url(sys_id),
-            headers=await self._headers(),
-        )
-        self._raise_for_status(response)
-        return response.content
-
-    async def download_attachment_by_name(self, table_sys_id: str, file_name: str) -> bytes:
-        """Download attachment content by record sys_id and file name."""
-        http = self._ensure_client()
-        response = await http.get(
-            self._attachment_file_by_name_url(table_sys_id, file_name),
             headers=await self._headers(),
         )
         self._raise_for_status(response)

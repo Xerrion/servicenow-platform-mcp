@@ -1,5 +1,6 @@
 """Tests for in-memory state management (PreviewTokenStore)."""
 
+import asyncio
 from unittest.mock import patch
 
 import pytest
@@ -131,7 +132,7 @@ class TestPreviewTokenStore:
         await store.create({"table": "problem"})
         await store.create({"table": "change_request"})
 
-        with pytest.raises(RuntimeError, match="store is full"):
+        with pytest.raises(RuntimeError, match=r"^Preview token store is full$"):
             await store.create({"table": "kb_knowledge"})
 
     @pytest.mark.asyncio()
@@ -167,4 +168,16 @@ class TestPreviewTokenStore:
         with patch("servicenow_mcp.state.time.monotonic", return_value=fake_time + 61):
             await store._sweep_expired()
 
+        assert len(store) == 0
+
+    async def test_concurrent_consumers_get_payload_once(self) -> None:
+        """A preview token can be applied by only one concurrent consumer."""
+        store = PreviewTokenStore()
+        payload = {"table": "incident"}
+        token = await store.create(payload)
+
+        results = await asyncio.gather(*(store.consume(token) for _ in range(10)))
+
+        assert results.count(payload) == 1
+        assert results.count(None) == 9
         assert len(store) == 0

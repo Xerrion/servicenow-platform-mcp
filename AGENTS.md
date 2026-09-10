@@ -208,8 +208,7 @@ return format_response(data=None, status="error", error="Something failed")
 Only the `PreviewTokenStore` remains for staging write operations:
 
 ```text
-_BaseTokenStore(ttl_seconds=300, max_size=1000)
-  └── PreviewTokenStore    # Single-use tokens (has consume() method)
+PreviewTokenStore(ttl_seconds=300, max_size=1000)  # Single-use tokens
 ```
 
 - `create(payload) -> str` - stores data, returns UUID key
@@ -223,7 +222,10 @@ Agents pass ServiceNow encoded query strings directly to the `query` tool. Refer
 
 ## 🏗 Tool Registration
 
-The server bootstrap uses one registration signature for all tool groups.
+The server bootstrap injects dependencies by the named parameters of each
+`register_tools` function. Declare only dependencies the module consumes.
+Available names are `mcp`, `settings`, `auth_provider`, `choices`, `dictionary`,
+and `client_factory`. Do not accept unused arguments for signature parity.
 
 ```python
 from mcp.server import MCPServer
@@ -233,19 +235,16 @@ def register_tools(
     mcp: MCPServer,
     settings: Settings,
     auth_provider: OAuthPKCEProvider,
-    choices: ChoiceRegistry | None = None,
-    dictionary: DictionaryRegistry | None = None,
     client_factory: ServiceNowClientProvider | None = None,
 ) -> None:
-    # Modules that do not require the registries explicitly ignore them
-    del choices, dictionary  # unused; signature retained for loader parity
+    client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
 
     @mcp.tool()
     @tool_handler
     async def tool_name(param: str) -> str:
         validate_identifier(param)
         check_table_access(param)
-        async with ServiceNowClient(settings, auth_provider) as client:
+        async with client_factory() as client:
             result = await client.some_method(param)
         return format_response(data=result)
 ```
@@ -490,7 +489,8 @@ Use **respx** library with `@respx.mock` decorator on async test methods.
 
 ### Tool Test Helpers
 
-Tool tests live alongside the rest of the suite in `tests/`. Standard tool registration for tests uses the 5-argument signature:
+Tool tests live alongside the rest of the suite in `tests/`. Pass only dependencies
+declared by the module. For example, `query` accepts an optional choice registry:
 
 ```python
 from mcp.server import MCPServer

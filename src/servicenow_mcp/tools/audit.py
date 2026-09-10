@@ -24,7 +24,6 @@ from typing import Any, Final
 from mcp.server import MCPServer
 
 from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.choices import ChoiceRegistry
 from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
@@ -499,7 +498,6 @@ def register_tools(
     mcp: MCPServer,
     settings: Settings,
     auth_provider: OAuthPKCEProvider,
-    choices: ChoiceRegistry | None = None,
     dictionary: DictionaryRegistry | None = None,
     client_factory: ServiceNowClientProvider | None = None,
 ) -> None:
@@ -507,10 +505,8 @@ def register_tools(
 
     The ``audit`` group owns its :class:`AuditRegistry` (and falls back to
     creating a :class:`DictionaryRegistry` when one is not provided), so the
-    chain-walked configuration caches survive across calls. ``choices`` is
-    accepted only to honour the uniform loader signature.
+    chain-walked configuration caches survive across calls.
     """
-    del choices  # unused; signature retained for loader parity
 
     client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
     dictionary_registry = dictionary or DictionaryRegistry(settings, auth_provider, client_factory)

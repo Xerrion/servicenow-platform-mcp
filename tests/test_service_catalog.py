@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
@@ -367,6 +368,7 @@ class TestOrderNow:
         )
 
         assert result["status"] == "success"
+        assert json.loads(respx.calls.last.request.content) == {"sysparm_quantity": "1", "variables": {"urgency": "1"}}
 
     @pytest.mark.asyncio()
     async def test_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: OAuthPKCEProvider) -> None:
@@ -430,6 +432,7 @@ class TestAddToCart:
         )
 
         assert result["status"] == "success"
+        assert json.loads(respx.calls.last.request.content) == {"sysparm_quantity": "1", "variables": {"quantity": "2"}}
 
     @pytest.mark.asyncio()
     async def test_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: OAuthPKCEProvider) -> None:

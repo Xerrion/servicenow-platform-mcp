@@ -14,12 +14,10 @@ from typing import Any, Final
 from mcp.server import MCPServer
 
 from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.choices import ChoiceRegistry
 from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.policy import check_table_access
-from servicenow_mcp.tools._dictionary import DictionaryRegistry
 from servicenow_mcp.utils import format_response, validate_identifier
 
 
@@ -74,12 +72,9 @@ def register_tools(
     mcp: MCPServer,
     settings: Settings,
     auth_provider: OAuthPKCEProvider,
-    choices: ChoiceRegistry | None = None,
-    dictionary: DictionaryRegistry | None = None,
     client_factory: ServiceNowClientProvider | None = None,
 ) -> None:
     """Register the unified ``code_search`` tool on the MCP server."""
-    del choices, dictionary  # unused; signature retained for loader parity
     client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
 
     @mcp.tool()

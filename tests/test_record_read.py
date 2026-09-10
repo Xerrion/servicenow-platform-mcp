@@ -10,7 +10,6 @@ import pytest
 import respx
 
 from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.choices import ChoiceRegistry
 from servicenow_mcp.config import Settings
 from servicenow_mcp.tools._dictionary import DictionaryField, DictionaryRegistry, ScriptField
 from tests.helpers import decode_response, get_tool_functions
@@ -31,7 +30,6 @@ def auth_provider(settings: Settings) -> OAuthPKCEProvider:
 def _register_and_get_tools(
     settings: Settings,
     auth_provider: OAuthPKCEProvider,
-    choices: ChoiceRegistry | None = None,
     dictionary: DictionaryRegistry | None = None,
 ) -> dict[str, Any]:
     """Register the unified ``record_read`` tool on a fresh MCP and return callables."""
@@ -40,7 +38,7 @@ def _register_and_get_tools(
     from servicenow_mcp.tools.record_read import register_tools
 
     mcp = MCPServer("test")
-    register_tools(mcp, settings, auth_provider, choices=choices, dictionary=dictionary)
+    register_tools(mcp, settings, auth_provider, dictionary=dictionary)
     return get_tool_functions(mcp)
 
 

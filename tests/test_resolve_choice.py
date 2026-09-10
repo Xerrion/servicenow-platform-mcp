@@ -21,8 +21,6 @@ def auth_provider(settings: Settings) -> OAuthPKCEProvider:
 
 
 def _register_and_get_tools(
-    settings: Settings,
-    auth_provider: OAuthPKCEProvider,
     choices: ChoiceRegistry | None = None,
 ) -> dict[str, Any]:
     """Register the unified ``resolve_choice`` tool on a fresh MCP and return callables."""
@@ -31,7 +29,7 @@ def _register_and_get_tools(
     from servicenow_mcp.tools.resolve_choice import register_tools
 
     mcp = MCPServer("test")
-    register_tools(mcp, settings, auth_provider, choices=choices)
+    register_tools(mcp, choices=choices)
     return get_tool_functions(mcp)
 
 
@@ -53,7 +51,7 @@ async def test_resolves_label_to_value(settings: Settings, auth_provider: OAuthP
     choices = _make_choices(settings, auth_provider)
     choices.resolve = AsyncMock(return_value="1")  # type: ignore[method-assign]
 
-    tools = _register_and_get_tools(settings, auth_provider, choices=choices)
+    tools = _register_and_get_tools(choices=choices)
     raw = await tools["resolve_choice"](table="incident", field="state", label="open")
     result = decode_response(raw)
 
@@ -74,7 +72,7 @@ async def test_empty_label_returns_full_mapping(settings: Settings, auth_provide
     mapping = {"open": "1", "in_progress": "2", "closed": "7"}
     choices.get_choices = AsyncMock(return_value=mapping)  # type: ignore[method-assign]
 
-    tools = _register_and_get_tools(settings, auth_provider, choices=choices)
+    tools = _register_and_get_tools(choices=choices)
     raw = await tools["resolve_choice"](table="incident", field="state")
     result = decode_response(raw)
 
@@ -96,7 +94,7 @@ async def test_passthrough_emits_warning(settings: Settings, auth_provider: OAut
     choices = _make_choices(settings, auth_provider)
     choices.resolve = AsyncMock(side_effect=lambda _t, _f, label: label)  # type: ignore[method-assign]
 
-    tools = _register_and_get_tools(settings, auth_provider, choices=choices)
+    tools = _register_and_get_tools(choices=choices)
     raw = await tools["resolve_choice"](table="incident", field="state", label="mystery")
     result = decode_response(raw)
 
@@ -117,7 +115,7 @@ async def test_denied_table_returns_error(settings: Settings, auth_provider: OAu
     choices = _make_choices(settings, auth_provider)
     denied = next(iter(DENIED_TABLES))
 
-    tools = _register_and_get_tools(settings, auth_provider, choices=choices)
+    tools = _register_and_get_tools(choices=choices)
     raw = await tools["resolve_choice"](table=denied, field="state", label="open")
     result = decode_response(raw)
 
@@ -130,7 +128,7 @@ async def test_invalid_field_identifier_returns_error(settings: Settings, auth_p
     """A field name that isn't a valid identifier is rejected before any registry call."""
     choices = _make_choices(settings, auth_provider)
 
-    tools = _register_and_get_tools(settings, auth_provider, choices=choices)
+    tools = _register_and_get_tools(choices=choices)
     raw = await tools["resolve_choice"](table="incident", field="state^OR1=1", label="open")
     result = decode_response(raw)
 
@@ -139,9 +137,9 @@ async def test_invalid_field_identifier_returns_error(settings: Settings, auth_p
 
 
 @pytest.mark.asyncio()
-async def test_no_choices_registry_returns_error(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_no_choices_registry_returns_error() -> None:
     """When ``choices=None``, the tool returns a defensive 'not configured' error."""
-    tools = _register_and_get_tools(settings, auth_provider, choices=None)
+    tools = _register_and_get_tools(choices=None)
     raw = await tools["resolve_choice"](table="incident", field="state", label="open")
     result = decode_response(raw)
 

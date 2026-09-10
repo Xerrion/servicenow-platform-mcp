@@ -1,6 +1,7 @@
 """MCP stdio entry point with outbound ServiceNow OAuth authorization."""
 
 import importlib
+import inspect
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -88,6 +89,14 @@ def create_mcp_server() -> MCPServer:
     # Load tools based on active package
     package_name = settings.mcp_tool_package
     tool_groups = get_package(package_name)
+    dependencies = {
+        "mcp": mcp,
+        "settings": settings,
+        "auth_provider": auth_provider,
+        "choices": choices,
+        "dictionary": dictionary,
+        "client_factory": client_factory,
+    }
 
     for group_name in tool_groups:
         module_path = _TOOL_GROUP_MODULES.get(group_name)
@@ -95,18 +104,8 @@ def create_mcp_server() -> MCPServer:
             try:
                 module = importlib.import_module(module_path)
                 if hasattr(module, "register_tools"):
-                    # All tool modules accept the ChoiceRegistry so unified
-                    # tools can resolve display labels, and the
-                    # DictionaryRegistry so script-field detection is shared
-                    # across the surface. Modules that don't need either
-                    # accept ``None`` and ignore it.
                     module.register_tools(
-                        mcp,
-                        settings,
-                        auth_provider,
-                        choices=choices,
-                        dictionary=dictionary,
-                        client_factory=client_factory,
+                        **{name: dependencies[name] for name in inspect.signature(module.register_tools).parameters}
                     )
                     logger.info("Loaded tool group: %s", group_name)
             except ImportError as e:

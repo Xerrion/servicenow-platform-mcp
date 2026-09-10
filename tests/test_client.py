@@ -450,24 +450,6 @@ class TestServiceNowClientAttachmentMethods:
         assert params["encryption_context"] == "ctx"
         assert params["creation_time"] == "2026-03-11 10:00:00"
 
-    @pytest.mark.asyncio()
-    @respx.mock
-    async def test_download_attachment_by_name_success(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
-    ) -> None:
-        """Downloads attachment content by record sys_id and file name."""
-        from servicenow_mcp.client import ServiceNowClient
-
-        route = respx.get(f"{BASE_URL}/api/now/attachment/{'b' * 32}/hello%20world.txt/file").mock(
-            return_value=httpx.Response(200, content=b"hello")
-        )
-
-        async with ServiceNowClient(settings, auth_provider) as client:
-            content = await client.download_attachment_by_name("b" * 32, "hello world.txt")
-
-        assert content == b"hello"
-        assert route.called
-
 
 class TestServiceNowClientGetMetadata:
     """Test get_metadata method."""
@@ -1368,16 +1350,6 @@ class TestUrlBuilderValidation:
         client = ServiceNowClient(settings, auth_provider)
         with pytest.raises(ValueError, match="Invalid sys_id"):
             client._attachment_url("invalid-sys-id")
-
-    def test_attachment_by_name_url_rejects_invalid_table_sys_id(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
-    ) -> None:
-        """_attachment_file_by_name_url raises ValueError for invalid table_sys_id."""
-        from servicenow_mcp.client import ServiceNowClient
-
-        client = ServiceNowClient(settings, auth_provider)
-        with pytest.raises(ValueError, match="Invalid sys_id"):
-            client._attachment_file_by_name_url("bad-id", "hello.txt")
 
 
 class TestServiceNowClientFlowDesigner:

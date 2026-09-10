@@ -579,8 +579,7 @@ def register_tools(
 ) -> None:
     """Register the unified ``query`` tool on the MCP server.
 
-    Mirrors the domain-tool registration signature so ``server.py`` can inject
-    the shared ``ChoiceRegistry``. ``choices`` may be ``None`` in tests; when
+    ``choices`` may be ``None`` in tests; when
     it is, ``resolve_labels`` degrades to passthrough with a warning. The
     ``dictionary`` registry, when supplied, drives advisory validation of the
     fields referenced in ``encoded_query``.

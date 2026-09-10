@@ -31,13 +31,12 @@ def auth_provider(settings: Settings) -> OAuthPKCEProvider:
 def _register_and_get_tools(
     settings: Settings,
     auth_provider: OAuthPKCEProvider,
-    choices: Any | None = None,
 ) -> dict[str, Any]:
     """Register the unified ``flow`` tool on a fresh MCP and return callables."""
     from servicenow_mcp.tools.flow import register_tools
 
     mcp = MCPServer("test")
-    register_tools(mcp, settings, auth_provider, choices=choices)
+    register_tools(mcp, settings, auth_provider)
     return get_tool_functions(mcp)
 
 

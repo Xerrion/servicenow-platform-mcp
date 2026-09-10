@@ -52,13 +52,13 @@ def _parse_token(payload: object, issued_at: float) -> AccessToken:
 
 
 class OAuthPKCEProvider:
-    """Authorize in the local browser and renew issued refresh grants in memory.
+    """Authorize in the local browser; renew confidential refresh grants in memory.
 
     Concurrent requests share one authorization flow. Failures raise AuthError;
     cancellation closes the callback listener. A configured client secret selects
     confidential authorization without PKCE and is sent only to the token endpoint.
-    Without a secret, authorization uses public PKCE S256. REST failures never
-    replay the rejected request.
+    Without a secret, authorization uses public PKCE S256 without refresh grants.
+    Both modes require scope and state. REST failures never replay the rejected request.
     """
 
     def __init__(self, settings: Settings) -> None:
@@ -81,7 +81,11 @@ class OAuthPKCEProvider:
             }
 
     async def _renew(self) -> AccessToken:
-        if self._token is not None and self._token.refresh_token:
+        if (
+            self._settings.servicenow_oauth_client_secret.get_secret_value()
+            and self._token is not None
+            and self._token.refresh_token
+        ):
             try:
                 return await self._refresh(self._token.refresh_token)
             except _RefreshGrantRejected:
@@ -105,13 +109,13 @@ class OAuthPKCEProvider:
             "response_type": "code",
             "client_id": settings.servicenow_oauth_client_id,
             "redirect_uri": settings.servicenow_oauth_redirect_uri,
+            "scope": settings.servicenow_oauth_scope,
             "state": state,
         }
-        if settings.servicenow_oauth_scope:
-            query["scope"] = settings.servicenow_oauth_scope
         grant = {
             "grant_type": "authorization_code",
             "redirect_uri": settings.servicenow_oauth_redirect_uri,
+            "state": state,
         }
         if not settings.servicenow_oauth_client_secret.get_secret_value():
             verifier = secrets.token_urlsafe(64)
@@ -153,7 +157,7 @@ class OAuthPKCEProvider:
                     raise _RefreshGrantRejected("OAuth refresh grant expired or was revoked.")
             raise AuthError(
                 f"OAuth token exchange rejected (HTTP {response.status_code}). "
-                "Check the application client ID, authorization mode and redirect URI. "
+                "Check the application client ID, authorization mode, required scope and redirect URI. "
                 "A confidential client requires SERVICENOW_OAUTH_CLIENT_SECRET; "
                 "a public client requires PKCE S256 with no client secret."
             )

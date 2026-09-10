@@ -11,7 +11,7 @@ All configuration is handled through environment variables, loaded via [pydantic
 | `SERVICENOW_INSTANCE_URL` | Yes | - | Full URL (must start with `https://`) |
 | `SERVICENOW_OAUTH_CLIENT_ID` | Yes | - | ServiceNow OAuth client ID |
 | `SERVICENOW_OAUTH_CLIENT_SECRET` | For confidential apps | Empty | Non-empty selects confidential flow without PKCE; empty selects public PKCE S256. Sent only in HTTPS token-endpoint form bodies |
-| `SERVICENOW_OAUTH_SCOPE` | No | Empty | Space-separated administrator-confirmed scopes; empty omits the authorization scope field in both modes |
+| `SERVICENOW_OAUTH_SCOPE` | Yes | None | Non-empty, space-separated scopes allowed by the application, such as `useraccount`; required in both modes |
 | `SERVICENOW_OAUTH_REDIRECT_URI` | No | `http://127.0.0.1:8765/oauth/callback` | Exact loopback path with port 1024-65535; must be registered |
 | `SERVICENOW_OAUTH_TIMEOUT_SECONDS` | No | `180` | Browser authorization wait, 1-600 seconds |
 | `MCP_TOOL_PACKAGE` | No | `"full"` | Tool package (`full`, `readonly`, `core_readonly`, `none`) or comma-separated tools |
@@ -32,7 +32,8 @@ Use a ServiceNow OAuth authorization-code client. For confidential apps, supply
 accepts client credentials in the token-endpoint form body for code exchange and
 refresh. Leave it empty only for a confirmed public app with PKCE S256. Public
 authorization sends an S256 challenge and code exchange sends its verifier,
-without a client secret. Refresh never sends PKCE parameters. The browser
+without a client secret. Both modes send the same `state` on authorization and
+code exchange. Refresh is confidential-only and never sends PKCE parameters. The browser
 and stdio process must run on the same machine. Register the exact redirect URI
 on the ServiceNow application and configure its allowed scopes and user roles.
 The first outbound request opens the browser and starts a temporary loopback
@@ -40,15 +41,17 @@ receiver. This is not an MCP HTTP endpoint.
 
 Remove `SERVICENOW_API_KEY`, `SERVICENOW_USERNAME`, and `SERVICENOW_PASSWORD`.
 Non-empty legacy credentials are rejected without fallback. Access and refresh
-tokens stay in memory. Expiry triggers refresh on the next outbound request.
+tokens stay in memory. In confidential mode, expiry triggers refresh on the next outbound request.
 A REST 401 invalidates the access token without replaying the call. A tool retry
 refreshes it if possible. Missing refresh tokens or HTTP 400 `invalid_grant` require
 a new browser flow; other refresh errors do not open a browser. Restarting loses
-both tokens. Never log tokens, authorization codes, or the client secret.
+both tokens. Public clients authorize again after expiry or REST rejection,
+even if a refresh token was issued. Never log tokens, authorization codes, or the client secret.
 Do not add `offline_access` unless the administrator confirms it is supported.
-Leave `SERVICENOW_OAUTH_SCOPE` unset or empty unless specific scopes are confirmed
-as needed. Non-empty values must contain printable ASCII; surrounding spaces are
-trimmed, but whitespace-only values and control characters are rejected.
+Set `SERVICENOW_OAUTH_SCOPE=useraccount` when allowed by the application, or use
+other administrator-confirmed scopes. Scope is required in both modes. Values
+must contain printable ASCII; surrounding spaces are trimmed. Missing, empty,
+whitespace-only values and control characters are rejected.
 
 ---
 

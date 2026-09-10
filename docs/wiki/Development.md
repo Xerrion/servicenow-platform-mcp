@@ -40,11 +40,12 @@ The `.env.local` file needs at minimum:
 ```bash
 SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com
 SERVICENOW_OAUTH_CLIENT_ID=your-client-id
+SERVICENOW_OAUTH_SCOPE=useraccount
 ```
 
 Confidential applications also require `SERVICENOW_OAUTH_CLIENT_SECRET` in private
-environment configuration. `SERVICENOW_OAUTH_SCOPE` is optional; leave it unset or
-empty unless specific scopes are administrator-confirmed. See [[Configuration]]
+environment configuration. `SERVICENOW_OAUTH_SCOPE` is required and non-empty in
+both modes; use scopes allowed by the application. See [[Configuration]]
 for token renewal and setup.
 
 No build step is required for development. The server runs directly from source via `uv run servicenow-platform-mcp`.

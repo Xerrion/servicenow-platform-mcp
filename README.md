@@ -113,7 +113,7 @@ process with another working directory will not read the files you expect.
 | `SERVICENOW_INSTANCE_URL` | Yes | None | HTTPS origin, without credentials, path, query or fragment | ServiceNow instance. One trailing slash is removed. |
 | `SERVICENOW_OAUTH_CLIENT_ID` | Yes | None | Non-empty client ID | ServiceNow OAuth application. |
 | `SERVICENOW_OAUTH_CLIENT_SECRET` | For confidential apps | Empty | Secret from the same application | Non-empty selects confidential flow without PKCE. Empty selects public PKCE S256. Sent only in HTTPS token-endpoint form bodies. |
-| `SERVICENOW_OAUTH_SCOPE` | No | Empty | Space-separated administrator-confirmed scopes | Empty omits the authorization scope field; no scope is added automatically. |
+| `SERVICENOW_OAUTH_SCOPE` | Yes | None | Non-empty, space-separated scopes allowed by the application, such as `useraccount` | Required authorization scope in both modes. |
 | `SERVICENOW_OAUTH_REDIRECT_URI` | No | `http://127.0.0.1:8765/oauth/callback` | Exact path; explicit port `1024`-`65535` | Registered loopback callback. |
 | `SERVICENOW_OAUTH_TIMEOUT_SECONDS` | No | `180` | `1`-`600` | Browser authorization timeout. |
 | `MCP_TOOL_PACKAGE` | No | `full` | Preset or comma-separated groups | Selects loaded tool groups. |
@@ -142,16 +142,25 @@ and `code_challenge_method`; code exchange omits `code_verifier`. Confirm that
 the application accepts this confidential token-endpoint authentication mode.
 Leave the secret empty only for an application confirmed to support public PKCE
 S256. That mode sends the challenge on authorization and the verifier on code
-exchange, without a client secret. Refresh never sends PKCE parameters.
+exchange, without a client secret. Refresh is confidential-only and never sends PKCE parameters.
 Register the exact `SERVICENOW_OAUTH_REDIRECT_URI`, enable the needed scopes,
 and use a user with the required roles and Table API ACL access. Confirm that
 the instance permits the registered HTTP loopback URI. The endpoints are
 `/oauth_auth.do` and `/oauth_token.do` on the configured HTTPS instance.
 
-Leave `SERVICENOW_OAUTH_SCOPE` unset or empty unless the administrator confirms
-that specific scopes should be requested. Empty omits `scope` from authorization
-in both modes. Non-empty values retain printable ASCII validation and surrounding
-space trimming; whitespace-only values and control characters are rejected.
+Set `SERVICENOW_OAUTH_SCOPE=useraccount` when allowed by the application, or use
+other administrator-confirmed scopes. Scope is required in both modes. Values
+must contain printable ASCII; surrounding spaces are trimmed. Missing, empty,
+whitespace-only values and control characters are rejected.
+
+Confidential `GET /oauth_auth.do` sends exactly `response_type=code`, `client_id`,
+`redirect_uri`, `scope`, and `state`. Its authorization-code `POST /oauth_token.do`
+form sends exactly `grant_type=authorization_code`, `code`, `redirect_uri`,
+`client_id`, `client_secret`, and the same `state`. Public authorization adds
+`code_challenge` and `code_challenge_method=S256`; its code-exchange form replaces
+`client_secret` with `code_verifier` and retains `state`. Confidential refresh
+sends only `grant_type=refresh_token`, `refresh_token`, `client_id`, and
+`client_secret` in the token-endpoint form body.
 
 The first outbound request opens the default browser. The browser and stdio
 process must run on the **same machine**. A temporary listener binds only
@@ -166,11 +175,12 @@ container-to-host callback arrangements are not supported by this phase.
 Access and refresh tokens stay in process memory. Only the access token is sent
 as `Authorization: Bearer`. Concurrent requests share authorization and renewal.
 Tokens require a positive `expires_in`; expiry uses a monotonic clock with a
-safety margin. The next request after expiry uses an issued refresh token first.
+safety margin. In confidential mode, the next request after expiry uses an issued refresh token first.
 Rotated refresh tokens replace the previous value; omission retains that value.
 An HTTP 400 `invalid_grant` refresh response starts one new browser flow. Other
 refresh failures return an error without opening a browser. No refresh token
-means a fresh browser flow is needed on expiry. Do not add `offline_access`
+means a fresh browser flow is needed on expiry. Public clients always authorize
+again after expiry or REST rejection, even if a refresh token was issued. Do not add `offline_access`
 unless it is configured and supported by your administrator.
 
 A REST 401 marks that access token unusable and returns an error without
@@ -216,7 +226,7 @@ Authorization-code flow (forward the secret only for a confidential app; empty s
     "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
     "SERVICENOW_OAUTH_CLIENT_ID": "${SERVICENOW_OAUTH_CLIENT_ID}",
     "SERVICENOW_OAUTH_CLIENT_SECRET": "${SERVICENOW_OAUTH_CLIENT_SECRET}",
-    "SERVICENOW_OAUTH_SCOPE": "",
+    "SERVICENOW_OAUTH_SCOPE": "useraccount",
     "MCP_TOOL_PACKAGE": "readonly"
   }
 }

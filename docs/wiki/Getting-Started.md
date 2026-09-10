@@ -46,7 +46,7 @@ Set `SERVICENOW_INSTANCE_URL` and the OAuth client settings. These variables are
 | `SERVICENOW_INSTANCE_URL` | Yes | Full instance URL, must start with `https://` |
 | `SERVICENOW_OAUTH_CLIENT_ID` | Yes | OAuth client ID |
 | `SERVICENOW_OAUTH_CLIENT_SECRET` | For confidential apps | Supply privately from the same application; omit only for confirmed public clients |
-| `SERVICENOW_OAUTH_SCOPE` | No | Empty by default; omits the authorization scope field. Set only administrator-confirmed scopes |
+| `SERVICENOW_OAUTH_SCOPE` | Yes | Non-empty scopes allowed by the application, such as `useraccount`; required in both modes |
 | `SERVICENOW_OAUTH_REDIRECT_URI` | No | Default `http://127.0.0.1:8765/oauth/callback`; register this exact URI |
 | `SERVICENOW_OAUTH_TIMEOUT_SECONDS` | No | Browser authorization timeout, default 180 seconds (1-600) |
 | `MCP_TOOL_PACKAGE` | No | Tool package to load (default: `"full"`). See [[Tool-Packages]] |
@@ -60,14 +60,15 @@ See [[Configuration]] for the full reference of all environment variables.
 
 Remove `SERVICENOW_API_KEY`, `SERVICENOW_USERNAME`, and `SERVICENOW_PASSWORD`.
 Non-empty legacy settings are rejected. The first outbound request opens the
-local browser. Access and refresh tokens stay in memory; expiry uses an issued
-refresh token before opening a browser. See [[Configuration]] for lifecycle and error behavior.
+local browser. Access and refresh tokens stay in memory; confidential clients use
+an issued refresh token before opening a browser. Public clients authorize again
+after expiry or REST rejection. See [[Configuration]] for lifecycle and error behavior.
 
 ---
 
 ## MCP Client Configuration
 
-Configure your MCP client to launch the server with the required OAuth environment variables. Replace the client ID placeholder with the ServiceNow application value. Leave scope empty unless the administrator confirms specific scopes are needed. Forward the client secret for confidential apps through private environment configuration, not a committed file.
+Configure your MCP client to launch the server with the required OAuth environment variables. Replace the client ID placeholder with the ServiceNow application value. Set `SERVICENOW_OAUTH_SCOPE=useraccount` when allowed by the application, or use other administrator-confirmed scopes. Forward the client secret for confidential apps through private environment configuration, not a committed file.
 
 ### OpenCode
 
@@ -82,7 +83,7 @@ File: `~/.config/opencode/opencode.json`
       "environment": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_OAUTH_CLIENT_ID": "<your-client-id>",
-        "SERVICENOW_OAUTH_SCOPE": ""
+        "SERVICENOW_OAUTH_SCOPE": "useraccount"
       }
     }
   }
@@ -102,7 +103,7 @@ File: `claude_desktop_config.json`
       "env": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_OAUTH_CLIENT_ID": "<your-client-id>",
-        "SERVICENOW_OAUTH_SCOPE": ""
+        "SERVICENOW_OAUTH_SCOPE": "useraccount"
       }
     }
   }
@@ -122,7 +123,7 @@ File: `.vscode/mcp.json`
       "env": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_OAUTH_CLIENT_ID": "<your-client-id>",
-        "SERVICENOW_OAUTH_SCOPE": ""
+        "SERVICENOW_OAUTH_SCOPE": "useraccount"
       }
     }
   }
@@ -136,7 +137,7 @@ For any client that supports stdio transport, launch the server with inline envi
 ```bash
 SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com \
 SERVICENOW_OAUTH_CLIENT_ID=your-client-id \
-SERVICENOW_OAUTH_SCOPE= \
+SERVICENOW_OAUTH_SCOPE=useraccount \
 uvx servicenow-platform-mcp
 ```
 

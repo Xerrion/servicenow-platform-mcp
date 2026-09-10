@@ -65,7 +65,7 @@ async def _assert_closed(redirect_uri: str) -> None:
 async def test_query_401_then_reauthorize_on_same_loopback_port(
     settings: Settings, redirect_uri: str, has_refresh: bool, client_secret: str
 ) -> None:
-    """A tool retry renews a rejected token without a browser when refresh is available."""
+    """Only confidential clients can refresh a rejected token without a browser."""
     from mcp.server import MCPServer
 
     from servicenow_mcp.tools.query import register_tools
@@ -73,6 +73,7 @@ async def test_query_401_then_reauthorize_on_same_loopback_port(
 
     settings.servicenow_oauth_redirect_uri = redirect_uri
     settings.servicenow_oauth_client_secret = SecretStr(client_secret)
+    can_refresh = bool(client_secret) and has_refresh
     authorization: list[dict[str, list[str]]] = []
 
     async def browser(_open: Any, url: str, **kwargs: Any) -> bool:
@@ -125,14 +126,14 @@ async def test_query_401_then_reauthorize_on_same_loopback_port(
     assert token_route.call_count == 2
     assert api_route.call_count == 2
     assert api_route.calls.last.request.headers["Authorization"] == "Bearer fresh-token"
-    assert len(authorization) == (1 if has_refresh else 2)
-    if not has_refresh:
+    assert len(authorization) == (1 if can_refresh else 2)
+    if not can_refresh:
         assert authorization[0]["state"] != authorization[1]["state"]
         if not client_secret:
             assert authorization[0]["code_challenge"] != authorization[1]["code_challenge"]
     forms = [parse_qs(call.request.content.decode()) for call in token_route.calls]
     assert forms[0]["grant_type"] == ["authorization_code"]
-    assert forms[1]["grant_type"] == ["refresh_token" if has_refresh else "authorization_code"]
+    assert forms[1]["grant_type"] == ["refresh_token" if can_refresh else "authorization_code"]
     if client_secret:
         assert all(form["client_secret"] == [client_secret] for form in forms)
         assert all("code_verifier" not in form for form in forms)
@@ -144,7 +145,7 @@ async def test_query_401_then_reauthorize_on_same_loopback_port(
 
 @respx.mock
 @pytest.mark.parametrize("client_secret", ["", "test-only-client-secret"], ids=["public", "confidential"])
-@pytest.mark.parametrize("scope", ["", "useraccount", "useraccount custom+scope&state=spoof"])
+@pytest.mark.parametrize("scope", ["useraccount", "useraccount custom+scope&state=spoof"])
 async def test_oauth_modes_loopback_exchange_and_bearer_request(
     settings: Settings, redirect_uri: str, client_secret: str, scope: str, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -174,15 +175,15 @@ async def test_oauth_modes_loopback_exchange_and_bearer_request(
             "code": ["test-code"],
             "client_id": [settings.servicenow_oauth_client_id],
             "redirect_uri": [redirect_uri],
+            "state": authorization["state"],
         }
         expected_authorization = {
             "response_type": ["code"],
             "client_id": [settings.servicenow_oauth_client_id],
             "redirect_uri": [redirect_uri],
             "state": authorization["state"],
+            "scope": [scope],
         }
-        if scope:
-            expected_authorization["scope"] = [scope]
         if client_secret:
             expected_form["client_secret"] = [client_secret]
             assert client_secret not in str(authorization)
@@ -317,12 +318,9 @@ async def test_expiry_requires_new_flow_and_concurrent_calls_share_it(settings: 
 
 
 @pytest.mark.parametrize("rotated", [True, False])
-@pytest.mark.parametrize("client_secret", ["", "test-only-secret"], ids=["public", "confidential"])
 @respx.mock
-async def test_expiry_refresh_is_single_flight_and_keeps_rotation(
-    settings: Settings, rotated: bool, client_secret: str
-) -> None:
-    settings.servicenow_oauth_client_secret = SecretStr(client_secret)
+async def test_expiry_refresh_is_single_flight_and_keeps_rotation(settings: Settings, rotated: bool) -> None:
+    settings.servicenow_oauth_client_secret = SecretStr("test-only-secret")
     provider = OAuthPKCEProvider(settings)
     provider._token = _parse_token(
         {"access_token": "old", "token_type": "Bearer", "expires_in": 60, "refresh_token": "old-refresh"}, 0
@@ -340,18 +338,19 @@ async def test_expiry_refresh_is_single_flight_and_keeps_rotation(
         "grant_type": ["refresh_token"],
         "refresh_token": ["old-refresh"],
         "client_id": [settings.servicenow_oauth_client_id],
+        "client_secret": ["test-only-secret"],
     }
-    if client_secret:
-        expected_form["client_secret"] = [client_secret]
     assert parse_qs(route.calls.last.request.content.decode(), keep_blank_values=True) == expected_form
     assert not route.calls.last.request.url.query
     assert "authorization" not in route.calls.last.request.headers
+    assert route.calls.last.request.headers["content-type"] == "application/x-www-form-urlencoded"
     assert provider._token is not None
     assert provider._token.refresh_token == ("new-refresh" if rotated else "old-refresh")
 
 
 @respx.mock
 async def test_rejected_rest_token_refreshes_on_next_call_without_replay(settings: Settings) -> None:
+    settings.servicenow_oauth_client_secret = SecretStr("test-only-secret")
     provider = OAuthPKCEProvider(settings)
     provider._token = _parse_token(
         {"access_token": "old", "token_type": "Bearer", "expires_in": 3600, "refresh_token": "refresh"},
@@ -380,6 +379,7 @@ async def test_rejected_rest_token_refreshes_on_next_call_without_replay(setting
 
 @respx.mock
 async def test_invalid_refresh_grant_authorizes_once_for_concurrent_calls(settings: Settings) -> None:
+    settings.servicenow_oauth_client_secret = SecretStr("test-only-secret")
     provider = OAuthPKCEProvider(settings)
     provider._token = _parse_token(
         {"access_token": "old", "token_type": "Bearer", "expires_in": 60, "refresh_token": "revoked"}, 0
@@ -404,6 +404,7 @@ async def test_invalid_refresh_grant_authorizes_once_for_concurrent_calls(settin
 )
 @respx.mock
 async def test_refresh_failure_does_not_open_browser_or_send_expired_token(settings: Settings, failure: str) -> None:
+    settings.servicenow_oauth_client_secret = SecretStr("test-only-secret")
     provider = OAuthPKCEProvider(settings)
     expired = _parse_token(
         {"access_token": "old", "token_type": "Bearer", "expires_in": 60, "refresh_token": "test-refresh"}, 0
@@ -448,6 +449,7 @@ async def test_refresh_failure_does_not_open_browser_or_send_expired_token(setti
 
 @respx.mock
 async def test_refresh_expired_during_exchange_does_not_open_browser(settings: Settings) -> None:
+    settings.servicenow_oauth_client_secret = SecretStr("test-only-secret")
     provider = OAuthPKCEProvider(settings)
     provider._token = _parse_token(
         {"access_token": "old", "token_type": "Bearer", "expires_in": 60, "refresh_token": "refresh"}, 0
@@ -794,7 +796,8 @@ async def test_expired_exchange_result_is_never_sent(settings: Settings) -> None
 
 
 @respx.mock
-async def test_reauthorization_uses_new_state_and_verifier(settings: Settings) -> None:
+@pytest.mark.parametrize("has_refresh", [True, False])
+async def test_reauthorization_uses_new_state_and_verifier(settings: Settings, has_refresh: bool) -> None:
     urls: list[str] = []
 
     async def receive(url: str, *_args: Any) -> str:
@@ -802,7 +805,13 @@ async def test_reauthorization_uses_new_state_and_verifier(settings: Settings) -
         return "test-code"
 
     route = respx.post(f"{BASE_URL}/oauth_token.do").respond(
-        200, json={"access_token": "test-token", "token_type": "Bearer", "expires_in": 100}
+        200,
+        json={
+            "access_token": "test-token",
+            "token_type": "Bearer",
+            "expires_in": 100,
+            **({"refresh_token": "test-refresh"} if has_refresh else {}),
+        },
     )
     provider = OAuthPKCEProvider(settings)
     with (
@@ -816,10 +825,11 @@ async def test_reauthorization_uses_new_state_and_verifier(settings: Settings) -
     first, second = [parse_qs(urlsplit(url).query) for url in urls]
     assert first["state"] != second["state"]
     assert first["code_challenge"] != second["code_challenge"]
-    for call in route.calls:
+    for call, authorization in zip(route.calls, (first, second), strict=True):
         form = parse_qs(call.request.content.decode())
         assert "refresh_token" not in form
         assert form["grant_type"] == ["authorization_code"]
+        assert form["state"] == authorization["state"]
 
 
 async def test_oversized_and_replayed_callbacks_do_not_replace_code(redirect_uri: str) -> None:

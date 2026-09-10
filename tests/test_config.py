@@ -152,19 +152,33 @@ class TestSettings:
         ):
             Settings(_env_file=None)
 
-    @pytest.mark.parametrize("scope", [None, "", " useraccount offline_access ", "custom+scope&state=spoof"])
-    def test_optional_scope_configuration(self, scope: str | None) -> None:
-        """Missing or empty scope stays empty; explicit scopes retain safe normalization."""
+    @pytest.mark.parametrize("client_secret", ["", "test-only-secret"], ids=["public", "confidential"])
+    @pytest.mark.parametrize("scope", [None, "", " "])
+    def test_missing_or_empty_scope_rejected(self, scope: str | None, client_secret: str) -> None:
+        """Both authorization modes require an explicit non-empty scope."""
         from servicenow_mcp.config import Settings
 
-        env = self._make_env()
+        env = self._make_env(SERVICENOW_OAUTH_CLIENT_SECRET=client_secret)
         if scope is None:
             del env["SERVICENOW_OAUTH_SCOPE"]
         else:
             env["SERVICENOW_OAUTH_SCOPE"] = scope
+        with (
+            patch.dict("os.environ", env, clear=True),
+            pytest.raises(ValueError, match="servicenow_oauth_scope"),
+        ):
+            Settings(_env_file=None)
+
+    @pytest.mark.parametrize("client_secret", ["", "test-only-secret"], ids=["public", "confidential"])
+    @pytest.mark.parametrize("scope", ["useraccount", " useraccount offline_access ", "custom+scope&state=spoof"])
+    def test_required_scope_configuration(self, scope: str, client_secret: str) -> None:
+        """Explicit scopes retain safe normalization in both authorization modes."""
+        from servicenow_mcp.config import Settings
+
+        env = self._make_env(SERVICENOW_OAUTH_SCOPE=scope, SERVICENOW_OAUTH_CLIENT_SECRET=client_secret)
         with patch.dict("os.environ", env, clear=True):
             settings = Settings(_env_file=None)
-        assert settings.servicenow_oauth_scope == (scope.strip() if scope else "")
+        assert settings.servicenow_oauth_scope == scope.strip()
 
     def test_default_mcp_tool_package(self) -> None:
         """MCP_TOOL_PACKAGE defaults to 'full'."""

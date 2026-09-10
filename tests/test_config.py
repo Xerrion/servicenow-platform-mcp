@@ -18,7 +18,6 @@ class TestSettings:
         [
             ("SERVICENOW_OAUTH_CLIENT_ID", " "),
             ("SERVICENOW_OAUTH_SCOPE", ""),
-            ("SERVICENOW_OAUTH_SCOPE", "useraccount offline_access"),
             ("SERVICENOW_OAUTH_SCOPE", "scope\nother"),
             ("SERVICENOW_OAUTH_TIMEOUT_SECONDS", "0"),
             ("SERVICENOW_OAUTH_TIMEOUT_SECONDS", "601"),
@@ -71,6 +70,22 @@ class TestSettings:
         assert settings.servicenow_oauth_client_id == "test-client"
         assert settings.servicenow_oauth_scope == "useraccount"
 
+    def test_optional_client_secret_is_loaded_and_redacted(self) -> None:
+        from servicenow_mcp.config import Settings
+
+        with patch.dict("os.environ", self._make_env(SERVICENOW_OAUTH_CLIENT_SECRET="test-only-secret"), clear=True):
+            settings = Settings(_env_file=None)
+        assert settings.servicenow_oauth_client_secret.get_secret_value() == "test-only-secret"
+        assert "test-only-secret" not in repr(settings)
+        assert "test-only-secret" not in settings.model_dump_json()
+
+    def test_explicit_offline_scope_is_not_invented_or_rejected(self) -> None:
+        from servicenow_mcp.config import Settings
+
+        with patch.dict("os.environ", self._make_env(SERVICENOW_OAUTH_SCOPE="useraccount offline_access"), clear=True):
+            settings = Settings(_env_file=None)
+        assert settings.servicenow_oauth_scope == "useraccount offline_access"
+
     @pytest.mark.parametrize("legacy", ["SERVICENOW_API_KEY", "SERVICENOW_USERNAME", "SERVICENOW_PASSWORD"])
     def test_legacy_credentials_rejected(self, legacy: str) -> None:
         """OAuth never silently ignores configured legacy credentials."""
@@ -121,7 +136,7 @@ class TestSettings:
             Settings(_env_file=None)
 
     def test_missing_oauth_client_raises(self) -> None:
-        """An explicit public client ID is required."""
+        """An explicit client ID is required."""
         from servicenow_mcp.config import Settings
 
         env = self._make_env()

@@ -39,13 +39,14 @@ uv add servicenow-platform-mcp
 
 ## Environment Variables
 
-Set `SERVICENOW_INSTANCE_URL` and the public OAuth client settings. These variables are passed to the server by your MCP client configuration.
+Set `SERVICENOW_INSTANCE_URL` and the OAuth client settings. These variables are passed to the server by your MCP client configuration.
 
 | Variable | Required | Description |
 | --- | --- | --- |
 | `SERVICENOW_INSTANCE_URL` | Yes | Full instance URL, must start with `https://` |
-| `SERVICENOW_OAUTH_CLIENT_ID` | Yes | Public OAuth client ID |
-| `SERVICENOW_OAUTH_SCOPE` | Yes | Space-separated scopes configured on the application; no `offline_access` |
+| `SERVICENOW_OAUTH_CLIENT_ID` | Yes | OAuth client ID |
+| `SERVICENOW_OAUTH_CLIENT_SECRET` | For confidential apps | Supply privately from the same application; omit only for confirmed public clients |
+| `SERVICENOW_OAUTH_SCOPE` | Yes | Space-separated scopes configured on the application |
 | `SERVICENOW_OAUTH_REDIRECT_URI` | No | Default `http://127.0.0.1:8765/oauth/callback`; register this exact URI |
 | `SERVICENOW_OAUTH_TIMEOUT_SECONDS` | No | Browser authorization timeout, default 180 seconds (1-600) |
 | `MCP_TOOL_PACKAGE` | No | Tool package to load (default: `"full"`). See [[Tool-Packages]] |
@@ -59,14 +60,14 @@ See [[Configuration]] for the full reference of all environment variables.
 
 Remove `SERVICENOW_API_KEY`, `SERVICENOW_USERNAME`, and `SERVICENOW_PASSWORD`.
 Non-empty legacy settings are rejected. The first outbound request opens the
-local browser. Access tokens stay in memory; expiry requires fresh authorization.
-Refresh tokens are not used. See [[Configuration]] for lifecycle and error behavior.
+local browser. Access and refresh tokens stay in memory; expiry uses an issued
+refresh token before opening a browser. See [[Configuration]] for lifecycle and error behavior.
 
 ---
 
 ## MCP Client Configuration
 
-Configure your MCP client to launch the server with the required OAuth environment variables. Replace the public client and scope placeholders with the ServiceNow application values.
+Configure your MCP client to launch the server with the required OAuth environment variables. Replace the client and scope placeholders with the ServiceNow application values. Forward the optional client secret through private environment configuration, not a committed file.
 
 ### OpenCode
 
@@ -80,7 +81,7 @@ File: `~/.config/opencode/opencode.json`
       "command": ["uvx", "servicenow-platform-mcp"],
       "environment": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_OAUTH_CLIENT_ID": "<your-public-client-id>",
+        "SERVICENOW_OAUTH_CLIENT_ID": "<your-client-id>",
         "SERVICENOW_OAUTH_SCOPE": "<your-configured-scope>"
       }
     }
@@ -100,7 +101,7 @@ File: `claude_desktop_config.json`
       "args": ["servicenow-platform-mcp"],
       "env": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_OAUTH_CLIENT_ID": "<your-public-client-id>",
+        "SERVICENOW_OAUTH_CLIENT_ID": "<your-client-id>",
         "SERVICENOW_OAUTH_SCOPE": "<your-configured-scope>"
       }
     }
@@ -120,7 +121,7 @@ File: `.vscode/mcp.json`
       "args": ["servicenow-platform-mcp"],
       "env": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_OAUTH_CLIENT_ID": "<your-public-client-id>",
+        "SERVICENOW_OAUTH_CLIENT_ID": "<your-client-id>",
         "SERVICENOW_OAUTH_SCOPE": "<your-configured-scope>"
       }
     }
@@ -134,7 +135,7 @@ For any client that supports stdio transport, launch the server with inline envi
 
 ```bash
 SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com \
-SERVICENOW_OAUTH_CLIENT_ID=your-public-client-id \
+SERVICENOW_OAUTH_CLIENT_ID=your-client-id \
 SERVICENOW_OAUTH_SCOPE=your-configured-scope \
 uvx servicenow-platform-mcp
 ```
@@ -170,10 +171,10 @@ For copy-paste installation instructions optimized for AI agents, see [INSTALL.m
 
 ### Authentication errors
 
-- Confirm the public client supports PKCE S256 without a client secret and permits the exact registered HTTP loopback URI.
+- Confirm the app supports PKCE S256 and permits the exact registered HTTP loopback URI. For confidential apps, configure the secret and confirm form-body token-endpoint authentication.
 - Confirm the configured scopes and user roles permit the API call.
 - Keep the browser and process on the same machine. Close a conflicting listener or register another loopback port.
-- After denial, timeout, or a 401, retry the tool call to authorize again. Allow enough tool-call time for browser interaction.
+- After denial or timeout, retry to authorize again. After a REST 401, retry to refresh or authorize when no usable refresh grant remains. Requests are not replayed automatically.
 
 ### No tools appearing in your AI client
 

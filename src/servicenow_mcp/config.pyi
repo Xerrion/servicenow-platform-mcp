@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     servicenow_password: SecretStr
     servicenow_api_key: SecretStr
     servicenow_oauth_client_id: str
+    servicenow_oauth_client_secret: SecretStr
     servicenow_oauth_scope: str
     servicenow_oauth_redirect_uri: str
     servicenow_oauth_timeout_seconds: int
@@ -33,6 +34,7 @@ class Settings(BaseSettings):
         servicenow_password: SecretStr = ...,
         servicenow_api_key: SecretStr = ...,
         servicenow_oauth_client_id: str = ...,
+        servicenow_oauth_client_secret: SecretStr = ...,
         servicenow_oauth_scope: str = ...,
         servicenow_oauth_redirect_uri: str = ...,
         servicenow_oauth_timeout_seconds: int = ...,

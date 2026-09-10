@@ -4,13 +4,16 @@
 
 ### Breaking changes
 
-- Outbound ServiceNow calls now use public-client OAuth authorization-code PKCE
+- Outbound ServiceNow calls now use OAuth authorization-code PKCE
   with S256. Remove `SERVICENOW_API_KEY`, `SERVICENOW_USERNAME`, and
   `SERVICENOW_PASSWORD`; non-empty legacy settings are rejected. Configure
   `SERVICENOW_OAUTH_CLIENT_ID`, `SERVICENOW_OAUTH_SCOPE`, and an exact registered
   loopback redirect URI. The browser and stdio process must run on the same
-  machine. Tokens stay in memory; expiry or a rejected token requires fresh
-  authorization. Refresh tokens are not requested, retained, or used.
+  machine. For confidential apps, also set `SERVICENOW_OAUTH_CLIENT_SECRET`.
+  Both grants send client credentials in the HTTPS token-endpoint form body.
+  Access and refresh tokens stay in memory. Expiry or REST rejection uses an
+  issued refresh token on the next call; REST requests are never replayed.
+  Missing refresh tokens or HTTP 400 `invalid_grant` require fresh authorization.
 - Python callers must replace `BasicAuthProvider` with `OAuthPKCEProvider`.
   `create_auth()` remains the factory; `get_headers()` can now open the local
   browser and raise `AuthError`. See README authentication setup.

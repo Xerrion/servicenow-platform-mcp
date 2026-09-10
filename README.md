@@ -111,8 +111,9 @@ process with another working directory will not read the files you expect.
 | Environment variable | Required | Default | Valid range or values | Purpose |
 | --- | --- | --- | --- | --- |
 | `SERVICENOW_INSTANCE_URL` | Yes | None | HTTPS origin, without credentials, path, query or fragment | ServiceNow instance. One trailing slash is removed. |
-| `SERVICENOW_OAUTH_CLIENT_ID` | Yes | None | Non-empty public client ID | ServiceNow OAuth application. |
-| `SERVICENOW_OAUTH_SCOPE` | Yes | None | Space-separated configured scopes; no `offline_access` | Requested ServiceNow access. |
+| `SERVICENOW_OAUTH_CLIENT_ID` | Yes | None | Non-empty client ID | ServiceNow OAuth application. |
+| `SERVICENOW_OAUTH_CLIENT_SECRET` | For confidential apps | Empty | Secret from the same application | Sent only in HTTPS token-endpoint form bodies. Empty selects public-client exchange. |
+| `SERVICENOW_OAUTH_SCOPE` | Yes | None | Space-separated configured scopes | Requested ServiceNow access; no scope is added automatically. |
 | `SERVICENOW_OAUTH_REDIRECT_URI` | No | `http://127.0.0.1:8765/oauth/callback` | Exact path; explicit port `1024`-`65535` | Registered loopback callback. |
 | `SERVICENOW_OAUTH_TIMEOUT_SECONDS` | No | `180` | `1`-`600` | Browser authorization timeout. |
 | `MCP_TOOL_PACKAGE` | No | `full` | Preset or comma-separated groups | Selects loaded tool groups. |
@@ -131,8 +132,13 @@ process environment and dotenv files. Non-empty legacy values fail startup;
 there is no fallback. The instance and OAuth settings are validated at startup,
 including for packages that do not make ServiceNow requests.
 
-**External ServiceNow setup:** Ask your administrator to configure a public OAuth
-client that supports authorization-code PKCE S256 without a client secret.
+**External ServiceNow setup:** Use the application's actual authentication mode.
+For a confidential application, set `SERVICENOW_OAUTH_CLIENT_SECRET` through a
+private environment variable, secret store, or untracked `.env.local`. The server
+sends `client_id` and `client_secret` as form fields to `/oauth_token.do` for both
+authorization-code and refresh-token grants. It retains PKCE S256. Confirm that
+the application accepts this token-endpoint authentication mode and PKCE. Leave
+the secret empty only for an application confirmed to support public PKCE.
 Register the exact `SERVICENOW_OAUTH_REDIRECT_URI`, enable the needed scopes,
 and use a user with the required roles and Table API ACL access. Confirm that
 the instance permits the registered HTTP loopback URI. The endpoints are
@@ -148,22 +154,32 @@ TCP cleanup from a completed callback does not require a different redirect URI.
 This listener is not an MCP HTTP transport. Remote-browser, headless, and
 container-to-host callback arrangements are not supported by this phase.
 
-Access tokens stay in process memory and are sent as `Authorization: Bearer`.
-Concurrent requests share an authorization flow. Tokens require a positive
-`expires_in`; expiry uses a monotonic clock with a safety margin. The next
-outbound request after expiry opens a fresh authorization flow. A ServiceNow
-401 discards the rejected token and returns an authentication error, without
-replaying the API call. Retry that call to authorize again. A process restart
-also requires authorization. Refresh tokens are not requested, stored, or used;
-public-client refresh support is not assumed.
+Access and refresh tokens stay in process memory. Only the access token is sent
+as `Authorization: Bearer`. Concurrent requests share authorization and renewal.
+Tokens require a positive `expires_in`; expiry uses a monotonic clock with a
+safety margin. The next request after expiry uses an issued refresh token first.
+Rotated refresh tokens replace the previous value; omission retains that value.
+An HTTP 400 `invalid_grant` refresh response starts one new browser flow. Other
+refresh failures return an error without opening a browser. No refresh token
+means a fresh browser flow is needed on expiry. Do not add `offline_access`
+unless it is configured and supported by your administrator.
+
+A REST 401 marks that access token unusable and returns an error without
+replaying the API call. Retrying the tool call refreshes it if possible, otherwise
+opens authorization again. Thus a successful code exchange followed by a REST
+401 and a tool retry can produce two windows. A successful authorization and
+REST call do not open a second window. Sharing is per server process; separate
+MCP processes each need authorization. A process restart loses both tokens.
 
 If a newly issued token is rejected by a REST request with HTTP 401, the code
 exchange succeeded but REST access did not. Ask the ServiceNow administrator
 to check the granted scopes, REST API access policy, and user access on the
 configured instance. This response alone does not identify which policy failed
 or establish a PKCE incompatibility. Token-endpoint errors are reported separately
-as OAuth token exchange failures. Do not add a client secret or change the
-registered redirect URI to address a REST rejection.
+as OAuth token exchange failures. Token issuance alone does not prove that a
+client secret is required or that it will resolve REST rejection. Match the
+secret setting to the application contract; do not change the redirect URI to
+work around a REST 401.
 
 Allow the MCP client enough tool-call time for user authorization. If the
 browser cannot open, consent is denied, or authorization times out, the tool
@@ -181,7 +197,7 @@ MCP clients normally start the command below and communicate over stdio. The
 following generic shape avoids client-specific fields. Use the equivalent
 stdio configuration fields supported by your client.
 
-Public-client PKCE:
+Authorization-code PKCE (forward the secret only for a confidential app):
 
 ```json
 {
@@ -190,6 +206,7 @@ Public-client PKCE:
   "env": {
     "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
     "SERVICENOW_OAUTH_CLIENT_ID": "${SERVICENOW_OAUTH_CLIENT_ID}",
+    "SERVICENOW_OAUTH_CLIENT_SECRET": "${SERVICENOW_OAUTH_CLIENT_SECRET}",
     "SERVICENOW_OAUTH_SCOPE": "${SERVICENOW_OAUTH_SCOPE}",
     "MCP_TOOL_PACKAGE": "readonly"
   }
@@ -627,8 +644,9 @@ exceptions are captured before the error envelope is returned.
 - **Missing instance URL:** set `SERVICENOW_INSTANCE_URL` to a full HTTPS URL.
   Startup validation errors list setting names and constraints without input
   values.
-- **401 `User Not Authenticated`:** retry the tool call for fresh browser
-  authorization. Check the instance URL and public-client OAuth configuration.
+- **401 `User Not Authenticated`:** the request was not replayed. A tool retry
+  refreshes the token or opens authorization if no usable refresh grant remains.
+  Check the instance URL, application authentication mode, and REST policy.
 - **OAuth policy failure:** check the configured scopes and REST-resource
   permissions. An access token does not automatically grant table or field access.
 - **Table or field denial:** check the target table ACL and field ACL. The

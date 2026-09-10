@@ -43,7 +43,7 @@ considerations described above.
 `https://your-instance.service-now.com`, without credentials, path, query, or
 fragment. One trailing slash is removed at startup.
 
-Use a ServiceNow public OAuth client with authorization-code PKCE S256.
+Use a ServiceNow OAuth client with authorization-code PKCE S256.
 Set `SERVICENOW_OAUTH_CLIENT_ID` and `SERVICENOW_OAUTH_SCOPE`. Register the exact
 redirect URI, default `http://127.0.0.1:8765/oauth/callback`, on that application.
 The first outbound request opens the local browser. The browser and stdio
@@ -52,8 +52,13 @@ an MCP HTTP transport. See [authentication setup](README.md#configuration-and-au
 
 Remove `SERVICENOW_API_KEY`, `SERVICENOW_USERNAME`, and `SERVICENOW_PASSWORD`.
 Non-empty legacy credentials fail startup. There is no Basic Auth or API-key
-fallback and no client secret. Tokens stay in memory; expiry requires a fresh
-browser flow. Refresh tokens are not used. Never log or persist OAuth material.
+fallback. For a confidential app, set `SERVICENOW_OAUTH_CLIENT_SECRET` privately.
+Confirm that the app accepts client credentials in the token-endpoint form body
+and PKCE S256. Leave the secret empty only for a confirmed public client.
+Tokens stay in memory. Issued refresh tokens renew expired or rejected access
+tokens on the next call. Only a missing refresh token or HTTP 400 `invalid_grant`
+requires a new browser flow. Other refresh errors do not open a browser.
+Never log or persist access tokens, refresh tokens, or authorization codes.
 
 Settings load at startup. Restart the full MCP server process after any
 environment or dotenv change.
@@ -100,7 +105,7 @@ store. Do not replace placeholders with secrets in a committed file.
 The PKCE example below runs from a local source checkout.
 It requires `uv sync` first and sets `cwd` to that checkout.
 
-### Public-client PKCE
+### Authorization-code PKCE
 
 ```json
 {
@@ -110,6 +115,7 @@ It requires `uv sync` first and sets `cwd` to that checkout.
   "env": {
     "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
     "SERVICENOW_OAUTH_CLIENT_ID": "${SERVICENOW_OAUTH_CLIENT_ID}",
+    "SERVICENOW_OAUTH_CLIENT_SECRET": "${SERVICENOW_OAUTH_CLIENT_SECRET}",
     "SERVICENOW_OAUTH_SCOPE": "${SERVICENOW_OAUTH_SCOPE}",
     "MCP_TOOL_PACKAGE": "readonly",
     "SERVICENOW_ENV": "prod"
@@ -135,6 +141,7 @@ console entry point without a source checkout:
   "env": {
     "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
     "SERVICENOW_OAUTH_CLIENT_ID": "${SERVICENOW_OAUTH_CLIENT_ID}",
+    "SERVICENOW_OAUTH_CLIENT_SECRET": "${SERVICENOW_OAUTH_CLIENT_SECRET}",
     "SERVICENOW_OAUTH_SCOPE": "${SERVICENOW_OAUTH_SCOPE}",
     "MCP_TOOL_PACKAGE": "readonly",
     "SERVICENOW_ENV": "prod"
@@ -156,8 +163,9 @@ environment variables override both.
 | Variable | Required | Default | Range or values | Purpose |
 | --- | --- | --- | --- | --- |
 | `SERVICENOW_INSTANCE_URL` | Yes | None | HTTPS origin without credentials, path, query, or fragment | ServiceNow instance. One trailing slash is removed. |
-| `SERVICENOW_OAUTH_CLIENT_ID` | Yes | None | Public client ID | ServiceNow OAuth application. |
-| `SERVICENOW_OAUTH_SCOPE` | Yes | None | Configured scopes; no `offline_access` | Requested access. |
+| `SERVICENOW_OAUTH_CLIENT_ID` | Yes | None | Client ID | ServiceNow OAuth application. |
+| `SERVICENOW_OAUTH_CLIENT_SECRET` | For confidential apps | Empty | Secret from the same app | HTTPS token-endpoint form authentication; omit for confirmed public clients. |
+| `SERVICENOW_OAUTH_SCOPE` | Yes | None | Configured scopes | Requested access; add `offline_access` only if confirmed by the administrator. |
 | `SERVICENOW_OAUTH_REDIRECT_URI` | No | `http://127.0.0.1:8765/oauth/callback` | Exact path, port `1024`-`65535` | Registered loopback URI. |
 | `SERVICENOW_OAUTH_TIMEOUT_SECONDS` | No | `180` | `1`-`600` | Authorization wait in seconds. |
 | `MCP_TOOL_PACKAGE` | No | `full` | Preset or comma-separated groups | Selects loaded tool groups. |
@@ -308,9 +316,10 @@ Use the following checks for common failures:
 - **Startup says the instance URL is missing:** set
   `SERVICENOW_INSTANCE_URL` to a complete lowercase-HTTPS instance URL. Check
   the MCP client's environment and working directory.
-- **401 or `User Not Authenticated`:** retry for fresh browser authorization.
-  Check the exact instance URL, public-client configuration, and registered
-  redirect URI. Restart after configuration changes.
+- **401 or `User Not Authenticated`:** the request was not replayed. A tool retry
+  refreshes the token, or opens authorization when no usable refresh grant remains.
+  Check the exact instance URL, application authentication mode, scopes and REST
+  access policy. Token issuance alone does not establish REST access.
 - **OAuth token is valid but a request is denied:** check OAuth scopes and REST-resource
   policy. This is distinct from table and field ACL denial.
 - **A table or field is denied:** check its ServiceNow row and field ACLs. The

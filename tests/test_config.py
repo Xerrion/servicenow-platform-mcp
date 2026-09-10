@@ -17,8 +17,13 @@ class TestSettings:
         ("setting", "value"),
         [
             ("SERVICENOW_OAUTH_CLIENT_ID", " "),
-            ("SERVICENOW_OAUTH_SCOPE", ""),
+            ("SERVICENOW_OAUTH_CLIENT_ID", ""),
+            ("SERVICENOW_OAUTH_CLIENT_ID", "client\nother"),
+            ("SERVICENOW_OAUTH_SCOPE", " "),
             ("SERVICENOW_OAUTH_SCOPE", "scope\nother"),
+            ("SERVICENOW_OAUTH_SCOPE", "scope\tother"),
+            ("SERVICENOW_OAUTH_SCOPE", "scope\x7f"),
+            ("SERVICENOW_OAUTH_SCOPE", "scopé"),
             ("SERVICENOW_OAUTH_TIMEOUT_SECONDS", "0"),
             ("SERVICENOW_OAUTH_TIMEOUT_SECONDS", "601"),
             ("SERVICENOW_OAUTH_REDIRECT_URI", "http://localhost:8765/oauth/callback"),
@@ -147,17 +152,19 @@ class TestSettings:
         ):
             Settings(_env_file=None)
 
-    def test_missing_scope_raises(self) -> None:
-        """Scopes must match the external ServiceNow application."""
+    @pytest.mark.parametrize("scope", [None, "", " useraccount offline_access ", "custom+scope&state=spoof"])
+    def test_optional_scope_configuration(self, scope: str | None) -> None:
+        """Missing or empty scope stays empty; explicit scopes retain safe normalization."""
         from servicenow_mcp.config import Settings
 
         env = self._make_env()
-        del env["SERVICENOW_OAUTH_SCOPE"]
-        with (
-            patch.dict("os.environ", env, clear=True),
-            pytest.raises((ValueError, TypeError)),
-        ):
-            Settings(_env_file=None)
+        if scope is None:
+            del env["SERVICENOW_OAUTH_SCOPE"]
+        else:
+            env["SERVICENOW_OAUTH_SCOPE"] = scope
+        with patch.dict("os.environ", env, clear=True):
+            settings = Settings(_env_file=None)
+        assert settings.servicenow_oauth_scope == (scope.strip() if scope else "")
 
     def test_default_mcp_tool_package(self) -> None:
         """MCP_TOOL_PACKAGE defaults to 'full'."""

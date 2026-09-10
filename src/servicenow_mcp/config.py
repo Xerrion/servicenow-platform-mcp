@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     servicenow_api_key: SecretStr = SecretStr("")
     servicenow_oauth_client_id: str
     servicenow_oauth_client_secret: SecretStr = SecretStr("")
-    servicenow_oauth_scope: str
+    servicenow_oauth_scope: str = ""
     servicenow_oauth_redirect_uri: str = "http://127.0.0.1:8765/oauth/callback"
     servicenow_oauth_timeout_seconds: int = 180
     mcp_tool_package: str = "full"
@@ -75,17 +75,23 @@ class Settings(BaseSettings):
         ):
             raise ValueError(
                 "Basic Auth and API keys are no longer supported. Remove SERVICENOW_USERNAME, "
-                "SERVICENOW_PASSWORD and SERVICENOW_API_KEY; configure ServiceNow OAuth PKCE."
+                "SERVICENOW_PASSWORD and SERVICENOW_API_KEY; configure ServiceNow OAuth authorization-code flow."
             )
         return self
 
-    @field_validator("servicenow_oauth_client_id", "servicenow_oauth_scope")
+    @field_validator("servicenow_oauth_client_id")
     @classmethod
     def validate_oauth_text(cls, v: str) -> str:
-        """Require explicit, printable OAuth client and scope configuration."""
+        """Require non-empty printable ASCII for client IDs and supplied scopes."""
         if not v.strip() or not v.isascii() or any(ord(char) < 32 or ord(char) == 127 for char in v):
             raise ValueError("OAuth client ID and scope must be non-empty printable ASCII")
         return v.strip()
+
+    @field_validator("servicenow_oauth_scope")
+    @classmethod
+    def validate_oauth_scope(cls, v: str) -> str:
+        """Allow an empty scope; preserve text validation for explicit scopes."""
+        return cls.validate_oauth_text(v) if v else ""
 
     @field_validator("servicenow_oauth_redirect_uri")
     @classmethod

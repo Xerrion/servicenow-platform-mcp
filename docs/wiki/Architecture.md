@@ -40,13 +40,14 @@ The server entry point is `server.py`.
 ### Authentication
 
 Bootstrap creates one `OAuthPKCEProvider` shared by all ServiceNow clients.
-Its first outbound call opens the local browser for authorization-code PKCE S256.
+Its first outbound call opens the local browser for authorization-code flow.
 `oauth_callback.py` owns the temporary IPv4 loopback receiver. Tokens stay in
 memory with a monotonic expiry; concurrent calls share authorization and renewal.
-An optional client secret authenticates both token-endpoint grants. Issued refresh
-tokens renew expired or rejected access tokens on the next call. A REST 401 never
-replays the API call. Missing refresh tokens or HTTP 400 `invalid_grant` require
-new authorization. Legacy credentials are rejected.
+A configured client secret selects confidential authorization without PKCE and
+authenticates both token-endpoint grants. No secret selects public PKCE S256.
+Issued refresh tokens renew expired or rejected access tokens on the next call.
+A REST 401 never replays the API call. Missing refresh tokens or HTTP 400
+`invalid_grant` require new authorization. Legacy credentials are rejected.
 This changes outbound authentication only; MCP continues to use stdio.
 
 ### Registration Pattern

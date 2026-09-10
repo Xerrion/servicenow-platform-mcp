@@ -112,8 +112,8 @@ process with another working directory will not read the files you expect.
 | --- | --- | --- | --- | --- |
 | `SERVICENOW_INSTANCE_URL` | Yes | None | HTTPS origin, without credentials, path, query or fragment | ServiceNow instance. One trailing slash is removed. |
 | `SERVICENOW_OAUTH_CLIENT_ID` | Yes | None | Non-empty client ID | ServiceNow OAuth application. |
-| `SERVICENOW_OAUTH_CLIENT_SECRET` | For confidential apps | Empty | Secret from the same application | Sent only in HTTPS token-endpoint form bodies. Empty selects public-client exchange. |
-| `SERVICENOW_OAUTH_SCOPE` | Yes | None | Space-separated configured scopes | Requested ServiceNow access; no scope is added automatically. |
+| `SERVICENOW_OAUTH_CLIENT_SECRET` | For confidential apps | Empty | Secret from the same application | Non-empty selects confidential flow without PKCE. Empty selects public PKCE S256. Sent only in HTTPS token-endpoint form bodies. |
+| `SERVICENOW_OAUTH_SCOPE` | No | Empty | Space-separated administrator-confirmed scopes | Empty omits the authorization scope field; no scope is added automatically. |
 | `SERVICENOW_OAUTH_REDIRECT_URI` | No | `http://127.0.0.1:8765/oauth/callback` | Exact path; explicit port `1024`-`65535` | Registered loopback callback. |
 | `SERVICENOW_OAUTH_TIMEOUT_SECONDS` | No | `180` | `1`-`600` | Browser authorization timeout. |
 | `MCP_TOOL_PACKAGE` | No | `full` | Preset or comma-separated groups | Selects loaded tool groups. |
@@ -125,8 +125,9 @@ process with another working directory will not read the files you expect.
 | `SENTRY_DSN` | No | Empty | String accepted by the Sentry SDK as a DSN | Enables optional Sentry error reporting. |
 | `SENTRY_ENVIRONMENT` | No | Empty | Any string | Sentry environment; empty uses `SERVICENOW_ENV`. |
 
-The normal authentication path is outbound OAuth 2.0 authorization-code PKCE
-with S256. Basic Auth and API keys are not supported. Remove
+The normal authentication path is outbound OAuth 2.0 authorization-code flow:
+confidential with a client secret, or public with PKCE S256. These modes are not
+combined. Basic Auth and API keys are not supported. Remove
 `SERVICENOW_API_KEY`, `SERVICENOW_USERNAME`, and `SERVICENOW_PASSWORD` from the
 process environment and dotenv files. Non-empty legacy values fail startup;
 there is no fallback. The instance and OAuth settings are validated at startup,
@@ -136,20 +137,28 @@ including for packages that do not make ServiceNow requests.
 For a confidential application, set `SERVICENOW_OAUTH_CLIENT_SECRET` through a
 private environment variable, secret store, or untracked `.env.local`. The server
 sends `client_id` and `client_secret` as form fields to `/oauth_token.do` for both
-authorization-code and refresh-token grants. It retains PKCE S256. Confirm that
-the application accepts this token-endpoint authentication mode and PKCE. Leave
-the secret empty only for an application confirmed to support public PKCE.
+authorization-code and refresh-token grants. Authorization omits `code_challenge`
+and `code_challenge_method`; code exchange omits `code_verifier`. Confirm that
+the application accepts this confidential token-endpoint authentication mode.
+Leave the secret empty only for an application confirmed to support public PKCE
+S256. That mode sends the challenge on authorization and the verifier on code
+exchange, without a client secret. Refresh never sends PKCE parameters.
 Register the exact `SERVICENOW_OAUTH_REDIRECT_URI`, enable the needed scopes,
 and use a user with the required roles and Table API ACL access. Confirm that
 the instance permits the registered HTTP loopback URI. The endpoints are
 `/oauth_auth.do` and `/oauth_token.do` on the configured HTTPS instance.
 
+Leave `SERVICENOW_OAUTH_SCOPE` unset or empty unless the administrator confirms
+that specific scopes should be requested. Empty omits `scope` from authorization
+in both modes. Non-empty values retain printable ASCII validation and surrounding
+space trimming; whitespace-only values and control characters are rejected.
+
 The first outbound request opens the default browser. The browser and stdio
 process must run on the **same machine**. A temporary listener binds only
 `127.0.0.1` on the configured port before the browser opens. It validates the
 callback path, Host and single-use state, then exchanges the code using the
-PKCE verifier. The listener and accepted connections close before token exchange
-and on denial, timeout, or cancellation. Retries reuse the configured port;
+selected authorization mode. The listener and accepted connections close before
+token exchange and on denial, timeout, or cancellation. Retries reuse the configured port;
 TCP cleanup from a completed callback does not require a different redirect URI.
 This listener is not an MCP HTTP transport. Remote-browser, headless, and
 container-to-host callback arrangements are not supported by this phase.
@@ -197,7 +206,7 @@ MCP clients normally start the command below and communicate over stdio. The
 following generic shape avoids client-specific fields. Use the equivalent
 stdio configuration fields supported by your client.
 
-Authorization-code PKCE (forward the secret only for a confidential app):
+Authorization-code flow (forward the secret only for a confidential app; empty selects public PKCE):
 
 ```json
 {
@@ -207,7 +216,7 @@ Authorization-code PKCE (forward the secret only for a confidential app):
     "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
     "SERVICENOW_OAUTH_CLIENT_ID": "${SERVICENOW_OAUTH_CLIENT_ID}",
     "SERVICENOW_OAUTH_CLIENT_SECRET": "${SERVICENOW_OAUTH_CLIENT_SECRET}",
-    "SERVICENOW_OAUTH_SCOPE": "${SERVICENOW_OAUTH_SCOPE}",
+    "SERVICENOW_OAUTH_SCOPE": "",
     "MCP_TOOL_PACKAGE": "readonly"
   }
 }

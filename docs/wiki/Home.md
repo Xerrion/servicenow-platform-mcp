@@ -55,11 +55,12 @@ uvx servicenow-platform-mcp
 ```bash
 SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com
 SERVICENOW_OAUTH_CLIENT_ID=your-client-id
-SERVICENOW_OAUTH_SCOPE=your-configured-scope
+SERVICENOW_OAUTH_SCOPE=
 ```
 
 Confidential applications also require `SERVICENOW_OAUTH_CLIENT_SECRET` in private
-environment configuration. See [[Configuration]] for token renewal and setup.
+environment configuration. Empty scope omits the authorization scope field; set
+only administrator-confirmed scopes. See [[Configuration]] for token renewal and setup.
 
 **3. Configure your MCP client** to launch the server with those environment variables.
 

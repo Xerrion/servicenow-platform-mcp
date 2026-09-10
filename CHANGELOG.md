@@ -4,13 +4,16 @@
 
 ### Breaking changes
 
-- Outbound ServiceNow calls now use OAuth authorization-code PKCE
-  with S256. Remove `SERVICENOW_API_KEY`, `SERVICENOW_USERNAME`, and
+- Outbound ServiceNow calls now use OAuth authorization-code flow with either
+  confidential client credentials or public PKCE S256. Remove
+  `SERVICENOW_API_KEY`, `SERVICENOW_USERNAME`, and
   `SERVICENOW_PASSWORD`; non-empty legacy settings are rejected. Configure
-  `SERVICENOW_OAUTH_CLIENT_ID`, `SERVICENOW_OAUTH_SCOPE`, and an exact registered
-  loopback redirect URI. The browser and stdio process must run on the same
+  `SERVICENOW_OAUTH_CLIENT_ID` and an exact registered loopback redirect URI.
+  `SERVICENOW_OAUTH_SCOPE` is optional; empty omits the authorization scope field.
+  Set only administrator-confirmed scopes. The browser and stdio process must run on the same
   machine. For confidential apps, also set `SERVICENOW_OAUTH_CLIENT_SECRET`.
-  Both grants send client credentials in the HTTPS token-endpoint form body.
+  A configured secret disables PKCE; both grants send client credentials in the
+  HTTPS token-endpoint form body. An empty secret selects public PKCE S256.
   Access and refresh tokens stay in memory. Expiry or REST rejection uses an
   issued refresh token on the next call; REST requests are never replayed.
   Missing refresh tokens or HTTP 400 `invalid_grant` require fresh authorization.

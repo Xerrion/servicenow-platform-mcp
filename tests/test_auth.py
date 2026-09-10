@@ -1,4 +1,4 @@
-"""OAuth PKCE, token lifecycle, and real loopback receiver tests (no live credentials)."""
+"""OAuth authorization modes, token lifecycle, and real loopback tests (no live credentials)."""
 
 import asyncio
 import base64
@@ -61,8 +61,9 @@ async def _assert_closed(redirect_uri: str) -> None:
 
 @respx.mock
 @pytest.mark.parametrize("has_refresh", [True, False])
+@pytest.mark.parametrize("client_secret", ["", "test-only-secret"], ids=["public", "confidential"])
 async def test_query_401_then_reauthorize_on_same_loopback_port(
-    settings: Settings, redirect_uri: str, has_refresh: bool
+    settings: Settings, redirect_uri: str, has_refresh: bool, client_secret: str
 ) -> None:
     """A tool retry renews a rejected token without a browser when refresh is available."""
     from mcp.server import MCPServer
@@ -71,7 +72,7 @@ async def test_query_401_then_reauthorize_on_same_loopback_port(
     from tests.helpers import decode_response, get_tool_functions
 
     settings.servicenow_oauth_redirect_uri = redirect_uri
-    settings.servicenow_oauth_client_secret = SecretStr("test-only-secret")
+    settings.servicenow_oauth_client_secret = SecretStr(client_secret)
     authorization: list[dict[str, list[str]]] = []
 
     async def browser(_open: Any, url: str, **kwargs: Any) -> bool:
@@ -127,28 +128,35 @@ async def test_query_401_then_reauthorize_on_same_loopback_port(
     assert len(authorization) == (1 if has_refresh else 2)
     if not has_refresh:
         assert authorization[0]["state"] != authorization[1]["state"]
-        assert authorization[0]["code_challenge"] != authorization[1]["code_challenge"]
+        if not client_secret:
+            assert authorization[0]["code_challenge"] != authorization[1]["code_challenge"]
     forms = [parse_qs(call.request.content.decode()) for call in token_route.calls]
     assert forms[0]["grant_type"] == ["authorization_code"]
     assert forms[1]["grant_type"] == ["refresh_token" if has_refresh else "authorization_code"]
-    assert all(form["client_secret"] == ["test-only-secret"] for form in forms)
+    if client_secret:
+        assert all(form["client_secret"] == [client_secret] for form in forms)
+        assert all("code_verifier" not in form for form in forms)
+        assert all("code_challenge" not in params and "code_challenge_method" not in params for params in authorization)
+    else:
+        assert all("client_secret" not in form for form in forms)
     await _assert_closed(redirect_uri)
 
 
 @respx.mock
-@pytest.mark.parametrize("client_secret", ["", "test-only-client-secret"])
-async def test_pkce_loopback_exchange_and_bearer_request(
-    settings: Settings, redirect_uri: str, client_secret: str
+@pytest.mark.parametrize("client_secret", ["", "test-only-client-secret"], ids=["public", "confidential"])
+@pytest.mark.parametrize("scope", ["", "useraccount", "useraccount custom+scope&state=spoof"])
+async def test_oauth_modes_loopback_exchange_and_bearer_request(
+    settings: Settings, redirect_uri: str, client_secret: str, scope: str, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Exercise real loopback HTTP, S256 exchange and the API bearer header together."""
+    """Public PKCE and confidential secret grants must never mix request fields."""
     settings.servicenow_oauth_redirect_uri = redirect_uri
-    if client_secret:
-        settings = Settings.model_validate({**settings.model_dump(), "servicenow_oauth_client_secret": client_secret})
+    settings.servicenow_oauth_client_secret = SecretStr(client_secret)
+    settings.servicenow_oauth_scope = scope
     authorization: dict[str, list[str]] = {}
 
     async def browser(_open: Any, url: str, **kwargs: Any) -> bool:
         del kwargs
-        authorization.update(parse_qs(urlsplit(url).query))
+        authorization.update(parse_qs(urlsplit(url).query, keep_blank_values=True))
         assert url.startswith(f"{BASE_URL}/oauth_auth.do?")
         invalid = await _send(redirect_uri, "state=wrong&code=attacker-code")
         assert b"400 Bad Request" in invalid
@@ -160,25 +168,36 @@ async def test_pkce_loopback_exchange_and_bearer_request(
         return True
 
     def exchange(request: httpx.Request) -> httpx.Response:
-        form = parse_qs(request.content.decode())
-        expected_fields = {"grant_type", "code", "client_id", "redirect_uri", "code_verifier"}
+        form = parse_qs(request.content.decode(), keep_blank_values=True)
+        expected_form = {
+            "grant_type": ["authorization_code"],
+            "code": ["test-code"],
+            "client_id": [settings.servicenow_oauth_client_id],
+            "redirect_uri": [redirect_uri],
+        }
+        expected_authorization = {
+            "response_type": ["code"],
+            "client_id": [settings.servicenow_oauth_client_id],
+            "redirect_uri": [redirect_uri],
+            "state": authorization["state"],
+        }
+        if scope:
+            expected_authorization["scope"] = [scope]
         if client_secret:
-            expected_fields.add("client_secret")
-            assert form["client_secret"] == [client_secret]
+            expected_form["client_secret"] = [client_secret]
             assert client_secret not in str(authorization)
-        assert set(form) == expected_fields
-        assert form["grant_type"] == ["authorization_code"]
-        assert form["code"] == ["test-code"]
-        assert form["redirect_uri"] == [redirect_uri]
-        assert form["client_id"] == [settings.servicenow_oauth_client_id]
+        else:
+            verifier = form["code_verifier"][0]
+            assert 43 <= len(verifier) <= 128
+            challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+            expected_form["code_verifier"] = [verifier]
+            expected_authorization.update(code_challenge=[challenge], code_challenge_method=["S256"])
+        assert form == expected_form
+        assert authorization == expected_authorization
+        assert not request.url.query
+        assert request.headers["content-type"] == "application/x-www-form-urlencoded"
         assert "authorization" not in request.headers
-        verifier = form["code_verifier"][0]
-        assert 43 <= len(verifier) <= 128
-        expected = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
-        assert authorization["code_challenge"] == [expected]
-        assert authorization["code_challenge_method"] == ["S256"]
-        assert authorization["response_type"] == ["code"]
-        assert authorization["scope"] == [settings.servicenow_oauth_scope]
+        assert len(authorization["state"]) == 1
         assert len(authorization["state"][0]) >= 43
         return httpx.Response(
             200,
@@ -202,9 +221,13 @@ async def test_pkce_loopback_exchange_and_bearer_request(
             await client.get_record("incident", "test-id")
         launch.assert_awaited_once()
     assert token_route.call_count == 1
+    assert not api_route.calls.last.request.url.query
     assert api_route.calls.last.request.headers["Authorization"] == "Bearer test-token"
     assert "x-sn-apikey" not in api_route.calls.last.request.headers
     assert "X-Correlation-ID" in api_route.calls.last.request.headers
+    for sensitive in (client_secret, "test-code", "test-token", "test-refresh"):
+        if sensitive:
+            assert sensitive not in caplog.text
     await _assert_closed(redirect_uri)
 
 
@@ -294,11 +317,12 @@ async def test_expiry_requires_new_flow_and_concurrent_calls_share_it(settings: 
 
 
 @pytest.mark.parametrize("rotated", [True, False])
+@pytest.mark.parametrize("client_secret", ["", "test-only-secret"], ids=["public", "confidential"])
 @respx.mock
-async def test_expiry_refresh_is_single_flight_and_keeps_rotation(settings: Settings, rotated: bool) -> None:
-    settings = Settings.model_validate(
-        {**settings.model_dump(), "servicenow_oauth_client_secret": SecretStr("test-only-secret")}
-    )
+async def test_expiry_refresh_is_single_flight_and_keeps_rotation(
+    settings: Settings, rotated: bool, client_secret: str
+) -> None:
+    settings.servicenow_oauth_client_secret = SecretStr(client_secret)
     provider = OAuthPKCEProvider(settings)
     provider._token = _parse_token(
         {"access_token": "old", "token_type": "Bearer", "expires_in": 60, "refresh_token": "old-refresh"}, 0
@@ -312,12 +336,16 @@ async def test_expiry_refresh_is_single_flight_and_keeps_rotation(settings: Sett
         browser.assert_not_called()
     assert all(headers["Authorization"] == "Bearer fresh" for headers in results)
     assert route.call_count == 1
-    assert parse_qs(route.calls.last.request.content.decode()) == {
+    expected_form = {
         "grant_type": ["refresh_token"],
         "refresh_token": ["old-refresh"],
         "client_id": [settings.servicenow_oauth_client_id],
-        "client_secret": ["test-only-secret"],
     }
+    if client_secret:
+        expected_form["client_secret"] = [client_secret]
+    assert parse_qs(route.calls.last.request.content.decode(), keep_blank_values=True) == expected_form
+    assert not route.calls.last.request.url.query
+    assert "authorization" not in route.calls.last.request.headers
     assert provider._token is not None
     assert provider._token.refresh_token == ("new-refresh" if rotated else "old-refresh")
 

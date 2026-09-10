@@ -43,8 +43,11 @@ considerations described above.
 `https://your-instance.service-now.com`, without credentials, path, query, or
 fragment. One trailing slash is removed at startup.
 
-Use a ServiceNow OAuth client with authorization-code PKCE S256.
-Set `SERVICENOW_OAUTH_CLIENT_ID` and `SERVICENOW_OAUTH_SCOPE`. Register the exact
+Use a ServiceNow OAuth authorization-code client: confidential with a client
+secret, or public with PKCE S256. The server does not combine these modes.
+Set `SERVICENOW_OAUTH_CLIENT_ID`. Leave `SERVICENOW_OAUTH_SCOPE` unset or empty
+unless the administrator confirms that specific scopes should be requested.
+Empty omits `scope` from authorization in both modes. Register the exact
 redirect URI, default `http://127.0.0.1:8765/oauth/callback`, on that application.
 The first outbound request opens the local browser. The browser and stdio
 process must be on the same machine. The temporary loopback receiver is not
@@ -53,8 +56,9 @@ an MCP HTTP transport. See [authentication setup](README.md#configuration-and-au
 Remove `SERVICENOW_API_KEY`, `SERVICENOW_USERNAME`, and `SERVICENOW_PASSWORD`.
 Non-empty legacy credentials fail startup. There is no Basic Auth or API-key
 fallback. For a confidential app, set `SERVICENOW_OAUTH_CLIENT_SECRET` privately.
-Confirm that the app accepts client credentials in the token-endpoint form body
-and PKCE S256. Leave the secret empty only for a confirmed public client.
+This selects confidential authorization without PKCE. Confirm that the app accepts
+client credentials in the token-endpoint form body for code exchange and refresh.
+Leave the secret empty only for a confirmed public client with PKCE S256.
 Tokens stay in memory. Issued refresh tokens renew expired or rejected access
 tokens on the next call. Only a missing refresh token or HTTP 400 `invalid_grant`
 requires a new browser flow. Other refresh errors do not open a browser.
@@ -102,10 +106,10 @@ The following examples use placeholders. `${...}` expansion depends on the
 MCP client. Prefer the client's documented environment forwarding or a secret
 store. Do not replace placeholders with secrets in a committed file.
 
-The PKCE example below runs from a local source checkout.
+The OAuth example below runs from a local source checkout.
 It requires `uv sync` first and sets `cwd` to that checkout.
 
-### Authorization-code PKCE
+### Authorization-code flow
 
 ```json
 {
@@ -116,7 +120,7 @@ It requires `uv sync` first and sets `cwd` to that checkout.
     "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
     "SERVICENOW_OAUTH_CLIENT_ID": "${SERVICENOW_OAUTH_CLIENT_ID}",
     "SERVICENOW_OAUTH_CLIENT_SECRET": "${SERVICENOW_OAUTH_CLIENT_SECRET}",
-    "SERVICENOW_OAUTH_SCOPE": "${SERVICENOW_OAUTH_SCOPE}",
+    "SERVICENOW_OAUTH_SCOPE": "",
     "MCP_TOOL_PACKAGE": "readonly",
     "SERVICENOW_ENV": "prod"
   }
@@ -142,7 +146,7 @@ console entry point without a source checkout:
     "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
     "SERVICENOW_OAUTH_CLIENT_ID": "${SERVICENOW_OAUTH_CLIENT_ID}",
     "SERVICENOW_OAUTH_CLIENT_SECRET": "${SERVICENOW_OAUTH_CLIENT_SECRET}",
-    "SERVICENOW_OAUTH_SCOPE": "${SERVICENOW_OAUTH_SCOPE}",
+    "SERVICENOW_OAUTH_SCOPE": "",
     "MCP_TOOL_PACKAGE": "readonly",
     "SERVICENOW_ENV": "prod"
   }
@@ -164,8 +168,8 @@ environment variables override both.
 | --- | --- | --- | --- | --- |
 | `SERVICENOW_INSTANCE_URL` | Yes | None | HTTPS origin without credentials, path, query, or fragment | ServiceNow instance. One trailing slash is removed. |
 | `SERVICENOW_OAUTH_CLIENT_ID` | Yes | None | Client ID | ServiceNow OAuth application. |
-| `SERVICENOW_OAUTH_CLIENT_SECRET` | For confidential apps | Empty | Secret from the same app | HTTPS token-endpoint form authentication; omit for confirmed public clients. |
-| `SERVICENOW_OAUTH_SCOPE` | Yes | None | Configured scopes | Requested access; add `offline_access` only if confirmed by the administrator. |
+| `SERVICENOW_OAUTH_CLIENT_SECRET` | For confidential apps | Empty | Secret from the same app | Non-empty selects confidential flow without PKCE; empty selects public PKCE S256. |
+| `SERVICENOW_OAUTH_SCOPE` | No | Empty | Administrator-confirmed scopes | Empty omits the authorization scope field; add `offline_access` only if confirmed by the administrator. |
 | `SERVICENOW_OAUTH_REDIRECT_URI` | No | `http://127.0.0.1:8765/oauth/callback` | Exact path, port `1024`-`65535` | Registered loopback URI. |
 | `SERVICENOW_OAUTH_TIMEOUT_SECONDS` | No | `180` | `1`-`600` | Authorization wait in seconds. |
 | `MCP_TOOL_PACKAGE` | No | `full` | Preset or comma-separated groups | Selects loaded tool groups. |

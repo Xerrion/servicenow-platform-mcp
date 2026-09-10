@@ -1,4 +1,4 @@
-"""Outbound ServiceNow OAuth with PKCE, optional client secret, and memory-only tokens."""
+"""Outbound ServiceNow OAuth with public PKCE or confidential grants and memory-only tokens."""
 
 import asyncio
 import base64
@@ -55,8 +55,10 @@ class OAuthPKCEProvider:
     """Authorize in the local browser and renew issued refresh grants in memory.
 
     Concurrent requests share one authorization flow. Failures raise AuthError;
-    cancellation closes the callback listener. An optional client secret is sent
-    only to the token endpoint. REST failures never replay the rejected request.
+    cancellation closes the callback listener. A configured client secret selects
+    confidential authorization without PKCE and is sent only to the token endpoint.
+    Without a secret, authorization uses public PKCE S256. REST failures never
+    replay the rejected request.
     """
 
     def __init__(self, settings: Settings) -> None:
@@ -97,35 +99,34 @@ class OAuthPKCEProvider:
         return replace(token, refresh_token=token.refresh_token or refresh_token)
 
     async def _authorize(self) -> AccessToken:
-        verifier = secrets.token_urlsafe(64)
-        state = secrets.token_urlsafe(32)
-        challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode("ascii")).digest()).rstrip(b"=").decode()
         settings = self._settings
-        query = urlencode(
-            {
-                "response_type": "code",
-                "client_id": settings.servicenow_oauth_client_id,
-                "redirect_uri": settings.servicenow_oauth_redirect_uri,
-                "code_challenge": challenge,
-                "code_challenge_method": "S256",
-                "scope": settings.servicenow_oauth_scope,
-                "state": state,
-            }
-        )
-        code = await receive_authorization_code(
-            f"{settings.servicenow_instance_url}/oauth_auth.do?{query}",
+        state = secrets.token_urlsafe(32)
+        query = {
+            "response_type": "code",
+            "client_id": settings.servicenow_oauth_client_id,
+            "redirect_uri": settings.servicenow_oauth_redirect_uri,
+            "state": state,
+        }
+        if settings.servicenow_oauth_scope:
+            query["scope"] = settings.servicenow_oauth_scope
+        grant = {
+            "grant_type": "authorization_code",
+            "redirect_uri": settings.servicenow_oauth_redirect_uri,
+        }
+        if not settings.servicenow_oauth_client_secret.get_secret_value():
+            verifier = secrets.token_urlsafe(64)
+            challenge = (
+                base64.urlsafe_b64encode(hashlib.sha256(verifier.encode("ascii")).digest()).rstrip(b"=").decode()
+            )
+            query.update(code_challenge=challenge, code_challenge_method="S256")
+            grant["code_verifier"] = verifier
+        grant["code"] = await receive_authorization_code(
+            f"{settings.servicenow_instance_url}/oauth_auth.do?{urlencode(query)}",
             settings.servicenow_oauth_redirect_uri,
             state,
             settings.servicenow_oauth_timeout_seconds,
         )
-        return await self._exchange(
-            {
-                "grant_type": "authorization_code",
-                "code": code,
-                "redirect_uri": settings.servicenow_oauth_redirect_uri,
-                "code_verifier": verifier,
-            }
-        )
+        return await self._exchange(grant)
 
     async def _exchange(self, grant: dict[str, str]) -> AccessToken:
         settings = self._settings
@@ -152,8 +153,9 @@ class OAuthPKCEProvider:
                     raise _RefreshGrantRejected("OAuth refresh grant expired or was revoked.")
             raise AuthError(
                 f"OAuth token exchange rejected (HTTP {response.status_code}). "
-                "Check the application client ID, configured client secret, PKCE support and redirect URI. "
-                "A confidential client requires SERVICENOW_OAUTH_CLIENT_SECRET."
+                "Check the application client ID, authorization mode and redirect URI. "
+                "A confidential client requires SERVICENOW_OAUTH_CLIENT_SECRET; "
+                "a public client requires PKCE S256 with no client secret."
             )
         try:
             payload = response.json()

@@ -401,7 +401,7 @@ Dispatched via the read-only `audit` tool. Available in the `full` and `readonly
 | `servicenow_instance_url` | `str` | required | `SERVICENOW_INSTANCE_URL` |
 | `servicenow_oauth_client_id` | `str` | required | `SERVICENOW_OAUTH_CLIENT_ID` |
 | `servicenow_oauth_client_secret` | `SecretStr` | empty; required for confidential apps | `SERVICENOW_OAUTH_CLIENT_SECRET` |
-| `servicenow_oauth_scope` | `str` | required; only administrator-confirmed scopes | `SERVICENOW_OAUTH_SCOPE` |
+| `servicenow_oauth_scope` | `str` | empty; omitted from authorization unless administrator-confirmed scopes are set | `SERVICENOW_OAUTH_SCOPE` |
 | `servicenow_oauth_redirect_uri` | `str` | `http://127.0.0.1:8765/oauth/callback` | `SERVICENOW_OAUTH_REDIRECT_URI` |
 | `servicenow_oauth_timeout_seconds` | `int` | `180` (1-600) | `SERVICENOW_OAUTH_TIMEOUT_SECONDS` |
 | `mcp_tool_package` | `str` | `"full"` | `MCP_TOOL_PACKAGE` |
@@ -415,13 +415,16 @@ Dispatched via the read-only `audit` tool. Available in the `full` and `readonly
 
 ## 📦 Packages & Tool Groups
 
-Outbound authentication uses OAuth authorization-code PKCE S256.
+Outbound authentication uses OAuth authorization-code flow: confidential with a
+client secret, or public with PKCE S256. These modes are never combined.
 The first API call opens the browser on the same machine as the stdio process.
 A temporary loopback listener receives a state-bound code; tokens remain in
 memory. Issued refresh tokens renew expired or rejected access tokens on the next
 call. An optional `SERVICENOW_OAUTH_CLIENT_SECRET` authenticates both grants in
-the HTTPS token-endpoint form body; empty selects public-client exchange. A REST
-401 invalidates only the matching access token without replaying the API request.
+the HTTPS token-endpoint form body and disables PKCE. Empty selects public PKCE
+S256 with a challenge on authorization and a verifier on code exchange. Refresh
+never sends PKCE parameters. A REST 401 invalidates only the matching access token
+without replaying the API request.
 Missing refresh tokens or HTTP 400 `invalid_grant` require new authorization;
 other refresh errors do not open a browser. Non-empty `SERVICENOW_API_KEY`, `SERVICENOW_USERNAME`, and
 `SERVICENOW_PASSWORD` settings are rejected. These fields exist only to report

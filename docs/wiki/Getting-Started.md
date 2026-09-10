@@ -8,7 +8,7 @@ This guide walks you through installing and configuring the ServiceNow Platform 
 
 - **Python 3.12 or later** - The server requires Python 3.12+ (3.12, 3.13, and 3.14 are supported)
 - **A ServiceNow instance** - Developer, test, or production (note: write operations are blocked on production instances)
-- **ServiceNow authentication** - A public OAuth client with PKCE S256, a registered loopback redirect URI, and a user with the required roles. The browser and stdio process must run on the same machine.
+- **ServiceNow authentication** - An OAuth authorization-code client: confidential with a secret, or public with PKCE S256. Register the exact loopback redirect URI and use a user with the required roles. The browser and stdio process must run on the same machine.
 - **An MCP-compatible AI client** - [OpenCode](https://opencode.ai), [Claude Desktop](https://claude.ai/download), [VS Code Copilot](https://code.visualstudio.com/), [Cursor](https://cursor.sh/), or any client supporting the [Model Context Protocol](https://modelcontextprotocol.io/)
 
 ---
@@ -46,7 +46,7 @@ Set `SERVICENOW_INSTANCE_URL` and the OAuth client settings. These variables are
 | `SERVICENOW_INSTANCE_URL` | Yes | Full instance URL, must start with `https://` |
 | `SERVICENOW_OAUTH_CLIENT_ID` | Yes | OAuth client ID |
 | `SERVICENOW_OAUTH_CLIENT_SECRET` | For confidential apps | Supply privately from the same application; omit only for confirmed public clients |
-| `SERVICENOW_OAUTH_SCOPE` | Yes | Space-separated scopes configured on the application |
+| `SERVICENOW_OAUTH_SCOPE` | No | Empty by default; omits the authorization scope field. Set only administrator-confirmed scopes |
 | `SERVICENOW_OAUTH_REDIRECT_URI` | No | Default `http://127.0.0.1:8765/oauth/callback`; register this exact URI |
 | `SERVICENOW_OAUTH_TIMEOUT_SECONDS` | No | Browser authorization timeout, default 180 seconds (1-600) |
 | `MCP_TOOL_PACKAGE` | No | Tool package to load (default: `"full"`). See [[Tool-Packages]] |
@@ -67,7 +67,7 @@ refresh token before opening a browser. See [[Configuration]] for lifecycle and 
 
 ## MCP Client Configuration
 
-Configure your MCP client to launch the server with the required OAuth environment variables. Replace the client and scope placeholders with the ServiceNow application values. Forward the optional client secret through private environment configuration, not a committed file.
+Configure your MCP client to launch the server with the required OAuth environment variables. Replace the client ID placeholder with the ServiceNow application value. Leave scope empty unless the administrator confirms specific scopes are needed. Forward the client secret for confidential apps through private environment configuration, not a committed file.
 
 ### OpenCode
 
@@ -82,7 +82,7 @@ File: `~/.config/opencode/opencode.json`
       "environment": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_OAUTH_CLIENT_ID": "<your-client-id>",
-        "SERVICENOW_OAUTH_SCOPE": "<your-configured-scope>"
+        "SERVICENOW_OAUTH_SCOPE": ""
       }
     }
   }
@@ -102,7 +102,7 @@ File: `claude_desktop_config.json`
       "env": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_OAUTH_CLIENT_ID": "<your-client-id>",
-        "SERVICENOW_OAUTH_SCOPE": "<your-configured-scope>"
+        "SERVICENOW_OAUTH_SCOPE": ""
       }
     }
   }
@@ -122,7 +122,7 @@ File: `.vscode/mcp.json`
       "env": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_OAUTH_CLIENT_ID": "<your-client-id>",
-        "SERVICENOW_OAUTH_SCOPE": "<your-configured-scope>"
+        "SERVICENOW_OAUTH_SCOPE": ""
       }
     }
   }
@@ -136,7 +136,7 @@ For any client that supports stdio transport, launch the server with inline envi
 ```bash
 SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com \
 SERVICENOW_OAUTH_CLIENT_ID=your-client-id \
-SERVICENOW_OAUTH_SCOPE=your-configured-scope \
+SERVICENOW_OAUTH_SCOPE= \
 uvx servicenow-platform-mcp
 ```
 
@@ -171,7 +171,7 @@ For copy-paste installation instructions optimized for AI agents, see [INSTALL.m
 
 ### Authentication errors
 
-- Confirm the app supports PKCE S256 and permits the exact registered HTTP loopback URI. For confidential apps, configure the secret and confirm form-body token-endpoint authentication.
+- Match the app mode: a configured secret selects confidential flow without PKCE; an empty secret selects public PKCE S256. For confidential apps, confirm form-body token-endpoint authentication. Both modes require the exact registered HTTP loopback URI.
 - Confirm the configured scopes and user roles permit the API call.
 - Keep the browser and process on the same machine. Close a conflicting listener or register another loopback port.
 - After denial or timeout, retry to authorize again. After a REST 401, retry to refresh or authorize when no usable refresh grant remains. Requests are not replayed automatically.

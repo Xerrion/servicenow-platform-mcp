@@ -401,7 +401,7 @@ Dispatched via the read-only `audit` tool. Available in the `full` and `readonly
 | `servicenow_instance_url` | `str` | required | `SERVICENOW_INSTANCE_URL` |
 | `servicenow_oauth_client_id` | `str` | required | `SERVICENOW_OAUTH_CLIENT_ID` |
 | `servicenow_oauth_client_secret` | `SecretStr` | empty; required for confidential apps | `SERVICENOW_OAUTH_CLIENT_SECRET` |
-| `servicenow_oauth_scope` | `str` | required, non-empty in both modes; use allowed scopes such as `useraccount` | `SERVICENOW_OAUTH_SCOPE` |
+| `servicenow_oauth_scope` | `str` | required locally in both modes, not established as required by Yokohama; keep allowed scopes such as `useraccount` | `SERVICENOW_OAUTH_SCOPE` |
 | `servicenow_oauth_redirect_uri` | `str` | `http://127.0.0.1:8765/oauth/callback` | `SERVICENOW_OAUTH_REDIRECT_URI` |
 | `servicenow_oauth_timeout_seconds` | `int` | `180` (1-600) | `SERVICENOW_OAUTH_TIMEOUT_SECONDS` |
 | `mcp_tool_package` | `str` | `"full"` | `MCP_TOOL_PACKAGE` |
@@ -424,8 +424,11 @@ rejected access tokens on the next call. Public clients authorize again instead.
 An optional `SERVICENOW_OAUTH_CLIENT_SECRET` authenticates both grants in
 the HTTPS token-endpoint form body and disables PKCE. Empty selects public PKCE
 S256 with a challenge on authorization and a verifier on code exchange. Both modes
-require scope and send the same state on authorization and code exchange. Refresh
-is confidential-only and never sends PKCE parameters. A REST 401 invalidates only the matching access token
+require configured scope and validate authorization state in the local callback.
+Neither token grant sends state. Confidential code-exchange fields match the supplied
+Yokohama contract; authorization scope/state remain client compatibility behavior,
+not documented Yokohama requirements. Public PKCE support on Yokohama is unverified.
+Refresh is confidential-only and never sends PKCE parameters. A REST 401 invalidates only the matching access token
 without replaying the API request.
 Missing refresh tokens or HTTP 400 `invalid_grant` require new authorization;
 other refresh errors do not open a browser. Non-empty `SERVICENOW_API_KEY`, `SERVICENOW_USERNAME`, and

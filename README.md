@@ -113,7 +113,7 @@ process with another working directory will not read the files you expect.
 | `SERVICENOW_INSTANCE_URL` | Yes | None | HTTPS origin, without credentials, path, query or fragment | ServiceNow instance. One trailing slash is removed. |
 | `SERVICENOW_OAUTH_CLIENT_ID` | Yes | None | Non-empty client ID | ServiceNow OAuth application. |
 | `SERVICENOW_OAUTH_CLIENT_SECRET` | For confidential apps | Empty | Secret from the same application | Non-empty selects confidential flow without PKCE. Empty selects public PKCE S256. Sent only in HTTPS token-endpoint form bodies. |
-| `SERVICENOW_OAUTH_SCOPE` | Yes | None | Non-empty, space-separated scopes allowed by the application, such as `useraccount` | Required authorization scope in both modes. |
+| `SERVICENOW_OAUTH_SCOPE` | Yes | None | Non-empty, space-separated scopes allowed by the application, such as `useraccount` | Required by this client in both modes, not established as a Yokohama requirement. |
 | `SERVICENOW_OAUTH_REDIRECT_URI` | No | `http://127.0.0.1:8765/oauth/callback` | Exact path; explicit port `1024`-`65535` | Registered loopback callback. |
 | `SERVICENOW_OAUTH_TIMEOUT_SECONDS` | No | `180` | `1`-`600` | Browser authorization timeout. |
 | `MCP_TOOL_PACKAGE` | No | `full` | Preset or comma-separated groups | Selects loaded tool groups. |
@@ -143,24 +143,41 @@ the application accepts this confidential token-endpoint authentication mode.
 Leave the secret empty only for an application confirmed to support public PKCE
 S256. That mode sends the challenge on authorization and the verifier on code
 exchange, without a client secret. Refresh is confidential-only and never sends PKCE parameters.
+Public PKCE is retained project behavior; Yokohama support is unverified. The
+Yokohama confidential contract does not establish public PKCE support.
 Register the exact `SERVICENOW_OAUTH_REDIRECT_URI`, enable the needed scopes,
 and use a user with the required roles and Table API ACL access. Confirm that
 the instance permits the registered HTTP loopback URI. The endpoints are
 `/oauth_auth.do` and `/oauth_token.do` on the configured HTTPS instance.
 
 Set `SERVICENOW_OAUTH_SCOPE=useraccount` when allowed by the application, or use
-other administrator-confirmed scopes. Scope is required in both modes. Values
-must contain printable ASCII; surrounding spaces are trimmed. Missing, empty,
+other administrator-confirmed scopes. This client still requires scope in both modes
+to preserve existing configuration. Values must contain printable ASCII;
+surrounding spaces are trimmed. Missing, empty,
 whitespace-only values and control characters are rejected.
+
+**Yokohama contract vs client compatibility behavior:** The
+[Yokohama authorization-code documentation](https://www.servicenow.com/docs/r/yokohama/platform-security/authentication/c_OAuthAuthorizationCodeFlow.html)
+is the source for this correction, not Australia documentation. Its authorization
+example lists `response_type=code`, `redirect_uri`, and `client_id`; it does not
+establish scope or state requirements, token-exchange state, or confidential PKCE support.
+This client retains the
+configured authorization scope and random `state`. Scope acceptance and granted
+permissions remain instance-side checks. State stays in the authorization query,
+not inside the registered redirect URI or token form. It must return unchanged in the
+callback for CSRF protection; a missing or mismatched state is never accepted.
+Neither code exchange nor refresh sends state.
 
 Confidential `GET /oauth_auth.do` sends exactly `response_type=code`, `client_id`,
 `redirect_uri`, `scope`, and `state`. Its authorization-code `POST /oauth_token.do`
 form sends exactly `grant_type=authorization_code`, `code`, `redirect_uri`,
-`client_id`, `client_secret`, and the same `state`. Public authorization adds
+`client_id`, and `client_secret`, matching the Yokohama confidential contract.
+The redirect URI is identical on authorization and code exchange. Public authorization adds
 `code_challenge` and `code_challenge_method=S256`; its code-exchange form replaces
-`client_secret` with `code_verifier` and retains `state`. Confidential refresh
-sends only `grant_type=refresh_token`, `refresh_token`, `client_id`, and
-`client_secret` in the token-endpoint form body.
+`client_secret` with `code_verifier`. Confidential refresh retains the existing
+form: only `grant_type=refresh_token`, `refresh_token`, `client_id`, and
+`client_secret` in the token-endpoint form body. Both token requests use
+`application/x-www-form-urlencoded`, not HTTP Basic authentication or URL credentials.
 
 The first outbound request opens the default browser. The browser and stdio
 process must run on the **same machine**. A temporary listener binds only
@@ -172,8 +189,11 @@ TCP cleanup from a completed callback does not require a different redirect URI.
 This listener is not an MCP HTTP transport. Remote-browser, headless, and
 container-to-host callback arrangements are not supported by this phase.
 
-Access and refresh tokens stay in process memory. Only the access token is sent
-as `Authorization: Bearer`. Concurrent requests share authorization and renewal.
+Access and refresh tokens stay in process memory. The authorization-code page shows
+a Table API token-in-URL example. This client does not follow that example: it keeps
+`Authorization: Bearer <access_token>`, supported by the separately supplied official
+Yokohama REST OAuth reference. Opaque token values are preserved unchanged; tokens
+never go in query parameters. Concurrent requests share authorization and renewal.
 Tokens require a positive `expires_in`; expiry uses a monotonic clock with a
 safety margin. In confidential mode, the next request after expiry uses an issued refresh token first.
 Rotated refresh tokens replace the previous value; omission retains that value.
@@ -199,6 +219,16 @@ as OAuth token exchange failures. Token issuance alone does not prove that a
 client secret is required or that it will resolve REST rejection. Match the
 secret setting to the application contract; do not change the redirect URI to
 work around a REST 401.
+
+After this correction, restart the MCP server from the updated checkout to discard
+old in-memory grants. Keep the same confidential client ID/secret, configured
+`SERVICENOW_OAUTH_SCOPE=useraccount`, and registered callback URI. Retry a bounded
+read such as `query(table="incident", fields="sys_id", limit=1)` and complete local
+authorization. If it returns 401, retry once to exercise confidential refresh.
+If the new token is also rejected, give the administrator only the sanitized error
+and transaction ID, when present. Removing token-exchange state corrects an
+undocumented token-exchange field; it does not establish the cause of `User Not Authenticated`
+or prove REST access is fixed. No instance settings need changing for this retry.
 
 Allow the MCP client enough tool-call time for user authorization. If the
 browser cannot open, consent is denied, or authorization times out, the tool

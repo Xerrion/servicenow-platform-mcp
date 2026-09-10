@@ -155,7 +155,7 @@ class TestSettings:
     @pytest.mark.parametrize("client_secret", ["", "test-only-secret"], ids=["public", "confidential"])
     @pytest.mark.parametrize("scope", [None, "", " "])
     def test_missing_or_empty_scope_rejected(self, scope: str | None, client_secret: str) -> None:
-        """Both authorization modes require an explicit non-empty scope."""
+        """Local configuration requires scope; this does not establish a Yokohama wire requirement."""
         from servicenow_mcp.config import Settings
 
         env = self._make_env(SERVICENOW_OAUTH_CLIENT_SECRET=client_secret)

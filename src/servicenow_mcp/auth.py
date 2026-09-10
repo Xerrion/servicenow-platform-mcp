@@ -57,8 +57,9 @@ class OAuthPKCEProvider:
     Concurrent requests share one authorization flow. Failures raise AuthError;
     cancellation closes the callback listener. A configured client secret selects
     confidential authorization without PKCE and is sent only to the token endpoint.
-    Without a secret, authorization uses public PKCE S256 without refresh grants.
-    Both modes require scope and state. REST failures never replay the rejected request.
+    Without a secret, public PKCE S256 remains available; Yokohama support
+    is unverified. Both modes require configured scope and validate callback state,
+    but never send state to the token endpoint. REST failures never replay the request.
     """
 
     def __init__(self, settings: Settings) -> None:
@@ -115,7 +116,6 @@ class OAuthPKCEProvider:
         grant = {
             "grant_type": "authorization_code",
             "redirect_uri": settings.servicenow_oauth_redirect_uri,
-            "state": state,
         }
         if not settings.servicenow_oauth_client_secret.get_secret_value():
             verifier = secrets.token_urlsafe(64)
@@ -157,7 +157,7 @@ class OAuthPKCEProvider:
                     raise _RefreshGrantRejected("OAuth refresh grant expired or was revoked.")
             raise AuthError(
                 f"OAuth token exchange rejected (HTTP {response.status_code}). "
-                "Check the application client ID, authorization mode, required scope and redirect URI. "
+                "Check the application client ID, authorization mode, configured scope and redirect URI. "
                 "A confidential client requires SERVICENOW_OAUTH_CLIENT_SECRET; "
                 "a public client requires PKCE S256 with no client secret."
             )

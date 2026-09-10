@@ -59,7 +59,7 @@ SERVICENOW_OAUTH_SCOPE=useraccount
 ```
 
 Confidential applications also require `SERVICENOW_OAUTH_CLIENT_SECRET` in private
-environment configuration. Scope is required and non-empty in both modes; use
+environment configuration. Scope is required locally and non-empty in both modes; use
 scopes allowed by the application. See [[Configuration]] for token renewal and setup.
 
 **3. Configure your MCP client** to launch the server with those environment variables.

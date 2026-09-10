@@ -46,7 +46,7 @@ Set `SERVICENOW_INSTANCE_URL` and the OAuth client settings. These variables are
 | `SERVICENOW_INSTANCE_URL` | Yes | Full instance URL, must start with `https://` |
 | `SERVICENOW_OAUTH_CLIENT_ID` | Yes | OAuth client ID |
 | `SERVICENOW_OAUTH_CLIENT_SECRET` | For confidential apps | Supply privately from the same application; omit only for confirmed public clients |
-| `SERVICENOW_OAUTH_SCOPE` | Yes | Non-empty scopes allowed by the application, such as `useraccount`; required in both modes |
+| `SERVICENOW_OAUTH_SCOPE` | Yes | Non-empty scopes allowed by the application, such as `useraccount`; required locally, not established as required by Yokohama |
 | `SERVICENOW_OAUTH_REDIRECT_URI` | No | Default `http://127.0.0.1:8765/oauth/callback`; register this exact URI |
 | `SERVICENOW_OAUTH_TIMEOUT_SECONDS` | No | Browser authorization timeout, default 180 seconds (1-600) |
 | `MCP_TOOL_PACKAGE` | No | Tool package to load (default: `"full"`). See [[Tool-Packages]] |

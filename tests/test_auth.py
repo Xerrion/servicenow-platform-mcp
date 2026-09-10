@@ -1,4 +1,4 @@
-"""OAuth authorization modes, token lifecycle, and real loopback tests (no live credentials)."""
+"""Yokohama confidential forms and existing public PKCE behavior; no live compatibility proof."""
 
 import asyncio
 import base64
@@ -144,12 +144,12 @@ async def test_query_401_then_reauthorize_on_same_loopback_port(
 
 
 @respx.mock
-@pytest.mark.parametrize("client_secret", ["", "test-only-client-secret"], ids=["public", "confidential"])
+@pytest.mark.parametrize("client_secret", ["", "test-only+secret&client_id=spoof"], ids=["public", "confidential"])
 @pytest.mark.parametrize("scope", ["useraccount", "useraccount custom+scope&state=spoof"])
 async def test_oauth_modes_loopback_exchange_and_bearer_request(
     settings: Settings, redirect_uri: str, client_secret: str, scope: str, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Public PKCE and confidential secret grants must never mix request fields."""
+    """Keep Yokohama confidential fields exact; scope/state and public PKCE remain client behavior."""
     settings.servicenow_oauth_redirect_uri = redirect_uri
     settings.servicenow_oauth_client_secret = SecretStr(client_secret)
     settings.servicenow_oauth_scope = scope
@@ -159,8 +159,9 @@ async def test_oauth_modes_loopback_exchange_and_bearer_request(
         del kwargs
         authorization.update(parse_qs(urlsplit(url).query, keep_blank_values=True))
         assert url.startswith(f"{BASE_URL}/oauth_auth.do?")
-        invalid = await _send(redirect_uri, "state=wrong&code=attacker-code")
-        assert b"400 Bad Request" in invalid
+        for invalid_query in ("code=attacker-code", "state=wrong&code=attacker-code"):
+            invalid = await _send(redirect_uri, invalid_query)
+            assert b"400 Bad Request" in invalid
         query = urlencode({"state": authorization["state"][0], "code": "test-code"})
         response = await _send(redirect_uri, query)
         assert b"200 OK" in response
@@ -175,7 +176,6 @@ async def test_oauth_modes_loopback_exchange_and_bearer_request(
             "code": ["test-code"],
             "client_id": [settings.servicenow_oauth_client_id],
             "redirect_uri": [redirect_uri],
-            "state": authorization["state"],
         }
         expected_authorization = {
             "response_type": ["code"],
@@ -203,7 +203,7 @@ async def test_oauth_modes_loopback_exchange_and_bearer_request(
         return httpx.Response(
             200,
             json={
-                "access_token": "test-token",
+                "access_token": "test+opaque/token==",
                 "refresh_token": "test-refresh",
                 "token_type": "Bearer",
                 "expires_in": 3600,
@@ -223,10 +223,10 @@ async def test_oauth_modes_loopback_exchange_and_bearer_request(
         launch.assert_awaited_once()
     assert token_route.call_count == 1
     assert not api_route.calls.last.request.url.query
-    assert api_route.calls.last.request.headers["Authorization"] == "Bearer test-token"
+    assert api_route.calls.last.request.headers["Authorization"] == "Bearer test+opaque/token=="
     assert "x-sn-apikey" not in api_route.calls.last.request.headers
     assert "X-Correlation-ID" in api_route.calls.last.request.headers
-    for sensitive in (client_secret, "test-code", "test-token", "test-refresh"):
+    for sensitive in (client_secret, "test-code", "test+opaque/token==", "test-refresh"):
         if sensitive:
             assert sensitive not in caplog.text
     await _assert_closed(redirect_uri)
@@ -320,6 +320,7 @@ async def test_expiry_requires_new_flow_and_concurrent_calls_share_it(settings: 
 @pytest.mark.parametrize("rotated", [True, False])
 @respx.mock
 async def test_expiry_refresh_is_single_flight_and_keeps_rotation(settings: Settings, rotated: bool) -> None:
+    """Preserve the four-field confidential refresh form without state or PKCE."""
     settings.servicenow_oauth_client_secret = SecretStr("test-only-secret")
     provider = OAuthPKCEProvider(settings)
     provider._token = _parse_token(
@@ -829,7 +830,9 @@ async def test_reauthorization_uses_new_state_and_verifier(settings: Settings, h
         form = parse_qs(call.request.content.decode())
         assert "refresh_token" not in form
         assert form["grant_type"] == ["authorization_code"]
-        assert form["state"] == authorization["state"]
+        assert "state" not in form
+        challenge = base64.urlsafe_b64encode(hashlib.sha256(form["code_verifier"][0].encode()).digest()).rstrip(b"=")
+        assert authorization["code_challenge"] == [challenge.decode()]
 
 
 async def test_oversized_and_replayed_callbacks_do_not_replace_code(redirect_uri: str) -> None:

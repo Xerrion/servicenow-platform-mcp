@@ -44,7 +44,7 @@ SERVICENOW_OAUTH_SCOPE=useraccount
 ```
 
 Confidential applications also require `SERVICENOW_OAUTH_CLIENT_SECRET` in private
-environment configuration. `SERVICENOW_OAUTH_SCOPE` is required and non-empty in
+environment configuration. `SERVICENOW_OAUTH_SCOPE` is required locally and non-empty in
 both modes; use scopes allowed by the application. See [[Configuration]]
 for token renewal and setup.
 

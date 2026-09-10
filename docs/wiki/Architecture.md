@@ -45,7 +45,10 @@ Its first outbound call opens the local browser for authorization-code flow.
 memory with a monotonic expiry; concurrent calls share authorization and renewal.
 A configured client secret selects confidential authorization without PKCE and
 authenticates both token-endpoint grants. No secret selects public PKCE S256.
-Both modes require scope and send the same state on authorization and code exchange.
+Both modes require scope locally and validate authorization state in the callback;
+neither token grant sends state. Confidential code exchange matches the Yokohama contract.
+Authorization scope/state remain client compatibility behavior, not documented
+Yokohama requirements. Public PKCE compatibility with Yokohama is unverified.
 Only confidential clients use issued refresh tokens to renew expired or rejected
 access tokens on the next call. Public clients authorize again instead.
 A REST 401 never replays the API call. Missing refresh tokens or HTTP 400

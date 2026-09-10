@@ -46,8 +46,9 @@ fragment. One trailing slash is removed at startup.
 Use a ServiceNow OAuth authorization-code client: confidential with a client
 secret, or public with PKCE S256. The server does not combine these modes.
 Set `SERVICENOW_OAUTH_CLIENT_ID` and `SERVICENOW_OAUTH_SCOPE=useraccount` when
-allowed by the application. Scope is required and non-empty in both modes.
-Both modes send the same `state` on authorization and code exchange. Register the exact
+allowed by the application. Scope remains required and non-empty by this client,
+not established as required by Yokohama. Both modes send `state` on authorization
+and validate it in the local callback, never in code exchange or refresh. Register the exact
 redirect URI, default `http://127.0.0.1:8765/oauth/callback`, on that application.
 The first outbound request opens the local browser. The browser and stdio
 process must be on the same machine. The temporary loopback receiver is not
@@ -59,6 +60,7 @@ fallback. For a confidential app, set `SERVICENOW_OAUTH_CLIENT_SECRET` privately
 This selects confidential authorization without PKCE. Confirm that the app accepts
 client credentials in the token-endpoint form body for code exchange and refresh.
 Leave the secret empty only for a confirmed public client with PKCE S256.
+Public PKCE is retained project behavior; Yokohama support is unverified.
 Tokens stay in memory. In confidential mode, issued refresh tokens renew expired
 or rejected access tokens on the next call. A missing refresh token or HTTP 400
 `invalid_grant` requires a new browser flow. Other refresh errors do not open a browser.
@@ -170,7 +172,7 @@ environment variables override both.
 | `SERVICENOW_INSTANCE_URL` | Yes | None | HTTPS origin without credentials, path, query, or fragment | ServiceNow instance. One trailing slash is removed. |
 | `SERVICENOW_OAUTH_CLIENT_ID` | Yes | None | Client ID | ServiceNow OAuth application. |
 | `SERVICENOW_OAUTH_CLIENT_SECRET` | For confidential apps | Empty | Secret from the same app | Non-empty selects confidential flow without PKCE; empty selects public PKCE S256. |
-| `SERVICENOW_OAUTH_SCOPE` | Yes | None | Non-empty scopes allowed by the application, such as `useraccount` | Required in both modes; add `offline_access` only if confirmed by the administrator. |
+| `SERVICENOW_OAUTH_SCOPE` | Yes | None | Non-empty scopes allowed by the application, such as `useraccount` | Required locally in both modes, not established as required by Yokohama; add `offline_access` only if confirmed by the administrator. |
 | `SERVICENOW_OAUTH_REDIRECT_URI` | No | `http://127.0.0.1:8765/oauth/callback` | Exact path, port `1024`-`65535` | Registered loopback URI. |
 | `SERVICENOW_OAUTH_TIMEOUT_SECONDS` | No | `180` | `1`-`600` | Authorization wait in seconds. |
 | `MCP_TOOL_PACKAGE` | No | `full` | Preset or comma-separated groups | Selects loaded tool groups. |

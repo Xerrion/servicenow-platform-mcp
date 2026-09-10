@@ -43,10 +43,10 @@ SERVICENOW_OAUTH_CLIENT_ID=your-client-id
 SERVICENOW_OAUTH_SCOPE=useraccount
 ```
 
-Confidential applications also require `SERVICENOW_OAUTH_CLIENT_SECRET` in private
-environment configuration. `SERVICENOW_OAUTH_SCOPE` is required locally and non-empty in
-both modes; use scopes allowed by the application. See [[Configuration]]
-for token renewal and setup.
+Use Public Client=true and authorization-code PKCE S256 on the ServiceNow application.
+Enable `useraccount` and register the exact loopback URI. Access tokens stay in
+memory; restart or expiry requires browser authorization on the next outbound call.
+See [[Configuration]] for setup.
 
 No build step is required for development. The server runs directly from source via `uv run servicenow-platform-mcp`.
 

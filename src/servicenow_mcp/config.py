@@ -2,7 +2,7 @@
 
 import math
 from functools import cached_property
-from typing import ClassVar
+from typing import ClassVar, Literal
 from urllib.parse import urlsplit
 
 from pydantic import SecretStr, field_validator, model_validator
@@ -20,8 +20,7 @@ class Settings(BaseSettings):
     servicenow_password: SecretStr = SecretStr("")
     servicenow_api_key: SecretStr = SecretStr("")
     servicenow_oauth_client_id: str
-    servicenow_oauth_client_secret: SecretStr = SecretStr("")
-    servicenow_oauth_scope: str
+    servicenow_oauth_scope: Literal["useraccount"]
     servicenow_oauth_redirect_uri: str = "http://127.0.0.1:8765/oauth/callback"
     servicenow_oauth_timeout_seconds: int = 180
     mcp_tool_package: str = "full"
@@ -79,12 +78,12 @@ class Settings(BaseSettings):
             )
         return self
 
-    @field_validator("servicenow_oauth_client_id", "servicenow_oauth_scope")
+    @field_validator("servicenow_oauth_client_id")
     @classmethod
-    def validate_oauth_text(cls, v: str) -> str:
-        """Require non-empty printable ASCII for client IDs and scopes."""
+    def validate_oauth_client_id(cls, v: str) -> str:
+        """Require a non-empty printable ASCII client ID."""
         if not v.strip() or not v.isascii() or any(ord(char) < 32 or ord(char) == 127 for char in v):
-            raise ValueError("OAuth client ID and scope must be non-empty printable ASCII")
+            raise ValueError("OAuth client ID must be non-empty printable ASCII")
         return v.strip()
 
     @field_validator("servicenow_oauth_redirect_uri")

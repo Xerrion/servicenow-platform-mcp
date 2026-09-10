@@ -43,12 +43,11 @@ considerations described above.
 `https://your-instance.service-now.com`, without credentials, path, query, or
 fragment. One trailing slash is removed at startup.
 
-Use a ServiceNow OAuth authorization-code client: confidential with a client
-secret, or public with PKCE S256. The server does not combine these modes.
-Set `SERVICENOW_OAUTH_CLIENT_ID` and `SERVICENOW_OAUTH_SCOPE=useraccount` when
-allowed by the application. Scope remains required and non-empty by this client,
-not established as required by Yokohama. Both modes send `state` on authorization
-and validate it in the local callback, never in code exchange or refresh. Register the exact
+Use a ServiceNow Application Registry entry with **Public Client=true** and
+authorization-code PKCE S256. Set `SERVICENOW_OAUTH_CLIENT_ID` and
+`SERVICENOW_OAUTH_SCOPE=useraccount`. Enable `useraccount` on the application.
+Authorization sends a random `state` and an S256 challenge. The callback validates
+state; code exchange sends the verifier, not state. Register the exact
 redirect URI, default `http://127.0.0.1:8765/oauth/callback`, on that application.
 The first outbound request opens the local browser. The browser and stdio
 process must be on the same machine. The temporary loopback receiver is not
@@ -56,16 +55,11 @@ an MCP HTTP transport. See [authentication setup](README.md#configuration-and-au
 
 Remove `SERVICENOW_API_KEY`, `SERVICENOW_USERNAME`, and `SERVICENOW_PASSWORD`.
 Non-empty legacy credentials fail startup. There is no Basic Auth or API-key
-fallback. For a confidential app, set `SERVICENOW_OAUTH_CLIENT_SECRET` privately.
-This selects confidential authorization without PKCE. Confirm that the app accepts
-client credentials in the token-endpoint form body for code exchange and refresh.
-Leave the secret empty only for a confirmed public client with PKCE S256.
-Public PKCE is retained project behavior; Yokohama support is unverified.
-Tokens stay in memory. In confidential mode, issued refresh tokens renew expired
-or rejected access tokens on the next call. A missing refresh token or HTTP 400
-`invalid_grant` requires a new browser flow. Other refresh errors do not open a browser.
-Public clients authorize again after expiry or REST rejection; they never use refresh grants.
-Never log or persist access tokens, refresh tokens, or authorization codes.
+fallback. Only access tokens are kept, in memory. Restart, expiry, or REST rejection
+requires new browser authorization on the next outbound call. REST calls use
+Bearer headers, never token URLs, and are never replayed. REST API access policies
+must permit OAuth Bearer requests. Never log or persist access tokens,
+PKCE verifiers, callback URLs, or authorization codes.
 
 Settings load at startup. Restart the full MCP server process after any
 environment or dotenv change.
@@ -122,7 +116,6 @@ It requires `uv sync` first and sets `cwd` to that checkout.
   "env": {
     "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
     "SERVICENOW_OAUTH_CLIENT_ID": "${SERVICENOW_OAUTH_CLIENT_ID}",
-    "SERVICENOW_OAUTH_CLIENT_SECRET": "${SERVICENOW_OAUTH_CLIENT_SECRET}",
     "SERVICENOW_OAUTH_SCOPE": "useraccount",
     "MCP_TOOL_PACKAGE": "readonly",
     "SERVICENOW_ENV": "prod"
@@ -148,7 +141,6 @@ console entry point without a source checkout:
   "env": {
     "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
     "SERVICENOW_OAUTH_CLIENT_ID": "${SERVICENOW_OAUTH_CLIENT_ID}",
-    "SERVICENOW_OAUTH_CLIENT_SECRET": "${SERVICENOW_OAUTH_CLIENT_SECRET}",
     "SERVICENOW_OAUTH_SCOPE": "useraccount",
     "MCP_TOOL_PACKAGE": "readonly",
     "SERVICENOW_ENV": "prod"
@@ -171,8 +163,7 @@ environment variables override both.
 | --- | --- | --- | --- | --- |
 | `SERVICENOW_INSTANCE_URL` | Yes | None | HTTPS origin without credentials, path, query, or fragment | ServiceNow instance. One trailing slash is removed. |
 | `SERVICENOW_OAUTH_CLIENT_ID` | Yes | None | Client ID | ServiceNow OAuth application. |
-| `SERVICENOW_OAUTH_CLIENT_SECRET` | For confidential apps | Empty | Secret from the same app | Non-empty selects confidential flow without PKCE; empty selects public PKCE S256. |
-| `SERVICENOW_OAUTH_SCOPE` | Yes | None | Non-empty scopes allowed by the application, such as `useraccount` | Required locally in both modes, not established as required by Yokohama; add `offline_access` only if confirmed by the administrator. |
+| `SERVICENOW_OAUTH_SCOPE` | Yes | None | Exactly `useraccount` | Scope for the public PKCE application. |
 | `SERVICENOW_OAUTH_REDIRECT_URI` | No | `http://127.0.0.1:8765/oauth/callback` | Exact path, port `1024`-`65535` | Registered loopback URI. |
 | `SERVICENOW_OAUTH_TIMEOUT_SECONDS` | No | `180` | `1`-`600` | Authorization wait in seconds. |
 | `MCP_TOOL_PACKAGE` | No | `full` | Preset or comma-separated groups | Selects loaded tool groups. |
@@ -323,9 +314,9 @@ Use the following checks for common failures:
 - **Startup says the instance URL is missing:** set
   `SERVICENOW_INSTANCE_URL` to a complete lowercase-HTTPS instance URL. Check
   the MCP client's environment and working directory.
-- **401 or `User Not Authenticated`:** the request was not replayed. A tool retry
-  refreshes the token, or opens authorization when no usable refresh grant remains.
-  Check the exact instance URL, application authentication mode, scopes and REST
+- **401 or `User Not Authenticated`:** the request was not replayed. The next tool
+  call opens browser authorization again. Check the exact instance URL, public
+  PKCE application, `useraccount` scope, and REST API
   access policy. Token issuance alone does not establish REST access.
 - **OAuth token is valid but a request is denied:** check OAuth scopes and REST-resource
   policy. This is distinct from table and field ACL denial.

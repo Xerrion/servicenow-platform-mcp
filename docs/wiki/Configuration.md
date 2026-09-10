@@ -10,8 +10,7 @@ All configuration is handled through environment variables, loaded via [pydantic
 | --- | --- | --- | --- |
 | `SERVICENOW_INSTANCE_URL` | Yes | - | Full URL (must start with `https://`) |
 | `SERVICENOW_OAUTH_CLIENT_ID` | Yes | - | ServiceNow OAuth client ID |
-| `SERVICENOW_OAUTH_CLIENT_SECRET` | For confidential apps | Empty | Non-empty selects confidential flow without PKCE; empty selects public PKCE S256. Sent only in HTTPS token-endpoint form bodies |
-| `SERVICENOW_OAUTH_SCOPE` | Yes | None | Non-empty, space-separated scopes allowed by the application, such as `useraccount`; required locally, not established as required by Yokohama |
+| `SERVICENOW_OAUTH_SCOPE` | Yes | None | Exactly `useraccount`; enable this scope on the public PKCE application |
 | `SERVICENOW_OAUTH_REDIRECT_URI` | No | `http://127.0.0.1:8765/oauth/callback` | Exact loopback path with port 1024-65535; must be registered |
 | `SERVICENOW_OAUTH_TIMEOUT_SECONDS` | No | `180` | Browser authorization wait, 1-600 seconds |
 | `MCP_TOOL_PACKAGE` | No | `"full"` | Tool package (`full`, `readonly`, `core_readonly`, `none`) or comma-separated tools |
@@ -27,36 +26,26 @@ All configuration is handled through environment variables, loaded via [pydantic
 
 ## Authentication
 
-Use a ServiceNow OAuth authorization-code client. For confidential apps, supply
-`SERVICENOW_OAUTH_CLIENT_SECRET` privately. This disables PKCE; confirm that the app
-accepts client credentials in the token-endpoint form body for code exchange and
-refresh. Leave it empty only for a confirmed public app with PKCE S256. Public
-authorization sends an S256 challenge and code exchange sends its verifier,
-without a client secret. Public PKCE compatibility with Yokohama is unverified.
-Both modes send `state` on authorization and validate the local callback; neither
-token grant sends it. Confidential code exchange matches the Yokohama contract.
-Refresh is confidential-only and never sends PKCE parameters. The browser
-and stdio process must run on the same machine. Register the exact redirect URI
-on the ServiceNow application and configure its allowed scopes and user roles.
-The first outbound request opens the browser and starts a temporary loopback
-receiver. This is not an MCP HTTP endpoint.
+Use a ServiceNow Application Registry entry with **Public Client=true** and
+authorization-code PKCE S256. Set `SERVICENOW_OAUTH_SCOPE=useraccount` and enable
+this scope on the application. Other or missing scope values fail startup.
+Register the exact loopback redirect URI and configure the required user roles.
+REST API access policies must permit OAuth Bearer requests.
+
+Authorization sends an S256 challenge and random `state`. The callback validates
+state, path, and Host. Code exchange sends the verifier, not state. The browser
+and stdio process must run on the same machine. The first outbound request opens
+the browser and starts a temporary loopback receiver. This is not an MCP HTTP endpoint.
 
 Remove `SERVICENOW_API_KEY`, `SERVICENOW_USERNAME`, and `SERVICENOW_PASSWORD`.
-Non-empty legacy credentials are rejected without fallback. Access and refresh
-tokens stay in memory. In confidential mode, expiry triggers refresh on the next outbound request.
-A REST 401 invalidates the access token without replaying the call. A tool retry
-refreshes it if possible. Missing refresh tokens or HTTP 400 `invalid_grant` require
-a new browser flow; other refresh errors do not open a browser. Restarting loses
-both tokens. Public clients authorize again after expiry or REST rejection,
-even if a refresh token was issued. Never log tokens, authorization codes, or the client secret.
-Do not add `offline_access` unless the administrator confirms it is supported.
-Set `SERVICENOW_OAUTH_SCOPE=useraccount` when allowed by the application, or use
-other administrator-confirmed scopes. Scope remains required locally in both modes,
-not established as a Yokohama wire requirement. Authorization scope/state are
-retained compatibility behavior. See the [root README](../../README.md#configuration-and-authentication)
-for exact request fields, compatibility limits, and the live retry. Values
-must contain printable ASCII; surrounding spaces are trimmed. Missing, empty,
-whitespace-only values and control characters are rejected.
+Non-empty legacy credentials are rejected without fallback. Only access tokens
+and their expiry stay in memory. Restart or expiry requires new browser authorization
+on the next outbound call. API calls use Bearer headers, never token URLs.
+A REST 401 discards only the matching access token without replaying the call.
+The next tool call opens authorization again. Never log or persist access tokens,
+authorization codes, callback URLs, or verifiers.
+See the [root README](../../README.md#configuration-and-authentication)
+for exact request fields and safe diagnostics.
 
 ---
 

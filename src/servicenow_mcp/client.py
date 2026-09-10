@@ -172,15 +172,13 @@ class ServiceNowClient:
                 (
                     authorization.removeprefix("Bearer "),
                     token.value if token else "",
-                    (token.refresh_token or "") if token else "",
                     self._settings.servicenow_oauth_client_id,
-                    self._settings.servicenow_oauth_client_secret.get_secret_value(),
                 ),
             )
             raise AuthError(
                 "ServiceNow rejected the OAuth token on a REST request (HTTP 401). "
-                "The request was not replayed. Retry the tool call to refresh the token, or authorize again "
-                "if no usable refresh grant remains. If a newly issued token is rejected again, "
+                "The request was not replayed. On the next tool call, authorize again in the browser. "
+                "If a newly issued token is rejected again, "
                 "ask the ServiceNow administrator to check the granted scopes, REST API access policy, "
                 "and user access on the configured instance. A successful token exchange does not establish REST access. "
                 f"Safe response evidence: {evidence}"

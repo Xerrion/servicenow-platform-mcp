@@ -400,8 +400,7 @@ Dispatched via the read-only `audit` tool. Available in the `full` and `readonly
 | ----------------------- | --------- | ---------------------------------------------------- | ----------------------- |
 | `servicenow_instance_url` | `str` | required | `SERVICENOW_INSTANCE_URL` |
 | `servicenow_oauth_client_id` | `str` | required | `SERVICENOW_OAUTH_CLIENT_ID` |
-| `servicenow_oauth_client_secret` | `SecretStr` | empty; required for confidential apps | `SERVICENOW_OAUTH_CLIENT_SECRET` |
-| `servicenow_oauth_scope` | `str` | required locally in both modes, not established as required by Yokohama; keep allowed scopes such as `useraccount` | `SERVICENOW_OAUTH_SCOPE` |
+| `servicenow_oauth_scope` | `Literal["useraccount"]` | required; exactly `useraccount` | `SERVICENOW_OAUTH_SCOPE` |
 | `servicenow_oauth_redirect_uri` | `str` | `http://127.0.0.1:8765/oauth/callback` | `SERVICENOW_OAUTH_REDIRECT_URI` |
 | `servicenow_oauth_timeout_seconds` | `int` | `180` (1-600) | `SERVICENOW_OAUTH_TIMEOUT_SECONDS` |
 | `mcp_tool_package` | `str` | `"full"` | `MCP_TOOL_PACKAGE` |
@@ -415,23 +414,21 @@ Dispatched via the read-only `audit` tool. Available in the `full` and `readonly
 
 ## 📦 Packages & Tool Groups
 
-Outbound authentication uses OAuth authorization-code flow: confidential with a
-client secret, or public with PKCE S256. These modes are never combined.
+Outbound authentication uses only public OAuth authorization-code PKCE S256.
+The ServiceNow Application Registry entry must have Public Client=true, PKCE S256,
+the `useraccount` scope, and the exact registered HTTP loopback redirect URI.
 The first API call opens the browser on the same machine as the stdio process.
-A temporary loopback listener receives a state-bound code; tokens remain in
-memory. Only confidential clients use issued refresh tokens to renew expired or
-rejected access tokens on the next call. Public clients authorize again instead.
-An optional `SERVICENOW_OAUTH_CLIENT_SECRET` authenticates both grants in
-the HTTPS token-endpoint form body and disables PKCE. Empty selects public PKCE
-S256 with a challenge on authorization and a verifier on code exchange. Both modes
-require configured scope and validate authorization state in the local callback.
-Neither token grant sends state. Confidential code-exchange fields match the supplied
-Yokohama contract; authorization scope/state remain client compatibility behavior,
-not documented Yokohama requirements. Public PKCE support on Yokohama is unverified.
-Refresh is confidential-only and never sends PKCE parameters. A REST 401 invalidates only the matching access token
-without replaying the API request.
-Missing refresh tokens or HTTP 400 `invalid_grant` require new authorization;
-other refresh errors do not open a browser. Non-empty `SERVICENOW_API_KEY`, `SERVICENOW_USERNAME`, and
+A temporary loopback listener validates callback state, path, and Host. The listener
+and accepted connections close before token exchange and on every exit path.
+Authorization sends exactly `response_type=code`, `client_id`, `redirect_uri`,
+`code_challenge`, `code_challenge_method=S256`, `scope=useraccount`, and `state`.
+Code exchange sends exactly `grant_type=authorization_code`, `code`, `redirect_uri`,
+`client_id`, and `code_verifier` in the HTTPS token-endpoint form body.
+Only access tokens and their expiry remain in memory. Restart or expiry requires
+browser authorization on the next outbound call. API calls use Bearer headers,
+never token URLs. A REST 401 discards only the matching token without replaying
+the request; the next call authorizes again. Safe 401 diagnostics remain available.
+Non-empty `SERVICENOW_API_KEY`, `SERVICENOW_USERNAME`, and
 `SERVICENOW_PASSWORD` settings are rejected. These fields exist only to report
 legacy-configuration errors, not as supported authentication options.
 

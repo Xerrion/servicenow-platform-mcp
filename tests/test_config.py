@@ -1,5 +1,6 @@
 """Tests for configuration module."""
 
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -19,11 +20,6 @@ class TestSettings:
             ("SERVICENOW_OAUTH_CLIENT_ID", " "),
             ("SERVICENOW_OAUTH_CLIENT_ID", ""),
             ("SERVICENOW_OAUTH_CLIENT_ID", "client\nother"),
-            ("SERVICENOW_OAUTH_SCOPE", " "),
-            ("SERVICENOW_OAUTH_SCOPE", "scope\nother"),
-            ("SERVICENOW_OAUTH_SCOPE", "scope\tother"),
-            ("SERVICENOW_OAUTH_SCOPE", "scope\x7f"),
-            ("SERVICENOW_OAUTH_SCOPE", "scopé"),
             ("SERVICENOW_OAUTH_TIMEOUT_SECONDS", "0"),
             ("SERVICENOW_OAUTH_TIMEOUT_SECONDS", "601"),
             ("SERVICENOW_OAUTH_REDIRECT_URI", "http://localhost:8765/oauth/callback"),
@@ -75,21 +71,22 @@ class TestSettings:
         assert settings.servicenow_oauth_client_id == "test-client"
         assert settings.servicenow_oauth_scope == "useraccount"
 
-    def test_optional_client_secret_is_loaded_and_redacted(self) -> None:
+    @pytest.mark.parametrize("source", ["environment", "dotenv"])
+    def test_stale_client_secret_is_ignored(self, source: str, tmp_path: Path) -> None:
         from servicenow_mcp.config import Settings
 
-        with patch.dict("os.environ", self._make_env(SERVICENOW_OAUTH_CLIENT_SECRET="test-only-secret"), clear=True):
-            settings = Settings(_env_file=None)
-        assert settings.servicenow_oauth_client_secret.get_secret_value() == "test-only-secret"
+        env = self._make_env()
+        env_file = tmp_path / ".env.local"
+        if source == "environment":
+            env["SERVICENOW_OAUTH_CLIENT_SECRET"] = "test-only-secret"
+        else:
+            env_file.write_text("SERVICENOW_OAUTH_CLIENT_SECRET=test-only-secret\n", encoding="utf-8")
+        with patch.dict("os.environ", env, clear=True):
+            settings = Settings(_env_file=env_file if source == "dotenv" else None)
+        assert "servicenow_oauth_client_secret" not in Settings.model_fields
+        assert "servicenow_oauth_client_secret" not in settings.model_dump()
         assert "test-only-secret" not in repr(settings)
         assert "test-only-secret" not in settings.model_dump_json()
-
-    def test_explicit_offline_scope_is_not_invented_or_rejected(self) -> None:
-        from servicenow_mcp.config import Settings
-
-        with patch.dict("os.environ", self._make_env(SERVICENOW_OAUTH_SCOPE="useraccount offline_access"), clear=True):
-            settings = Settings(_env_file=None)
-        assert settings.servicenow_oauth_scope == "useraccount offline_access"
 
     @pytest.mark.parametrize("legacy", ["SERVICENOW_API_KEY", "SERVICENOW_USERNAME", "SERVICENOW_PASSWORD"])
     def test_legacy_credentials_rejected(self, legacy: str) -> None:
@@ -152,13 +149,12 @@ class TestSettings:
         ):
             Settings(_env_file=None)
 
-    @pytest.mark.parametrize("client_secret", ["", "test-only-secret"], ids=["public", "confidential"])
-    @pytest.mark.parametrize("scope", [None, "", " "])
-    def test_missing_or_empty_scope_rejected(self, scope: str | None, client_secret: str) -> None:
-        """Local configuration requires scope; this does not establish a Yokohama wire requirement."""
+    @pytest.mark.parametrize("scope", [None, "", " ", "custom", "useraccount custom", "useraccount\n", "scopé"])
+    def test_missing_or_wrong_scope_rejected(self, scope: str | None) -> None:
+        """Only the selected useraccount scope is accepted."""
         from servicenow_mcp.config import Settings
 
-        env = self._make_env(SERVICENOW_OAUTH_CLIENT_SECRET=client_secret)
+        env = self._make_env()
         if scope is None:
             del env["SERVICENOW_OAUTH_SCOPE"]
         else:
@@ -168,17 +164,6 @@ class TestSettings:
             pytest.raises(ValueError, match="servicenow_oauth_scope"),
         ):
             Settings(_env_file=None)
-
-    @pytest.mark.parametrize("client_secret", ["", "test-only-secret"], ids=["public", "confidential"])
-    @pytest.mark.parametrize("scope", ["useraccount", " useraccount offline_access ", "custom+scope&state=spoof"])
-    def test_required_scope_configuration(self, scope: str, client_secret: str) -> None:
-        """Explicit scopes retain safe normalization in both authorization modes."""
-        from servicenow_mcp.config import Settings
-
-        env = self._make_env(SERVICENOW_OAUTH_SCOPE=scope, SERVICENOW_OAUTH_CLIENT_SECRET=client_secret)
-        with patch.dict("os.environ", env, clear=True):
-            settings = Settings(_env_file=None)
-        assert settings.servicenow_oauth_scope == scope.strip()
 
     def test_default_mcp_tool_package(self) -> None:
         """MCP_TOOL_PACKAGE defaults to 'full'."""

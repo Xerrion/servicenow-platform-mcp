@@ -8,7 +8,7 @@ This guide walks you through installing and configuring the ServiceNow Platform 
 
 - **Python 3.12 or later** - The server requires Python 3.12+ (3.12, 3.13, and 3.14 are supported)
 - **A ServiceNow instance** - Developer, test, or production (note: write operations are blocked on production instances)
-- **ServiceNow authentication** - An OAuth authorization-code client: confidential with a secret, or public with PKCE S256. Register the exact loopback redirect URI and use a user with the required roles. The browser and stdio process must run on the same machine.
+- **ServiceNow authentication** - A public OAuth authorization-code PKCE S256 client. Set Public Client=true, enable `useraccount`, and register the exact loopback redirect URI. Use a user with the required roles. The browser and stdio process must run on the same machine.
 - **An MCP-compatible AI client** - [OpenCode](https://opencode.ai), [Claude Desktop](https://claude.ai/download), [VS Code Copilot](https://code.visualstudio.com/), [Cursor](https://cursor.sh/), or any client supporting the [Model Context Protocol](https://modelcontextprotocol.io/)
 
 ---
@@ -45,8 +45,7 @@ Set `SERVICENOW_INSTANCE_URL` and the OAuth client settings. These variables are
 | --- | --- | --- |
 | `SERVICENOW_INSTANCE_URL` | Yes | Full instance URL, must start with `https://` |
 | `SERVICENOW_OAUTH_CLIENT_ID` | Yes | OAuth client ID |
-| `SERVICENOW_OAUTH_CLIENT_SECRET` | For confidential apps | Supply privately from the same application; omit only for confirmed public clients |
-| `SERVICENOW_OAUTH_SCOPE` | Yes | Non-empty scopes allowed by the application, such as `useraccount`; required locally, not established as required by Yokohama |
+| `SERVICENOW_OAUTH_SCOPE` | Yes | Exactly `useraccount` |
 | `SERVICENOW_OAUTH_REDIRECT_URI` | No | Default `http://127.0.0.1:8765/oauth/callback`; register this exact URI |
 | `SERVICENOW_OAUTH_TIMEOUT_SECONDS` | No | Browser authorization timeout, default 180 seconds (1-600) |
 | `MCP_TOOL_PACKAGE` | No | Tool package to load (default: `"full"`). See [[Tool-Packages]] |
@@ -60,15 +59,15 @@ See [[Configuration]] for the full reference of all environment variables.
 
 Remove `SERVICENOW_API_KEY`, `SERVICENOW_USERNAME`, and `SERVICENOW_PASSWORD`.
 Non-empty legacy settings are rejected. The first outbound request opens the
-local browser. Access and refresh tokens stay in memory; confidential clients use
-an issued refresh token before opening a browser. Public clients authorize again
-after expiry or REST rejection. See [[Configuration]] for lifecycle and error behavior.
+local browser. Only access tokens and their expiry stay in memory. Restart,
+expiry, or REST rejection requires browser authorization on the next outbound call.
+See [[Configuration]] for lifecycle and error behavior.
 
 ---
 
 ## MCP Client Configuration
 
-Configure your MCP client to launch the server with the required OAuth environment variables. Replace the client ID placeholder with the ServiceNow application value. Set `SERVICENOW_OAUTH_SCOPE=useraccount` when allowed by the application, or use other administrator-confirmed scopes. Forward the client secret for confidential apps through private environment configuration, not a committed file.
+Configure your MCP client to launch the server with the required OAuth environment variables. Replace the client ID placeholder with the public ServiceNow application value. Set `SERVICENOW_OAUTH_SCOPE=useraccount`.
 
 ### OpenCode
 
@@ -172,10 +171,10 @@ For copy-paste installation instructions optimized for AI agents, see [INSTALL.m
 
 ### Authentication errors
 
-- Match the app mode: a configured secret selects confidential flow without PKCE; an empty secret selects public PKCE S256. For confidential apps, confirm form-body token-endpoint authentication. Both modes require the exact registered HTTP loopback URI.
-- Confirm the configured scopes and user roles permit the API call.
+- Confirm Public Client=true, PKCE S256, `useraccount`, and the exact registered HTTP loopback URI.
+- Confirm user roles and REST API access policies permit OAuth Bearer calls.
 - Keep the browser and process on the same machine. Close a conflicting listener or register another loopback port.
-- After denial or timeout, retry to authorize again. After a REST 401, retry to refresh or authorize when no usable refresh grant remains. Requests are not replayed automatically.
+- After denial, timeout, or REST 401, the next tool call opens browser authorization again. Requests are never replayed automatically.
 
 ### No tools appearing in your AI client
 

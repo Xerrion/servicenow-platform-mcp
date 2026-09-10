@@ -14,9 +14,9 @@ are excluded. Bodies over 8192 bytes and challenge headers over 4096 characters
 or four challenges are omitted. Bodies, other headers, and query strings are
 never copied into these diagnostics.
 
-Restart the full MCP process to load the change. Retry one read-only tool call.
-The rejected request is never replayed. A later call refreshes the invalidated
-token or opens authorization if no usable refresh grant remains. If the new
+Restart the full MCP process to load the change. Make one read-only tool call.
+The rejected request is never replayed. Only the matching access token is discarded.
+The next tool call opens public PKCE browser authorization again. If the new
 token also receives 401, share only the safe evidence with the administrator;
 an omitted field is not evidence that ServiceNow sent no diagnostic.
 

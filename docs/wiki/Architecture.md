@@ -40,19 +40,15 @@ The server entry point is `server.py`.
 ### Authentication
 
 Bootstrap creates one `OAuthPKCEProvider` shared by all ServiceNow clients.
-Its first outbound call opens the local browser for authorization-code flow.
-`oauth_callback.py` owns the temporary IPv4 loopback receiver. Tokens stay in
-memory with a monotonic expiry; concurrent calls share authorization and renewal.
-A configured client secret selects confidential authorization without PKCE and
-authenticates both token-endpoint grants. No secret selects public PKCE S256.
-Both modes require scope locally and validate authorization state in the callback;
-neither token grant sends state. Confidential code exchange matches the Yokohama contract.
-Authorization scope/state remain client compatibility behavior, not documented
-Yokohama requirements. Public PKCE compatibility with Yokohama is unverified.
-Only confidential clients use issued refresh tokens to renew expired or rejected
-access tokens on the next call. Public clients authorize again instead.
-A REST 401 never replays the API call. Missing refresh tokens or HTTP 400
-`invalid_grant` require new authorization. Legacy credentials are rejected.
+Its first outbound call opens the local browser for public authorization-code
+PKCE S256 with `scope=useraccount`. `oauth_callback.py` owns the temporary IPv4
+loopback receiver and validates callback state, path, and Host. Code exchange
+sends the PKCE verifier but not state. Only access tokens and their monotonic
+expiry stay in memory; concurrent calls share authorization. Restart or expiry
+requires new browser authorization on the next outbound call. A REST 401 discards
+only the matching access token without replaying the API call. The next call
+authorizes again. API calls use Bearer headers, never token URLs.
+Legacy credentials are rejected.
 This changes outbound authentication only; MCP continues to use stdio.
 
 ### Registration Pattern

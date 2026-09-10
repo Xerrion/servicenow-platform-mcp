@@ -32,7 +32,7 @@ def _callback_result(request: bytes, redirect_uri: str, state: str) -> str | Aut
         if not actual_state.isascii() or not secrets.compare_digest(actual_state, state):
             return None
         if "error" in params:
-            return AuthError("ServiceNow authorization was denied or failed. Retry to authorize again.")
+            return AuthError("ServiceNow authorization was denied or failed. Call the tool again to authorize.")
         code = params.get("code", [""])[0]
         if not code or not code.isascii() or any(ord(char) < 33 or ord(char) == 127 for char in code):
             return AuthError("ServiceNow callback did not contain a valid authorization code.")
@@ -110,7 +110,7 @@ async def receive_authorization_code(
                 raise outcome
             return outcome
     except TimeoutError:
-        raise AuthError("ServiceNow authorization timed out. Retry the tool call to authorize again.") from None
+        raise AuthError("ServiceNow authorization timed out. Call the tool again to authorize.") from None
     finally:
         # wait_closed() waits for clients too. Close them first, including those
         # whose handler task was cancelled before its finally block could run.

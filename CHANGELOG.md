@@ -4,24 +4,17 @@
 
 ### Breaking changes
 
-- Outbound ServiceNow calls now use OAuth authorization-code flow with either
-  confidential client credentials or public PKCE S256. Remove
+- Outbound ServiceNow calls now use only public OAuth authorization-code PKCE S256. Remove
   `SERVICENOW_API_KEY`, `SERVICENOW_USERNAME`, and
   `SERVICENOW_PASSWORD`; non-empty legacy settings are rejected. Configure
   `SERVICENOW_OAUTH_CLIENT_ID` and an exact registered loopback redirect URI.
-  `SERVICENOW_OAUTH_SCOPE` remains required by this client, not established as a
-  Yokohama requirement; use `useraccount`
-  when allowed by the application. The browser and stdio process must run on the same
-  machine. For confidential apps, also set `SERVICENOW_OAUTH_CLIENT_SECRET`.
-  A configured secret disables PKCE; both grants send client credentials in the
-  HTTPS token-endpoint form body. An empty secret selects public PKCE S256.
-  Both modes send `state` on authorization and validate the local callback.
-  Code exchange now omits `state` to match the Yokohama confidential contract;
-  refresh also omits it. Public PKCE compatibility with Yokohama is unverified.
-  Access and refresh tokens stay in memory. Confidential clients use an issued
-  refresh token on the next call after expiry or REST rejection; public clients
-  authorize again instead. REST requests are never replayed.
-  Missing refresh tokens or HTTP 400 `invalid_grant` require fresh authorization.
+  Set `SERVICENOW_OAUTH_SCOPE=useraccount`, Public Client=true, and PKCE S256 on
+  the application. The browser and stdio process must run on the same machine.
+  Authorization sends a random `state` and S256 challenge. The callback validates
+  state; code exchange sends the verifier and omits state. Only access tokens
+  are kept, in memory. Restart, expiry, or REST rejection requires browser
+  authorization on the next call. REST calls use Bearer headers, never token URLs,
+  and are never replayed.
 - Python callers must replace `BasicAuthProvider` with `OAuthPKCEProvider`.
   `create_auth()` remains the factory; `get_headers()` can now open the local
   browser and raise `AuthError`. See README authentication setup.

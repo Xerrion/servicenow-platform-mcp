@@ -7,7 +7,6 @@ from unittest.mock import patch
 import httpx
 import pytest
 import respx
-from pydantic import SecretStr
 
 from servicenow_mcp.auth import AccessToken, OAuthPKCEProvider
 from servicenow_mcp.client import ServiceNowClient
@@ -22,9 +21,9 @@ TRANSACTION_ID = "0123456789abcdef0123456789abcdef"
 
 @respx.mock
 async def test_safe_evidence_reaches_tool_error_without_replay(settings: Settings) -> None:
-    """Only selected diagnostics reach the error envelope; refresh stays deferred."""
+    """Only selected diagnostics reach the error envelope; rejected tokens are discarded."""
     provider = OAuthPKCEProvider(settings)
-    provider._token = AccessToken("test-access", time.monotonic() + 3600, "test-refresh")
+    provider._token = AccessToken("test-access", time.monotonic() + 3600)
     route = respx.get(f"{BASE_URL}/api/now/table/incident").respond(
         401,
         json={"error": {"message": "User Not Authenticated", "detail": "private customer data"}},
@@ -52,12 +51,9 @@ async def test_safe_evidence_reaches_tool_error_without_replay(settings: Setting
     assert f'"x-transaction-id": "{TRANSACTION_ID}"' in message
     assert "private" not in message
     assert "test-access" not in message
-    assert "test-refresh" not in message
     assert "not replayed" in message
     assert route.call_count == 1
-    assert provider._token is not None
-    assert provider._token.expires_at == 0
-    assert provider._token.refresh_token == "test-refresh"
+    assert provider._token is None
 
 
 def _error(settings: Settings, response: httpx.Response) -> str:
@@ -67,11 +63,10 @@ def _error(settings: Settings, response: httpx.Response) -> str:
         headers={"Authorization": "Bearer test-access", "Cookie": "session=private-cookie"},
     )
     provider = OAuthPKCEProvider(settings)
-    provider._token = AccessToken("test-access", time.monotonic() + 3600, "test-refresh")
+    provider._token = AccessToken("test-access", time.monotonic() + 3600)
     with pytest.raises(AuthError) as exc:
         ServiceNowClient(settings, provider)._raise_for_status(response)
-    assert provider._token is not None
-    assert provider._token.expires_at == 0
+    assert provider._token is None
     return str(exc.value)
 
 
@@ -98,8 +93,6 @@ def test_unexpected_json_shape_is_not_echoed(settings: Settings, payload: object
     "value",
     [
         "Bearer test-access",
-        "test-refresh",
-        "client_secret=test-secret",
         "client_id=test-client",
         "Cookie: session=private-cookie",
         "https://private.invalid/oauth_auth.do?code=private-code",
@@ -120,7 +113,7 @@ def test_hostile_message_and_description_are_omitted(settings: Settings, value: 
         headers={"WWW-Authenticate": f'Bearer error="invalid_token", error_description={json.dumps(value)}'},
     )
     message = _error(settings, response)
-    for forbidden in (value, "test-access", "test-refresh", "test-secret", "private", "Jane Smith", "test-client"):
+    for forbidden in (value, "test-access", "private", "Jane Smith", "test-client"):
         assert forbidden not in message
     assert all(" " <= char <= "~" for char in message)
     assert len(message) < 2048
@@ -187,11 +180,10 @@ def test_malformed_or_oversized_challenge_is_not_partly_trusted(settings: Settin
     assert len(message) < 2048
 
 
-@pytest.mark.parametrize("header", ["test-access", "Bearer test-access", 'Bearer error="test-refresh"'])
+@pytest.mark.parametrize("header", ["test-access", "Bearer test-access", 'Bearer error="test-access"'])
 def test_scheme_token68_and_unknown_error_cannot_leak(settings: Settings, header: str) -> None:
     message = _error(settings, httpx.Response(401, headers={"WWW-Authenticate": header}))
     assert "test-access" not in message
-    assert "test-refresh" not in message
 
 
 @pytest.mark.parametrize("name", ["X-Transaction-ID", "X-Request-ID", "X-Correlation-ID"])
@@ -231,21 +223,16 @@ def test_body_budget_and_depth_fail_closed(settings: Settings, body: bytes) -> N
     assert len(message) < 2048
 
 
-@pytest.mark.parametrize(
-    "source", ["access", "refresh", "client_id", "client_secret", "rejected", "cookie", "set_cookie", "query"]
-)
+@pytest.mark.parametrize("source", ["access", "client_id", "rejected", "cookie", "set_cookie", "query"])
 def test_trace_shaped_secret_is_not_echoed(settings: Settings, source: str) -> None:
     """A hex credential is still a credential when reflected into an allowed header."""
     provider = OAuthPKCEProvider(settings)
     provider._token = AccessToken(
         TRANSACTION_ID if source == "access" else "test-access",
         time.monotonic() + 3600,
-        TRANSACTION_ID if source == "refresh" else "test-refresh",
     )
     if source == "client_id":
         settings.servicenow_oauth_client_id = TRANSACTION_ID
-    if source == "client_secret":
-        settings.servicenow_oauth_client_secret = SecretStr(TRANSACTION_ID)
     authorization = TRANSACTION_ID if source == "rejected" else provider._token.value
     request = httpx.Request(
         "GET",
@@ -270,16 +257,24 @@ def test_trace_shaped_secret_is_not_echoed(settings: Settings, source: str) -> N
     assert TRANSACTION_ID not in str(exc.value).lower()
     assert '"x-transaction-id"' not in str(exc.value)
     assert '"message": "User Not Authenticated"' in str(exc.value)
-    assert provider._token is not None
     if source == "rejected":
+        assert provider._token is not None
         assert provider._token.expires_at > 0
     else:
-        assert provider._token.expires_at == 0
+        assert provider._token is None
 
 
-def test_phrase_shaped_secret_is_not_echoed(settings: Settings) -> None:
-    settings.servicenow_oauth_client_secret = SecretStr("Unauthorized")
-    message = _error(settings, httpx.Response(401, json={"error": {"message": "Unauthorized"}}))
+def test_phrase_shaped_access_token_is_not_echoed(settings: Settings) -> None:
+    provider = OAuthPKCEProvider(settings)
+    provider._token = AccessToken("Unauthorized", time.monotonic() + 3600)
+    response = httpx.Response(
+        401,
+        request=httpx.Request("GET", BASE_URL, headers={"Authorization": "Bearer Unauthorized"}),
+        json={"error": {"message": "Unauthorized"}},
+    )
+    with pytest.raises(AuthError) as exc:
+        ServiceNowClient(settings, provider)._raise_for_status(response)
+    message = str(exc.value)
     assert "Unauthorized" not in message
     assert "[omitted: credential overlap]" in message
 

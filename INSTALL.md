@@ -17,7 +17,6 @@ The repository supports Python 3.12, 3.13, and 3.14. Install it with `uv`:
 git clone https://github.com/Xerrion/servicenow-platform-mcp.git
 cd servicenow-platform-mcp
 uv sync --group dev
-uv run servicenow-platform-mcp
 ```
 
 The server uses stdio. An MCP client must launch the process. Do not configure
@@ -37,32 +36,103 @@ runner. Verify the package name and release before using a command such as
 published-package launch also changes the working-directory and dotenv-file
 considerations described above.
 
-## 2. Configure authentication
+## 2. Configure public OAuth PKCE
 
-`SERVICENOW_INSTANCE_URL` is required. Use an HTTPS origin, for example
-`https://your-instance.service-now.com`, without credentials, path, query, or
-fragment. One trailing slash is removed at startup.
+Authentication has two separate parts: the ServiceNow Application Registry
+and the local MCP server configuration. This server supports only public OAuth
+authorization-code PKCE S256.
 
-Use a ServiceNow Application Registry entry with **Public Client=true** and
-authorization-code PKCE S256. Set `SERVICENOW_OAUTH_CLIENT_ID` and
-`SERVICENOW_OAUTH_SCOPE=useraccount`. Enable `useraccount` on the application.
-Authorization sends a random `state` and an S256 challenge. The callback validates
-state; code exchange sends the verifier, not state. Register the exact
-redirect URI, default `http://127.0.0.1:8765/oauth/callback`, on that application.
-The first outbound request opens the local browser. The browser and stdio
-process must be on the same machine. The temporary loopback receiver is not
-an MCP HTTP transport. See [authentication setup](README.md#configuration-and-authentication).
+### ServiceNow Application Registry
 
-Remove `SERVICENOW_API_KEY`, `SERVICENOW_USERNAME`, and `SERVICENOW_PASSWORD`.
-Non-empty legacy credentials fail startup. There is no Basic Auth or API-key
-fallback. Only access tokens are kept, in memory. Restart, expiry, or REST rejection
-requires new browser authorization on the next outbound call. REST calls use
-Bearer headers, never token URLs, and are never replayed. REST API access policies
-must permit OAuth Bearer requests. Never log or persist access tokens,
-PKCE verifiers, callback URLs, or authorization codes.
+1. Open **System OAuth > Application Registry** and create or select the
+   application for this server.
+2. Set **Public Client** to `true`.
+3. Enable authorization-code PKCE with **S256**.
+4. Enable the `useraccount` scope.
+5. Register this exact redirect URL:
 
-Settings load at startup. Restart the full MCP server process after any
-environment or dotenv change.
+   ```text
+   http://127.0.0.1:8765/oauth/callback
+   ```
+
+6. Save the application and copy its client ID.
+
+Use a ServiceNow user with the roles and REST, table, and field ACL access
+required by the selected tools. OAuth does not bypass those permissions.
+
+### Local `.env.local`
+
+Create `.env.local` in the working directory used to launch the MCP server:
+
+```dotenv
+SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com
+SERVICENOW_OAUTH_CLIENT_ID=your-public-client-id
+SERVICENOW_OAUTH_SCOPE=useraccount
+SERVICENOW_OAUTH_REDIRECT_URI=http://127.0.0.1:8765/oauth/callback
+SERVICENOW_OAUTH_TIMEOUT_SECONDS=180
+MCP_TOOL_PACKAGE=readonly
+SERVICENOW_ENV=dev
+```
+
+Use an HTTPS instance origin without credentials, path, query, or fragment.
+One trailing slash is removed. The scope must be exactly `useraccount`.
+The redirect URI must match the Application Registry entry and the format
+`http://127.0.0.1:<port>/oauth/callback`, with port `1024`-`65535`.
+`localhost`, other paths, query strings, and fragments are not accepted.
+Register the complete new URL if you change the port.
+
+The server reads `.env`, then `.env.local`, from its working directory. Process
+environment variables override both files. Restart the full MCP server after
+changing settings. Never commit these dotenv files.
+
+Remove `SERVICENOW_API_KEY`, `SERVICENOW_USERNAME`, and `SERVICENOW_PASSWORD`
+from all configuration sources. Non-empty values fail startup; there is no
+Basic Auth or API-key fallback. A stale `SERVICENOW_OAUTH_CLIENT_SECRET` is
+ignored, not used or rejected. Remove it. Do not configure a client secret.
+
+### First tool call and token lifecycle
+
+The first tool call that needs ServiceNow access opens the default browser.
+The browser and MCP process must run on the same machine. A temporary loopback
+listener starts before the browser and closes before token exchange, or on
+denial, timeout, or cancellation. It is not an MCP HTTP transport.
+
+Approve access as the ServiceNow user whose roles and ACLs should apply to
+tool calls. The public client ID identifies the application, not a separate
+service account. Authorization sends random state and an S256 challenge.
+The callback validates state, path, and Host. Code exchange sends the PKCE
+verifier, not state or a client secret. See the
+[exact request fields](README.md#exact-oauth-requests).
+
+REST calls use `Authorization: Bearer <access_token>`, never tokens in URLs.
+Only the access token and its expiry stay in process memory. Restart or expiry
+requires browser authorization on the next outbound call.
+
+A REST 401 discards only the matching token and does not replay the request.
+The next outbound call authorizes again unless a newer concurrent grant exists.
+Successful calls reuse the valid token within that server process.
+
+### API access policy migration
+
+An old API-key-only REST API access policy can reject an OAuth Bearer request
+even after token issuance succeeds. Administrator-side response inspection
+may show `HTTP 401` with `WWW-Authenticate: API_KEY`. The server's sanitized
+evidence omits `API_KEY` because it is not an allowed diagnostic scheme.
+Do not expect that header value in a tool error.
+
+Ask the administrator to identify the policy for the failed resource and
+method. Adjust or replace only that policy to permit the intended OAuth Bearer
+requests. Preserve unrelated policies and restrictions. Test a small read-only
+request with the intended user. Retire an obsolete API-key requirement only
+within the approved migration scope, after checking other consumers.
+
+Do not disable global protection or unrelated policies. Do not add an API key
+to the server configuration. See the
+[policy migration procedure](README.md#5-migrate-rest-api-access-policies-narrowly).
+
+Never log or persist access tokens, PKCE verifiers, authorization codes, or
+callback URLs and query strings. Do not attach raw headers or callback data
+to an issue report.
 
 ## 3. Select a tool package
 
@@ -99,14 +169,14 @@ package controls which tools are loaded. It is not an authorization boundary.
 
 ## 4. Configure the server
 
-The following examples use placeholders. `${...}` expansion depends on the
-MCP client. Prefer the client's documented environment forwarding or a secret
-store. Do not replace placeholders with secrets in a committed file.
+The following examples use instance and public client ID placeholders. Use
+the client's documented environment forwarding. Do not put tokens, callback
+data, PKCE verifiers, API keys, Basic credentials, or client secrets in this file.
 
 The OAuth example below runs from a local source checkout.
 It requires `uv sync` first and sets `cwd` to that checkout.
 
-### Authorization-code flow
+### Public OAuth authorization-code PKCE S256
 
 ```json
 {
@@ -115,8 +185,9 @@ It requires `uv sync` first and sets `cwd` to that checkout.
   "cwd": "/path/to/servicenow-platform-mcp",
   "env": {
     "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-    "SERVICENOW_OAUTH_CLIENT_ID": "${SERVICENOW_OAUTH_CLIENT_ID}",
+    "SERVICENOW_OAUTH_CLIENT_ID": "your-public-client-id",
     "SERVICENOW_OAUTH_SCOPE": "useraccount",
+    "SERVICENOW_OAUTH_REDIRECT_URI": "http://127.0.0.1:8765/oauth/callback",
     "MCP_TOOL_PACKAGE": "readonly",
     "SERVICENOW_ENV": "prod"
   }
@@ -140,8 +211,9 @@ console entry point without a source checkout:
   "args": ["servicenow-platform-mcp"],
   "env": {
     "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-    "SERVICENOW_OAUTH_CLIENT_ID": "${SERVICENOW_OAUTH_CLIENT_ID}",
+    "SERVICENOW_OAUTH_CLIENT_ID": "your-public-client-id",
     "SERVICENOW_OAUTH_SCOPE": "useraccount",
+    "SERVICENOW_OAUTH_REDIRECT_URI": "http://127.0.0.1:8765/oauth/callback",
     "MCP_TOOL_PACKAGE": "readonly",
     "SERVICENOW_ENV": "prod"
   }
@@ -162,9 +234,9 @@ environment variables override both.
 | Variable | Required | Default | Range or values | Purpose |
 | --- | --- | --- | --- | --- |
 | `SERVICENOW_INSTANCE_URL` | Yes | None | HTTPS origin without credentials, path, query, or fragment | ServiceNow instance. One trailing slash is removed. |
-| `SERVICENOW_OAUTH_CLIENT_ID` | Yes | None | Client ID | ServiceNow OAuth application. |
+| `SERVICENOW_OAUTH_CLIENT_ID` | Yes | None | Non-empty printable ASCII; surrounding spaces removed | Public ServiceNow OAuth application. |
 | `SERVICENOW_OAUTH_SCOPE` | Yes | None | Exactly `useraccount` | Scope for the public PKCE application. |
-| `SERVICENOW_OAUTH_REDIRECT_URI` | No | `http://127.0.0.1:8765/oauth/callback` | Exact path, port `1024`-`65535` | Registered loopback URI. |
+| `SERVICENOW_OAUTH_REDIRECT_URI` | No | `http://127.0.0.1:8765/oauth/callback` | Exactly `http://127.0.0.1:<port>/oauth/callback`; port `1024`-`65535` | Registered loopback URI. |
 | `SERVICENOW_OAUTH_TIMEOUT_SECONDS` | No | `180` | `1`-`600` | Authorization wait in seconds. |
 | `MCP_TOOL_PACKAGE` | No | `full` | Preset or comma-separated groups | Selects loaded tool groups. |
 | `SERVICENOW_ENV` | No | `dev` | Any string | `prod` and `production` block writes. |
@@ -304,20 +376,32 @@ Other important limits include:
 ## 9. Verify and troubleshoot
 
 1. Restart the full MCP server process.
-2. Call `list_tool_packages`. It is always available and confirms the selected
-   package.
-3. For an operational read, call `describe` or a small `query` with an
-   explicit field projection.
+2. Call `list_tool_packages`. It is always available and lists the available
+   presets and groups without contacting ServiceNow. It does not report the
+   active package.
+3. Call `query(table="incident", fields="sys_id,number", limit=1)` as a small
+   operational read if that table is permitted. Complete browser authorization.
+
+### Authentication troubleshooting
+
+| Observed error or event | Safe action |
+| --- | --- |
+| `Cannot bind OAuth loopback port` | Close only a known conflicting listener, or configure and register another allowed port. |
+| `ServiceNow authorization timed out` | Complete authorization on the same machine before the timeout. Check the exact callback URL and retry. The wait defaults to 180 seconds and accepts 1-600. |
+| Missing or invalid scope | Set exactly `SERVICENOW_OAUTH_SCOPE=useraccount`. For a ServiceNow scope error, also confirm the application enables `useraccount`. |
+| `Cannot open the local browser` | Check the local browser setup. This is a launch failure, not proof of an Application Registry error. |
+| Error on the ServiceNow authorization page | Check **Public Client=true**, PKCE S256, client ID, scope, and exact redirect URL. |
+| `OAuth token exchange rejected (HTTP ...)` | Check the public application and OAuth settings. Token exchange failure is separate from a later REST 401. |
+| REST 401 or `User Not Authenticated` | The request was not replayed. Authorize on the next outbound call. If a new token also fails, ask the administrator to check scopes, REST policy, and user access. |
+| REST 401 plus administrator-observed `WWW-Authenticate: API_KEY` | Migrate only the policy that excludes OAuth Bearer. The server omits this scheme from sanitized evidence. |
+| HTTP 403 | Check REST-resource permissions, user roles, and table and field ACLs. Not every 403 identifies a table ACL denial. |
+| Token expiry or server restart | Complete browser authorization again on the next outbound call. |
 
 Use the following checks for common failures:
 
 - **Startup says the instance URL is missing:** set
   `SERVICENOW_INSTANCE_URL` to a complete lowercase-HTTPS instance URL. Check
   the MCP client's environment and working directory.
-- **401 or `User Not Authenticated`:** the request was not replayed. The next tool
-  call opens browser authorization again. Check the exact instance URL, public
-  PKCE application, `useraccount` scope, and REST API
-  access policy. Token issuance alone does not establish REST access.
 - **OAuth token is valid but a request is denied:** check OAuth scopes and REST-resource
   policy. This is distinct from table and field ACL denial.
 - **A table or field is denied:** check its ServiceNow row and field ACLs. The
@@ -328,6 +412,6 @@ Use the following checks for common failures:
   Inspect the client's stderr and the underlying server-process error before
   assigning the cause to authentication or ACLs.
 
-The server returns correlation IDs in normal tool response envelopes. Include
-the correlation ID and the underlying error when reporting a failure. If
+Include sanitized error evidence and an allowed transaction ID when available.
+Do not include tokens, raw headers, or callback data. If
 Sentry is configured, it provides additional visibility for unexpected errors.

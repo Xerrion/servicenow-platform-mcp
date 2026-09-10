@@ -14,15 +14,14 @@ The server runs locally via stdio transport and is launched by your MCP-compatib
 
 ## Key Capabilities
 
-- **Schema and table introspection** - Describe table schemas, query records, compute aggregates, and build structured queries
+- **Schema and table introspection** - Describe table schemas, query records with encoded queries, and compute aggregates
 - **Record CRUD** - Create, read, update, and delete records with a preview-then-apply confirmation pattern
 - **Attachment operations** - List, download, upload, and delete attachments with base64 content transfer
-- **Change intelligence** - Inspect update sets, diff artifact versions, view audit trails, and generate release notes
-- **Debug and trace** - Build event timelines, trace field mutations, inspect flow executions, check integration health
+- **Audit inspection** - Check table and field audit configuration and read bounded audit history
+- **Read-only analysis** - Inspect submitted RITM variables and dictionary-confirmed journal history
 - **Investigations** - Run automated analyses: stale automations, deprecated APIs, table health, ACL conflicts, error patterns, slow transactions
-- **Documentation generation** - Generate automation maps, artifact summaries, test scenarios, and code review notes
-- **Workflow and Flow Designer analysis** - Map workflow structures, inspect executions, analyze migration readiness
-- **ITSM domain tools** - Full lifecycle management for Incidents, Changes, Problems, Requests, Knowledge, CMDB, and Service Catalog
+- **Flow Designer inspection** - Read flow and subflow configuration from V1/V2 table records
+- **Generic ITSM records and Service Catalog** - Use table tools for ITSM and CMDB records; browse catalogs and perform gated order/cart actions
 - **Artifact write** - Create and update platform artifacts (business rules, script includes, client scripts, etc.) with complete inline field values in `record_write.data`
 
 ---
@@ -44,27 +43,47 @@ The server runs locally via stdio transport and is launched by your MCP-compatib
 
 ## Quick Start
 
-### 1. Run the server
+### 1. Configure the public ServiceNow application
 
-```bash
-uvx servicenow-platform-mcp
-```
+In **System OAuth > Application Registry**, create or select the application:
 
-### 2. Set environment variables
+- **Public Client**: `true`
+- Authorization-code PKCE: **S256**
+- Scope: `useraccount`
+- Exact redirect URL: `http://127.0.0.1:8765/oauth/callback`
 
-```bash
+Save the application and copy its client ID.
+
+### 2. Configure the local server
+
+Create `.env.local` in the MCP server's working directory, or forward these
+values through the MCP client's environment settings:
+
+```dotenv
 SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com
-SERVICENOW_OAUTH_CLIENT_ID=your-client-id
+SERVICENOW_OAUTH_CLIENT_ID=your-public-client-id
 SERVICENOW_OAUTH_SCOPE=useraccount
+SERVICENOW_OAUTH_REDIRECT_URI=http://127.0.0.1:8765/oauth/callback
+MCP_TOOL_PACKAGE=readonly
 ```
 
-Use Public Client=true and authorization-code PKCE S256 on the ServiceNow application.
-Enable `useraccount` and register the exact loopback URI. Only access tokens stay
-in memory. See [[Configuration]] for setup and browser authorization behavior.
+Remove `SERVICENOW_API_KEY`, `SERVICENOW_USERNAME`, and `SERVICENOW_PASSWORD`;
+non-empty values fail startup. A stale `SERVICENOW_OAUTH_CLIENT_SECRET` is
+ignored. Remove it rather than configuring a secret. Never commit dotenv files.
 
-**3. Configure your MCP client** to launch the server with those environment variables.
+### 3. Launch through the MCP client and authorize
 
-See [[Getting-Started]] for full setup instructions with configuration examples for OpenCode, Claude Desktop, VS Code, Cursor, and more.
+Use [[Getting-Started]] to install and configure the stdio command. The first
+tool call that needs ServiceNow opens the default browser. The browser and MCP
+server must run on the same machine. Authorize as the ServiceNow user whose
+roles and ACLs should apply to tool calls; the client ID identifies the application.
+
+Only the access token and its expiry stay in memory.
+Restart or expiry requires browser authorization on the next outbound call. REST calls
+use Bearer headers, never tokens in URLs. A REST 401 is not replayed.
+
+An API-key-only REST policy can block OAuth even after token issuance. See
+[[Configuration]] for narrowly scoped policy migration and troubleshooting.
 
 ---
 

@@ -24,7 +24,8 @@ The direct `httpx` dependency is used by the application and remains independent
 
 - **Python 3.12+** (tested on 3.12, 3.13, 3.14)
 - **uv** - Fast Python package manager (not pip/poetry)
-- A ServiceNow instance with admin or developer credentials
+- For live integration tests: a non-production ServiceNow instance, a public
+  OAuth PKCE application, and a user with the required roles and ACL access
 
 ### Setup
 
@@ -32,21 +33,54 @@ The direct `httpx` dependency is used by the application and remains independent
 git clone https://github.com/Xerrion/servicenow-platform-mcp.git
 cd servicenow-platform-mcp
 uv sync --group dev
-cp .env.example .env.local  # Fill in ServiceNow credentials
+cp .env.example .env.local
 ```
 
-The `.env.local` file needs at minimum:
+### Local authentication setup
 
-```bash
+Development uses the same public authorization-code PKCE S256 flow as normal
+operation. In **System OAuth > Application Registry**, create or select the
+application, set **Public Client=true**, enable PKCE **S256** and `useraccount`,
+and register the exact redirect URL `http://127.0.0.1:8765/oauth/callback`.
+
+For live calls, configure `.env.local` in the process working directory:
+
+```dotenv
 SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com
-SERVICENOW_OAUTH_CLIENT_ID=your-client-id
+SERVICENOW_OAUTH_CLIENT_ID=your-public-client-id
 SERVICENOW_OAUTH_SCOPE=useraccount
+SERVICENOW_OAUTH_REDIRECT_URI=http://127.0.0.1:8765/oauth/callback
+SERVICENOW_OAUTH_TIMEOUT_SECONDS=180
+MCP_TOOL_PACKAGE=readonly
+SERVICENOW_ENV=dev
 ```
 
-Use Public Client=true and authorization-code PKCE S256 on the ServiceNow application.
-Enable `useraccount` and register the exact loopback URI. Access tokens stay in
-memory; restart or expiry requires browser authorization on the next outbound call.
-See [[Configuration]] for setup.
+The scope must be exactly `useraccount`. The callback must use
+`http://127.0.0.1:<port>/oauth/callback`, port `1024`-`65535`, and match the
+Application Registry entry. Process environment variables override `.env.local`,
+which overrides `.env`. Restart after changing settings.
+
+The first live outbound test or tool call opens browser authorization. The
+browser and MCP process must run on the same machine. The REST identity is the
+ServiceNow user who authorizes the application; roles and ACLs still apply.
+Unit tests remain offline with stubbed authorization and mocked HTTP requests.
+Authentication tests exercise the loopback receiver with a mocked browser.
+
+Only the access token and its expiry stay in memory. Restart or expiry requires
+browser authorization on the next outbound call. REST calls use Bearer headers, never
+tokens in URLs. A REST 401 discards only the matching token without replaying
+the request. A newer concurrent grant is not invalidated.
+
+Remove `SERVICENOW_API_KEY`, `SERVICENOW_USERNAME`, and `SERVICENOW_PASSWORD`.
+Non-empty values fail startup. A stale `SERVICENOW_OAUTH_CLIENT_SECRET` is
+ignored, not used or rejected.
+Never put real tokens, authorization codes, PKCE verifiers, callback query
+strings, API keys, Basic credentials, or client secrets in fixtures, logs, or
+committed configuration. Test-only values are used by the offline tests.
+
+For REST policy failures, use [[Configuration]]. An API-key-only policy can
+block OAuth after token issuance. Migrate only the affected policy; do not
+disable global protection or unrelated policies.
 
 No build step is required for development. The server runs directly from source via `uv run servicenow-platform-mcp`.
 
@@ -71,7 +105,7 @@ No build step is required for development. The server runs directly from source 
 
 ### Formatter
 
-- **Ruff** is the sole formatter and linter
+- **Ruff** formats and lints Python
 - Line length: **120 characters**
 - Quote style: **double quotes**
 - Target: **Python 3.12**
@@ -223,16 +257,21 @@ Defined in `tests/conftest.py`:
 | `_disable_sentry_capture` | autouse | Resets Sentry `_initialized` flag to prevent real captures during tests |
 | `settings` | per-test | Dev environment settings (`SERVICENOW_ENV=dev`) |
 | `prod_settings` | per-test | Production environment settings (`SERVICENOW_ENV=prod`) |
-| `prod_auth_provider` | per-test | `OAuthPKCEProvider` from production settings |
+| `prod_auth_provider` | per-test | `OAuthPKCEProvider` from production test settings |
+| `_isolate_unit_settings` | autouse | Disables real dotenv loading outside integration tests |
+| `_stub_user_authorization` | autouse | Stubs authorization except in authentication and integration tests |
 
-All fixtures construct `Settings(_env_file=None)` with `patch.dict("os.environ", ...)` to avoid loading real env files.
+The `settings` and `prod_settings` fixtures construct `Settings(_env_file=None)`
+with an isolated environment. They do not use real dotenv credentials.
 
 ### Integration Tests
 
 - Located in `tests/integration/`
 - Marked with `@pytest.mark.integration`
 - Excluded from default test runs (via `-m 'not integration'` addopts)
-- Require `.env.local` with real ServiceNow credentials
+- Require public OAuth settings in `.env.local` or the process environment and
+  interactive browser authorization on the same machine
+- Run only against a non-production instance with suitable user permissions
 - Run with: `uv run pytest -m integration`
 
 ## CI Pipeline
@@ -317,25 +356,25 @@ Release-please uses conventional commits to determine version bumps:
 | Package | Purpose |
 | --- | --- |
 | `mcp` (>=2.1.1) | MCP SDK v2 server framework |
-| `httpx` (>=0.27.0) | Independent async HTTP client for ServiceNow REST API calls |
-| `pydantic` (>=2.0.0) | Data validation |
-| `pydantic-settings` (>=2.0.0) | Environment-based configuration |
-| `python-dotenv` (>=1.0.0) | `.env` file loading |
-| `uvicorn` (>=0.30.0) | ASGI server (SSE transport) |
-| `starlette` (>=0.38.0) | ASGI framework (SSE transport) |
-| `sentry-sdk` (>=2.55.0) | Error tracking |
+| `httpx` (>=0.28.1) | Independent async HTTP client for ServiceNow REST API calls |
+| `pydantic` (>=2.13.5) | Data validation |
+| `pydantic-settings` (>=2.15.0) | Environment-based configuration |
+| `python-dotenv` (>=1.2.2) | `.env` file loading |
+| `uvicorn` (>=0.52.4) | Declared ASGI server dependency; the entry point uses stdio |
+| `starlette` (>=1.6.0) | Declared ASGI framework dependency; the entry point uses stdio |
+| `sentry-sdk` (>=2.68.1) | Error tracking |
 
 ### Dev Dependencies
 
 | Package | Purpose |
 | --- | --- |
-| `pytest` (>=8.0.0) | Test framework |
-| `pytest-asyncio` (>=0.24.0) | Async test support |
+| `pytest` (>=9.0.3) | Test framework |
+| `pytest-asyncio` (>=1.3.0) | Async test support |
 | `respx` (>=0.21.0) | httpx mocking |
-| `ruff` (>=0.9.0) | Linter and formatter |
-| `mypy` (>=1.14.0) | Type checker |
+| `ruff` (>=0.16.5) | Linter and formatter |
+| `mypy` (>=2.3.1) | Type checker |
 | `pytest-cov` (>=6.0.0) | Coverage reporting |
-| `basedpyright` (>=1.29.0) | Alternative type checker |
+| `basedpyright` (>=1.39.9) | Alternative type checker |
 
 ### Build System
 

@@ -2,7 +2,7 @@
 
 Complete reference for all 15 tools in the 13 tool groups provided by the ServiceNow Platform MCP server. The tools use dispatcher patterns and ServiceNow encoded queries.
 
-Tools return responses as JSON strings with `status`, `data`, and optional `error`, `pagination`, `selection`, and `warnings`. Envelopes contain no server-internal correlation ID. ServiceNow record fields named `correlation_id` are unchanged. Selection metadata no longer includes `omitted`; continuation metadata is unchanged.
+Operational tools return responses as JSON strings with `status`, `data`, and optional `error`, `pagination`, `selection`, and non-empty `warnings`. The always-on `list_tool_packages` tool returns the preset-to-group registry directly. Selection metadata describes selected fields or sections, effective limits, and truncation. Use the supplied continuation metadata to complete bounded reads.
 
 For security guardrails that apply across all tools, see [[Safety-and-Policy]]. For worked examples of complex queries and multi-tool workflows, see [Agent Recipes](../../docs/agent-recipes.md).
 
@@ -265,11 +265,13 @@ Resolves human-readable labels to underlying ServiceNow values using the `sys_ch
 
 Unified dispatcher for Service Catalog operations.
 
-- **Actions:** `list_catalogs`, `get_catalog`, `list_categories`, `get_category`, `list_items`, `get_item`, `get_variables`, `order_now`, `add_to_cart`, `get_cart`, `submit_cart`, `checkout`.
+Optional filters `text`, `catalog`, and `category` default to null. Omitted, null, and empty filters are not sent to ServiceNow; limits and zero offsets are preserved.
+
+- **Actions:** `catalogs_list`, `catalog_get`, `categories_list`, `category_get`, `items_list`, `item_get`, `item_variables`, `order_now`, `add_to_cart`, `cart_get`, `cart_submit`, `cart_checkout`.
 - **Example:**
 
   ```python
-  await service_catalog(action="list_items", text="laptop")
+  await service_catalog(action="items_list", text="laptop")
   ```
 
 ---

@@ -40,6 +40,6 @@ The transcript's loaded MCP reference described retired tool names. Use the runn
 
 ## Remaining verification
 
-The transcript does not contain the raw HTTP responses behind three failed flow contracts. Their exact cause remains unknown. Retry with the contextual errors above. Start with `sections="flow,published_state"`, then request `steps`, `triggers`, and `warnings` separately to isolate the failed dependency. Keep errors and correlation IDs; do not interpret a failed section as an empty one.
+The transcript does not contain the raw HTTP responses behind three failed flow contracts. Their exact cause remains unknown. Retry with the contextual errors above. Start with `sections="flow,published_state"`, then request `steps`, `triggers`, and `warnings` separately to isolate the failed dependency. Keep sanitized error evidence and any allowed transaction ID. Do not interpret a failed section as an empty one.
 
 No live instance calls or record writes were used to validate these changes. Local tests use synthetic data and mocked HTTP responses. The customer transcript is not part of the committed change.

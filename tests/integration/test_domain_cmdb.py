@@ -2,7 +2,7 @@
 
 import pytest
 
-from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
 
@@ -13,7 +13,7 @@ pytestmark = pytest.mark.integration
 class TestDomainCmdb:
     """Test CMDB domain API operations on a live instance."""
 
-    async def test_cmdb_list_returns_records(self, live_settings: Settings, live_auth: BasicAuthProvider) -> None:
+    async def test_cmdb_list_returns_records(self, live_settings: Settings, live_auth: OAuthPKCEProvider) -> None:
         """Query CMDB CIs without filters."""
         async with ServiceNowClient(live_settings, live_auth) as client:
             result = await client.query_records(
@@ -27,7 +27,7 @@ class TestDomainCmdb:
     async def test_cmdb_get_by_sys_id(
         self,
         live_settings: Settings,
-        live_auth: BasicAuthProvider,
+        live_auth: OAuthPKCEProvider,
         cmdb_ci_sys_id: str | None,
     ) -> None:
         """Fetch a single CI by sys_id."""
@@ -47,7 +47,7 @@ class TestDomainCmdb:
     async def test_cmdb_get_by_name(
         self,
         live_settings: Settings,
-        live_auth: BasicAuthProvider,
+        live_auth: OAuthPKCEProvider,
         cmdb_ci_sys_id: str | None,
     ) -> None:
         """Fetch a CI by name (simulates cmdb_get tool name lookup)."""
@@ -71,7 +71,7 @@ class TestDomainCmdb:
     async def test_cmdb_relationships_query(
         self,
         live_settings: Settings,
-        live_auth: BasicAuthProvider,
+        live_auth: OAuthPKCEProvider,
         cmdb_ci_sys_id: str | None,
     ) -> None:
         """Query CMDB relationships for a CI (simulates cmdb_relationships tool)."""
@@ -87,7 +87,7 @@ class TestDomainCmdb:
             )
         assert isinstance(result["records"], list)
 
-    async def test_cmdb_classes_aggregate(self, live_settings: Settings, live_auth: BasicAuthProvider) -> None:
+    async def test_cmdb_classes_aggregate(self, live_settings: Settings, live_auth: OAuthPKCEProvider) -> None:
         """Aggregate CMDB CI classes (simulates cmdb_classes tool)."""
         async with ServiceNowClient(live_settings, live_auth) as client:
             result = await client.aggregate(
@@ -97,7 +97,7 @@ class TestDomainCmdb:
             )
         assert result is not None
 
-    async def test_cmdb_health_aggregate(self, live_settings: Settings, live_auth: BasicAuthProvider) -> None:
+    async def test_cmdb_health_aggregate(self, live_settings: Settings, live_auth: OAuthPKCEProvider) -> None:
         """Aggregate CMDB operational status (simulates cmdb_health tool)."""
         async with ServiceNowClient(live_settings, live_auth) as client:
             result = await client.aggregate(

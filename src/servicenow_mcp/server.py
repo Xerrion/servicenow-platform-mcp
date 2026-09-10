@@ -1,4 +1,4 @@
-"""MCP server entry point with stdio and SSE transport."""
+"""MCP stdio entry point with outbound ServiceNow OAuth authorization."""
 
 import importlib
 import logging

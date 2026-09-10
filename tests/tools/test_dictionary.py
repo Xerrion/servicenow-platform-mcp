@@ -16,7 +16,7 @@ import httpx
 import pytest
 import respx
 
-from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.client import ServiceNowClientProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.telemetry import CacheName, HttpTelemetry
@@ -34,9 +34,9 @@ DICTIONARY_URL = f"{BASE_URL}/api/now/table/sys_dictionary"
 
 
 @pytest.fixture()
-def auth_provider(settings: Settings) -> BasicAuthProvider:
-    """BasicAuthProvider for dictionary-registry tests."""
-    return BasicAuthProvider(settings)
+def auth_provider(settings: Settings) -> OAuthPKCEProvider:
+    """OAuthPKCEProvider for dictionary-registry tests."""
+    return OAuthPKCEProvider(settings)
 
 
 def _row(element: str, internal_type: str, attributes: str = "") -> dict[str, str]:
@@ -59,13 +59,13 @@ class TestSelectedFields:
     """Write validation fetches only supplied columns, without a broad field load."""
 
     @respx.mock
-    async def test_empty_selection_does_not_query(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    async def test_empty_selection_does_not_query(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         assert await DictionaryRegistry(settings, auth_provider).get_fields("u_child", []) == []
         assert not respx.calls
 
     @respx.mock
     async def test_child_override_and_inherited_types(
-        self, settings: Settings, auth_provider: BasicAuthProvider
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
         def objects(request: httpx.Request) -> httpx.Response:
             parent = "u_parent" if request.url.params["sysparm_query"] == "name=u_child" else ""
@@ -93,7 +93,7 @@ class TestSelectedFields:
 
     @respx.mock
     async def test_selection_is_batched_and_stops_after_resolution(
-        self, settings: Settings, auth_provider: BasicAuthProvider
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
         registry = DictionaryRegistry(settings, auth_provider)
         registry.get_chain = AsyncMock(return_value=["u_child", "u_parent"])
@@ -121,7 +121,7 @@ class TestTypeFilter:
     @respx.mock
     @pytest.mark.asyncio()
     async def test_unambiguous_script_types_admitted(
-        self, settings: Settings, auth_provider: BasicAuthProvider
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
         _mock_root_table(
             [
@@ -142,7 +142,7 @@ class TestTypeFilter:
 
     @respx.mock
     @pytest.mark.asyncio()
-    async def test_excluded_elements_dropped(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    async def test_excluded_elements_dropped(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         _mock_root_table(
             [
                 _row("script", "script"),
@@ -161,7 +161,7 @@ class TestHeuristicAdmission:
 
     @respx.mock
     @pytest.mark.asyncio()
-    async def test_html_with_tinymce_flag_admitted(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    async def test_html_with_tinymce_flag_admitted(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         _mock_root_table([_row("layout", "html", "tinymce_allow_all=true,html_sanitize=false")])
         registry = DictionaryRegistry(settings, auth_provider)
         fields = await registry.get_script_fields("sys_email_layout")
@@ -172,7 +172,7 @@ class TestHeuristicAdmission:
 
     @respx.mock
     @pytest.mark.asyncio()
-    async def test_html_without_flag_rejected(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    async def test_html_without_flag_rejected(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         _mock_root_table([_row("description", "html", "edge_encryption_enabled=true")])
         registry = DictionaryRegistry(settings, auth_provider)
         fields = await registry.get_script_fields("incident")
@@ -182,7 +182,7 @@ class TestHeuristicAdmission:
     @respx.mock
     @pytest.mark.asyncio()
     async def test_internal_type_uses_dot_walk_name_not_reference_sys_id(
-        self, settings: Settings, auth_provider: BasicAuthProvider
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
         _mock_root_table(
             [
@@ -199,7 +199,7 @@ class TestHeuristicAdmission:
 
     @respx.mock
     @pytest.mark.asyncio()
-    async def test_html_sanitize_false_alone_admits(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    async def test_html_sanitize_false_alone_admits(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         _mock_root_table([_row("body", "html", "html_sanitize=false")])
         registry = DictionaryRegistry(settings, auth_provider)
         fields = await registry.get_script_fields("custom_table")
@@ -254,7 +254,7 @@ class TestSuperClassChain:
     @respx.mock
     @pytest.mark.asyncio()
     async def test_inherited_fields_merge_with_parent_attribution(
-        self, settings: Settings, auth_provider: BasicAuthProvider
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
         # Child returns parent="sys_script_client"; parent returns "" (root).
         respx.get(DB_OBJECT_URL).mock(
@@ -289,7 +289,7 @@ class TestSuperClassChain:
 
     @respx.mock
     @pytest.mark.asyncio()
-    async def test_child_wins_on_field_collision(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    async def test_child_wins_on_field_collision(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         respx.get(DB_OBJECT_URL).mock(
             side_effect=[
                 httpx.Response(200, json={"result": [{"super_class.name": "parent_table"}]}),
@@ -314,7 +314,7 @@ class TestSuperClassChain:
     @respx.mock
     @pytest.mark.asyncio()
     async def test_missing_super_class_yields_single_table_chain(
-        self, settings: Settings, auth_provider: BasicAuthProvider
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
         # sys_db_object returns no rows for an unknown table.
         respx.get(DB_OBJECT_URL).mock(return_value=httpx.Response(200, json={"result": []}))
@@ -331,7 +331,7 @@ class TestCycleAndDepthGuards:
 
     @respx.mock
     @pytest.mark.asyncio()
-    async def test_cycle_detected_and_truncated(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    async def test_cycle_detected_and_truncated(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         # a -> b -> a (cycle). Each call returns the cyclic parent.
         responses = {
             "a": httpx.Response(200, json={"result": [{"super_class.name": "b"}]}),
@@ -365,7 +365,7 @@ class TestCache:
 
     @respx.mock
     @pytest.mark.asyncio()
-    async def test_second_call_does_not_refetch(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    async def test_second_call_does_not_refetch(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         db_route = respx.get(DB_OBJECT_URL).mock(
             return_value=httpx.Response(200, json={"result": [{"super_class.name": ""}]})
         )
@@ -383,7 +383,7 @@ class TestCache:
 
     @respx.mock
     @pytest.mark.asyncio()
-    async def test_flush_invalidates_cache(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    async def test_flush_invalidates_cache(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         db_route = respx.get(DB_OBJECT_URL).mock(
             return_value=httpx.Response(200, json={"result": [{"super_class.name": ""}]})
         )
@@ -401,7 +401,7 @@ class TestCache:
 
     @pytest.mark.asyncio()
     async def test_chain_cache_hit_precedes_client_creation(
-        self, settings: Settings, auth_provider: BasicAuthProvider
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
         """A fresh chain hit does not construct or enter another client context."""
         entered = 0
@@ -425,7 +425,7 @@ class TestCache:
 
     @pytest.mark.asyncio()
     async def test_same_table_field_load_is_single_flight(
-        self, settings: Settings, auth_provider: BasicAuthProvider
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
         """Concurrent calls for one table share dictionary metadata loading."""
         registry = DictionaryRegistry(settings, auth_provider)
@@ -451,7 +451,7 @@ class TestCache:
     @respx.mock
     @pytest.mark.asyncio()
     async def test_cache_telemetry_uses_fixed_dictionary_names(
-        self, settings: Settings, auth_provider: BasicAuthProvider
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
         """Dictionary cache counters omit the requested table name."""
         respx.get(DB_OBJECT_URL).mock(return_value=httpx.Response(200, json={"result": [{"super_class.name": ""}]}))

@@ -8,7 +8,7 @@ This guide walks you through installing and configuring the ServiceNow Platform 
 
 - **Python 3.12 or later** - The server requires Python 3.12+ (3.12, 3.13, and 3.14 are supported)
 - **A ServiceNow instance** - Developer, test, or production (note: write operations are blocked on production instances)
-- **ServiceNow authentication** - Either an API key or a user account with appropriate roles. Admin is recommended for full access when using Basic Auth
+- **ServiceNow authentication** - A public OAuth client with PKCE S256, a registered loopback redirect URI, and a user with the required roles. The browser and stdio process must run on the same machine.
 - **An MCP-compatible AI client** - [OpenCode](https://opencode.ai), [Claude Desktop](https://claude.ai/download), [VS Code Copilot](https://code.visualstudio.com/), [Cursor](https://cursor.sh/), or any client supporting the [Model Context Protocol](https://modelcontextprotocol.io/)
 
 ---
@@ -39,14 +39,15 @@ uv add servicenow-platform-mcp
 
 ## Environment Variables
 
-Set `SERVICENOW_INSTANCE_URL` and choose one authentication method. These variables are passed to the server by your MCP client configuration.
+Set `SERVICENOW_INSTANCE_URL` and the public OAuth client settings. These variables are passed to the server by your MCP client configuration.
 
 | Variable | Required | Description |
 | --- | --- | --- |
 | `SERVICENOW_INSTANCE_URL` | Yes | Full instance URL, must start with `https://` |
-| `SERVICENOW_API_KEY` | Conditional | ServiceNow API key. When set, it replaces Basic Auth. |
-| `SERVICENOW_USERNAME` | Conditional | ServiceNow username for Basic Auth; required when no API key is set |
-| `SERVICENOW_PASSWORD` | Conditional | ServiceNow password for Basic Auth; required when no API key is set |
+| `SERVICENOW_OAUTH_CLIENT_ID` | Yes | Public OAuth client ID |
+| `SERVICENOW_OAUTH_SCOPE` | Yes | Space-separated scopes configured on the application; no `offline_access` |
+| `SERVICENOW_OAUTH_REDIRECT_URI` | No | Default `http://127.0.0.1:8765/oauth/callback`; register this exact URI |
+| `SERVICENOW_OAUTH_TIMEOUT_SECONDS` | No | Browser authorization timeout, default 180 seconds (1-600) |
 | `MCP_TOOL_PACKAGE` | No | Tool package to load (default: `"full"`). See [[Tool-Packages]] |
 | `SERVICENOW_ENV` | No | Environment label (default: `"dev"`). Write ops blocked on `"prod"` / `"production"` |
 | `HTTPX_TIMEOUT_SECONDS` | No | ServiceNow HTTP timeout in seconds (default: `30`; valid range: `1-600`) |
@@ -56,13 +57,16 @@ The server also loads variables from `.env` and `.env.local` files in the workin
 
 See [[Configuration]] for the full reference of all environment variables.
 
-When `SERVICENOW_API_KEY` is set, the server sends it as the `x-sn-apikey` header and ignores `SERVICENOW_USERNAME` and `SERVICENOW_PASSWORD`.
+Remove `SERVICENOW_API_KEY`, `SERVICENOW_USERNAME`, and `SERVICENOW_PASSWORD`.
+Non-empty legacy settings are rejected. The first outbound request opens the
+local browser. Access tokens stay in memory; expiry requires fresh authorization.
+Refresh tokens are not used. See [[Configuration]] for lifecycle and error behavior.
 
 ---
 
 ## MCP Client Configuration
 
-Configure your MCP client to launch the server with the required environment variables. The examples below use API-key authentication. For Basic Auth, omit `SERVICENOW_API_KEY` and provide both `SERVICENOW_USERNAME` and `SERVICENOW_PASSWORD` instead.
+Configure your MCP client to launch the server with the required OAuth environment variables. Replace the public client and scope placeholders with the ServiceNow application values.
 
 ### OpenCode
 
@@ -76,7 +80,8 @@ File: `~/.config/opencode/opencode.json`
       "command": ["uvx", "servicenow-platform-mcp"],
       "environment": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_API_KEY": "<your-api-key>"
+        "SERVICENOW_OAUTH_CLIENT_ID": "<your-public-client-id>",
+        "SERVICENOW_OAUTH_SCOPE": "<your-configured-scope>"
       }
     }
   }
@@ -95,7 +100,8 @@ File: `claude_desktop_config.json`
       "args": ["servicenow-platform-mcp"],
       "env": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_API_KEY": "<your-api-key>"
+        "SERVICENOW_OAUTH_CLIENT_ID": "<your-public-client-id>",
+        "SERVICENOW_OAUTH_SCOPE": "<your-configured-scope>"
       }
     }
   }
@@ -114,7 +120,8 @@ File: `.vscode/mcp.json`
       "args": ["servicenow-platform-mcp"],
       "env": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-        "SERVICENOW_API_KEY": "<your-api-key>"
+        "SERVICENOW_OAUTH_CLIENT_ID": "<your-public-client-id>",
+        "SERVICENOW_OAUTH_SCOPE": "<your-configured-scope>"
       }
     }
   }
@@ -127,7 +134,8 @@ For any client that supports stdio transport, launch the server with inline envi
 
 ```bash
 SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com \
-SERVICENOW_API_KEY=<your-api-key> \
+SERVICENOW_OAUTH_CLIENT_ID=your-public-client-id \
+SERVICENOW_OAUTH_SCOPE=your-configured-scope \
 uvx servicenow-platform-mcp
 ```
 
@@ -162,10 +170,10 @@ For copy-paste installation instructions optimized for AI agents, see [INSTALL.m
 
 ### Authentication errors
 
-- If using an API key, confirm `SERVICENOW_API_KEY` is present in the MCP client environment and that the key is valid for the instance.
-- If using Basic Auth, leave `SERVICENOW_API_KEY` unset and confirm both `SERVICENOW_USERNAME` and `SERVICENOW_PASSWORD` are correct.
-- The API key or user account needs appropriate ServiceNow roles. Admin is recommended for full tool access when using Basic Auth.
-- For Basic Auth, check whether the instance requires MFA or SSO and whether Basic Auth is enabled for the user.
+- Confirm the public client supports PKCE S256 without a client secret and permits the exact registered HTTP loopback URI.
+- Confirm the configured scopes and user roles permit the API call.
+- Keep the browser and process on the same machine. Close a conflicting listener or register another loopback port.
+- After denial, timeout, or a 401, retry the tool call to authorize again. Allow enough tool-call time for browser interaction.
 
 ### No tools appearing in your AI client
 

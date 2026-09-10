@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from typing import Any, Final
 
-from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.metadata_cache import AsyncMetadataCache
@@ -222,12 +222,12 @@ class DictionaryRegistry:
     """
 
     _settings: Settings
-    _auth_provider: BasicAuthProvider
+    _auth_provider: OAuthPKCEProvider
 
     def __init__(
         self,
         settings: Settings,
-        auth_provider: BasicAuthProvider,
+        auth_provider: OAuthPKCEProvider,
         client_factory: ServiceNowClientProvider | None = None,
         telemetry: HttpTelemetry | None = None,
     ) -> None:

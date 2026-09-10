@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.choices import ChoiceRegistry
 from servicenow_mcp.config import Settings
 from servicenow_mcp.policy import DENIED_TABLES
@@ -15,14 +15,14 @@ from tests.helpers import decode_response, get_tool_functions
 
 
 @pytest.fixture()
-def auth_provider(settings: Settings) -> BasicAuthProvider:
-    """BasicAuthProvider for the unified-tool test scope."""
-    return BasicAuthProvider(settings)
+def auth_provider(settings: Settings) -> OAuthPKCEProvider:
+    """OAuthPKCEProvider for the unified-tool test scope."""
+    return OAuthPKCEProvider(settings)
 
 
 def _register_and_get_tools(
     settings: Settings,
-    auth_provider: BasicAuthProvider,
+    auth_provider: OAuthPKCEProvider,
     choices: ChoiceRegistry | None = None,
 ) -> dict[str, Any]:
     """Register the unified ``resolve_choice`` tool on a fresh MCP and return callables."""
@@ -35,7 +35,7 @@ def _register_and_get_tools(
     return get_tool_functions(mcp)
 
 
-def _make_choices(settings: Settings, auth_provider: BasicAuthProvider) -> ChoiceRegistry:
+def _make_choices(settings: Settings, auth_provider: OAuthPKCEProvider) -> ChoiceRegistry:
     """Return a ``ChoiceRegistry`` instance seeded with an empty fresh cache."""
     choices = ChoiceRegistry(settings, auth_provider)
     choices._metadata_cache.seed("all", choices._cache)
@@ -48,7 +48,7 @@ def _make_choices(settings: Settings, auth_provider: BasicAuthProvider) -> Choic
 
 
 @pytest.mark.asyncio()
-async def test_resolves_label_to_value(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+async def test_resolves_label_to_value(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     """A known label is resolved to its underlying value via ChoiceRegistry."""
     choices = _make_choices(settings, auth_provider)
     choices.resolve = AsyncMock(return_value="1")  # type: ignore[method-assign]
@@ -68,7 +68,7 @@ async def test_resolves_label_to_value(settings: Settings, auth_provider: BasicA
 
 
 @pytest.mark.asyncio()
-async def test_empty_label_returns_full_mapping(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+async def test_empty_label_returns_full_mapping(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     """An empty label returns the full {label: value} mapping for the field."""
     choices = _make_choices(settings, auth_provider)
     mapping = {"open": "1", "in_progress": "2", "closed": "7"}
@@ -91,7 +91,7 @@ async def test_empty_label_returns_full_mapping(settings: Settings, auth_provide
 
 
 @pytest.mark.asyncio()
-async def test_passthrough_emits_warning(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+async def test_passthrough_emits_warning(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     """A non-numeric label that resolves to itself triggers a passthrough warning."""
     choices = _make_choices(settings, auth_provider)
     choices.resolve = AsyncMock(side_effect=lambda _t, _f, label: label)  # type: ignore[method-assign]
@@ -112,7 +112,7 @@ async def test_passthrough_emits_warning(settings: Settings, auth_provider: Basi
 
 
 @pytest.mark.asyncio()
-async def test_denied_table_returns_error(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+async def test_denied_table_returns_error(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     """A denied table is rejected by the table-access policy gate."""
     choices = _make_choices(settings, auth_provider)
     denied = next(iter(DENIED_TABLES))
@@ -126,7 +126,7 @@ async def test_denied_table_returns_error(settings: Settings, auth_provider: Bas
 
 
 @pytest.mark.asyncio()
-async def test_invalid_field_identifier_returns_error(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+async def test_invalid_field_identifier_returns_error(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     """A field name that isn't a valid identifier is rejected before any registry call."""
     choices = _make_choices(settings, auth_provider)
 
@@ -139,7 +139,7 @@ async def test_invalid_field_identifier_returns_error(settings: Settings, auth_p
 
 
 @pytest.mark.asyncio()
-async def test_no_choices_registry_returns_error(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+async def test_no_choices_registry_returns_error(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     """When ``choices=None``, the tool returns a defensive 'not configured' error."""
     tools = _register_and_get_tools(settings, auth_provider, choices=None)
     raw = await tools["resolve_choice"](table="incident", field="state", label="open")

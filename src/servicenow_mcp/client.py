@@ -10,7 +10,7 @@ from urllib.parse import quote
 
 import httpx
 
-from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.errors import (
     ACLError,
@@ -43,12 +43,12 @@ class ServiceNowClient:
     """Async HTTP client for the ServiceNow REST API."""
 
     _settings: Settings
-    _auth_provider: BasicAuthProvider
+    _auth_provider: OAuthPKCEProvider
 
     def __init__(
         self,
         settings: Settings,
-        auth_provider: BasicAuthProvider,
+        auth_provider: OAuthPKCEProvider,
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
         self._settings = settings
@@ -163,8 +163,8 @@ class ServiceNowClient:
         )
 
         if response.status_code == 401:
-            msg = self._extract_error_message(response, "Authentication failed")
-            raise AuthError(msg)
+            self._auth_provider.invalidate(response.request.headers.get("Authorization", ""))
+            raise AuthError("ServiceNow rejected the OAuth token. Retry the tool call to authorize again.")
         if response.status_code == 403:
             msg = self._extract_error_message(response, "Access forbidden")
             if self._is_acl_error_response(response):
@@ -1414,7 +1414,7 @@ class ServiceNowClientFactory:
     def __init__(
         self,
         settings: Settings,
-        auth_provider: BasicAuthProvider,
+        auth_provider: OAuthPKCEProvider,
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
         self._settings = settings

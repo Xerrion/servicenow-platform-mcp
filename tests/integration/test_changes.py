@@ -2,7 +2,7 @@
 
 import pytest
 
-from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
 
@@ -16,7 +16,7 @@ class TestChanges:
     async def test_changes_updateset_inspect(
         self,
         live_settings: Settings,
-        live_auth: BasicAuthProvider,
+        live_auth: OAuthPKCEProvider,
         update_set_sys_id: str | None,
     ) -> None:
         """Inspect an update set: fetch header and members."""
@@ -38,7 +38,7 @@ class TestChanges:
     async def test_changes_last_touched(
         self,
         live_settings: Settings,
-        live_auth: BasicAuthProvider,
+        live_auth: OAuthPKCEProvider,
         incident_sys_id: str | None,
     ) -> None:
         """Query audit trail for an incident record."""
@@ -67,7 +67,7 @@ class TestChanges:
     async def test_changes_release_notes(
         self,
         live_settings: Settings,
-        live_auth: BasicAuthProvider,
+        live_auth: OAuthPKCEProvider,
         update_set_sys_id: str | None,
     ) -> None:
         """Fetch update set metadata for release note generation."""

@@ -24,7 +24,7 @@ from typing import Any, Final
 
 from mcp.server import MCPServer
 
-from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.choices import ChoiceRegistry
 from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
@@ -751,7 +751,7 @@ async def _action_inspect(
     sys_id: str,
     name: str,
     settings: Settings,
-    auth_provider: BasicAuthProvider,
+    auth_provider: OAuthPKCEProvider,
     client_factory: ServiceNowClientProvider,
     correlation_id: str,
     sections: str,
@@ -1166,7 +1166,7 @@ async def _action_find_by_table(
     *,
     table: str,
     settings: Settings,
-    auth_provider: BasicAuthProvider,
+    auth_provider: OAuthPKCEProvider,
     client_factory: ServiceNowClientProvider,
     correlation_id: str,
 ) -> str:
@@ -1287,7 +1287,7 @@ async def _action_list_triggers(
     active: str,
     limit: int,
     settings: Settings,
-    auth_provider: BasicAuthProvider,
+    auth_provider: OAuthPKCEProvider,
     client_factory: ServiceNowClientProvider,
     correlation_id: str,
 ) -> str:
@@ -1397,7 +1397,7 @@ def _action_describe(correlation_id: str) -> str:
 def register_tools(
     mcp: MCPServer,
     settings: Settings,
-    auth_provider: BasicAuthProvider,
+    auth_provider: OAuthPKCEProvider,
     choices: ChoiceRegistry | None = None,
     dictionary: DictionaryRegistry | None = None,
     client_factory: ServiceNowClientProvider | None = None,

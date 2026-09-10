@@ -50,13 +50,13 @@ class TestPackageRegistry:
         """Optimization changes do not add or remove public tools."""
         from mcp.server import MCPServer
 
-        from servicenow_mcp.auth import BasicAuthProvider
+        from servicenow_mcp.auth import OAuthPKCEProvider
         from servicenow_mcp.choices import ChoiceRegistry
         from servicenow_mcp.config import Settings
         from servicenow_mcp.tools._dictionary import DictionaryRegistry
 
         assert isinstance(settings, Settings)
-        auth_provider = BasicAuthProvider(settings)
+        auth_provider = OAuthPKCEProvider(settings)
         mcp = MCPServer("test")
         choices = ChoiceRegistry(settings, auth_provider)
         dictionary = DictionaryRegistry(settings, auth_provider)

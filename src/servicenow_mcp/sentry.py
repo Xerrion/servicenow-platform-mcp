@@ -102,11 +102,15 @@ def setup_sentry(settings: "Settings") -> None:
     if _HAS_MCP_INTEGRATION:
         integrations.append(MCPIntegration())
 
+    from sentry_sdk.integrations.stdlib import StdlibIntegration
+
     sentry_sdk.init(
         dsn=dsn,
         environment=environment,
         release=_RELEASE,
         send_default_pii=False,
+        include_local_variables=False,
+        disabled_integrations=[StdlibIntegration()],
         integrations=integrations,
         traces_sample_rate=0.1,
         profiles_sample_rate=None,

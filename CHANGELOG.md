@@ -4,6 +4,16 @@
 
 ### Breaking changes
 
+- Outbound ServiceNow calls now use public-client OAuth authorization-code PKCE
+  with S256. Remove `SERVICENOW_API_KEY`, `SERVICENOW_USERNAME`, and
+  `SERVICENOW_PASSWORD`; non-empty legacy settings are rejected. Configure
+  `SERVICENOW_OAUTH_CLIENT_ID`, `SERVICENOW_OAUTH_SCOPE`, and an exact registered
+  loopback redirect URI. The browser and stdio process must run on the same
+  machine. Tokens stay in memory; expiry or a rejected token requires fresh
+  authorization. Refresh tokens are not requested, retained, or used.
+- Python callers must replace `BasicAuthProvider` with `OAuthPKCEProvider`.
+  `create_auth()` remains the factory; `get_headers()` can now open the local
+  browser and raise `AuthError`. See README authentication setup.
 - Removed `record_write.script_path` and `record_write.script_field`. Supply all
   field values through the JSON string `data`, including complete script or
   markup strings under their field names. For example, replace file input with

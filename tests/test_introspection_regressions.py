@@ -4,7 +4,7 @@ import httpx
 import pytest
 import respx
 
-from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
 from servicenow_mcp.errors import ServerError
@@ -23,7 +23,7 @@ async def test_v1_table_lookup_joins_remote_record_trigger(settings: Settings) -
     route = respx.get(f"{BASE_URL}/api/now/table/sys_hub_trigger_instance").mock(
         return_value=httpx.Response(200, json={"result": []})
     )
-    async with ServiceNowClient(settings, BasicAuthProvider(settings)) as client:
+    async with ServiceNowClient(settings, OAuthPKCEProvider(settings)) as client:
         assert await client.list_v1_triggers_by_table("sc_task") == []
     assert route.calls.last.request.url.params["sysparm_query"] == f"remote_sys_idIN{remote_id}"
 
@@ -36,7 +36,7 @@ async def test_v1_table_lookup_without_record_triggers_does_not_scan(
     respx.get(f"{BASE_URL}/api/now/table/sys_flow_record_trigger").mock(
         return_value=httpx.Response(200, json={"result": []})
     )
-    async with ServiceNowClient(settings, BasicAuthProvider(settings)) as client:
+    async with ServiceNowClient(settings, OAuthPKCEProvider(settings)) as client:
         assert await client.list_v1_triggers_by_table("sc_task") == []
     assert len(respx.calls) == 1
 
@@ -49,7 +49,7 @@ async def test_non_json_flow_response_has_safe_context(settings: Settings, body:
     respx.get(f"{BASE_URL}{path}").mock(
         return_value=httpx.Response(200, content=body, headers={"Content-Type": "text/html"})
     )
-    async with ServiceNowClient(settings, BasicAuthProvider(settings)) as client:
+    async with ServiceNowClient(settings, OAuthPKCEProvider(settings)) as client:
         with pytest.raises(ServerError, match="Invalid JSON response") as exc:
             await client.list_action_instances_v2("a" * 32)
     message = str(exc.value)
@@ -74,7 +74,7 @@ async def test_filtered_triggers_use_version_specific_relations(
     v2 = respx.get(f"{BASE_URL}/api/now/table/sys_hub_trigger_instance_v2").mock(
         return_value=httpx.Response(200, json={"result": []})
     )
-    async with ServiceNowClient(settings, BasicAuthProvider(settings)) as client:
+    async with ServiceNowClient(settings, OAuthPKCEProvider(settings)) as client:
         assert await client.list_triggers_filtered(table="sc_task", trigger_type="record_update") == {
             "v1": [],
             "v2": [],
@@ -93,7 +93,7 @@ async def test_filtered_triggers_empty_join_does_not_scan(settings: Settings) ->
     respx.get(f"{BASE_URL}/api/now/table/sys_flow_record_trigger").mock(
         return_value=httpx.Response(200, json={"result": []})
     )
-    async with ServiceNowClient(settings, BasicAuthProvider(settings)) as client:
+    async with ServiceNowClient(settings, OAuthPKCEProvider(settings)) as client:
         assert await client.list_triggers_filtered(table="sc_task") == {
             "v1": [],
             "v2": [],

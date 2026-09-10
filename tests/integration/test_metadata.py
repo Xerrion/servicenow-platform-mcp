@@ -2,7 +2,7 @@
 
 import pytest
 
-from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
 
@@ -13,7 +13,7 @@ pytestmark = pytest.mark.integration
 class TestMetadata:
     """Test metadata discovery on a live instance."""
 
-    async def test_meta_list_artifacts(self, live_settings: Settings, live_auth: BasicAuthProvider) -> None:
+    async def test_meta_list_artifacts(self, live_settings: Settings, live_auth: OAuthPKCEProvider) -> None:
         """meta_list_artifacts: list business rules."""
         async with ServiceNowClient(live_settings, live_auth) as client:
             result = await client.query_records(
@@ -27,7 +27,7 @@ class TestMetadata:
     async def test_meta_get_artifact(
         self,
         live_settings: Settings,
-        live_auth: BasicAuthProvider,
+        live_auth: OAuthPKCEProvider,
         business_rule_sys_id: str | None,
     ) -> None:
         """meta_get_artifact: fetch a single business rule by sys_id."""
@@ -40,7 +40,7 @@ class TestMetadata:
         assert record["sys_id"] == business_rule_sys_id
         assert "script" in record
 
-    async def test_meta_find_references(self, live_settings: Settings, live_auth: BasicAuthProvider) -> None:
+    async def test_meta_find_references(self, live_settings: Settings, live_auth: OAuthPKCEProvider) -> None:
         """meta_find_references: search for business rules referencing 'incident'."""
         async with ServiceNowClient(live_settings, live_auth) as client:
             result = await client.query_records(
@@ -53,7 +53,7 @@ class TestMetadata:
         # There should be at least some BRs referencing "incident"
         assert isinstance(result["records"], list)
 
-    async def test_meta_what_writes(self, live_settings: Settings, live_auth: BasicAuthProvider) -> None:
+    async def test_meta_what_writes(self, live_settings: Settings, live_auth: OAuthPKCEProvider) -> None:
         """meta_what_writes: find business rules that write to the incident table."""
         async with ServiceNowClient(live_settings, live_auth) as client:
             result = await client.query_records(

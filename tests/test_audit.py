@@ -10,7 +10,7 @@ import pytest
 import respx
 from mcp.server import MCPServer
 
-from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.choices import ChoiceRegistry
 from servicenow_mcp.config import Settings
 from servicenow_mcp.tools._audit import attribute_has_no_audit
@@ -34,14 +34,14 @@ SYS_ID_RECORD = "a" * 32
 
 
 @pytest.fixture()
-def auth_provider(settings: Settings) -> BasicAuthProvider:
-    """BasicAuthProvider for the audit test scope."""
-    return BasicAuthProvider(settings)
+def auth_provider(settings: Settings) -> OAuthPKCEProvider:
+    """OAuthPKCEProvider for the audit test scope."""
+    return OAuthPKCEProvider(settings)
 
 
 def _register_and_get_tools(
     settings: Settings,
-    auth_provider: BasicAuthProvider,
+    auth_provider: OAuthPKCEProvider,
     choices: ChoiceRegistry | None = None,
     dictionary: DictionaryRegistry | None = None,
 ) -> dict[str, Any]:
@@ -166,7 +166,7 @@ def _make_stats_handler(
 @respx.mock
 async def test_describe_returns_action_registry_with_no_io(
     settings: Settings,
-    auth_provider: BasicAuthProvider,
+    auth_provider: OAuthPKCEProvider,
 ) -> None:
     """``describe`` returns the action registry without any HTTP I/O."""
     tools = _register_and_get_tools(settings, auth_provider)
@@ -188,7 +188,7 @@ async def test_describe_returns_action_registry_with_no_io(
 @pytest.mark.asyncio()
 async def test_unknown_action_returns_error(
     settings: Settings,
-    auth_provider: BasicAuthProvider,
+    auth_provider: OAuthPKCEProvider,
 ) -> None:
     """Actions outside the enum are rejected up-front."""
     tools = _register_and_get_tools(settings, auth_provider)
@@ -201,7 +201,7 @@ async def test_unknown_action_returns_error(
 @pytest.mark.asyncio()
 async def test_denied_table_rejected(
     settings: Settings,
-    auth_provider: BasicAuthProvider,
+    auth_provider: OAuthPKCEProvider,
 ) -> None:
     """check_table_access blocks deny-listed tables before any HTTP call."""
     tools = _register_and_get_tools(settings, auth_provider)
@@ -214,7 +214,7 @@ async def test_denied_table_rejected(
 @pytest.mark.asyncio()
 async def test_invalid_identifier_rejected(
     settings: Settings,
-    auth_provider: BasicAuthProvider,
+    auth_provider: OAuthPKCEProvider,
 ) -> None:
     """validate_identifier rejects malformed field names."""
     tools = _register_and_get_tools(settings, auth_provider)
@@ -249,7 +249,7 @@ def _wire_check_field_mocks(
 
 @pytest.mark.asyncio()
 @respx.mock
-async def test_verdict_audited(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+async def test_verdict_audited(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     """Field is audited at parent table, activity confirms it."""
     _wire_check_field_mocks(
         chain_parents={"incident": "task", "task": ""},
@@ -270,7 +270,7 @@ async def test_verdict_audited(settings: Settings, auth_provider: BasicAuthProvi
 
 @pytest.mark.asyncio()
 @respx.mock
-async def test_verdict_not_audited_field_flag(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+async def test_verdict_not_audited_field_flag(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     """Field audit=false (inherited from parent) wins over table audit=true."""
     _wire_check_field_mocks(
         chain_parents={"incident": "task", "task": ""},
@@ -289,7 +289,7 @@ async def test_verdict_not_audited_field_flag(settings: Settings, auth_provider:
 
 @pytest.mark.asyncio()
 @respx.mock
-async def test_verdict_not_audited_table_flag(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+async def test_verdict_not_audited_table_flag(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     """Table audit off short-circuits the verdict regardless of field config."""
     _wire_check_field_mocks(
         chain_parents={"incident": "task", "task": ""},
@@ -307,7 +307,7 @@ async def test_verdict_not_audited_table_flag(settings: Settings, auth_provider:
 
 @pytest.mark.asyncio()
 @respx.mock
-async def test_verdict_audited_but_inactive(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+async def test_verdict_audited_but_inactive(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     """Configured for audit, table has activity, field has none in window."""
     _wire_check_field_mocks(
         chain_parents={"incident": "task", "task": ""},
@@ -325,7 +325,7 @@ async def test_verdict_audited_but_inactive(settings: Settings, auth_provider: B
 
 @pytest.mark.asyncio()
 @respx.mock
-async def test_verdict_inconclusive_zero_table(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+async def test_verdict_inconclusive_zero_table(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     """Zero field rows AND zero table rows -> inconclusive (window uninformative)."""
     _wire_check_field_mocks(
         chain_parents={"incident": "task", "task": ""},
@@ -344,7 +344,7 @@ async def test_verdict_inconclusive_zero_table(settings: Settings, auth_provider
 
 @pytest.mark.asyncio()
 @respx.mock
-async def test_verdict_inconclusive_field_not_in_chain(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+async def test_verdict_inconclusive_field_not_in_chain(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     """Field row absent everywhere -> inconclusive with the dedicated explanation."""
     _wire_check_field_mocks(
         chain_parents={"incident": "task", "task": ""},
@@ -387,7 +387,7 @@ def test_attribute_has_no_audit_tolerates_trailing_whitespace() -> None:
 
 @pytest.mark.asyncio()
 @respx.mock
-async def test_no_audit_attribute_vetoes_audit_true(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+async def test_no_audit_attribute_vetoes_audit_true(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     """A row with audit=true AND no_audit=true resolves to not_audited_field_flag."""
     _wire_check_field_mocks(
         chain_parents={"incident": "task", "task": ""},
@@ -416,7 +416,7 @@ async def test_no_audit_attribute_vetoes_audit_true(settings: Settings, auth_pro
 
 @pytest.mark.asyncio()
 @respx.mock
-async def test_window_days_override_surfaces_in_response(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+async def test_window_days_override_surfaces_in_response(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     """A non-default window_days value is echoed back and triggers the warning note."""
     _wire_check_field_mocks(
         chain_parents={"incident": "task", "task": ""},
@@ -439,7 +439,7 @@ async def test_window_days_override_surfaces_in_response(settings: Settings, aut
 
 @pytest.mark.asyncio()
 @respx.mock
-async def test_check_fields_returns_per_field_verdicts(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+async def test_check_fields_returns_per_field_verdicts(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     """``check_fields`` returns one verdict per field and a single shared table_change_count."""
     respx.get(SYS_DB_URL).mock(
         side_effect=_make_sys_db_handler(
@@ -476,7 +476,7 @@ async def test_check_fields_returns_per_field_verdicts(settings: Settings, auth_
 
 
 @pytest.mark.asyncio()
-async def test_check_fields_rejects_empty_list(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+async def test_check_fields_rejects_empty_list(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     """An empty fields_csv list is rejected with a structured error."""
     tools = _register_and_get_tools(settings, auth_provider)
     raw = await tools["audit"](action="check_fields", table="incident", fields_csv="")
@@ -486,7 +486,7 @@ async def test_check_fields_rejects_empty_list(settings: Settings, auth_provider
 
 
 @pytest.mark.asyncio()
-async def test_check_fields_rejects_over_max(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+async def test_check_fields_rejects_over_max(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     """Requesting more than the configured max yields an error before any I/O."""
     tools = _register_and_get_tools(settings, auth_provider)
     fields_csv = ",".join(f"f{i}" for i in range(51))
@@ -503,7 +503,7 @@ async def test_check_fields_rejects_over_max(settings: Settings, auth_provider: 
 
 @pytest.mark.asyncio()
 @respx.mock
-async def test_check_table_lists_field_overrides(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+async def test_check_table_lists_field_overrides(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     """``check_table`` returns only fields whose flag differs from the table default."""
     respx.get(SYS_DB_URL).mock(
         side_effect=_make_sys_db_handler(
@@ -545,7 +545,7 @@ async def test_check_table_lists_field_overrides(settings: Settings, auth_provid
 
 @pytest.mark.asyncio()
 @respx.mock
-async def test_history_masks_sensitive_field_values(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+async def test_history_masks_sensitive_field_values(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     """sys_audit rows for sensitive fields have old/new values masked."""
 
     def _audit_handler(request: httpx.Request) -> httpx.Response:
@@ -591,7 +591,7 @@ async def test_history_masks_sensitive_field_values(settings: Settings, auth_pro
 
 
 @pytest.mark.asyncio()
-async def test_history_requires_sys_id(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+async def test_history_requires_sys_id(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     """``history`` rejects calls missing the record sys_id."""
     tools = _register_and_get_tools(settings, auth_provider)
     raw = await tools["audit"](action="history", table="incident")
@@ -602,7 +602,7 @@ async def test_history_requires_sys_id(settings: Settings, auth_provider: BasicA
 
 @pytest.mark.asyncio()
 @respx.mock
-async def test_history_explicit_since_overrides_window(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+async def test_history_explicit_since_overrides_window(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     """An explicit ``since`` value is honoured and surfaced via window_note."""
 
     def _audit_handler(request: httpx.Request) -> httpx.Response:
@@ -626,7 +626,7 @@ async def test_history_explicit_since_overrides_window(settings: Settings, auth_
 
 @pytest.mark.asyncio()
 @respx.mock
-async def test_flush_table_clears_field_config_cache(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+async def test_flush_table_clears_field_config_cache(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     """``flush('incident')`` makes a changed field configuration visible immediately."""
     from servicenow_mcp.tools._audit import AuditRegistry
 
@@ -665,7 +665,7 @@ async def test_flush_table_clears_field_config_cache(settings: Settings, auth_pr
 
 
 @pytest.mark.asyncio()
-async def test_field_config_hit_precedes_client_creation(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+async def test_field_config_hit_precedes_client_creation(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     """A fresh audit field hit does not ask its dictionary or client to load."""
     from typing import cast
     from unittest.mock import AsyncMock
@@ -698,7 +698,7 @@ async def test_field_config_hit_precedes_client_creation(settings: Settings, aut
 @respx.mock
 async def test_no_audit_veto_field_audit_false_and_check_table_agrees(
     settings: Settings,
-    auth_provider: BasicAuthProvider,
+    auth_provider: OAuthPKCEProvider,
 ) -> None:
     """``no_audit=true`` forces ``field_audit=false`` and check_field agrees with check_table.
 
@@ -756,7 +756,7 @@ async def test_no_audit_veto_field_audit_false_and_check_table_agrees(
 @respx.mock
 async def test_history_rejects_invalid_sys_id_without_io(
     settings: Settings,
-    auth_provider: BasicAuthProvider,
+    auth_provider: OAuthPKCEProvider,
 ) -> None:
     """Malformed sys_id on action='history' returns a structured error WITHOUT any HTTP I/O."""
     tools = _register_and_get_tools(settings, auth_provider)
@@ -773,7 +773,7 @@ async def test_history_rejects_invalid_sys_id_without_io(
 @respx.mock
 async def test_check_field_malformed_stats_count_returns_error(
     settings: Settings,
-    auth_provider: BasicAuthProvider,
+    auth_provider: OAuthPKCEProvider,
 ) -> None:
     """A non-integer stats.count must surface as an error envelope, not be silently coerced to 0."""
     respx.get(SYS_DB_URL).mock(

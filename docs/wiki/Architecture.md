@@ -39,7 +39,13 @@ The server entry point is `server.py`.
 
 ### Authentication
 
-Bootstrap selects the authentication provider from configuration. When `SERVICENOW_API_KEY` is set, requests use API-key authentication and include the key in the `x-sn-apikey` header. Otherwise, the server uses Basic Auth with `SERVICENOW_USERNAME` and `SERVICENOW_PASSWORD`. API-key configuration takes precedence over username and password when both are present.
+Bootstrap creates one `OAuthPKCEProvider` shared by all ServiceNow clients.
+Its first outbound call opens the local browser for public-client PKCE S256.
+`oauth_callback.py` owns the temporary IPv4 loopback receiver. Tokens stay in
+memory with a monotonic expiry; concurrent calls share authorization. Expiry
+requires a new browser flow. A rejected token is invalidated without replaying
+the API call. Legacy credentials are rejected and refresh tokens are not used.
+This changes outbound authentication only; MCP continues to use stdio.
 
 ### Registration Pattern
 
@@ -52,7 +58,7 @@ from mcp.server import MCPServer
 def register_tools(
     mcp: MCPServer,
     settings: Settings,
-    auth_provider: BasicAuthProvider,
+    auth_provider: OAuthPKCEProvider,
     choices: ChoiceRegistry | None = None,
     dictionary: DictionaryRegistry | None = None,
     client_factory: ServiceNowClientProvider | None = None,

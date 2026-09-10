@@ -23,7 +23,7 @@ from typing import Any, Final
 
 from mcp.server import MCPServer
 
-from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.choices import ChoiceRegistry
 from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
@@ -248,7 +248,7 @@ async def _action_check_field(
     field: str,
     window_days: int,
     settings: Settings,
-    auth_provider: BasicAuthProvider,
+    auth_provider: OAuthPKCEProvider,
     client_factory: ServiceNowClientProvider,
     registry: AuditRegistry,
     correlation_id: str,
@@ -294,7 +294,7 @@ async def _action_check_fields(
     fields_csv: str,
     window_days: int,
     settings: Settings,
-    auth_provider: BasicAuthProvider,
+    auth_provider: OAuthPKCEProvider,
     client_factory: ServiceNowClientProvider,
     registry: AuditRegistry,
     correlation_id: str,
@@ -430,7 +430,7 @@ async def _action_history(
     window_days: int,
     limit: int,
     settings: Settings,
-    auth_provider: BasicAuthProvider,
+    auth_provider: OAuthPKCEProvider,
     client_factory: ServiceNowClientProvider,
     correlation_id: str,
 ) -> str:
@@ -504,7 +504,7 @@ def _action_describe(correlation_id: str) -> str:
 def register_tools(
     mcp: MCPServer,
     settings: Settings,
-    auth_provider: BasicAuthProvider,
+    auth_provider: OAuthPKCEProvider,
     choices: ChoiceRegistry | None = None,
     dictionary: DictionaryRegistry | None = None,
     client_factory: ServiceNowClientProvider | None = None,

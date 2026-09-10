@@ -10,7 +10,7 @@ import httpx
 import pytest
 import respx
 
-from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.policy import DENIED_TABLES
 from servicenow_mcp.state import PreviewTokenStore
@@ -33,12 +33,12 @@ SYS_ID_INC001 = "a" * 32
 
 
 @pytest.fixture()
-def auth_provider(settings: Settings) -> BasicAuthProvider:
-    """BasicAuthProvider for the unified record_write test scope."""
-    return BasicAuthProvider(settings)
+def auth_provider(settings: Settings) -> OAuthPKCEProvider:
+    """OAuthPKCEProvider for the unified record_write test scope."""
+    return OAuthPKCEProvider(settings)
 
 
-def _register_and_get_tools(settings: Settings, auth_provider: BasicAuthProvider) -> dict[str, Any]:
+def _register_and_get_tools(settings: Settings, auth_provider: OAuthPKCEProvider) -> dict[str, Any]:
     """Register the unified record_write tools on a fresh MCP and return callables."""
     from mcp.server import MCPServer
 
@@ -61,7 +61,7 @@ class TestActionDispatch:
     """Cross-argument validation that runs before any HTTP call."""
 
     @pytest.mark.asyncio()
-    async def test_unknown_action_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    async def test_unknown_action_returns_error(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["record_write"](action="frobnicate", table="incident")
         result = decode_response(raw)
@@ -69,7 +69,7 @@ class TestActionDispatch:
         assert "frobnicate" in result["error"]["message"]
 
     @pytest.mark.asyncio()
-    async def test_create_action_requires_data(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    async def test_create_action_requires_data(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["record_write"](action="create", table="incident")
         result = decode_response(raw)
@@ -77,7 +77,7 @@ class TestActionDispatch:
         assert "data is required" in result["error"]["message"]
 
     @pytest.mark.asyncio()
-    async def test_create_with_sys_id_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    async def test_create_with_sys_id_returns_error(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["record_write"](
             action="create",
@@ -90,7 +90,7 @@ class TestActionDispatch:
         assert "sys_id must be empty" in result["error"]["message"]
 
     @pytest.mark.asyncio()
-    async def test_update_requires_sys_id_and_data(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    async def test_update_requires_sys_id_and_data(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
 
         raw = await tools["record_write"](action="update", table="incident", data=json.dumps({"state": "2"}))
@@ -100,7 +100,7 @@ class TestActionDispatch:
         assert decode_response(raw)["error"]["message"].startswith("data is required")
 
     @pytest.mark.asyncio()
-    async def test_delete_with_data_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    async def test_delete_with_data_returns_error(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["record_write"](
             action="delete",
@@ -113,7 +113,7 @@ class TestActionDispatch:
         assert "data must be empty" in result["error"]["message"]
 
     @pytest.mark.asyncio()
-    async def test_missing_table_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    async def test_missing_table_returns_error(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["record_write"](action="create", data=json.dumps({"x": 1}))
         result = decode_response(raw)
@@ -123,7 +123,7 @@ class TestActionDispatch:
     @pytest.mark.asyncio()
     @respx.mock
     async def test_oversized_data_payload_rejected_before_token_creation(
-        self, settings: Settings, auth_provider: BasicAuthProvider
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
         """Oversized JSON returns an error without allocating a preview token."""
         from servicenow_mcp.tools import record_write as record_write_module
@@ -165,7 +165,7 @@ class TestStandardRecordWrite:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_create_preview_returns_token(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    async def test_create_preview_returns_token(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         respx.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["record_write"](
@@ -183,7 +183,7 @@ class TestStandardRecordWrite:
     @pytest.mark.asyncio()
     @respx.mock
     async def test_create_direct_commits_immediately(
-        self, settings: Settings, auth_provider: BasicAuthProvider
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
         respx.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
         respx.post(f"{BASE_URL}/api/now/table/incident").mock(
@@ -206,7 +206,7 @@ class TestStandardRecordWrite:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_update_preview_includes_diff(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    async def test_update_preview_includes_diff(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         respx.get(f"{BASE_URL}/api/now/table/incident/{SYS_ID_INC001}").mock(
             return_value=httpx.Response(200, json={"result": {"sys_id": SYS_ID_INC001, "state": "1"}}),
         )
@@ -225,7 +225,7 @@ class TestStandardRecordWrite:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_delete_preview_stores_snapshot(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    async def test_delete_preview_stores_snapshot(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         respx.get(f"{BASE_URL}/api/now/table/incident/{SYS_ID_INC001}").mock(
             return_value=httpx.Response(
                 200,
@@ -248,7 +248,7 @@ class TestStandardRecordWrite:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_record_apply_consumes_token(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    async def test_record_apply_consumes_token(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         # Phase 1: preview create
         respx.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
         tools = _register_and_get_tools(settings, auth_provider)
@@ -277,7 +277,7 @@ class TestStandardRecordWrite:
 
     @pytest.mark.asyncio()
     async def test_record_apply_unknown_token_returns_error(
-        self, settings: Settings, auth_provider: BasicAuthProvider
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["record_apply"](preview_token="not-a-real-token")
@@ -292,7 +292,7 @@ class TestMandatoryFieldValues:
     @pytest.mark.parametrize("preview", [True, False])
     @respx.mock
     async def test_false_and_zero_are_supplied(
-        self, settings: Settings, auth_provider: BasicAuthProvider, preview: bool
+        self, settings: Settings, auth_provider: OAuthPKCEProvider, preview: bool
     ) -> None:
         payload = {"active": False, "order": 0}
         respx.get(METADATA_URL).respond(
@@ -322,7 +322,7 @@ class TestMandatoryFieldValues:
     @pytest.mark.parametrize("payload", [{}, {"name": None}, {"name": ""}], ids=["absent", "null", "empty"])
     @respx.mock
     async def test_missing_values_block_create(
-        self, settings: Settings, auth_provider: BasicAuthProvider, preview: bool, payload: dict[str, Any]
+        self, settings: Settings, auth_provider: OAuthPKCEProvider, preview: bool, payload: dict[str, Any]
     ) -> None:
         respx.get(METADATA_URL).respond(200, json={"result": [{"element": "name", "mandatory": "true"}]})
         tools = _register_and_get_tools(settings, auth_provider)
@@ -345,7 +345,7 @@ class TestInheritedMandatoryFields:
     @pytest.mark.parametrize("child_mandatory", [None, "false", "true"])
     @respx.mock
     async def test_inherited_mandatory_and_child_overrides(
-        self, settings: Settings, auth_provider: BasicAuthProvider, preview: bool, child_mandatory: str | None
+        self, settings: Settings, auth_provider: OAuthPKCEProvider, preview: bool, child_mandatory: str | None
     ) -> None:
         from mcp.server import MCPServer
 
@@ -393,7 +393,7 @@ class TestInheritedMandatoryFields:
     @pytest.mark.parametrize("status_code", [401, 403, 404, 500])
     @respx.mock
     async def test_parent_metadata_error_blocks_create(
-        self, settings: Settings, auth_provider: BasicAuthProvider, preview: bool, status_code: int
+        self, settings: Settings, auth_provider: OAuthPKCEProvider, preview: bool, status_code: int
     ) -> None:
         from mcp.server import MCPServer
 
@@ -424,7 +424,7 @@ class TestInheritedMandatoryFields:
 
     @respx.mock
     async def test_apply_rechecks_inherited_mandatory_fields(
-        self, settings: Settings, auth_provider: BasicAuthProvider
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
         from mcp.server import MCPServer
 
@@ -465,7 +465,7 @@ class TestPolicyGates:
     """Defense-in-depth checks: denied tables, prod env, sys_id format."""
 
     @pytest.mark.asyncio()
-    async def test_denied_table_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    async def test_denied_table_returns_error(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         denied = next(iter(DENIED_TABLES))
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["record_write"](
@@ -478,7 +478,7 @@ class TestPolicyGates:
 
     @pytest.mark.asyncio()
     async def test_production_blocks_writes_with_proper_settings(
-        self, prod_settings: Settings, prod_auth_provider: BasicAuthProvider
+        self, prod_settings: Settings, prod_auth_provider: OAuthPKCEProvider
     ) -> None:
         tools = _register_and_get_tools(prod_settings, prod_auth_provider)
         raw = await tools["record_write"](
@@ -492,7 +492,7 @@ class TestPolicyGates:
 
     @pytest.mark.asyncio()
     async def test_invalid_sys_id_format_returns_error(
-        self, settings: Settings, auth_provider: BasicAuthProvider
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["record_write"](

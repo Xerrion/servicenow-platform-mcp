@@ -3,6 +3,7 @@
 import math
 from functools import cached_property
 from typing import ClassVar
+from urllib.parse import urlsplit
 
 from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -18,6 +19,10 @@ class Settings(BaseSettings):
     servicenow_username: str = ""
     servicenow_password: SecretStr = SecretStr("")
     servicenow_api_key: SecretStr = SecretStr("")
+    servicenow_oauth_client_id: str
+    servicenow_oauth_scope: str
+    servicenow_oauth_redirect_uri: str = "http://127.0.0.1:8765/oauth/callback"
+    servicenow_oauth_timeout_seconds: int = 180
     mcp_tool_package: str = "full"
     servicenow_env: str = "dev"
     max_row_limit: int = 100
@@ -33,26 +38,82 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         env_prefix="",
         extra="ignore",
+        hide_input_in_errors=True,
     )
 
     @field_validator("servicenow_instance_url")
     @classmethod
     def strip_trailing_slash(cls, v: str) -> str:
         """Strip trailing slash and validate HTTPS scheme."""
-        if not v.startswith("https://"):
-            raise ValueError("servicenow_instance_url must start with https://")
+        try:
+            url = urlsplit(v)
+            port = url.port
+        except ValueError:
+            raise ValueError("Invalid ServiceNow HTTPS origin") from None
+        if (
+            url.scheme != "https"
+            or not url.hostname
+            or url.username is not None
+            or url.password is not None
+            or url.path not in {"", "/"}
+            or url.query
+            or url.fragment
+            or any(char.isspace() for char in v)
+            or (port is not None and port == 0)
+        ):
+            raise ValueError("servicenow_instance_url must be an https:// origin without credentials, path or query")
         return v.rstrip("/")
 
     @model_validator(mode="after")
     def validate_auth_credentials(self) -> "Settings":
-        """Require Basic credentials unless a usable API key is configured."""
-        if self.servicenow_api_key.get_secret_value().strip():
-            return self
-        if not self.servicenow_username or not self.servicenow_password.get_secret_value():
+        """Reject legacy credentials instead of silently falling back from OAuth."""
+        if (
+            self.servicenow_api_key.get_secret_value()
+            or self.servicenow_username
+            or self.servicenow_password.get_secret_value()
+        ):
             raise ValueError(
-                "servicenow_username and servicenow_password are required when servicenow_api_key is empty"
+                "Basic Auth and API keys are no longer supported. Remove SERVICENOW_USERNAME, "
+                "SERVICENOW_PASSWORD and SERVICENOW_API_KEY; configure ServiceNow OAuth PKCE."
             )
         return self
+
+    @field_validator("servicenow_oauth_client_id", "servicenow_oauth_scope")
+    @classmethod
+    def validate_oauth_text(cls, v: str) -> str:
+        """Require explicit, printable OAuth client and scope configuration."""
+        if not v.strip() or not v.isascii() or any(ord(char) < 32 or ord(char) == 127 for char in v):
+            raise ValueError("OAuth client ID and scope must be non-empty printable ASCII")
+        if "offline_access" in v.split():
+            raise ValueError("offline_access is not supported; use fresh PKCE authorization on expiry")
+        return v.strip()
+
+    @field_validator("servicenow_oauth_redirect_uri")
+    @classmethod
+    def validate_oauth_redirect(cls, v: str) -> str:
+        """Accept only the fixed callback path on an explicit IPv4 loopback port."""
+        try:
+            url = urlsplit(v)
+            port = url.port
+        except ValueError:
+            raise ValueError("Invalid OAuth loopback redirect URI") from None
+        if (
+            url.scheme != "http"
+            or url.hostname != "127.0.0.1"
+            or port is None
+            or not 1024 <= port <= 65535
+            or v != f"http://127.0.0.1:{port}/oauth/callback"
+        ):
+            raise ValueError("OAuth redirect URI must be http://127.0.0.1:<port>/oauth/callback (port 1024-65535)")
+        return v
+
+    @field_validator("servicenow_oauth_timeout_seconds")
+    @classmethod
+    def validate_oauth_timeout(cls, v: int) -> int:
+        """Bound the interactive authorization wait."""
+        if not 1 <= v <= 600:
+            raise ValueError("OAuth timeout must be between 1 and 600 seconds")
+        return v
 
     @field_validator("max_row_limit")
     @classmethod

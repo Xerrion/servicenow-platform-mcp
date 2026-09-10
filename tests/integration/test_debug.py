@@ -2,7 +2,7 @@
 
 import pytest
 
-from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
 
@@ -16,7 +16,7 @@ class TestDebug:
     async def test_debug_trace(
         self,
         live_settings: Settings,
-        live_auth: BasicAuthProvider,
+        live_auth: OAuthPKCEProvider,
         incident_sys_id: str | None,
     ) -> None:
         """Build a merged timeline from sys_audit and sys_journal_field."""
@@ -42,7 +42,7 @@ class TestDebug:
         assert isinstance(audit_r["records"], list)
         assert isinstance(journal_r["records"], list)
 
-    async def test_debug_integration_health(self, live_settings: Settings, live_auth: BasicAuthProvider) -> None:
+    async def test_debug_integration_health(self, live_settings: Settings, live_auth: OAuthPKCEProvider) -> None:
         """Query ecc_queue for error entries."""
         async with ServiceNowClient(live_settings, live_auth) as client:
             ecc_result = await client.query_records(
@@ -63,7 +63,7 @@ class TestDebug:
     async def test_debug_field_mutation_story(
         self,
         live_settings: Settings,
-        live_auth: BasicAuthProvider,
+        live_auth: OAuthPKCEProvider,
         incident_sys_id: str | None,
     ) -> None:
         """Trace the mutation history of the 'state' field on an incident."""

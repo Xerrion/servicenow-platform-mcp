@@ -110,10 +110,11 @@ process with another working directory will not read the files you expect.
 
 | Environment variable | Required | Default | Valid range or values | Purpose |
 | --- | --- | --- | --- | --- |
-| `SERVICENOW_INSTANCE_URL` | Yes | None | Must start with lowercase `https://` | ServiceNow instance base URL. Trailing `/` characters are removed. |
-| `SERVICENOW_API_KEY` | Conditional | Empty | Must contain a non-whitespace character when used | API-key authentication. Takes precedence over Basic Auth. |
-| `SERVICENOW_USERNAME` | Conditional | Empty | Required when API key is empty | Basic Auth username. |
-| `SERVICENOW_PASSWORD` | Conditional | Empty | Required when API key is empty | Basic Auth password. |
+| `SERVICENOW_INSTANCE_URL` | Yes | None | HTTPS origin, without credentials, path, query or fragment | ServiceNow instance. One trailing slash is removed. |
+| `SERVICENOW_OAUTH_CLIENT_ID` | Yes | None | Non-empty public client ID | ServiceNow OAuth application. |
+| `SERVICENOW_OAUTH_SCOPE` | Yes | None | Space-separated configured scopes; no `offline_access` | Requested ServiceNow access. |
+| `SERVICENOW_OAUTH_REDIRECT_URI` | No | `http://127.0.0.1:8765/oauth/callback` | Exact path; explicit port `1024`-`65535` | Registered loopback callback. |
+| `SERVICENOW_OAUTH_TIMEOUT_SECONDS` | No | `180` | `1`-`600` | Browser authorization timeout. |
 | `MCP_TOOL_PACKAGE` | No | `full` | Preset or comma-separated groups | Selects loaded tool groups. |
 | `SERVICENOW_ENV` | No | `dev` | Any string; `prod` and `production` block writes | Local environment label and write policy input. |
 | `MAX_ROW_LIMIT` | No | `100` | `1`-`10000` | Maximum row count for bounded generic and query-oriented tool paths that use this setting. It is not a universal response or egress cap. |
@@ -123,20 +124,46 @@ process with another working directory will not read the files you expect.
 | `SENTRY_DSN` | No | Empty | String accepted by the Sentry SDK as a DSN | Enables optional Sentry error reporting. |
 | `SENTRY_ENVIRONMENT` | No | Empty | Any string | Sentry environment; empty uses `SERVICENOW_ENV`. |
 
-The instance URL and usable authentication settings are validated at startup,
-even when no selected tool will perform a request. URL validation requires the
-literal `https://` prefix; use a complete instance base URL such as
-`https://your-instance.service-now.com`. Authentication validation requires
-either a usable API key or both a username and password.
+The normal authentication path is outbound OAuth 2.0 authorization-code PKCE
+with S256. Basic Auth and API keys are not supported. Remove
+`SERVICENOW_API_KEY`, `SERVICENOW_USERNAME`, and `SERVICENOW_PASSWORD` from the
+process environment and dotenv files. Non-empty legacy values fail startup;
+there is no fallback. The instance and OAuth settings are validated at startup,
+including for packages that do not make ServiceNow requests.
 
-For API-key authentication, configure a key placeholder only. The server sends
-the exact `x-sn-apikey` header. It does not send an `Authorization` header in
-this mode. If the API key is empty, the server sends HTTP Basic Auth from the
-username and password.
+**External ServiceNow setup:** Ask your administrator to configure a public OAuth
+client that supports authorization-code PKCE S256 without a client secret.
+Register the exact `SERVICENOW_OAUTH_REDIRECT_URI`, enable the needed scopes,
+and use a user with the required roles and Table API ACL access. Confirm that
+the instance permits the registered HTTP loopback URI. The endpoints are
+`/oauth_auth.do` and `/oauth_token.do` on the configured HTTPS instance.
 
-Never place a real key or password in this README, a committed configuration
-file, or a log. Restart the full server process after changing environment
-variables. Settings are loaded at startup.
+The first outbound request opens the default browser. The browser and stdio
+process must run on the **same machine**. A temporary listener binds only
+`127.0.0.1` on the configured port before the browser opens. It validates the
+callback path, Host and single-use state, then exchanges the code using the
+PKCE verifier. It closes after success, denial, timeout, or cancellation.
+This listener is not an MCP HTTP transport. Remote-browser, headless, and
+container-to-host callback arrangements are not supported by this phase.
+
+Access tokens stay in process memory and are sent as `Authorization: Bearer`.
+Concurrent requests share an authorization flow. Tokens require a positive
+`expires_in`; expiry uses a monotonic clock with a safety margin. The next
+outbound request after expiry opens a fresh authorization flow. A ServiceNow
+401 discards the rejected token and returns an authentication error, without
+replaying the API call. Retry that call to authorize again. A process restart
+also requires authorization. Refresh tokens are not requested, stored, or used;
+public-client refresh support is not assumed.
+
+Allow the MCP client enough tool-call time for user authorization. If the
+browser cannot open, consent is denied, or authorization times out, the tool
+returns the existing error envelope. Retry after correcting the cause. For a
+port conflict, close the other listener or configure and register another port.
+Do not copy callback URLs, codes, verifiers, or tokens into logs or configuration.
+Restart the process after changing settings. Sentry stack-local capture is
+disabled so OAuth material in local variables is not exported. Sentry's stdlib
+integration is disabled because browser-launch subprocess arguments contain
+the authorization URL and state.
 
 ## MCP client configuration
 
@@ -144,7 +171,7 @@ MCP clients normally start the command below and communicate over stdio. The
 following generic shape avoids client-specific fields. Use the equivalent
 stdio configuration fields supported by your client.
 
-API key variant:
+Public-client PKCE:
 
 ```json
 {
@@ -152,22 +179,8 @@ API key variant:
   "args": ["run", "servicenow-platform-mcp"],
   "env": {
     "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-    "SERVICENOW_API_KEY": "${SERVICENOW_API_KEY}",
-    "MCP_TOOL_PACKAGE": "readonly"
-  }
-}
-```
-
-Basic Auth variant:
-
-```json
-{
-  "command": "uv",
-  "args": ["run", "servicenow-platform-mcp"],
-  "env": {
-    "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-    "SERVICENOW_USERNAME": "${SERVICENOW_USERNAME}",
-    "SERVICENOW_PASSWORD": "${SERVICENOW_PASSWORD}",
+    "SERVICENOW_OAUTH_CLIENT_ID": "${SERVICENOW_OAUTH_CLIENT_ID}",
+    "SERVICENOW_OAUTH_SCOPE": "${SERVICENOW_OAUTH_SCOPE}",
     "MCP_TOOL_PACKAGE": "readonly"
   }
 }
@@ -462,8 +475,8 @@ Package selection is not a replacement for ServiceNow authorization.
 
 ## ServiceNow permissions
 
-Authentication and authorization are separate controls. An API key must be
-permitted to use the required REST API resources. Table ACLs and field ACLs
+Authentication and authorization are separate controls. The OAuth grant and
+user must permit the required REST API resources. Table ACLs and field ACLs
 then control the records and fields that those resources can return or change.
 
 The registered tools use these ServiceNow APIs and resources as applicable.
@@ -483,7 +496,7 @@ the selected tools. For writes, add only the POST, PATCH, and DELETE resource
 permissions needed by the selected Table, Attachment, and Service Catalog
 actions. The client retains methods for some APIs that no registered tool
 uses; those endpoints are not required for the tool surface documented here.
-The exact API-key REST-resource policy depends on the instance and must be
+The exact OAuth and REST-resource policy depends on the instance and must be
 configured in ServiceNow.
 
 Analysis needs Table API access and applicable read ACLs for `sc_req_item`,
@@ -604,11 +617,10 @@ exceptions are captured before the error envelope is returned.
 - **Missing instance URL:** set `SERVICENOW_INSTANCE_URL` to a full HTTPS URL.
   Startup validation errors list setting names and constraints without input
   values.
-- **401 `User Not Authenticated`:** verify the API key or Basic Auth values,
-  the exact instance URL, and the authentication policy on the instance. API
-  key mode uses `x-sn-apikey`.
-- **API key policy failure:** check API-key REST-resource permissions. A valid
-  key does not automatically grant table or field access.
+- **401 `User Not Authenticated`:** retry the tool call for fresh browser
+  authorization. Check the instance URL and public-client OAuth configuration.
+- **OAuth policy failure:** check the configured scopes and REST-resource
+  permissions. An access token does not automatically grant table or field access.
 - **Table or field denial:** check the target table ACL and field ACL. The
   selected MCP package only controls which tools are exposed.
 - **Changed environment values have no effect:** restart the full MCP process.
@@ -628,8 +640,8 @@ uv run mypy src/
 uv build
 ```
 
-Integration tests use a live instance and require credentials in `.env.local`.
-Do not use production credentials for tests.
+Integration tests use a live instance and require OAuth client settings in
+`.env.local`, plus interactive browser authorization. Do not use production for tests.
 
 Source uses a `src/servicenow_mcp/` layout. Tool groups live in
 `src/servicenow_mcp/tools/`. Tests live in `tests/` and use `pytest`,
@@ -650,12 +662,12 @@ excludes tests marked `integration`.
   compiled snapshots.
 - Attachment content is not classified by MCP. Treat downloaded content as
   untrusted.
-- ServiceNow instance configuration, API-key resource policy, ACLs, and row
+- ServiceNow instance configuration, OAuth resource policy, ACLs, and row
   visibility can limit results beyond the local tool limits.
 
 ## Security
 
-Use least-privilege API keys and ServiceNow ACLs. Expose only the tool groups
+Use least-privilege OAuth scopes, user roles, and ServiceNow ACLs. Expose only the tool groups
 that operators need. Prefer `readonly` or a smaller custom package for read
 workflows. Keep write operations in a non-production environment until they
 are understood and tested.

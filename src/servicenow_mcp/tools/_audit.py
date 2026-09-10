@@ -20,7 +20,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, ClassVar, Final
 
-from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.metadata_cache import AsyncMetadataCache
@@ -156,13 +156,13 @@ class AuditRegistry:
     _TABLE_FIELDS: ClassVar[list[str]] = ["name", "sys_audit"]
 
     _settings: Settings
-    _auth_provider: BasicAuthProvider
+    _auth_provider: OAuthPKCEProvider
     _dictionary: DictionaryRegistry
 
     def __init__(
         self,
         settings: Settings,
-        auth_provider: BasicAuthProvider,
+        auth_provider: OAuthPKCEProvider,
         dictionary: DictionaryRegistry,
         client_factory: ServiceNowClientProvider | None = None,
         telemetry: HttpTelemetry | None = None,

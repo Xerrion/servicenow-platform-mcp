@@ -39,8 +39,8 @@ The `.env.local` file needs at minimum:
 
 ```bash
 SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com
-SERVICENOW_USERNAME=admin
-SERVICENOW_PASSWORD=your-password
+SERVICENOW_OAUTH_CLIENT_ID=your-public-client-id
+SERVICENOW_OAUTH_SCOPE=your-configured-scope
 ```
 
 No build step is required for development. The server runs directly from source via `uv run servicenow-platform-mcp`.
@@ -218,7 +218,7 @@ Defined in `tests/conftest.py`:
 | `_disable_sentry_capture` | autouse | Resets Sentry `_initialized` flag to prevent real captures during tests |
 | `settings` | per-test | Dev environment settings (`SERVICENOW_ENV=dev`) |
 | `prod_settings` | per-test | Production environment settings (`SERVICENOW_ENV=prod`) |
-| `prod_auth_provider` | per-test | `BasicAuthProvider` from production settings |
+| `prod_auth_provider` | per-test | `OAuthPKCEProvider` from production settings |
 
 All fixtures construct `Settings(_env_file=None)` with `patch.dict("os.environ", ...)` to avoid loading real env files.
 

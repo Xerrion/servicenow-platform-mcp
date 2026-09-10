@@ -39,23 +39,21 @@ considerations described above.
 
 ## 2. Configure authentication
 
-`SERVICENOW_INSTANCE_URL` is required. It must start with lowercase
-`https://`, for example `https://your-instance.service-now.com`. Trailing `/`
-characters are removed at startup.
+`SERVICENOW_INSTANCE_URL` is required. Use an HTTPS origin, for example
+`https://your-instance.service-now.com`, without credentials, path, query, or
+fragment. One trailing slash is removed at startup.
 
-Use exactly one authentication mode:
+Use a ServiceNow public OAuth client with authorization-code PKCE S256.
+Set `SERVICENOW_OAUTH_CLIENT_ID` and `SERVICENOW_OAUTH_SCOPE`. Register the exact
+redirect URI, default `http://127.0.0.1:8765/oauth/callback`, on that application.
+The first outbound request opens the local browser. The browser and stdio
+process must be on the same machine. The temporary loopback receiver is not
+an MCP HTTP transport. See [authentication setup](README.md#configuration-and-authentication).
 
-- **API key:** Set `SERVICENOW_API_KEY`. The server sends the exact
-  `x-sn-apikey` header. A usable API key takes precedence over Basic Auth.
-- **Basic Auth:** If the API key is empty, set both `SERVICENOW_USERNAME` and
-  `SERVICENOW_PASSWORD`. The server sends HTTP Basic Auth.
-
-When an API key is usable, username and password are not required and the
-server does not send an `Authorization` header. Do not configure both modes as
-if they were combined. Keep credentials in the MCP client's environment,
-environment-variable forwarding, or a secret store. Do not put real secrets
-in source-controlled workspace configuration, `.env` files committed to the
-repository, or logs.
+Remove `SERVICENOW_API_KEY`, `SERVICENOW_USERNAME`, and `SERVICENOW_PASSWORD`.
+Non-empty legacy credentials fail startup. There is no Basic Auth or API-key
+fallback and no client secret. Tokens stay in memory; expiry requires a fresh
+browser flow. Refresh tokens are not used. Never log or persist OAuth material.
 
 Settings load at startup. Restart the full MCP server process after any
 environment or dotenv change.
@@ -99,26 +97,10 @@ The following examples use placeholders. `${...}` expansion depends on the
 MCP client. Prefer the client's documented environment forwarding or a secret
 store. Do not replace placeholders with secrets in a committed file.
 
-The API-key and Basic Auth examples below run from a local source checkout.
-They require `uv sync` first and set `cwd` to that checkout.
+The PKCE example below runs from a local source checkout.
+It requires `uv sync` first and sets `cwd` to that checkout.
 
-### API key
-
-```json
-{
-  "command": "uv",
-  "args": ["run", "servicenow-platform-mcp"],
-  "cwd": "/path/to/servicenow-platform-mcp",
-  "env": {
-    "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-    "SERVICENOW_API_KEY": "${SERVICENOW_API_KEY}",
-    "MCP_TOOL_PACKAGE": "readonly",
-    "SERVICENOW_ENV": "prod"
-  }
-}
-```
-
-### Basic Auth
+### Public-client PKCE
 
 ```json
 {
@@ -127,8 +109,8 @@ They require `uv sync` first and set `cwd` to that checkout.
   "cwd": "/path/to/servicenow-platform-mcp",
   "env": {
     "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-    "SERVICENOW_USERNAME": "${SERVICENOW_USERNAME}",
-    "SERVICENOW_PASSWORD": "${SERVICENOW_PASSWORD}",
+    "SERVICENOW_OAUTH_CLIENT_ID": "${SERVICENOW_OAUTH_CLIENT_ID}",
+    "SERVICENOW_OAUTH_SCOPE": "${SERVICENOW_OAUTH_SCOPE}",
     "MCP_TOOL_PACKAGE": "readonly",
     "SERVICENOW_ENV": "prod"
   }
@@ -152,7 +134,8 @@ console entry point without a source checkout:
   "args": ["servicenow-platform-mcp"],
   "env": {
     "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-    "SERVICENOW_API_KEY": "${SERVICENOW_API_KEY}",
+    "SERVICENOW_OAUTH_CLIENT_ID": "${SERVICENOW_OAUTH_CLIENT_ID}",
+    "SERVICENOW_OAUTH_SCOPE": "${SERVICENOW_OAUTH_SCOPE}",
     "MCP_TOOL_PACKAGE": "readonly",
     "SERVICENOW_ENV": "prod"
   }
@@ -172,10 +155,11 @@ environment variables override both.
 
 | Variable | Required | Default | Range or values | Purpose |
 | --- | --- | --- | --- | --- |
-| `SERVICENOW_INSTANCE_URL` | Yes | None | Must start with lowercase `https://` | ServiceNow instance base URL. Trailing `/` characters are removed. |
-| `SERVICENOW_API_KEY` | Conditional | Empty | Must contain a non-whitespace character when used | API-key authentication. Takes precedence over Basic Auth. |
-| `SERVICENOW_USERNAME` | Conditional | Empty | Required when the API key is empty | Basic Auth username. |
-| `SERVICENOW_PASSWORD` | Conditional | Empty | Required when the API key is empty | Basic Auth password. |
+| `SERVICENOW_INSTANCE_URL` | Yes | None | HTTPS origin without credentials, path, query, or fragment | ServiceNow instance. One trailing slash is removed. |
+| `SERVICENOW_OAUTH_CLIENT_ID` | Yes | None | Public client ID | ServiceNow OAuth application. |
+| `SERVICENOW_OAUTH_SCOPE` | Yes | None | Configured scopes; no `offline_access` | Requested access. |
+| `SERVICENOW_OAUTH_REDIRECT_URI` | No | `http://127.0.0.1:8765/oauth/callback` | Exact path, port `1024`-`65535` | Registered loopback URI. |
+| `SERVICENOW_OAUTH_TIMEOUT_SECONDS` | No | `180` | `1`-`600` | Authorization wait in seconds. |
 | `MCP_TOOL_PACKAGE` | No | `full` | Preset or comma-separated groups | Selects loaded tool groups. |
 | `SERVICENOW_ENV` | No | `dev` | Any string | `prod` and `production` block writes. |
 | `MAX_ROW_LIMIT` | No | `100` | `1`-`10000` | Cap for bounded generic and query-oriented paths that use it. Not a global response cap. |
@@ -256,7 +240,7 @@ history returned by `audit(action="history")`.
 ## 7. ServiceNow permissions
 
 Authentication, API-resource policy, and table or field ACLs are separate
-controls. A valid API key does not grant table access.
+controls. A valid OAuth access token does not grant table access.
 
 The baseline read-only API families are the Table API, Attachment API, and
 Aggregate API (Stats). The `core_readonly` package uses Table and Attachment;
@@ -324,10 +308,10 @@ Use the following checks for common failures:
 - **Startup says the instance URL is missing:** set
   `SERVICENOW_INSTANCE_URL` to a complete lowercase-HTTPS instance URL. Check
   the MCP client's environment and working directory.
-- **401 or `User Not Authenticated`:** check the exact instance URL, the API
-  key or both Basic Auth values, the instance authentication policy, and that
-  API-key mode uses `x-sn-apikey`. Restart after changes.
-- **API key is valid but a request is denied:** check the API-key REST-resource
+- **401 or `User Not Authenticated`:** retry for fresh browser authorization.
+  Check the exact instance URL, public-client configuration, and registered
+  redirect URI. Restart after configuration changes.
+- **OAuth token is valid but a request is denied:** check OAuth scopes and REST-resource
   policy. This is distinct from table and field ACL denial.
 - **A table or field is denied:** check its ServiceNow row and field ACLs. The
   selected MCP package only controls tool exposure.

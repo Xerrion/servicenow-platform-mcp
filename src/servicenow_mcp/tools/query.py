@@ -18,7 +18,7 @@ from typing import Final
 
 from mcp.server import MCPServer
 
-from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.choices import ChoiceRegistry
 from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
@@ -380,7 +380,7 @@ async def _run_sys_id_mode(
     fields: str,
     display_values: bool,
     settings: Settings,
-    auth_provider: BasicAuthProvider,
+    auth_provider: OAuthPKCEProvider,
     client_factory: ServiceNowClientProvider,
     correlation_id: str,
 ) -> str:
@@ -410,7 +410,7 @@ async def _run_aggregate_mode(
     plan: _AggregatePlan,
     group_by: str,
     settings: Settings,
-    auth_provider: BasicAuthProvider,
+    auth_provider: OAuthPKCEProvider,
     client_factory: ServiceNowClientProvider,
     correlation_id: str,
     warnings: list[str],
@@ -443,7 +443,7 @@ async def _run_query_mode(
     order_by: str,
     display_values: bool,
     settings: Settings,
-    auth_provider: BasicAuthProvider,
+    auth_provider: OAuthPKCEProvider,
     client_factory: ServiceNowClientProvider,
     correlation_id: str,
     warnings: list[str],
@@ -584,7 +584,7 @@ def _validate_aggregate_block(aggregate: str, correlation_id: str) -> _Aggregate
 def register_tools(
     mcp: MCPServer,
     settings: Settings,
-    auth_provider: BasicAuthProvider,
+    auth_provider: OAuthPKCEProvider,
     choices: ChoiceRegistry | None = None,
     dictionary: DictionaryRegistry | None = None,
     client_factory: ServiceNowClientProvider | None = None,

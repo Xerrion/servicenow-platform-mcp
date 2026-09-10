@@ -54,8 +54,8 @@ uvx servicenow-platform-mcp
 
 ```bash
 SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com
-SERVICENOW_USERNAME=admin
-SERVICENOW_PASSWORD=your-password
+SERVICENOW_OAUTH_CLIENT_ID=your-public-client-id
+SERVICENOW_OAUTH_SCOPE=your-configured-scope
 ```
 
 **3. Configure your MCP client** to launch the server with those environment variables.

@@ -8,7 +8,7 @@ import httpx
 import pytest
 import respx
 
-from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.config import Settings
 from tests.helpers import decode_response, get_registered_tools, get_tool_functions
 
@@ -19,12 +19,12 @@ TABLES_URL = f"{BASE_URL}/api/sn_codesearch/code_search/tables"
 
 
 @pytest.fixture()
-def auth_provider(settings: Settings) -> BasicAuthProvider:
-    """BasicAuthProvider for the code_search tool test scope."""
-    return BasicAuthProvider(settings)
+def auth_provider(settings: Settings) -> OAuthPKCEProvider:
+    """OAuthPKCEProvider for the code_search tool test scope."""
+    return OAuthPKCEProvider(settings)
 
 
-def _register_and_get_tools(settings: Settings, auth_provider: BasicAuthProvider) -> dict[str, Any]:
+def _register_and_get_tools(settings: Settings, auth_provider: OAuthPKCEProvider) -> dict[str, Any]:
     """Register the unified ``code_search`` tool on a fresh MCP and return callables."""
     from mcp.server import MCPServer
 
@@ -39,7 +39,7 @@ class TestCodeSearch:
     """Code Search schema, requests, and input validation."""
 
     async def test_schema_exposes_agent_callable_parameters(
-        self, settings: Settings, auth_provider: BasicAuthProvider
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
         """The MCP schema exposes callable inputs and hides injected correlation_id."""
         from mcp.server import MCPServer
@@ -61,7 +61,7 @@ class TestCodeSearch:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_search_calls_code_search_api(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    async def test_search_calls_code_search_api(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """Search action calls the ServiceNow Code Search API."""
         route = respx.get(SEARCH_URL).mock(
             return_value=httpx.Response(
@@ -97,7 +97,7 @@ class TestCodeSearch:
     @pytest.mark.parametrize("extended_matching", [False, True])
     @respx.mock
     async def test_search_context_opt_in_preserves_platform_metadata(
-        self, settings: Settings, auth_provider: BasicAuthProvider, extended_matching: bool
+        self, settings: Settings, auth_provider: OAuthPKCEProvider, extended_matching: bool
     ) -> None:
         """Context is opt-in; limit metadata and platform completeness signals survive."""
         settings.max_row_limit = 5
@@ -120,7 +120,7 @@ class TestCodeSearch:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_search_passes_search_group(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    async def test_search_passes_search_group(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """Search action forwards an optional Code Search group."""
         route = respx.get(SEARCH_URL).mock(return_value=httpx.Response(200, json={"result": {}}))
 
@@ -137,7 +137,7 @@ class TestCodeSearch:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_list_tables_calls_tables_api(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    async def test_list_tables_calls_tables_api(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """list_tables action calls the Code Search tables endpoint."""
         route = respx.get(TABLES_URL).mock(
             return_value=httpx.Response(
@@ -156,7 +156,7 @@ class TestCodeSearch:
         assert route.calls.last.request.url.params["search_group"] == "sn_codesearch.Default Search Group"
 
     @pytest.mark.asyncio()
-    async def test_describe_returns_action_registry(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    async def test_describe_returns_action_registry(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """describe action returns the local action registry without platform I/O."""
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["code_search"](action="describe")
@@ -166,7 +166,7 @@ class TestCodeSearch:
         assert set(result["data"]["actions"]) == {"search", "list_tables", "describe"}
 
     @pytest.mark.asyncio()
-    async def test_search_requires_term(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    async def test_search_requires_term(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """Search action rejects empty terms before making a platform call."""
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["code_search"]()
@@ -176,7 +176,7 @@ class TestCodeSearch:
         assert "'term' is required" in result["error"]["message"]
 
     @pytest.mark.asyncio()
-    async def test_search_rejects_invalid_table(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    async def test_search_rejects_invalid_table(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """The optional table filter must be a safe ServiceNow identifier."""
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["code_search"](term="foo", table="sys_script^ORactive=true")
@@ -187,7 +187,7 @@ class TestCodeSearch:
 
     @pytest.mark.asyncio()
     async def test_search_rejects_non_positive_limit(
-        self, settings: Settings, auth_provider: BasicAuthProvider
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
         """Search action rejects a non-positive limit before making a platform call."""
         tools = _register_and_get_tools(settings, auth_provider)

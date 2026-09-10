@@ -9,9 +9,10 @@ All configuration is handled through environment variables, loaded via [pydantic
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |
 | `SERVICENOW_INSTANCE_URL` | Yes | - | Full URL (must start with `https://`) |
-| `SERVICENOW_API_KEY` | Conditional | - | ServiceNow API key. When set, API-key authentication is used instead of Basic Auth. |
-| `SERVICENOW_USERNAME` | Conditional | - | ServiceNow username for Basic Auth. Required when `SERVICENOW_API_KEY` is not set. |
-| `SERVICENOW_PASSWORD` | Conditional | - | ServiceNow password for Basic Auth. Required when `SERVICENOW_API_KEY` is not set. |
+| `SERVICENOW_OAUTH_CLIENT_ID` | Yes | - | Public ServiceNow OAuth client ID |
+| `SERVICENOW_OAUTH_SCOPE` | Yes | - | Space-separated configured scopes; no `offline_access` |
+| `SERVICENOW_OAUTH_REDIRECT_URI` | No | `http://127.0.0.1:8765/oauth/callback` | Exact loopback path with port 1024-65535; must be registered |
+| `SERVICENOW_OAUTH_TIMEOUT_SECONDS` | No | `180` | Browser authorization wait, 1-600 seconds |
 | `MCP_TOOL_PACKAGE` | No | `"full"` | Tool package (`full`, `readonly`, `core_readonly`, `none`) or comma-separated tools |
 | `SERVICENOW_ENV` | No | `"dev"` | Set to `"prod"` or `"production"` to block all write operations |
 | `MAX_ROW_LIMIT` | No | `100` | Max records per query (1-10000) |
@@ -25,12 +26,17 @@ All configuration is handled through environment variables, loaded via [pydantic
 
 ## Authentication
 
-Choose one authentication method:
+Use authorization-code PKCE S256 with a public ServiceNow OAuth client. The browser
+and stdio process must run on the same machine. Register the exact redirect URI
+on the ServiceNow application and configure its allowed scopes and user roles.
+The first outbound request opens the browser and starts a temporary loopback
+receiver. This is not an MCP HTTP endpoint.
 
-- **API key:** Set `SERVICENOW_API_KEY`. The server sends it in the `x-sn-apikey` request header and does not use `SERVICENOW_USERNAME` or `SERVICENOW_PASSWORD`, even if they are also set.
-- **Basic Auth:** Leave `SERVICENOW_API_KEY` unset and set both `SERVICENOW_USERNAME` and `SERVICENOW_PASSWORD`.
-
-Keep credentials and API keys out of version control. Store local values in `.env.local` or in your MCP client's secret or environment-variable configuration.
+Remove `SERVICENOW_API_KEY`, `SERVICENOW_USERNAME`, and `SERVICENOW_PASSWORD`.
+Non-empty legacy credentials are rejected without fallback. Access tokens stay
+in memory. Expiry triggers a fresh browser flow on the next outbound request.
+A 401 discards the rejected token; retry the failed tool call to authorize again.
+Refresh tokens and client secrets are not used. Never log or persist OAuth material.
 
 ---
 

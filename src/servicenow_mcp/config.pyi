@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     servicenow_username: str
     servicenow_password: SecretStr
     servicenow_api_key: SecretStr
+    servicenow_oauth_client_id: str
+    servicenow_oauth_scope: str
+    servicenow_oauth_redirect_uri: str
+    servicenow_oauth_timeout_seconds: int
     mcp_tool_package: str
     servicenow_env: str
     max_row_limit: int
@@ -28,6 +32,10 @@ class Settings(BaseSettings):
         servicenow_username: str = ...,
         servicenow_password: SecretStr = ...,
         servicenow_api_key: SecretStr = ...,
+        servicenow_oauth_client_id: str = ...,
+        servicenow_oauth_scope: str = ...,
+        servicenow_oauth_redirect_uri: str = ...,
+        servicenow_oauth_timeout_seconds: int = ...,
         mcp_tool_package: str = ...,
         servicenow_env: str = ...,
         max_row_limit: int = ...,
@@ -41,6 +49,12 @@ class Settings(BaseSettings):
     @classmethod
     def strip_trailing_slash(cls, v: str) -> str: ...
     def validate_auth_credentials(self) -> Settings: ...
+    @classmethod
+    def validate_oauth_text(cls, v: str) -> str: ...
+    @classmethod
+    def validate_oauth_redirect(cls, v: str) -> str: ...
+    @classmethod
+    def validate_oauth_timeout(cls, v: int) -> int: ...
     @classmethod
     def validate_max_row_limit(cls, v: int) -> int: ...
     @classmethod

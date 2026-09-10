@@ -4,7 +4,7 @@ from typing import Protocol, cast
 
 from mcp.server import MCPServer
 
-from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.choices import ChoiceRegistry
 from servicenow_mcp.client import ServiceNowClientProvider
 from servicenow_mcp.config import Settings
@@ -16,7 +16,7 @@ class _ServiceNowStateCarrier(Protocol):
     """MCPServer instance with ServiceNow-specific state attached."""
 
     _sn_settings: Settings
-    _sn_auth: BasicAuthProvider
+    _sn_auth: OAuthPKCEProvider
     _sn_choices: ChoiceRegistry
     _sn_dictionary: DictionaryRegistry
     _sn_client_factory: ServiceNowClientProvider
@@ -26,7 +26,7 @@ class _ServiceNowStateCarrier(Protocol):
 def attach_servicenow_state(
     mcp: MCPServer,
     settings: Settings,
-    auth_provider: BasicAuthProvider,
+    auth_provider: OAuthPKCEProvider,
     choices: ChoiceRegistry,
     dictionary: DictionaryRegistry,
     client_factory: ServiceNowClientProvider,

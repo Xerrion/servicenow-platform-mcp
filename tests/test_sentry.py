@@ -17,8 +17,8 @@ from servicenow_mcp.sentry import (
 
 _TEST_ENV: dict[str, str] = {
     "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
-    "SERVICENOW_USERNAME": "admin",
-    "SERVICENOW_PASSWORD": "s3cret",  # NOSONAR - test fixture with dummy value
+    "SERVICENOW_OAUTH_CLIENT_ID": "test-client",
+    "SERVICENOW_OAUTH_SCOPE": "useraccount",
     "SERVICENOW_ENV": "dev",
     "MCP_TOOL_PACKAGE": "full",
 }
@@ -81,6 +81,8 @@ class TestSetupSentry:
         assert call_kwargs["dsn"] == "https://key@sentry.io/123"
         assert call_kwargs["environment"] == "staging"
         assert call_kwargs["send_default_pii"] is False
+        assert call_kwargs["include_local_variables"] is False
+        assert [integration.identifier for integration in call_kwargs["disabled_integrations"]] == ["stdlib"]
         assert call_kwargs["integrations"] == []
         assert call_kwargs["traces_sample_rate"] == pytest.approx(0.1)
         assert call_kwargs["profiles_sample_rate"] is None
@@ -398,7 +400,7 @@ class TestSetSentryContextIntegration:
         """_raise_for_status sets HTTP context before raising."""
         import httpx
 
-        from servicenow_mcp.auth import BasicAuthProvider
+        from servicenow_mcp.auth import OAuthPKCEProvider
         from servicenow_mcp.client import ServiceNowClient
         from servicenow_mcp.errors import ServerError
 
@@ -406,7 +408,7 @@ class TestSetSentryContextIntegration:
         mock_response = httpx.Response(500, request=mock_request, json={"error": {"message": "Server error"}})
 
         settings = _make_settings()
-        auth = BasicAuthProvider(settings)
+        auth = OAuthPKCEProvider(settings)
         client = ServiceNowClient(settings, auth)
 
         with patch("servicenow_mcp.client.set_sentry_context") as mock_ctx:

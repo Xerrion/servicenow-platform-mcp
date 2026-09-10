@@ -82,7 +82,7 @@ mypy override: `servicenow_mcp.server` has `call-arg` error code disabled.
 | Category                    | Convention                   | Examples                                                                    |
 |-----------------------------|------------------------------|-----------------------------------------------------------------------------|
 | Functions/methods/variables | `snake_case`                 | `check_table_access`, `gate_write`                                          |
-| Classes                     | `PascalCase`                 | `ServiceNowClient`, `BasicAuthProvider`, `ChoiceRegistry`                   |
+| Classes                     | `PascalCase`                 | `ServiceNowClient`, `OAuthPKCEProvider`, `ChoiceRegistry`                   |
 | Constants                   | `UPPER_SNAKE_CASE`           | `DENIED_TABLES`, `MASK_VALUE`, `PACKAGE_REGISTRY`, `INVESTIGATION_REGISTRY` |
 | Private                     | Single underscore `_` prefix | `_table_url`, `_http_client`, `_ensure_client`                              |
 | Logger                      | Module-level                 | `logger = logging.getLogger(__name__)`                                      |
@@ -235,7 +235,7 @@ from mcp.server import MCPServer
 def register_tools(
     mcp: MCPServer,
     settings: Settings,
-    auth_provider: BasicAuthProvider,
+    auth_provider: OAuthPKCEProvider,
     choices: ChoiceRegistry | None = None,
     dictionary: DictionaryRegistry | None = None,
     client_factory: ServiceNowClientProvider | None = None,
@@ -399,9 +399,10 @@ Dispatched via the read-only `audit` tool. Available in the `full` and `readonly
 | Field | Type | Default | Env Var |
 | ----------------------- | --------- | ---------------------------------------------------- | ----------------------- |
 | `servicenow_instance_url` | `str` | required | `SERVICENOW_INSTANCE_URL` |
-| `servicenow_api_key` | `SecretStr` | `""` (replaces Basic Auth when set) | `SERVICENOW_API_KEY` |
-| `servicenow_username` | `str` | `""` (required without API key) | `SERVICENOW_USERNAME` |
-| `servicenow_password` | `SecretStr` | `""` (required without API key) | `SERVICENOW_PASSWORD` |
+| `servicenow_oauth_client_id` | `str` | required | `SERVICENOW_OAUTH_CLIENT_ID` |
+| `servicenow_oauth_scope` | `str` | required, no `offline_access` | `SERVICENOW_OAUTH_SCOPE` |
+| `servicenow_oauth_redirect_uri` | `str` | `http://127.0.0.1:8765/oauth/callback` | `SERVICENOW_OAUTH_REDIRECT_URI` |
+| `servicenow_oauth_timeout_seconds` | `int` | `180` (1-600) | `SERVICENOW_OAUTH_TIMEOUT_SECONDS` |
 | `mcp_tool_package` | `str` | `"full"` | `MCP_TOOL_PACKAGE` |
 | `servicenow_env` | `str` | `"dev"` | `SERVICENOW_ENV` |
 | `max_row_limit` | `int` | `100` (range 1-10000) | `MAX_ROW_LIMIT` |
@@ -412,6 +413,15 @@ Dispatched via the read-only `audit` tool. Available in the `full` and `readonly
 | `sentry_environment` | `str` | `""` | `SENTRY_ENVIRONMENT` |
 
 ## 📦 Packages & Tool Groups
+
+Outbound authentication uses public-client OAuth authorization-code PKCE S256.
+The first API call opens the browser on the same machine as the stdio process.
+A temporary loopback listener receives a state-bound code; tokens remain in
+memory. Expiry requires fresh authorization. A 401 invalidates the rejected
+token without replaying the API request. No refresh tokens or client secrets are
+used. Non-empty `SERVICENOW_API_KEY`, `SERVICENOW_USERNAME`, and
+`SERVICENOW_PASSWORD` settings are rejected. These fields exist only to report
+legacy-configuration errors, not as supported authentication options.
 
 The registry contains 4 preset packages and 13 tool groups. Tool groups are loaded from `servicenow_mcp.tools.*`.
 

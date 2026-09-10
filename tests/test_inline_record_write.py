@@ -9,7 +9,7 @@ import pytest
 import respx
 from mcp.server import MCPServer
 
-from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.state import PreviewTokenStore
 from servicenow_mcp.tools._payload import MAX_JSON_PAYLOAD_BYTES
@@ -22,12 +22,12 @@ SYS_ID = "c" * 32
 
 
 @pytest.fixture()
-def auth_provider(settings: Settings) -> BasicAuthProvider:
+def auth_provider(settings: Settings) -> OAuthPKCEProvider:
     """Create authentication from the inline write test settings."""
-    return BasicAuthProvider(settings)
+    return OAuthPKCEProvider(settings)
 
 
-def _register_and_get_tools(settings: Settings, auth_provider: BasicAuthProvider) -> dict[str, Any]:
+def _register_and_get_tools(settings: Settings, auth_provider: OAuthPKCEProvider) -> dict[str, Any]:
     """Register write tools on a fresh server and return their callables."""
     mcp = MCPServer("test")
     register_tools(mcp, settings, auth_provider)
@@ -38,7 +38,7 @@ def _register_and_get_tools(settings: Settings, auth_provider: BasicAuthProvider
 def server(settings: Settings) -> MCPServer:
     """Register write tools without reading local credentials."""
     mcp = MCPServer("test")
-    register_tools(mcp, settings, BasicAuthProvider(settings))
+    register_tools(mcp, settings, OAuthPKCEProvider(settings))
     return mcp
 
 
@@ -69,7 +69,7 @@ class TestInlineRecordWrite:
     @pytest.mark.parametrize("content", ["<unclosed>", "", None, 1, {"value": "<root/>"}])
     @respx.mock
     async def test_inline_xml_rejected_before_token_or_mutation(
-        self, settings: Settings, auth_provider: BasicAuthProvider, action: str, preview: bool, content: Any
+        self, settings: Settings, auth_provider: OAuthPKCEProvider, action: str, preview: bool, content: Any
     ) -> None:
         mock_metadata({"u_markup": "xml"})
         tools = _register_and_get_tools(settings, auth_provider)
@@ -96,7 +96,7 @@ class TestInlineRecordWrite:
     @pytest.mark.parametrize("preview", [True, False])
     @respx.mock
     async def test_multiple_inline_fields_round_trip(
-        self, settings: Settings, auth_provider: BasicAuthProvider, action: str, preview: bool
+        self, settings: Settings, auth_provider: OAuthPKCEProvider, action: str, preview: bool
     ) -> None:
         payload = {
             "name": "Widget",
@@ -157,7 +157,7 @@ class TestInlineRecordWrite:
 
     @respx.mock
     async def test_metadata_only_update_does_not_send_script(
-        self, settings: Settings, auth_provider: BasicAuthProvider
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
         mock_metadata({"active": "boolean"})
         url = f"{BASE_URL}/sys_script/{SYS_ID}"
@@ -187,7 +187,7 @@ class TestInlineRecordWrite:
     @pytest.mark.parametrize("preview", [True, False])
     @respx.mock
     async def test_inline_size_limit_precedes_metadata(
-        self, settings: Settings, auth_provider: BasicAuthProvider, action: str, preview: bool
+        self, settings: Settings, auth_provider: OAuthPKCEProvider, action: str, preview: bool
     ) -> None:
         payload = json.dumps({"script": "é" * (MAX_JSON_PAYLOAD_BYTES // 2)}, ensure_ascii=False)
         assert len(payload) < MAX_JSON_PAYLOAD_BYTES < len(payload.encode("utf-8"))
@@ -207,7 +207,7 @@ class TestInlineRecordWrite:
         assert not respx.calls
 
     @respx.mock
-    async def test_inline_size_boundary_is_accepted(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    async def test_inline_size_boundary_is_accepted(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         overhead = len(json.dumps({"script": ""}).encode("utf-8"))
         payload = json.dumps({"script": "x" * (MAX_JSON_PAYLOAD_BYTES - overhead)})
         assert len(payload.encode("utf-8")) == MAX_JSON_PAYLOAD_BYTES
@@ -224,7 +224,7 @@ class TestInlineRecordWrite:
     @pytest.mark.parametrize("payload", ["[]", "not json", '{"bad^key":"x"}'])
     @respx.mock
     async def test_invalid_payload_precedes_metadata(
-        self, settings: Settings, auth_provider: BasicAuthProvider, payload: str
+        self, settings: Settings, auth_provider: OAuthPKCEProvider, payload: str
     ) -> None:
         result = decode_response(
             await _register_and_get_tools(settings, auth_provider)["record_write"](
@@ -239,7 +239,7 @@ class TestInlineRecordWrite:
     @pytest.mark.parametrize("status_code", [403, 500])
     @respx.mock
     async def test_metadata_error_blocks_write(
-        self, settings: Settings, auth_provider: BasicAuthProvider, status_code: int
+        self, settings: Settings, auth_provider: OAuthPKCEProvider, status_code: int
     ) -> None:
         respx.get(f"{BASE_URL}/sys_db_object").respond(200, json={"result": []})
         respx.get(f"{BASE_URL}/sys_dictionary").respond(status_code, json={"error": {"message": "Unavailable"}})
@@ -256,7 +256,7 @@ class TestInlineRecordWrite:
         assert all(call.request.method == "GET" for call in respx.calls)
 
     @respx.mock
-    async def test_inherited_xml_is_validated(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    async def test_inherited_xml_is_validated(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         def objects(request: httpx.Request) -> httpx.Response:
             parent = "u_parent" if request.url.params["sysparm_query"] == "name=u_child" else ""
             return httpx.Response(200, json={"result": [{"super_class.name": parent}]})
@@ -284,7 +284,7 @@ class TestInlineRecordWrite:
         assert all(call.request.method == "GET" for call in respx.calls)
 
     @respx.mock
-    async def test_apply_rechecks_production_gate(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    async def test_apply_rechecks_production_gate(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         mock_metadata({"script": "script"})
         tools = _register_and_get_tools(settings, auth_provider)
         preview = decode_response(
@@ -306,7 +306,7 @@ class TestInlineRecordWrite:
 
     @respx.mock
     async def test_missing_mandatory_field_blocks_create(
-        self, settings: Settings, auth_provider: BasicAuthProvider
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
         respx.get(f"{BASE_URL}/sys_db_object").respond(200, json={"result": []})
 

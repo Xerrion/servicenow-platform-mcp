@@ -10,6 +10,7 @@ from urllib.parse import quote
 
 import httpx
 
+from servicenow_mcp._rest_auth_evidence import rest_auth_evidence
 from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.errors import (
@@ -163,13 +164,26 @@ class ServiceNowClient:
         )
 
         if response.status_code == 401:
-            self._auth_provider.invalidate(response.request.headers.get("Authorization", ""))
+            authorization = response.request.headers.get("Authorization", "")
+            token = self._auth_provider._token
+            self._auth_provider.invalidate(authorization)
+            evidence = rest_auth_evidence(
+                response,
+                (
+                    authorization.removeprefix("Bearer "),
+                    token.value if token else "",
+                    (token.refresh_token or "") if token else "",
+                    self._settings.servicenow_oauth_client_id,
+                    self._settings.servicenow_oauth_client_secret.get_secret_value(),
+                ),
+            )
             raise AuthError(
                 "ServiceNow rejected the OAuth token on a REST request (HTTP 401). "
                 "The request was not replayed. Retry the tool call to refresh the token, or authorize again "
                 "if no usable refresh grant remains. If a newly issued token is rejected again, "
                 "ask the ServiceNow administrator to check the granted scopes, REST API access policy, "
-                "and user access on the configured instance. A successful token exchange does not establish REST access."
+                "and user access on the configured instance. A successful token exchange does not establish REST access. "
+                f"Safe response evidence: {evidence}"
             )
         if response.status_code == 403:
             msg = self._extract_error_message(response, "Access forbidden")

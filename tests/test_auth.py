@@ -5,6 +5,7 @@ import base64
 import hashlib
 import socket
 import time
+from contextlib import suppress
 from typing import Any
 from unittest.mock import AsyncMock, patch
 from urllib.parse import parse_qs, urlencode, urlsplit
@@ -52,6 +53,63 @@ async def _send(redirect_uri: str, query: str) -> bytes:
 async def _assert_closed(redirect_uri: str) -> None:
     with pytest.raises(ConnectionRefusedError):
         await asyncio.open_connection("127.0.0.1", urlsplit(redirect_uri).port)
+    server = await asyncio.start_server(lambda reader, writer: writer.close(), "127.0.0.1", urlsplit(redirect_uri).port)
+    server.close()
+    await server.wait_closed()
+
+
+@respx.mock
+async def test_query_401_then_reauthorize_on_same_loopback_port(settings: Settings, redirect_uri: str) -> None:
+    """A rejected grant must permit immediate retry in the same MCP session."""
+    from mcp.server import MCPServer
+
+    from servicenow_mcp.tools.query import register_tools
+    from tests.helpers import decode_response, get_tool_functions
+
+    settings.servicenow_oauth_redirect_uri = redirect_uri
+    authorization: list[dict[str, list[str]]] = []
+
+    async def browser(_open: Any, url: str, **kwargs: Any) -> bool:
+        del kwargs
+        params = parse_qs(urlsplit(url).query)
+        authorization.append(params)
+        assert params["redirect_uri"] == [redirect_uri]
+        response = await _send(redirect_uri, urlencode({"state": params["state"][0], "code": "test-code"}))
+        assert b"200 OK" in response
+        return True
+
+    token_route = respx.post(f"{BASE_URL}/oauth_token.do").mock(
+        side_effect=[
+            httpx.Response(200, json={"access_token": token, "token_type": "Bearer", "expires_in": 3600})
+            for token in ("rejected-token", "fresh-token")
+        ]
+    )
+    api_route = respx.get(f"{BASE_URL}/api/now/table/incident").mock(
+        side_effect=[httpx.Response(401, text="private"), httpx.Response(200, json={"result": []})]
+    )
+    provider = OAuthPKCEProvider(settings)
+    server = MCPServer("test")
+    register_tools(server, settings, provider)
+    query = get_tool_functions(server)["query"]
+    with patch("servicenow_mcp.oauth_callback.asyncio.to_thread", side_effect=browser):
+        first = decode_response(await query(table="incident", fields="sys_id"))
+        assert first["status"] == "error"
+        assert "authorize again" in str(first["error"])
+        assert "REST request (HTTP 401)" in str(first["error"])
+        assert "granted scopes" in str(first["error"])
+        assert "private" not in str(first["error"])
+        assert provider._token is None
+        assert api_route.call_count == 1
+        with pytest.raises(ConnectionRefusedError):
+            await asyncio.open_connection("127.0.0.1", urlsplit(redirect_uri).port)
+        second = decode_response(await query(table="incident", fields="sys_id"))
+        assert second["status"] == "success", second
+    assert token_route.call_count == 2
+    assert api_route.call_count == 2
+    assert api_route.calls.last.request.headers["Authorization"] == "Bearer fresh-token"
+    assert authorization[0]["state"] != authorization[1]["state"]
+    assert authorization[0]["code_challenge"] != authorization[1]["code_challenge"]
+    await _assert_closed(redirect_uri)
 
 
 @respx.mock
@@ -279,10 +337,13 @@ async def test_cancellation_closes_listener_and_partial_connections(redirect_uri
         await writer.drain()
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
-            await task
-        assert await reader.read() == b""
+            await asyncio.wait_for(asyncio.shield(task), timeout=0.5)
+        # Closing a socket with unread input can produce either EOF or a reset.
+        with suppress(ConnectionResetError):
+            assert await reader.read() == b""
         writer.close()
-        await writer.wait_closed()
+        with suppress(ConnectionResetError):
+            await writer.wait_closed()
     await _assert_closed(redirect_uri)
 
 
@@ -309,6 +370,192 @@ async def test_denial_closes_listener(redirect_uri: str) -> None:
     ):
         await receive_authorization_code("https://example.invalid", redirect_uri, "expected", 1)
     assert "private" not in str(exc.value)
+    await _assert_closed(redirect_uri)
+
+
+@pytest.mark.parametrize("query", ["state=expected", "state=expected&code=%0D%0A"])
+async def test_malformed_state_bound_callback_closes_listener(redirect_uri: str, query: str) -> None:
+    async def browser(*args: Any, **kwargs: Any) -> bool:
+        del args, kwargs
+        await _send(redirect_uri, query)
+        return True
+
+    with (
+        patch("servicenow_mcp.oauth_callback.asyncio.to_thread", side_effect=browser),
+        pytest.raises(AuthError, match="valid authorization code"),
+    ):
+        await receive_authorization_code("https://example.invalid", redirect_uri, "expected", 1)
+    await _assert_closed(redirect_uri)
+
+
+async def test_invalid_callback_times_out_and_releases_port(redirect_uri: str) -> None:
+    async def browser(*args: Any, **kwargs: Any) -> bool:
+        del args, kwargs
+        assert b"400 Bad Request" in await _send(redirect_uri, "state=wrong&code=untrusted")
+        return True
+
+    with (
+        patch("servicenow_mcp.oauth_callback.asyncio.to_thread", side_effect=browser),
+        pytest.raises(AuthError, match="timed out"),
+    ):
+        await receive_authorization_code("https://example.invalid", redirect_uri, "expected", 1)
+    await _assert_closed(redirect_uri)
+
+
+async def test_cancellation_during_listener_start_releases_port(redirect_uri: str) -> None:
+    started = asyncio.Event()
+    start_serving = asyncio.Server.start_serving
+
+    async def start(server: asyncio.Server) -> None:
+        await start_serving(server)
+        started.set()
+        await asyncio.Future[None]()
+
+    with (
+        patch("servicenow_mcp.oauth_callback.asyncio.Server.start_serving", start),
+        patch("servicenow_mcp.oauth_callback.webbrowser.open") as browser,
+    ):
+        task = asyncio.create_task(receive_authorization_code("https://example.invalid", redirect_uri, "expected", 10))
+        await started.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(asyncio.shield(task), timeout=0.5)
+        browser.assert_not_called()
+    await _assert_closed(redirect_uri)
+
+
+@pytest.mark.parametrize("failure", ["http", "network", "json", "token", "cancel"])
+@respx.mock
+async def test_exchange_failure_leaves_loopback_port_reusable(
+    settings: Settings, redirect_uri: str, failure: str
+) -> None:
+    settings.servicenow_oauth_redirect_uri = redirect_uri
+    provider = OAuthPKCEProvider(settings)
+
+    async def browser(_open: Any, url: str, **kwargs: Any) -> bool:
+        del kwargs
+        state = parse_qs(urlsplit(url).query)["state"][0]
+        await _send(redirect_uri, urlencode({"state": state, "code": "test-code"}))
+        return True
+
+    async def exchange(_request: httpx.Request) -> httpx.Response:
+        await _assert_closed(redirect_uri)
+        if failure == "network":
+            raise httpx.ConnectError("private")
+        if failure == "cancel":
+            raise asyncio.CancelledError
+        if failure == "http":
+            return httpx.Response(400, text="private")
+        if failure == "json":
+            return httpx.Response(200, text="private")
+        return httpx.Response(200, json={"access_token": "private"})
+
+    route = respx.post(f"{BASE_URL}/oauth_token.do").mock(side_effect=exchange)
+    with patch("servicenow_mcp.oauth_callback.asyncio.to_thread", side_effect=browser):
+        with pytest.raises(asyncio.CancelledError if failure == "cancel" else AuthError):
+            await provider.get_headers()
+        assert provider._token is None
+        route.respond(200, json={"access_token": "fresh", "token_type": "Bearer", "expires_in": 3600})
+        assert (await provider.get_headers())["Authorization"] == "Bearer fresh"
+    await _assert_closed(redirect_uri)
+
+
+@respx.mock
+async def test_concurrent_authorization_and_cancelled_waiter_use_one_listener(
+    settings: Settings, redirect_uri: str
+) -> None:
+    settings.servicenow_oauth_redirect_uri = redirect_uri
+    opened = asyncio.Event()
+    authorization: dict[str, list[str]] = {}
+
+    async def browser(_open: Any, url: str, **kwargs: Any) -> bool:
+        del kwargs
+        authorization.update(parse_qs(urlsplit(url).query))
+        opened.set()
+        return True
+
+    route = respx.post(f"{BASE_URL}/oauth_token.do").respond(
+        200, json={"access_token": "fresh", "token_type": "Bearer", "expires_in": 3600}
+    )
+    provider = OAuthPKCEProvider(settings)
+    with patch("servicenow_mcp.oauth_callback.asyncio.to_thread", side_effect=browser) as launch:
+        owner = asyncio.create_task(provider.get_headers())
+        await opened.wait()
+        waiters = [asyncio.create_task(provider.get_headers()) for _ in range(8)]
+        await asyncio.sleep(0)
+        waiters[0].cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await waiters[0]
+        await _send(redirect_uri, urlencode({"state": authorization["state"][0], "code": "test-code"}))
+        headers = await asyncio.gather(owner, *waiters[1:])
+        assert all(item["Authorization"] == "Bearer fresh" for item in headers)
+        launch.assert_awaited_once()
+    assert route.call_count == 1
+    await _assert_closed(redirect_uri)
+
+
+@respx.mock
+async def test_cancelled_owner_allows_waiting_call_to_reauthorize(settings: Settings, redirect_uri: str) -> None:
+    settings.servicenow_oauth_redirect_uri = redirect_uri
+    opened = asyncio.Event()
+    states: list[str] = []
+
+    async def browser(_open: Any, url: str, **kwargs: Any) -> bool:
+        del kwargs
+        states.append(parse_qs(urlsplit(url).query)["state"][0])
+        opened.set()
+        return True
+
+    route = respx.post(f"{BASE_URL}/oauth_token.do").respond(
+        200, json={"access_token": "fresh", "token_type": "Bearer", "expires_in": 3600}
+    )
+    provider = OAuthPKCEProvider(settings)
+    with patch("servicenow_mcp.oauth_callback.asyncio.to_thread", side_effect=browser):
+        owner = asyncio.create_task(provider.get_headers())
+        await opened.wait()
+        opened.clear()
+        waiter = asyncio.create_task(provider.get_headers())
+        # A rejected request leaves TCP cleanup to exercise reuse after cancellation.
+        assert b"400 Bad Request" in await _send(redirect_uri, "state=wrong&code=untrusted")
+        owner.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(asyncio.shield(owner), timeout=0.5)
+        await asyncio.wait_for(opened.wait(), timeout=1)
+        assert b"400 Bad Request" in await _send(redirect_uri, urlencode({"state": states[0], "code": "old"}))
+        await _send(redirect_uri, urlencode({"state": states[1], "code": "new"}))
+        assert (await waiter)["Authorization"] == "Bearer fresh"
+    assert states[0] != states[1]
+    assert route.call_count == 1
+    await _assert_closed(redirect_uri)
+
+
+@pytest.mark.parametrize("has_callback", [True, False])
+async def test_flow_exit_closes_idle_browser_connection(redirect_uri: str, has_callback: bool) -> None:
+    opened = asyncio.Event()
+
+    async def browser(*args: Any, **kwargs: Any) -> bool:
+        del args, kwargs
+        opened.set()
+        return True
+
+    with patch("servicenow_mcp.oauth_callback.asyncio.to_thread", side_effect=browser):
+        task = asyncio.create_task(receive_authorization_code("https://example.invalid", redirect_uri, "expected", 1))
+        await opened.wait()
+        reader, writer = await asyncio.open_connection("127.0.0.1", urlsplit(redirect_uri).port)
+        try:
+            if has_callback:
+                await _send(redirect_uri, "state=expected&code=accepted")
+                assert await asyncio.wait_for(asyncio.shield(task), timeout=0.5) == "accepted"
+            else:
+                with pytest.raises(AuthError, match="timed out"):
+                    await asyncio.wait_for(asyncio.shield(task), timeout=1.5)
+            assert await reader.read() == b""
+        finally:
+            writer.close()
+            await writer.wait_closed()
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
     await _assert_closed(redirect_uri)
 
 

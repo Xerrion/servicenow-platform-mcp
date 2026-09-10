@@ -142,7 +142,9 @@ The first outbound request opens the default browser. The browser and stdio
 process must run on the **same machine**. A temporary listener binds only
 `127.0.0.1` on the configured port before the browser opens. It validates the
 callback path, Host and single-use state, then exchanges the code using the
-PKCE verifier. It closes after success, denial, timeout, or cancellation.
+PKCE verifier. The listener and accepted connections close before token exchange
+and on denial, timeout, or cancellation. Retries reuse the configured port;
+TCP cleanup from a completed callback does not require a different redirect URI.
 This listener is not an MCP HTTP transport. Remote-browser, headless, and
 container-to-host callback arrangements are not supported by this phase.
 
@@ -154,6 +156,14 @@ outbound request after expiry opens a fresh authorization flow. A ServiceNow
 replaying the API call. Retry that call to authorize again. A process restart
 also requires authorization. Refresh tokens are not requested, stored, or used;
 public-client refresh support is not assumed.
+
+If a newly issued token is rejected by a REST request with HTTP 401, the code
+exchange succeeded but REST access did not. Ask the ServiceNow administrator
+to check the granted scopes, REST API access policy, and user access on the
+configured instance. This response alone does not identify which policy failed
+or establish a PKCE incompatibility. Token-endpoint errors are reported separately
+as OAuth token exchange failures. Do not add a client secret or change the
+registered redirect URI to address a REST rejection.
 
 Allow the MCP client enough tool-call time for user authorization. If the
 browser cannot open, consent is denied, or authorization times out, the tool

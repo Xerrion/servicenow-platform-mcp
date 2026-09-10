@@ -50,7 +50,8 @@ async def receive_authorization_code(
     consume the flow. The listener and all connections close on every exit path.
     """
     result: asyncio.Future[str | AuthError] = asyncio.get_running_loop().create_future()
-    connections: set[asyncio.Task[None]] = set()
+    connections: dict[asyncio.Task[None], asyncio.StreamWriter] = {}
+    is_closing = False
 
     async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         try:
@@ -78,23 +79,26 @@ async def receive_authorization_code(
             writer.close()
 
     def connected(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
-        if len(connections) >= 8:
+        if is_closing or len(connections) >= 8:
             writer.close()
             return
         task = asyncio.create_task(handle(reader, writer))
-        connections.add(task)
-        task.add_done_callback(connections.discard)
+        connections[task] = writer
+        task.add_done_callback(connections.pop)
 
     try:
+        # The platform default allows POSIX retries during TCP TIME_WAIT without
+        # sharing an active listener. Own the server before starting acceptance.
         server = await asyncio.start_server(
-            connected, "127.0.0.1", urlsplit(redirect_uri).port, limit=8192, reuse_address=False
+            connected, "127.0.0.1", urlsplit(redirect_uri).port, limit=8192, start_serving=False
         )
     except OSError:
         raise AuthError(
             "Cannot bind OAuth loopback port. Close the other listener or configure another redirect URI."
         ) from None
     try:
-        async with server, asyncio.timeout(timeout_seconds):
+        async with asyncio.timeout(timeout_seconds):
+            await server.start_serving()
             try:
                 is_opened = await asyncio.to_thread(webbrowser.open, authorization_url, new=1)
             except (webbrowser.Error, OSError):
@@ -108,7 +112,13 @@ async def receive_authorization_code(
     except TimeoutError:
         raise AuthError("ServiceNow authorization timed out. Retry the tool call to authorize again.") from None
     finally:
-        pending = list(connections)
-        for task in pending:
+        # wait_closed() waits for clients too. Close them first, including those
+        # whose handler task was cancelled before its finally block could run.
+        is_closing = True
+        server.close()
+        pending = list(connections.items())
+        for task, writer in pending:
+            writer.close()
             task.cancel()
-        await asyncio.gather(*pending, return_exceptions=True)
+        await asyncio.gather(*(task for task, _writer in pending), return_exceptions=True)
+        await server.wait_closed()

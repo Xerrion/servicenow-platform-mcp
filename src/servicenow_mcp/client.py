@@ -164,7 +164,12 @@ class ServiceNowClient:
 
         if response.status_code == 401:
             self._auth_provider.invalidate(response.request.headers.get("Authorization", ""))
-            raise AuthError("ServiceNow rejected the OAuth token. Retry the tool call to authorize again.")
+            raise AuthError(
+                "ServiceNow rejected the OAuth token on a REST request (HTTP 401). "
+                "Retry the tool call to authorize again. If a newly issued token is rejected again, "
+                "ask the ServiceNow administrator to check the granted scopes, REST API access policy, "
+                "and user access on the configured instance. A successful token exchange does not establish REST access."
+            )
         if response.status_code == 403:
             msg = self._extract_error_message(response, "Access forbidden")
             if self._is_acl_error_response(response):

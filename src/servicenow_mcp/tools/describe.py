@@ -95,8 +95,6 @@ async def _run_list_script_fields(
 
 async def _run_list_tables(
     name_filter: str,
-    settings: Settings,
-    auth_provider: OAuthPKCEProvider,
     client_factory: ServiceNowClientProvider,
 ) -> str:
     """List tables from ``sys_db_object``, optionally filtered by name/label.
@@ -188,7 +186,7 @@ def register_tools(
                     error=f"Unknown describe action {action!r}. Valid actions: {sorted(_VALID_DESCRIBE_ACTIONS)}.",
                 )
             if action == "list_tables":
-                return await _run_list_tables(name_filter, settings, auth_provider, client_factory)
+                return await _run_list_tables(name_filter, client_factory)
             return await _run_list_script_fields(table, dict_registry)
 
         if not table:
@@ -232,8 +230,6 @@ def register_tools(
             requested_fields=requested_fields,
             field_offset=0 if is_all_fields else field_offset,
             field_limit=1_000_000 if is_all_fields else field_limit,
-            settings=settings,
-            auth_provider=auth_provider,
             client_factory=client_factory,
             dictionary=dict_registry,
         )

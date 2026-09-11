@@ -124,6 +124,18 @@ class TestQueryMode:
 
     @pytest.mark.asyncio()
     @respx.mock
+    async def test_invalid_order_by_returns_error_without_io(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
+        tools = _register_and_get_tools(settings, auth_provider)
+        result = decode_response(await tools["query"](table="incident", fields="number", order_by="bad-field"))
+
+        assert result["status"] == "error"
+        assert "Invalid identifier" in result["error"]["message"]
+        assert not respx.calls
+
+    @pytest.mark.asyncio()
+    @respx.mock
     async def test_star_requests_all_masked_fields(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         route = respx.get(f"{BASE_URL}/api/now/table/incident").mock(
             return_value=httpx.Response(

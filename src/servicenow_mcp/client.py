@@ -266,12 +266,16 @@ class ServiceNowClient:
             "sysparm_offset": str(offset),
             "sysparm_display_value": str(display_values).lower(),
         }
-        if query:
-            params["sysparm_query"] = query
+        effective_query = query
+        if order_by:
+            is_descending = order_by.startswith("-")
+            order_field = order_by[1:] if is_descending else order_by
+            order_clause = ServiceNowQuery().order_by(order_field, descending=is_descending).build()
+            effective_query = f"{query}^{order_clause}" if query else order_clause
+        if effective_query:
+            params["sysparm_query"] = effective_query
         if fields:
             params["sysparm_fields"] = ",".join(fields)
-        if order_by:
-            params["sysparm_orderby"] = order_by
 
         response = await http.get(
             self._table_url(table),

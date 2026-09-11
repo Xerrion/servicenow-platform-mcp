@@ -54,7 +54,7 @@ async def test_owned_client_closes_transport(settings: Settings, auth_provider: 
     """A directly constructed client closes the transport it creates."""
     transport = AsyncMock(spec=httpx.AsyncClient)
 
-    with patch("servicenow_mcp.client.httpx.AsyncClient", return_value=transport):
+    with patch("servicenow_mcp._client_transport.httpx.AsyncClient", return_value=transport):
         async with ServiceNowClient(settings, auth_provider):
             pass
 

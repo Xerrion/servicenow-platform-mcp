@@ -415,7 +415,7 @@ class TestSetSentryContextIntegration:
         auth = OAuthPKCEProvider(settings)
         client = ServiceNowClient(settings, auth)
 
-        with patch("servicenow_mcp.client.set_sentry_context") as mock_ctx:
+        with patch("servicenow_mcp._client_transport.set_sentry_context") as mock_ctx:
             with pytest.raises(ServerError):
                 client._raise_for_status(mock_response)
             mock_ctx.assert_called_once_with(

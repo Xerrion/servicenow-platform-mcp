@@ -280,7 +280,7 @@ def test_phrase_shaped_access_token_is_not_echoed(settings: Settings) -> None:
 
 
 def test_diagnostics_do_not_log_raw_response(settings: Settings, caplog: pytest.LogCaptureFixture) -> None:
-    with patch("servicenow_mcp.client.set_sentry_context") as context:
+    with patch("servicenow_mcp._client_transport.set_sentry_context") as context:
         message = _error(
             settings,
             httpx.Response(

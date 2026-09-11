@@ -6,7 +6,8 @@ import json
 import logging
 from typing import Any
 
-from servicenow_mcp.utils import format_response, validate_identifier
+from servicenow_mcp.response import format_response
+from servicenow_mcp.validation import validate_identifier
 
 
 logger = logging.getLogger(__name__)

@@ -13,8 +13,8 @@ from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.policy import INTERNAL_QUERY_LIMIT
+from servicenow_mcp.query_builder import ServiceNowQuery
 from servicenow_mcp.tools._dictionary import DictionaryField, DictionaryRegistry
-from servicenow_mcp.utils import ServiceNowQuery
 
 
 logger = logging.getLogger(__name__)

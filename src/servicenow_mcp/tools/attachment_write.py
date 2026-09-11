@@ -11,13 +11,14 @@ from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.policy import gate_write, production_write_blocked
+from servicenow_mcp.response import format_response
 from servicenow_mcp.tools._attachment_common import (
     MAX_ATTACHMENT_BYTES,
     decode_content_base64,
     ensure_attachment_size_within_limit,
     get_attachment_table_name,
 )
-from servicenow_mcp.utils import format_response, validate_identifier, validate_sys_id
+from servicenow_mcp.validation import validate_identifier, validate_sys_id
 
 
 TOOL_NAMES: list[str] = ["attachment_write"]

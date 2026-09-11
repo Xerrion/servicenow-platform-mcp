@@ -11,9 +11,9 @@ from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
+from servicenow_mcp.response import format_response
 from servicenow_mcp.tools.query import register_tools
 from servicenow_mcp.tools.service_catalog import register_tools as register_catalog_tools
-from servicenow_mcp.utils import format_response
 
 
 BASE_URL = "https://test.service-now.com"
@@ -27,7 +27,7 @@ async def test_envelopes_have_no_internal_correlation_id(should_raise: bool) -> 
             raise RuntimeError("private failure")
         return format_response(data={"correlation_id": "record-value"})
 
-    with patch("servicenow_mcp.utils.sentry_capture") as capture:
+    with patch("servicenow_mcp.tool_errors.sentry_capture") as capture:
         response = json.loads(await tool())
     assert "correlation_id" not in response
     if should_raise:

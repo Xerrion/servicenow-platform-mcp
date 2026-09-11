@@ -170,8 +170,7 @@ def write_gate(table: str, settings: Settings) -> str | None:
     Returns:
         A JSON error envelope if writes are blocked, or None if allowed.
     """
-    # Import here to avoid circular dependency (format_response imports from policy)
-    from servicenow_mcp.utils import format_response
+    from servicenow_mcp.response import format_response
 
     reason = write_blocked_reason(table, settings)
     if reason:
@@ -197,9 +196,7 @@ def production_write_blocked(settings: Settings) -> str | None:
     kept identical to ``write_blocked_reason``'s production branch so the
     user-facing message is consistent across pre- and post-fetch paths.
     """
-    # Local import mirrors the pattern in ``write_gate``: ``utils`` imports
-    # from this module, so we defer to break the cycle at module load time.
-    from servicenow_mcp.utils import format_response
+    from servicenow_mcp.response import format_response
 
     if not settings.is_production:
         return None
@@ -251,9 +248,8 @@ def gate_write(table: str, settings: Settings) -> str | None:
     production blocks all surface as serialized envelopes (no Sentry noise
     from caught exceptions for expected policy outcomes).
     """
-    # Imported locally to avoid a circular import at module load time
-    # (utils -> errors/sentry/state, but utils is the canonical home of validate_identifier).
-    from servicenow_mcp.utils import format_response, validate_identifier
+    from servicenow_mcp.response import format_response
+    from servicenow_mcp.validation import validate_identifier
 
     try:
         validate_identifier(table)

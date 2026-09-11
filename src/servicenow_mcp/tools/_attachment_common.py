@@ -4,7 +4,7 @@ import base64
 import binascii
 from typing import Any
 
-from servicenow_mcp.utils import resolve_ref_value, validate_identifier, validate_sys_id
+from servicenow_mcp.validation import resolve_ref_value, validate_identifier, validate_sys_id
 
 
 MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024

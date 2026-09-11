@@ -12,7 +12,7 @@ from servicenow_mcp.auth import AccessToken, OAuthPKCEProvider
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
 from servicenow_mcp.errors import AuthError
-from servicenow_mcp.utils import safe_tool_call
+from servicenow_mcp.tool_errors import safe_tool_call
 
 
 BASE_URL = "https://test.service-now.com"

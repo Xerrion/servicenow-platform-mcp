@@ -20,6 +20,8 @@ from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.errors import NotFoundError
 from servicenow_mcp.policy import check_table_access, mask_sensitive_fields
+from servicenow_mcp.query_builder import ServiceNowQuery
+from servicenow_mcp.response import format_response
 from servicenow_mcp.tools._attachment_common import (
     build_attachment_download_payload,
     ensure_attachment_size_value_within_limit,
@@ -28,7 +30,7 @@ from servicenow_mcp.tools._attachment_common import (
     get_attachment_sys_id,
     get_attachment_table_name,
 )
-from servicenow_mcp.utils import ServiceNowQuery, format_response, validate_identifier, validate_sys_id
+from servicenow_mcp.validation import validate_identifier, validate_sys_id
 
 
 TOOL_NAMES: list[str] = ["attachment"]

@@ -28,12 +28,13 @@ from servicenow_mcp.policy import (
     mask_sensitive_fields,
     write_gate,
 )
+from servicenow_mcp.response import format_response
 from servicenow_mcp.state import PreviewTokenStore
 from servicenow_mcp.tools._artifact import validate_ui_macro_xml
 from servicenow_mcp.tools._dictionary import DictionaryRegistry
 from servicenow_mcp.tools._payload import parse_payload_json
 from servicenow_mcp.tools._record_helpers import _build_update_diff, _check_mandatory_or_error
-from servicenow_mcp.utils import format_response, validate_identifier, validate_sys_id
+from servicenow_mcp.validation import validate_identifier, validate_sys_id
 
 
 TOOL_NAMES: list[str] = ["record_write", "record_apply"]

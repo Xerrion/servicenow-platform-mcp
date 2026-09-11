@@ -28,8 +28,9 @@ from servicenow_mcp.policy import (
     enforce_query_safety,
     mask_record,
 )
+from servicenow_mcp.response import format_response
 from servicenow_mcp.tools._dictionary import DictionaryRegistry
-from servicenow_mcp.utils import format_response, validate_identifier, validate_sys_id
+from servicenow_mcp.validation import validate_identifier, validate_sys_id
 
 
 logger = logging.getLogger(__name__)

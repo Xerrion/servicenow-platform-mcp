@@ -19,13 +19,15 @@ from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.policy import check_table_access
+from servicenow_mcp.query_builder import ServiceNowQuery
+from servicenow_mcp.response import format_response
 from servicenow_mcp.tools._describe_helpers import (
     DEFAULT_DESCRIBE_FIELD_LIMIT,
     _describe_impl,
     _parse_fields_filter,
 )
 from servicenow_mcp.tools._dictionary import DictionaryRegistry, ScriptField
-from servicenow_mcp.utils import ServiceNowQuery, format_response, validate_identifier
+from servicenow_mcp.validation import validate_identifier
 
 
 logger = logging.getLogger(__name__)

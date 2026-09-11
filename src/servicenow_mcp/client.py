@@ -21,9 +21,9 @@ from servicenow_mcp.errors import (
     ServiceNowMCPError,
 )
 from servicenow_mcp.policy import INTERNAL_QUERY_LIMIT
+from servicenow_mcp.query_builder import ServiceNowQuery
 from servicenow_mcp.sentry import set_sentry_context
-from servicenow_mcp.utils import (
-    ServiceNowQuery,
+from servicenow_mcp.validation import (
     resolve_ref_value,
     sanitize_query_value,
     validate_identifier,

@@ -261,8 +261,18 @@ class TestServiceNowClientQueryRecords:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_query_records_with_order_by(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-        """Passes order_by parameter."""
+    @pytest.mark.parametrize(
+        ("order_by", "expected_clause"),
+        [("sys_created_on", "ORDERBYsys_created_on"), ("-sys_created_on", "ORDERBYDESCsys_created_on")],
+    )
+    async def test_query_records_with_order_by(
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
+        order_by: str,
+        expected_clause: str,
+    ) -> None:
+        """Adds ascending and descending order clauses to the encoded query."""
         from servicenow_mcp.client import ServiceNowClient
 
         route = respx.get(f"{BASE_URL}/api/now/table/incident").mock(
@@ -274,11 +284,13 @@ class TestServiceNowClientQueryRecords:
         )
 
         async with ServiceNowClient(settings, auth_provider) as client:
-            await client.query_records("incident", "active=true", order_by="sys_created_on")
+            await client.query_records("incident", "active=true", limit=1, order_by=order_by)
 
         assert route.calls.last is not None
-        url = str(route.calls.last.request.url)
-        assert "sysparm_orderby" in url
+        params = route.calls.last.request.url.params
+        assert params["sysparm_limit"] == "1"
+        assert params["sysparm_query"] == f"active=true^{expected_clause}"
+        assert "sysparm_orderby" not in params
 
     @pytest.mark.asyncio()
     @respx.mock

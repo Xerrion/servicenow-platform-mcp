@@ -9,7 +9,7 @@ import pytest
 import respx
 from mcp.server import MCPServer
 
-from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.tools.analysis import register_tools
 from tests.helpers import decode_response, get_tool_functions
@@ -20,12 +20,12 @@ SYS_ID = "a" * 32
 
 
 @pytest.fixture()
-def auth_provider(settings: Settings) -> BasicAuthProvider:
+def auth_provider(settings: Settings) -> OAuthPKCEProvider:
     """Create a basic authentication provider for analysis tests."""
-    return BasicAuthProvider(settings)
+    return OAuthPKCEProvider(settings)
 
 
-def _tools(settings: Settings, auth_provider: BasicAuthProvider) -> dict[str, Any]:
+def _tools(settings: Settings, auth_provider: OAuthPKCEProvider) -> dict[str, Any]:
     mcp = MCPServer("test")
     register_tools(mcp, settings, auth_provider)
     return get_tool_functions(mcp)
@@ -33,7 +33,7 @@ def _tools(settings: Settings, auth_provider: BasicAuthProvider) -> dict[str, An
 
 @pytest.mark.asyncio()
 @respx.mock
-async def test_describe_has_no_io(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+async def test_describe_has_no_io(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     result = decode_response(await _tools(settings, auth_provider)["analysis"](action="describe"))
     assert set(result["data"]["actions"]) == {"ritm_variables", "journal_history", "describe"}
     assert not respx.calls
@@ -42,7 +42,7 @@ async def test_describe_has_no_io(settings: Settings, auth_provider: BasicAuthPr
 @pytest.mark.asyncio()
 @respx.mock
 async def test_ritm_variables_masks_sensitive_answer_and_paginates(
-    settings: Settings, auth_provider: BasicAuthProvider
+    settings: Settings, auth_provider: OAuthPKCEProvider
 ) -> None:
     option_id = "b" * 32
     definition_id = "c" * 32
@@ -97,7 +97,7 @@ async def test_ritm_variables_masks_sensitive_answer_and_paginates(
 
 @pytest.mark.asyncio()
 @respx.mock
-async def test_ritm_variables_empty_or_orphaned(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+async def test_ritm_variables_empty_or_orphaned(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     respx.get(f"{BASE_URL}/api/now/table/sc_req_item/{SYS_ID}").mock(
         return_value=httpx.Response(200, json={"result": {"sys_id": SYS_ID}})
     )
@@ -122,7 +122,7 @@ async def test_ritm_variables_empty_or_orphaned(settings: Settings, auth_provide
 
 @pytest.mark.asyncio()
 @respx.mock
-async def test_ritm_variables_missing_and_invalid(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+async def test_ritm_variables_missing_and_invalid(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     tools = _tools(settings, auth_provider)
     invalid = decode_response(await tools["analysis"](action="ritm_variables", sys_id="invalid"))
     assert invalid["status"] == "error"
@@ -141,7 +141,7 @@ async def test_ritm_variables_missing_and_invalid(settings: Settings, auth_provi
 )
 @respx.mock
 async def test_ritm_variables_handles_list_collector_and_duplicate_answers(
-    settings: Settings, auth_provider: BasicAuthProvider, variable_type: str
+    settings: Settings, auth_provider: OAuthPKCEProvider, variable_type: str
 ) -> None:
     option_id = "b" * 32
     definition_id = "c" * 32
@@ -179,7 +179,7 @@ async def test_ritm_variables_handles_list_collector_and_duplicate_answers(
     )
 
     def definitions_handler(request: httpx.Request) -> httpx.Response:
-        assert "sysparm_display_value" not in request.url.params
+        assert request.url.params["sysparm_display_value"] == "false"
         return httpx.Response(
             200,
             json={
@@ -213,7 +213,7 @@ async def test_ritm_variables_handles_list_collector_and_duplicate_answers(
 @pytest.mark.asyncio()
 @respx.mock
 async def test_ritm_variables_discloses_mrvs_presence_without_payload(
-    settings: Settings, auth_provider: BasicAuthProvider
+    settings: Settings, auth_provider: OAuthPKCEProvider
 ) -> None:
     respx.get(f"{BASE_URL}/api/now/table/sc_req_item/{SYS_ID}").mock(
         return_value=httpx.Response(200, json={"result": {"sys_id": SYS_ID}})
@@ -257,7 +257,7 @@ async def test_ritm_variables_discloses_mrvs_presence_without_payload(
 @respx.mock
 async def test_ritm_variables_mrvs_metadata_does_not_distort_answer_pagination(
     settings: Settings,
-    auth_provider: BasicAuthProvider,
+    auth_provider: OAuthPKCEProvider,
     offset: int,
     option_id: str,
     expected_next_offset: int | None,
@@ -330,7 +330,7 @@ async def test_ritm_variables_mrvs_metadata_does_not_distort_answer_pagination(
 
 @pytest.mark.asyncio()
 @respx.mock
-async def test_ritm_variables_deduplicates_mrvs_warnings(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+async def test_ritm_variables_deduplicates_mrvs_warnings(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     option_id = "b" * 32
     definition_id = "c" * 32
     respx.get(f"{BASE_URL}/api/now/table/sc_req_item/{SYS_ID}").mock(
@@ -390,7 +390,7 @@ async def test_ritm_variables_deduplicates_mrvs_warnings(settings: Settings, aut
 @respx.mock
 async def test_ritm_variables_masks_incomplete_definition_metadata(
     settings: Settings,
-    auth_provider: BasicAuthProvider,
+    auth_provider: OAuthPKCEProvider,
     name: str | None,
     question_text: str | None,
 ) -> None:
@@ -444,7 +444,7 @@ async def test_ritm_variables_masks_incomplete_definition_metadata(
 @pytest.mark.asyncio()
 @respx.mock
 async def test_ritm_variables_deduplicates_incomplete_metadata_warning(
-    settings: Settings, auth_provider: BasicAuthProvider
+    settings: Settings, auth_provider: OAuthPKCEProvider
 ) -> None:
     option_ids = ["b" * 32, "c" * 32]
     definition_ids = ["d" * 32, "e" * 32]
@@ -496,7 +496,7 @@ async def test_ritm_variables_deduplicates_incomplete_metadata_warning(
 @pytest.mark.asyncio()
 @respx.mock
 async def test_journal_history_is_bounded_and_deterministic(
-    settings: Settings, auth_provider: BasicAuthProvider
+    settings: Settings, auth_provider: OAuthPKCEProvider
 ) -> None:
     db_route = respx.get(f"{BASE_URL}/api/now/table/sys_db_object").mock(
         side_effect=[
@@ -553,7 +553,7 @@ async def test_journal_history_is_bounded_and_deterministic(
 
 @pytest.mark.asyncio()
 async def test_journal_history_rejects_invalid_or_denied_input(
-    settings: Settings, auth_provider: BasicAuthProvider
+    settings: Settings, auth_provider: OAuthPKCEProvider
 ) -> None:
     tools = _tools(settings, auth_provider)
     invalid = decode_response(
@@ -571,7 +571,7 @@ async def test_journal_history_rejects_invalid_or_denied_input(
 
 @pytest.mark.asyncio()
 @respx.mock
-async def test_analysis_http_error_returns_envelope(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+async def test_analysis_http_error_returns_envelope(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     respx.get(f"{BASE_URL}/api/now/table/sc_req_item/{SYS_ID}").mock(
         return_value=httpx.Response(500, json={"error": {"message": "synthetic failure"}})
     )

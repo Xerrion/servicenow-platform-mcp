@@ -9,11 +9,48 @@ from unittest.mock import patch
 
 import pytest
 
+from servicenow_mcp.config import Settings
 from tests.helpers import get_tool_functions, get_tool_names
 
 
 class TestCreateMcpServer:
     """Test MCP server creation."""
+
+    @pytest.mark.parametrize(
+        ("group", "dependency_names"),
+        [
+            ("query", {"settings", "auth_provider", "choices", "dictionary", "client_factory"}),
+            ("record_read", {"settings", "auth_provider", "dictionary", "client_factory"}),
+            ("attachment", {"settings", "auth_provider", "client_factory"}),
+            ("resolve_choice", {"choices"}),
+        ],
+    )
+    async def test_loader_injects_only_declared_dependencies(
+        self, group: str, dependency_names: set[str], settings: Settings
+    ) -> None:
+        """Different registration signatures receive the same server-owned dependencies."""
+        from servicenow_mcp.server import attach_servicenow_state, create_mcp_server
+
+        settings.mcp_tool_package = group
+        module = importlib.import_module(f"servicenow_mcp.tools.{group}")
+        with (
+            patch("servicenow_mcp.server.Settings", return_value=settings),
+            patch.object(module, "register_tools", autospec=True, side_effect=module.register_tools) as register,
+            patch("servicenow_mcp.server.attach_servicenow_state", wraps=attach_servicenow_state) as attach_state,
+        ):
+            mcp = create_mcp_server()
+
+        async with mcp._lowlevel_server.lifespan(mcp._lowlevel_server):
+            _, shared_settings, auth_provider, choices, dictionary, client_factory, _ = attach_state.call_args.args
+            dependencies = {
+                "settings": shared_settings,
+                "auth_provider": auth_provider,
+                "choices": choices,
+                "dictionary": dictionary,
+                "client_factory": client_factory,
+            }
+            register.assert_called_once_with(mcp=mcp, **{name: dependencies[name] for name in dependency_names})
+            assert group in await get_tool_names(mcp)
 
     async def test_creates_server_with_name(self) -> None:
         """Server has the expected name."""
@@ -21,8 +58,8 @@ class TestCreateMcpServer:
 
         env = {
             "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
-            "SERVICENOW_USERNAME": "admin",
-            "SERVICENOW_PASSWORD": "s3cret",  # NOSONAR - intentional test-only fixture credential
+            "SERVICENOW_OAUTH_CLIENT_ID": "test-client",
+            "SERVICENOW_OAUTH_SCOPE": "useraccount",
             "MCP_TOOL_PACKAGE": "none",
         }
         with patch.dict("os.environ", env, clear=True):
@@ -36,8 +73,8 @@ class TestCreateMcpServer:
 
         env = {
             "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
-            "SERVICENOW_USERNAME": "admin",
-            "SERVICENOW_PASSWORD": "s3cret",  # NOSONAR - intentional test-only fixture credential
+            "SERVICENOW_OAUTH_CLIENT_ID": "test-client",
+            "SERVICENOW_OAUTH_SCOPE": "useraccount",
             "MCP_TOOL_PACKAGE": "none",
         }
         with patch.dict("os.environ", env, clear=True):
@@ -53,8 +90,8 @@ class TestCreateMcpServer:
 
         env = {
             "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
-            "SERVICENOW_USERNAME": "admin",
-            "SERVICENOW_PASSWORD": "s3cret",
+            "SERVICENOW_OAUTH_CLIENT_ID": "test-client",
+            "SERVICENOW_OAUTH_SCOPE": "useraccount",
             "MCP_TOOL_PACKAGE": "core_readonly",
         }
         with patch.dict("os.environ", env, clear=True):
@@ -73,8 +110,8 @@ class TestCreateMcpServer:
 
         env = {
             "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
-            "SERVICENOW_USERNAME": "admin",
-            "SERVICENOW_PASSWORD": "s3cret",
+            "SERVICENOW_OAUTH_CLIENT_ID": "test-client",
+            "SERVICENOW_OAUTH_SCOPE": "useraccount",
             "MCP_TOOL_PACKAGE": "readonly",
         }
         with patch.dict("os.environ", env, clear=True):
@@ -93,8 +130,8 @@ class TestCreateMcpServer:
 
         env = {
             "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
-            "SERVICENOW_USERNAME": "admin",
-            "SERVICENOW_PASSWORD": "s3cret",
+            "SERVICENOW_OAUTH_CLIENT_ID": "test-client",
+            "SERVICENOW_OAUTH_SCOPE": "useraccount",
             "MCP_TOOL_PACKAGE": "full",
         }
         with patch.dict("os.environ", env, clear=True):
@@ -120,8 +157,8 @@ class TestCreateMcpServer:
 
         env = {
             "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
-            "SERVICENOW_USERNAME": "admin",
-            "SERVICENOW_PASSWORD": "s3cret",
+            "SERVICENOW_OAUTH_CLIENT_ID": "test-client",
+            "SERVICENOW_OAUTH_SCOPE": "useraccount",
             "MCP_TOOL_PACKAGE": package_name,
         }
         with patch.dict("os.environ", env, clear=True):
@@ -135,8 +172,8 @@ class TestCreateMcpServer:
 
         env = {
             "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
-            "SERVICENOW_USERNAME": "admin",
-            "SERVICENOW_PASSWORD": "s3cret",
+            "SERVICENOW_OAUTH_CLIENT_ID": "test-client",
+            "SERVICENOW_OAUTH_SCOPE": "useraccount",
             "MCP_TOOL_PACKAGE": "code_search",
         }
         with patch.dict("os.environ", env, clear=True):
@@ -151,8 +188,8 @@ class TestCreateMcpServer:
 
         env = {
             "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
-            "SERVICENOW_USERNAME": "admin",
-            "SERVICENOW_PASSWORD": "s3cret",
+            "SERVICENOW_OAUTH_CLIENT_ID": "test-client",
+            "SERVICENOW_OAUTH_SCOPE": "useraccount",
             "MCP_TOOL_PACKAGE": "none",
         }
         with patch.dict("os.environ", env, clear=True):
@@ -167,8 +204,8 @@ class TestCreateMcpServer:
 
         env = {
             "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
-            "SERVICENOW_USERNAME": "admin",
-            "SERVICENOW_PASSWORD": "s3cret",  # NOSONAR - intentional test-only fixture credential
+            "SERVICENOW_OAUTH_CLIENT_ID": "test-client",
+            "SERVICENOW_OAUTH_SCOPE": "useraccount",
             "MCP_TOOL_PACKAGE": "none",
         }
         with patch.dict("os.environ", env, clear=True):
@@ -198,8 +235,8 @@ class TestCreateMcpServer:
 
         env = {
             "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
-            "SERVICENOW_USERNAME": "admin",
-            "SERVICENOW_PASSWORD": "s3cret",  # NOSONAR - intentional test-only fixture credential
+            "SERVICENOW_OAUTH_CLIENT_ID": "test-client",
+            "SERVICENOW_OAUTH_SCOPE": "useraccount",
             "MCP_TOOL_PACKAGE": "core_readonly",
         }
         with (

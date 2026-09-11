@@ -2,7 +2,7 @@
 
 import pytest
 
-from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
 
@@ -16,7 +16,7 @@ class TestRecordIntegration:
     async def test_rel_references_from(
         self,
         live_settings: Settings,
-        live_auth: BasicAuthProvider,
+        live_auth: OAuthPKCEProvider,
         incident_sys_id: str | None,
     ) -> None:
         """rel_references_from: find outgoing reference fields on an incident."""
@@ -42,7 +42,7 @@ class TestRecordIntegration:
         # An incident should have at least some populated reference fields
         assert isinstance(outgoing, list)
 
-    async def test_rel_references_to(self, live_settings: Settings, live_auth: BasicAuthProvider) -> None:
+    async def test_rel_references_to(self, live_settings: Settings, live_auth: OAuthPKCEProvider) -> None:
         """rel_references_to: find tables that reference the incident table."""
         async with ServiceNowClient(live_settings, live_auth) as client:
             ref_fields = await client.query_records(

@@ -1,7 +1,6 @@
 """Tests for utility functions."""
 
 import json
-import uuid
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -19,40 +18,17 @@ from servicenow_mcp.utils import (
 from tests.helpers import decode_response
 
 
-class TestCorrelationId:
-    """Test correlation ID generation."""
-
-    def test_returns_string(self) -> None:
-        from servicenow_mcp.utils import generate_correlation_id
-
-        cid = generate_correlation_id()
-        assert isinstance(cid, str)
-
-    def test_valid_uuid_format(self) -> None:
-        from servicenow_mcp.utils import generate_correlation_id
-
-        cid = generate_correlation_id()
-        # Should not raise
-        uuid.UUID(cid)
-
-    def test_unique_ids(self) -> None:
-        from servicenow_mcp.utils import generate_correlation_id
-
-        ids = {generate_correlation_id() for _ in range(100)}
-        assert len(ids) == 100
-
-
 class TestFormatResponse:
     """Test response formatting."""
 
     def test_success_envelope(self) -> None:
         from servicenow_mcp.utils import format_response
 
-        raw = format_response(data={"key": "value"}, correlation_id="test-123")
+        raw = format_response(data={"key": "value"})
         resp = decode_response(raw)
 
         assert resp["status"] == "success"
-        assert resp["correlation_id"] == "test-123"
+        assert "correlation_id" not in resp
         assert resp["data"] == {"key": "value"}
 
     def test_error_envelope(self) -> None:
@@ -60,7 +36,6 @@ class TestFormatResponse:
 
         raw = format_response(
             data=None,
-            correlation_id="test-456",
             status="error",
             error="Something went wrong",
         )
@@ -74,7 +49,6 @@ class TestFormatResponse:
 
         raw = format_response(
             data=[],
-            correlation_id="test-789",
             pagination={"offset": 0, "limit": 100, "total": 250},
         )
         resp = decode_response(raw)
@@ -86,7 +60,6 @@ class TestFormatResponse:
 
         raw = format_response(
             data={},
-            correlation_id="test-999",
             warnings=["Limit capped at 100"],
         )
         resp = decode_response(raw)
@@ -97,16 +70,15 @@ class TestFormatResponse:
         from servicenow_mcp.utils import format_response
 
         data = {"empty": "", "missing": None, "zero": 0, "disabled": False, "items": []}
-        resp = decode_response(format_response(data=data, correlation_id="test-compact", warnings=[]))
+        resp = decode_response(format_response(data=data, warnings=[]))
 
-        assert resp == {"correlation_id": "test-compact", "status": "success", "data": data}
+        assert resp == {"status": "success", "data": data}
 
     def test_error_and_continuation_metadata_preserved(self) -> None:
         from servicenow_mcp.utils import format_response
 
         envelope = {
             "data": None,
-            "correlation_id": "test-error",
             "status": "error",
             "error": {"message": "Access denied"},
             "pagination": {"offset": 0, "limit": 5, "total": 20},
@@ -116,7 +88,6 @@ class TestFormatResponse:
         resp = decode_response(
             format_response(
                 data=envelope["data"],
-                correlation_id="test-error",
                 status="error",
                 error={"message": "Access denied"},
                 pagination={"offset": 0, "limit": 5, "total": 20},
@@ -162,9 +133,8 @@ class TestSerialize:
         # Original data must NOT appear in the output.
         assert "value" not in result
 
-    def test_serialize_fallback_preserves_correlation_id(self) -> None:
-        """When the input dict carries a correlation_id, the error envelope must
-        retain it so failures stay traceable end-to-end."""
+    def test_serialize_fallback_does_not_promote_record_correlation_id(self) -> None:
+        """Serialization failures do not copy record fields into the envelope."""
         original_dumps = json.dumps
         call_count = {"n": 0}
 
@@ -174,13 +144,13 @@ class TestSerialize:
                 raise TypeError("unsupported type")
             return original_dumps(*args, **kwargs)  # type: ignore[arg-type]
 
-        envelope = {"correlation_id": "corr-xyz-123", "status": "success", "data": {"k": "v"}}
+        record = {"correlation_id": "record-value", "k": "v"}
         with patch("servicenow_mcp.utils.json.dumps", side_effect=faulty_dumps):
-            result = serialize(envelope)
+            result = serialize(record)
 
         parsed = json.loads(result)
         assert parsed["status"] == "error"
-        assert parsed["correlation_id"] == "corr-xyz-123"
+        assert "correlation_id" not in parsed
         assert parsed["error"] == {"message": "Serialization failed"}
 
     def test_serialize_fallback_omits_correlation_id_when_absent(self) -> None:
@@ -1036,7 +1006,7 @@ class TestSafeToolCall:
         """Successful fn return passes through unchanged."""
         fn = AsyncMock(return_value='{"status": "ok"}')
 
-        result = await safe_tool_call(fn, "test-corr-id")
+        result = await safe_tool_call(fn)
         assert result == '{"status": "ok"}'
 
     async def test_acl_error_returns_acl_envelope(self) -> None:
@@ -1046,13 +1016,13 @@ class TestSafeToolCall:
         async def fn() -> str:
             raise ACLError("ACL blocked incident")
 
-        result = await safe_tool_call(fn, "test-corr-id")
+        result = await safe_tool_call(fn)
         parsed = decode_response(result)
         assert parsed["status"] == "error"
         assert isinstance(parsed["error"], dict)
         assert "Access denied by ServiceNow ACL" in parsed["error"]["message"]
         assert "ACL blocked incident" in parsed["error"]["message"]
-        assert parsed["correlation_id"] == "test-corr-id"
+        assert "correlation_id" not in parsed
 
     async def test_forbidden_error_returns_forbidden_envelope(self) -> None:
         """ForbiddenError is caught and formatted as generic forbidden."""
@@ -1060,14 +1030,14 @@ class TestSafeToolCall:
         async def fn() -> str:
             raise ForbiddenError("insufficient role")
 
-        result = await safe_tool_call(fn, "test-corr-id")
+        result = await safe_tool_call(fn)
         parsed = decode_response(result)
         assert parsed["status"] == "error"
         assert isinstance(parsed["error"], dict)
         assert "Access forbidden by ServiceNow" in parsed["error"]["message"]
         assert "insufficient role" in parsed["error"]["message"]
         assert "Access denied by ServiceNow ACL" not in parsed["error"]["message"]
-        assert parsed["correlation_id"] == "test-corr-id"
+        assert "correlation_id" not in parsed
 
     async def test_generic_exception_returns_error_envelope(self) -> None:
         """Truly unclassified exceptions are returned as an opaque envelope.
@@ -1081,14 +1051,14 @@ class TestSafeToolCall:
         async def fn() -> str:
             raise RuntimeError("something broke")
 
-        result = await safe_tool_call(fn, "test-corr-id")
+        result = await safe_tool_call(fn)
         parsed = decode_response(result)
         assert parsed["status"] == "error"
         assert isinstance(parsed["error"], dict)
         message = parsed["error"]["message"]
         assert "something broke" not in message
-        assert message == "Internal error (correlation_id=test-corr-id)"
-        assert parsed["correlation_id"] == "test-corr-id"
+        assert message == "Internal error"
+        assert "correlation_id" not in parsed
 
 
 # ---------------------------------------------------------------------------

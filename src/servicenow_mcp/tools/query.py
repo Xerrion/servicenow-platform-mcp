@@ -18,7 +18,7 @@ from typing import Final
 
 from mcp.server import MCPServer
 
-from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.choices import ChoiceRegistry
 from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
@@ -183,7 +183,6 @@ def _parse_projection(fields: str, *, compact_default: bool) -> tuple[list[str] 
             "mode": "all",
             "requested_fields": "*",
             "returned_fields": "all fields returned by ServiceNow",
-            "omitted": [],
             "sys_id_added": False,
         }
     if "*" in _parse_csv(fields):
@@ -207,7 +206,6 @@ def _parse_projection(fields: str, *, compact_default: bool) -> tuple[list[str] 
         "mode": mode,
         "requested_fields": None if mode == "compact" else requested,
         "returned_fields": projected,
-        "omitted": "all fields outside the projection",
         "sys_id_added": sys_id_added,
     }
 
@@ -380,15 +378,14 @@ async def _run_sys_id_mode(
     fields: str,
     display_values: bool,
     settings: Settings,
-    auth_provider: BasicAuthProvider,
+    auth_provider: OAuthPKCEProvider,
     client_factory: ServiceNowClientProvider,
-    correlation_id: str,
 ) -> str:
     validate_sys_id(sys_id)
 
     parsed = _parse_projection(fields, compact_default=True)
     if isinstance(parsed, str):
-        return _err(correlation_id, parsed)
+        return _err(parsed)
     field_list, selection = parsed
 
     async with client_factory() as client:
@@ -399,7 +396,6 @@ async def _run_sys_id_mode(
         selection["returned_fields"] = list(masked)
     return format_response(
         data=_project_record(masked, field_list),
-        correlation_id=correlation_id,
         selection=selection,
     )
 
@@ -410,9 +406,8 @@ async def _run_aggregate_mode(
     plan: _AggregatePlan,
     group_by: str,
     settings: Settings,
-    auth_provider: BasicAuthProvider,
+    auth_provider: OAuthPKCEProvider,
     client_factory: ServiceNowClientProvider,
-    correlation_id: str,
     warnings: list[str],
 ) -> str:
     group_fields = [item.strip() for item in group_by.split(",")] if group_by else []
@@ -431,7 +426,7 @@ async def _run_aggregate_mode(
             max_fields=plan.max_fields or None,
         )
 
-    return format_response(data=result, correlation_id=correlation_id, warnings=warnings or None)
+    return format_response(data=result, warnings=warnings or None)
 
 
 async def _run_query_mode(
@@ -443,14 +438,13 @@ async def _run_query_mode(
     order_by: str,
     display_values: bool,
     settings: Settings,
-    auth_provider: BasicAuthProvider,
+    auth_provider: OAuthPKCEProvider,
     client_factory: ServiceNowClientProvider,
-    correlation_id: str,
     warnings: list[str],
 ) -> str:
     parsed = _parse_projection(fields, compact_default=False)
     if isinstance(parsed, str):
-        return _err(correlation_id, parsed)
+        return _err(parsed)
     field_list, selection = parsed
 
     order_field = order_by.lstrip("-") if order_by else ""
@@ -476,7 +470,6 @@ async def _run_query_mode(
         selection["returned_fields"] = sorted({name for record in masked for name in record})
     return format_response(
         data=masked,
-        correlation_id=correlation_id,
         pagination={
             "offset": offset,
             "limit": effective_limit,
@@ -492,12 +485,12 @@ async def _run_query_mode(
 # ---------------------------------------------------------------------------
 
 
-def _err(correlation_id: str, message: str) -> str:
+def _err(message: str) -> str:
     """Return a serialized error envelope with the given message."""
-    return format_response(data=None, correlation_id=correlation_id, status="error", error=message)
+    return format_response(data=None, status="error", error=message)
 
 
-def _check_mode_conflicts(sys_id: str, aggregate: str, group_by: str, correlation_id: str) -> str | None:
+def _check_mode_conflicts(sys_id: str | None, aggregate: str | None, group_by: str | None) -> str | None:
     """Validate that the requested mode combination is legal.
 
     Three modes are mutually exclusive: sys_id-fetch, aggregate, and default
@@ -507,17 +500,14 @@ def _check_mode_conflicts(sys_id: str, aggregate: str, group_by: str, correlatio
     """
     if sys_id and aggregate:
         return _err(
-            correlation_id,
             "Cannot combine sys_id with aggregate; sys_id mode fetches a single record.",
         )
     if sys_id and group_by:
         return _err(
-            correlation_id,
             "Cannot combine sys_id with group_by; sys_id mode fetches a single record.",
         )
     if group_by and not aggregate:
         return _err(
-            correlation_id,
             "group_by requires aggregate to be set (aggregate mode only).",
         )
     return None
@@ -528,7 +518,6 @@ async def _apply_resolve_labels_block(
     encoded_query: str,
     resolve_labels: str,
     choices: ChoiceRegistry | None,
-    correlation_id: str,
 ) -> tuple[str, list[str]] | str:
     """Parse ``resolve_labels`` and fold the resolved pairs into ``encoded_query``.
 
@@ -539,7 +528,7 @@ async def _apply_resolve_labels_block(
     """
     pairs_or_error = _parse_label_pairs(resolve_labels)
     if isinstance(pairs_or_error, str):
-        return _err(correlation_id, pairs_or_error)
+        return _err(pairs_or_error)
 
     if choices is None:
         warnings = [
@@ -559,7 +548,7 @@ async def _apply_resolve_labels_block(
     return augmented, label_warnings
 
 
-def _validate_aggregate_block(aggregate: str, correlation_id: str) -> _AggregatePlan | str:
+def _validate_aggregate_block(aggregate: str) -> _AggregatePlan | str:
     """Parse and validate the ``aggregate`` spec.
 
     Returns the parsed ``_AggregatePlan`` on success or an error envelope
@@ -567,10 +556,9 @@ def _validate_aggregate_block(aggregate: str, correlation_id: str) -> _Aggregate
     """
     plan_or_error = _parse_aggregate(aggregate)
     if isinstance(plan_or_error, str):
-        return _err(correlation_id, plan_or_error)
+        return _err(plan_or_error)
     if plan_or_error.is_empty:
         return _err(
-            correlation_id,
             "aggregate must contain at least one operation (count, avg:<f>, sum:<f>, min:<f>, max:<f>).",
         )
     return plan_or_error
@@ -584,15 +572,14 @@ def _validate_aggregate_block(aggregate: str, correlation_id: str) -> _Aggregate
 def register_tools(
     mcp: MCPServer,
     settings: Settings,
-    auth_provider: BasicAuthProvider,
+    auth_provider: OAuthPKCEProvider,
     choices: ChoiceRegistry | None = None,
     dictionary: DictionaryRegistry | None = None,
     client_factory: ServiceNowClientProvider | None = None,
 ) -> None:
     """Register the unified ``query`` tool on the MCP server.
 
-    Mirrors the domain-tool registration signature so ``server.py`` can inject
-    the shared ``ChoiceRegistry``. ``choices`` may be ``None`` in tests; when
+    ``choices`` may be ``None`` in tests; when
     it is, ``resolve_labels`` degrades to passthrough with a warning. The
     ``dictionary`` registry, when supplied, drives advisory validation of the
     fields referenced in ``encoded_query``.
@@ -604,18 +591,16 @@ def register_tools(
     @tool_handler
     async def query(
         table: str,
-        sys_id: str = "",
-        encoded_query: str = "",
-        fields: str = "",
+        sys_id: str | None = None,
+        encoded_query: str | None = None,
+        fields: str | None = None,
         limit: int = 20,
         offset: int = 0,
-        order_by: str = "",
+        order_by: str | None = None,
         display_values: bool = False,
-        aggregate: str = "",
-        group_by: str = "",
-        resolve_labels: str = "",
-        *,
-        correlation_id: str = "",
+        aggregate: str | None = None,
+        group_by: str | None = None,
+        resolve_labels: str | None = None,
     ) -> str:
         """Read records, aggregates, or a single record from any ServiceNow table.
 
@@ -624,7 +609,7 @@ def register_tools(
             sys_id: When set, fetch a single record by sys_id (other filter args ignored
                 except `fields` and `display_values`).
             encoded_query: ServiceNow encoded query string (e.g. 'state=1^priority=2').
-                Empty = no filter.
+                Omit or pass null for no filter; empty strings are also accepted.
             fields: Comma-separated field projection. List mode requires this argument.
                 ``'*'`` explicitly requests all masked fields. Exact sys_id mode defaults
                 to the compact ``sys_id,sys_updated_on`` projection.
@@ -640,7 +625,7 @@ def register_tools(
                 into encoded_query as 'field=value'.
         """
         # --- Mode conflict guards (early-exit, before table validation) ---
-        conflict = _check_mode_conflicts(sys_id, aggregate, group_by, correlation_id)
+        conflict = _check_mode_conflicts(sys_id, aggregate, group_by)
         if conflict:
             return conflict
 
@@ -653,24 +638,23 @@ def register_tools(
             return await _run_sys_id_mode(
                 table=table,
                 sys_id=sys_id,
-                fields=fields,
+                fields=fields or "",
                 display_values=display_values,
                 settings=settings,
                 auth_provider=auth_provider,
                 client_factory=client_factory,
-                correlation_id=correlation_id,
             )
 
         if not aggregate:
-            projection = _parse_projection(fields, compact_default=False)
+            projection = _parse_projection(fields or "", compact_default=False)
             if isinstance(projection, str):
-                return _err(correlation_id, projection)
+                return _err(projection)
 
         # --- resolve_labels: augment encoded_query before safety check ----
         warnings: list[str] = []
-        augmented_query = encoded_query
+        augmented_query = encoded_query or ""
         if resolve_labels:
-            result = await _apply_resolve_labels_block(table, augmented_query, resolve_labels, choices, correlation_id)
+            result = await _apply_resolve_labels_block(table, augmented_query, resolve_labels, choices)
             if isinstance(result, str):
                 return result
             augmented_query, label_warnings = result
@@ -682,18 +666,17 @@ def register_tools(
 
         # --- aggregate mode -----------------------------------------------
         if aggregate:
-            plan = _validate_aggregate_block(aggregate, correlation_id)
+            plan = _validate_aggregate_block(aggregate)
             if isinstance(plan, str):
                 return plan
             return await _run_aggregate_mode(
                 table=table,
                 encoded_query=augmented_query,
                 plan=plan,
-                group_by=group_by,
+                group_by=group_by or "",
                 settings=settings,
                 auth_provider=auth_provider,
                 client_factory=client_factory,
-                correlation_id=correlation_id,
                 warnings=warnings,
             )
 
@@ -701,14 +684,13 @@ def register_tools(
         return await _run_query_mode(
             table=table,
             encoded_query=augmented_query,
-            fields=fields,
+            fields=fields or "",
             limit=limit,
             offset=offset,
-            order_by=order_by,
+            order_by=order_by or "",
             display_values=display_values,
             settings=settings,
             auth_provider=auth_provider,
             client_factory=client_factory,
-            correlation_id=correlation_id,
             warnings=warnings,
         )

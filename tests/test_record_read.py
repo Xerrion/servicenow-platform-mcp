@@ -9,8 +9,7 @@ import httpx
 import pytest
 import respx
 
-from servicenow_mcp.auth import BasicAuthProvider
-from servicenow_mcp.choices import ChoiceRegistry
+from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.tools._dictionary import DictionaryField, DictionaryRegistry, ScriptField
 from tests.helpers import decode_response, get_tool_functions
@@ -23,15 +22,14 @@ SYS_DB_OBJECT_URL = f"{BASE_URL}/api/now/table/sys_db_object"
 
 
 @pytest.fixture()
-def auth_provider(settings: Settings) -> BasicAuthProvider:
-    """BasicAuthProvider for the unified record_read test scope."""
-    return BasicAuthProvider(settings)
+def auth_provider(settings: Settings) -> OAuthPKCEProvider:
+    """OAuthPKCEProvider for the unified record_read test scope."""
+    return OAuthPKCEProvider(settings)
 
 
 def _register_and_get_tools(
     settings: Settings,
-    auth_provider: BasicAuthProvider,
-    choices: ChoiceRegistry | None = None,
+    auth_provider: OAuthPKCEProvider,
     dictionary: DictionaryRegistry | None = None,
 ) -> dict[str, Any]:
     """Register the unified ``record_read`` tool on a fresh MCP and return callables."""
@@ -40,13 +38,13 @@ def _register_and_get_tools(
     from servicenow_mcp.tools.record_read import register_tools
 
     mcp = MCPServer("test")
-    register_tools(mcp, settings, auth_provider, choices=choices, dictionary=dictionary)
+    register_tools(mcp, settings, auth_provider, dictionary=dictionary)
     return get_tool_functions(mcp)
 
 
 def _stub_dictionary(
     settings: Settings,
-    auth_provider: BasicAuthProvider,
+    auth_provider: OAuthPKCEProvider,
     field_names: list[str],
     script_names: list[str] | None = None,
 ) -> DictionaryRegistry:
@@ -68,7 +66,7 @@ class TestArgumentValidation:
     """Cross-argument validation runs before any HTTP call."""
 
     @pytest.mark.asyncio()
-    async def test_missing_table_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    async def test_missing_table_returns_error(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["record_read"](table="", sys_id=SYS_ID_BR)
         result = decode_response(raw)
@@ -77,7 +75,7 @@ class TestArgumentValidation:
 
     @pytest.mark.asyncio()
     async def test_both_sys_id_and_name_returns_error(
-        self, settings: Settings, auth_provider: BasicAuthProvider
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["record_read"](table="sys_script", sys_id=SYS_ID_BR, name="BR1")
@@ -87,7 +85,7 @@ class TestArgumentValidation:
 
     @pytest.mark.asyncio()
     async def test_neither_sys_id_nor_name_returns_error(
-        self, settings: Settings, auth_provider: BasicAuthProvider
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["record_read"](table="sys_script")
@@ -99,9 +97,23 @@ class TestArgumentValidation:
 class TestSysIdLookup:
     """Happy/error paths when ``sys_id`` is supplied."""
 
+    @pytest.mark.parametrize("fields", ["", "correlation_id", "*"])
+    @respx.mock
+    async def test_selection_omits_redundant_metadata(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider, fields: str
+    ) -> None:
+        dictionary = _stub_dictionary(settings, auth_provider, ["sys_id", "name", "correlation_id"])
+        record = {"sys_id": SYS_ID_BR, "correlation_id": "external-record-id"}
+        respx.get(f"{BASE_URL}/api/now/table/incident/{SYS_ID_BR}").respond(200, json={"result": record})
+        tools = _register_and_get_tools(settings, auth_provider, dictionary=dictionary)
+        result = decode_response(await tools["record_read"](table="incident", sys_id=SYS_ID_BR, fields=fields))
+        assert result["status"] == "success"
+        assert "omitted" not in result["selection"]
+        assert result["data"]["record"]["correlation_id"] == "external-record-id"
+
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_sys_id_happy_path(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    async def test_sys_id_happy_path(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         dictionary = _stub_dictionary(
             settings,
             auth_provider,
@@ -140,7 +152,7 @@ class TestSysIdLookup:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_sensitive_field_masked(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    async def test_sensitive_field_masked(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         dictionary = _stub_dictionary(
             settings,
             auth_provider,
@@ -169,7 +181,7 @@ class TestSysIdLookup:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_star_returns_full_masked_record(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    async def test_star_returns_full_masked_record(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         dictionary = _stub_dictionary(settings, auth_provider, ["sys_id", "name", "password"])
         route = respx.get(f"{BASE_URL}/api/now/table/sys_script/{SYS_ID_BR}").mock(
             return_value=httpx.Response(
@@ -188,7 +200,7 @@ class TestSysIdLookup:
     @pytest.mark.asyncio()
     @respx.mock
     async def test_unknown_field_returns_error_before_record_io(
-        self, settings: Settings, auth_provider: BasicAuthProvider
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
         dictionary = _stub_dictionary(settings, auth_provider, ["sys_id", "name"])
         tools = _register_and_get_tools(settings, auth_provider, dictionary=dictionary)
@@ -201,7 +213,7 @@ class TestSysIdLookup:
     @pytest.mark.asyncio()
     @respx.mock
     async def test_invalid_field_returns_error_before_dictionary_io(
-        self, settings: Settings, auth_provider: BasicAuthProvider
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
         result = decode_response(await tools["record_read"](table="sys_script", sys_id=SYS_ID_BR, fields="bad-field"))
@@ -212,7 +224,7 @@ class TestSysIdLookup:
 
     @pytest.mark.asyncio()
     async def test_invalid_sys_id_format_returns_error(
-        self, settings: Settings, auth_provider: BasicAuthProvider
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["record_read"](table="sys_script", sys_id="not-a-real-id")
@@ -226,7 +238,7 @@ class TestNameLookup:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_name_happy_path(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    async def test_name_happy_path(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         dictionary = _stub_dictionary(
             settings,
             auth_provider,
@@ -259,7 +271,7 @@ class TestNameLookup:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_name_no_match_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    async def test_name_no_match_returns_error(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         dictionary = _stub_dictionary(settings, auth_provider, ["sys_id", "name"])
         respx.get(f"{BASE_URL}/api/now/table/sys_script").mock(
             return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"}),
@@ -272,7 +284,7 @@ class TestNameLookup:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_name_ambiguous_returns_error(self, settings: Settings, auth_provider: BasicAuthProvider) -> None:
+    async def test_name_ambiguous_returns_error(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         dictionary = _stub_dictionary(settings, auth_provider, ["sys_id", "name"])
         respx.get(f"{BASE_URL}/api/now/table/sys_script").mock(
             return_value=httpx.Response(

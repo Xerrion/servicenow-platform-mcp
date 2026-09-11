@@ -82,7 +82,7 @@ mypy override: `servicenow_mcp.server` has `call-arg` error code disabled.
 | Category                    | Convention                   | Examples                                                                    |
 |-----------------------------|------------------------------|-----------------------------------------------------------------------------|
 | Functions/methods/variables | `snake_case`                 | `check_table_access`, `gate_write`                                          |
-| Classes                     | `PascalCase`                 | `ServiceNowClient`, `BasicAuthProvider`, `ChoiceRegistry`                   |
+| Classes                     | `PascalCase`                 | `ServiceNowClient`, `OAuthPKCEProvider`, `ChoiceRegistry`                   |
 | Constants                   | `UPPER_SNAKE_CASE`           | `DENIED_TABLES`, `MASK_VALUE`, `PACKAGE_REGISTRY`, `INVESTIGATION_REGISTRY` |
 | Private                     | Single underscore `_` prefix | `_table_url`, `_http_client`, `_ensure_client`                              |
 | Logger                      | Module-level                 | `logger = logging.getLogger(__name__)`                                      |
@@ -128,7 +128,7 @@ Write gating uses a function-based approach. There is **no** `WriteGatingError` 
 from servicenow_mcp.policy import write_gate, can_write, write_blocked_reason
 
 # In tool functions - returns error envelope string if blocked, None if allowed
-gate = write_gate("incident", settings, correlation_id)
+gate = write_gate("incident", settings)
 if gate:
     return gate  # Already a serialized error response
 
@@ -153,18 +153,16 @@ This is the most important pattern in the codebase. Located in `decorators.py`.
 ```python
 @mcp.tool()
 @tool_handler
-async def my_tool(param: str, correlation_id: str = "") -> str:
-    # correlation_id is auto-injected, never passed by MCP caller
+async def my_tool(param: str) -> str:
     ...
-    return format_response(data=result, correlation_id=correlation_id)
+    return format_response(data=result)
 ```
 
 What `@tool_handler` does:
 
-1. Auto-generates `correlation_id` via `generate_correlation_id()` (UUID4).
-2. Wraps the function call in `safe_tool_call()` which catches `ForbiddenError` and `Exception`, returning serialized error envelopes.
-3. Hides `correlation_id` from the MCPServer tool schema by overriding `__signature__` and deleting `__wrapped__`.
-4. Sets Sentry tags (`tool.name`, `tool.correlation_id`) and context with tool name, correlation_id, and args.
+1. Wraps the function call in `safe_tool_call()` which catches exceptions and returns serialized error envelopes.
+2. Preserves the callable signature through `functools.wraps`; no internal arguments are injected.
+3. Sets the Sentry `tool.name` tag and context with tool name and redacted args.
 
 ## 📊 Response Format
 
@@ -173,7 +171,6 @@ All tools return a serialized JSON string via `format_response()`:
 ```python
 format_response(
     data=...,               # Any serializable data
-    correlation_id=...,     # Auto-injected by @tool_handler
     status="success",       # "success" or "error"
     error=None,             # str | dict | None
     pagination=None,        # dict | None
@@ -184,7 +181,7 @@ format_response(
 Error response example:
 
 ```python
-return format_response(data=None, correlation_id=correlation_id, status="error", error="Something failed")
+return format_response(data=None, status="error", error="Something failed")
 ```
 
 ## 🛡 Policy Layer
@@ -211,8 +208,7 @@ return format_response(data=None, correlation_id=correlation_id, status="error",
 Only the `PreviewTokenStore` remains for staging write operations:
 
 ```text
-_BaseTokenStore(ttl_seconds=300, max_size=1000)
-  └── PreviewTokenStore    # Single-use tokens (has consume() method)
+PreviewTokenStore(ttl_seconds=300, max_size=1000)  # Single-use tokens
 ```
 
 - `create(payload) -> str` - stores data, returns UUID key
@@ -226,7 +222,10 @@ Agents pass ServiceNow encoded query strings directly to the `query` tool. Refer
 
 ## 🏗 Tool Registration
 
-The server bootstrap uses one registration signature for all tool groups.
+The server bootstrap injects dependencies by the named parameters of each
+`register_tools` function. Declare only dependencies the module consumes.
+Available names are `mcp`, `settings`, `auth_provider`, `choices`, `dictionary`,
+and `client_factory`. Do not accept unused arguments for signature parity.
 
 ```python
 from mcp.server import MCPServer
@@ -235,22 +234,19 @@ from mcp.server import MCPServer
 def register_tools(
     mcp: MCPServer,
     settings: Settings,
-    auth_provider: BasicAuthProvider,
-    choices: ChoiceRegistry | None = None,
-    dictionary: DictionaryRegistry | None = None,
+    auth_provider: OAuthPKCEProvider,
     client_factory: ServiceNowClientProvider | None = None,
 ) -> None:
-    # Modules that do not require the registries explicitly ignore them
-    del choices, dictionary  # unused; signature retained for loader parity
+    client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
 
     @mcp.tool()
     @tool_handler
-    async def tool_name(param: str, correlation_id: str = "") -> str:
+    async def tool_name(param: str) -> str:
         validate_identifier(param)
         check_table_access(param)
-        async with ServiceNowClient(settings, auth_provider) as client:
+        async with client_factory() as client:
             result = await client.some_method(param)
-        return format_response(data=result, correlation_id=correlation_id)
+        return format_response(data=result)
 ```
 
 The SDK v2 tool decorators remain `@mcp.tool()` and `@tool_handler`. The server is created with `MCPServer("servicenow-platform-mcp")` and runs over stdio with `mcp.run(transport="stdio")`.
@@ -399,9 +395,10 @@ Dispatched via the read-only `audit` tool. Available in the `full` and `readonly
 | Field | Type | Default | Env Var |
 | ----------------------- | --------- | ---------------------------------------------------- | ----------------------- |
 | `servicenow_instance_url` | `str` | required | `SERVICENOW_INSTANCE_URL` |
-| `servicenow_api_key` | `SecretStr` | `""` (replaces Basic Auth when set) | `SERVICENOW_API_KEY` |
-| `servicenow_username` | `str` | `""` (required without API key) | `SERVICENOW_USERNAME` |
-| `servicenow_password` | `SecretStr` | `""` (required without API key) | `SERVICENOW_PASSWORD` |
+| `servicenow_oauth_client_id` | `str` | required | `SERVICENOW_OAUTH_CLIENT_ID` |
+| `servicenow_oauth_scope` | `Literal["useraccount"]` | required; exactly `useraccount` | `SERVICENOW_OAUTH_SCOPE` |
+| `servicenow_oauth_redirect_uri` | `str` | `http://127.0.0.1:8765/oauth/callback` | `SERVICENOW_OAUTH_REDIRECT_URI` |
+| `servicenow_oauth_timeout_seconds` | `int` | `180` (1-600) | `SERVICENOW_OAUTH_TIMEOUT_SECONDS` |
 | `mcp_tool_package` | `str` | `"full"` | `MCP_TOOL_PACKAGE` |
 | `servicenow_env` | `str` | `"dev"` | `SERVICENOW_ENV` |
 | `max_row_limit` | `int` | `100` (range 1-10000) | `MAX_ROW_LIMIT` |
@@ -412,6 +409,24 @@ Dispatched via the read-only `audit` tool. Available in the `full` and `readonly
 | `sentry_environment` | `str` | `""` | `SENTRY_ENVIRONMENT` |
 
 ## 📦 Packages & Tool Groups
+
+Outbound authentication uses only public OAuth authorization-code PKCE S256.
+The ServiceNow Application Registry entry must have Public Client=true, PKCE S256,
+the `useraccount` scope, and the exact registered HTTP loopback redirect URI.
+The first API call opens the browser on the same machine as the stdio process.
+A temporary loopback listener validates callback state, path, and Host. The listener
+and accepted connections close before token exchange and on every exit path.
+Authorization sends exactly `response_type=code`, `client_id`, `redirect_uri`,
+`code_challenge`, `code_challenge_method=S256`, `scope=useraccount`, and `state`.
+Code exchange sends exactly `grant_type=authorization_code`, `code`, `redirect_uri`,
+`client_id`, and `code_verifier` in the HTTPS token-endpoint form body.
+Only access tokens and their expiry remain in memory. Restart or expiry requires
+browser authorization on the next outbound call. API calls use Bearer headers,
+never token URLs. A REST 401 discards only the matching token without replaying
+the request; the next call authorizes again. Safe 401 diagnostics remain available.
+Non-empty `SERVICENOW_API_KEY`, `SERVICENOW_USERNAME`, and
+`SERVICENOW_PASSWORD` settings are rejected. These fields exist only to report
+legacy-configuration errors, not as supported authentication options.
 
 The registry contains 4 preset packages and 13 tool groups. Tool groups are loaded from `servicenow_mcp.tools.*`.
 
@@ -431,6 +446,9 @@ The registry contains 4 preset packages and 13 tool groups. Tool groups are load
 
 ### Compact Reads and Selection Metadata
 
+- Envelopes contain no server-internal `correlation_id`; ServiceNow record fields with that name are preserved. Sentry context and exception capture remain active.
+- The `query` schema requires only `table`. Optional string inputs default to null, not empty strings. Empty or null filters are omitted from outbound requests; zero offsets, false display-value flags, and limits are preserved.
+- Selection metadata does not include the redundant `omitted` field. Other selection and continuation fields remain unchanged.
 - `query` list mode requires an explicit `fields` projection. `fields="*"` requests all fields; `sys_id` is always included. Exact `sys_id` mode defaults to `sys_id,sys_updated_on` and also accepts an explicit projection or `*`. Aggregate mode is unchanged.
 - `record_read` accepts `fields`. Empty selection returns compact identity/update fields plus discovered script-bearing fields; `*` returns the full masked record. `script_fields` remains in the response and `sys_id` is always included.
 - `describe` resolves the bounded `super_class` chain child-first, de-duplicates child overrides, preserves `inherited_from`, and then returns an alphabetical page of 25 fields when `fields` is empty. `field_offset` and `field_limit` (1-100) continue the page; `fields="*"` requests all fields.
@@ -471,7 +489,8 @@ Use **respx** library with `@respx.mock` decorator on async test methods.
 
 ### Tool Test Helpers
 
-Tool tests live alongside the rest of the suite in `tests/`. Standard tool registration for tests uses the 5-argument signature:
+Tool tests live alongside the rest of the suite in `tests/`. Pass only dependencies
+declared by the module. For example, `query` accepts an optional choice registry:
 
 ```python
 from mcp.server import MCPServer

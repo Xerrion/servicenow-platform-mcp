@@ -10,7 +10,7 @@ import httpx
 import pytest
 from mcp.server import MCPServer
 
-from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.client import ServiceNowClient, ServiceNowClientFactory, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.telemetry import HttpTelemetry, TelemetryAsyncClient
@@ -44,13 +44,13 @@ class _McpServerWithRuntime(Protocol):
 
 
 @pytest.fixture()
-def auth_provider(settings: Settings) -> BasicAuthProvider:
-    """Create a BasicAuthProvider from test settings."""
-    return BasicAuthProvider(settings)
+def auth_provider(settings: Settings) -> OAuthPKCEProvider:
+    """Create a OAuthPKCEProvider from test settings."""
+    return OAuthPKCEProvider(settings)
 
 
 @pytest.mark.asyncio()
-async def test_owned_client_closes_transport(settings: Settings, auth_provider: BasicAuthProvider) -> None:
+async def test_owned_client_closes_transport(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     """A directly constructed client closes the transport it creates."""
     transport = AsyncMock(spec=httpx.AsyncClient)
 
@@ -64,7 +64,7 @@ async def test_owned_client_closes_transport(settings: Settings, auth_provider: 
 @pytest.mark.asyncio()
 async def test_shared_client_reuses_transport_without_closing_it(
     settings: Settings,
-    auth_provider: BasicAuthProvider,
+    auth_provider: OAuthPKCEProvider,
 ) -> None:
     """Separate ServiceNow client contexts reuse and do not close shared transport."""
     transport = _CloseTrackingAsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(200)))
@@ -83,7 +83,7 @@ async def test_shared_client_reuses_transport_without_closing_it(
 @pytest.mark.asyncio()
 async def test_shared_transport_isolates_request_headers_and_records_telemetry(
     settings: Settings,
-    auth_provider: BasicAuthProvider,
+    auth_provider: OAuthPKCEProvider,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Per-request headers stay isolated while bounded aggregates record both calls."""
@@ -142,7 +142,7 @@ async def test_shared_transport_isolates_request_headers_and_records_telemetry(
 @pytest.mark.asyncio()
 async def test_repeated_tool_calls_share_one_transport(
     settings: Settings,
-    auth_provider: BasicAuthProvider,
+    auth_provider: OAuthPKCEProvider,
 ) -> None:
     """Separate MCP tool calls use the same server-provided HTTP transport."""
     from servicenow_mcp.tools.query import register_tools
@@ -211,8 +211,8 @@ async def test_mcp_server_lifespan_closes_shared_transport_once_on_exception() -
 
     env = {
         "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
-        "SERVICENOW_USERNAME": "admin",
-        "SERVICENOW_PASSWORD": "s3cret",
+        "SERVICENOW_OAUTH_CLIENT_ID": "test-client",
+        "SERVICENOW_OAUTH_SCOPE": "useraccount",
         "MCP_TOOL_PACKAGE": "none",
     }
     with patch.dict("os.environ", env, clear=True):

@@ -9,7 +9,7 @@ import collections
 import logging
 from typing import Any
 
-from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.policy import INTERNAL_QUERY_LIMIT
@@ -282,7 +282,7 @@ async def _describe_impl(
     field_offset: int,
     field_limit: int,
     settings: Settings,
-    auth_provider: BasicAuthProvider,
+    auth_provider: OAuthPKCEProvider,
     client_factory: ServiceNowClientProvider,
     dictionary: DictionaryRegistry,
 ) -> tuple[dict[str, Any], list[str]]:

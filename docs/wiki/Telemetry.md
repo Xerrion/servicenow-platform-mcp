@@ -95,9 +95,8 @@ Every tool invocation sets:
 
 - **Tags** (indexed, searchable):
   - `tool.name` - The tool function name (e.g., `"record_list"`)
-  - `tool.correlation_id` - UUID4 for request tracing
 - **Context** (structured data):
-  - `"tool"` context with `name`, `correlation_id`, and `args` (with `correlation_id` excluded from the args dict)
+  - `"tool"` context with `name` and redacted `args`
 
 ### `safe_tool_call()` (utils.py)
 

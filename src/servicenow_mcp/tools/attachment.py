@@ -14,8 +14,7 @@ from typing import Final
 
 from mcp.server import MCPServer
 
-from servicenow_mcp.auth import BasicAuthProvider
-from servicenow_mcp.choices import ChoiceRegistry
+from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
@@ -29,7 +28,6 @@ from servicenow_mcp.tools._attachment_common import (
     get_attachment_sys_id,
     get_attachment_table_name,
 )
-from servicenow_mcp.tools._dictionary import DictionaryRegistry
 from servicenow_mcp.utils import ServiceNowQuery, format_response, validate_identifier, validate_sys_id
 
 
@@ -43,9 +41,9 @@ _VALID_READ_ACTIONS: Final[frozenset[str]] = frozenset({"list", "get", "download
 # ---------------------------------------------------------------------------
 
 
-def _err(correlation_id: str, message: str) -> str:
+def _err(message: str) -> str:
     """Return a serialized error envelope with the given message."""
-    return format_response(data=None, correlation_id=correlation_id, status="error", error=message)
+    return format_response(data=None, status="error", error=message)
 
 
 # ---------------------------------------------------------------------------
@@ -59,39 +57,37 @@ def _validate_read_args(
     table: str,
     table_sys_id: str,
     file_name: str,
-    correlation_id: str,
 ) -> str | None:
     """Return error envelope if the action/argument combination is invalid."""
     if action not in _VALID_READ_ACTIONS:
         return _err(
-            correlation_id,
             f"Unknown action {action!r}. Valid actions: {sorted(_VALID_READ_ACTIONS)}.",
         )
 
     if action == "list":
         if not table:
-            return _err(correlation_id, "table is required for action='list'.")
+            return _err("table is required for action='list'.")
         if not table_sys_id:
-            return _err(correlation_id, "table_sys_id is required for action='list'.")
+            return _err("table_sys_id is required for action='list'.")
         return None
 
     if action == "get":
         if not sys_id:
-            return _err(correlation_id, "sys_id is required for action='get'.")
+            return _err("sys_id is required for action='get'.")
         return None
 
     if action == "download":
         if not sys_id:
-            return _err(correlation_id, "sys_id is required for action='download'.")
+            return _err("sys_id is required for action='download'.")
         return None
 
     # download_by_name
     if not table:
-        return _err(correlation_id, "table is required for action='download_by_name'.")
+        return _err("table is required for action='download_by_name'.")
     if not table_sys_id:
-        return _err(correlation_id, "table_sys_id is required for action='download_by_name'.")
+        return _err("table_sys_id is required for action='download_by_name'.")
     if not file_name:
-        return _err(correlation_id, "file_name is required for action='download_by_name'.")
+        return _err("file_name is required for action='download_by_name'.")
     return None
 
 
@@ -129,17 +125,16 @@ async def _dispatch_read_action(
     table: str,
     table_sys_id: str,
     file_name: str,
-    correlation_id: str,
 ) -> str:
     """Dispatch a validated read-side action to its ``_run_*`` helper."""
     if action == "list":
-        return await _run_list(client, table, table_sys_id, correlation_id)
+        return await _run_list(client, table, table_sys_id)
     if action == "get":
-        return await _run_get(client, sys_id, correlation_id)
+        return await _run_get(client, sys_id)
     if action == "download":
-        return await _run_download(client, sys_id, correlation_id)
+        return await _run_download(client, sys_id)
     # download_by_name - implicit final branch matches _validate_read_args.
-    return await _run_download_by_name(client, table, table_sys_id, file_name, correlation_id)
+    return await _run_download_by_name(client, table, table_sys_id, file_name)
 
 
 # ---------------------------------------------------------------------------
@@ -151,7 +146,6 @@ async def _run_list(
     client: ServiceNowClient,
     table: str,
     table_sys_id: str,
-    correlation_id: str,
 ) -> str:
     """Execute the ``list`` action: list attachment metadata for a parent record."""
     query = ServiceNowQuery().equals("table_name", table).equals("table_sys_id", table_sys_id).build()
@@ -159,19 +153,18 @@ async def _run_list(
     masked = [mask_sensitive_fields(record) for record in result["records"]]
     return format_response(
         data=masked,
-        correlation_id=correlation_id,
         pagination={"offset": 0, "limit": 100, "total": len(masked)},
     )
 
 
-async def _run_get(client: ServiceNowClient, sys_id: str, correlation_id: str) -> str:
+async def _run_get(client: ServiceNowClient, sys_id: str) -> str:
     """Execute the ``get`` action: return masked metadata for a single attachment."""
     metadata = await client.get_attachment(sys_id)
     check_table_access(get_attachment_table_name(metadata))
-    return format_response(data=mask_sensitive_fields(metadata), correlation_id=correlation_id)
+    return format_response(data=mask_sensitive_fields(metadata))
 
 
-async def _run_download(client: ServiceNowClient, sys_id: str, correlation_id: str) -> str:
+async def _run_download(client: ServiceNowClient, sys_id: str) -> str:
     """Execute the ``download`` action: metadata-first then payload."""
     metadata = await client.get_attachment(sys_id)
     check_table_access(get_attachment_table_name(metadata))
@@ -184,7 +177,6 @@ async def _run_download(client: ServiceNowClient, sys_id: str, correlation_id: s
 
     return format_response(
         data=build_attachment_download_payload(mask_sensitive_fields(metadata), content),
-        correlation_id=correlation_id,
     )
 
 
@@ -193,7 +185,6 @@ async def _run_download_by_name(
     table: str,
     table_sys_id: str,
     file_name: str,
-    correlation_id: str,
 ) -> str:
     """Execute the ``download_by_name`` action: resolve via metadata then download.
 
@@ -236,7 +227,6 @@ async def _run_download_by_name(
 
     return format_response(
         data=build_attachment_download_payload(mask_sensitive_fields(metadata), content),
-        correlation_id=correlation_id,
         warnings=warnings,
     )
 
@@ -249,16 +239,10 @@ async def _run_download_by_name(
 def register_tools(
     mcp: MCPServer,
     settings: Settings,
-    auth_provider: BasicAuthProvider,
-    choices: ChoiceRegistry | None = None,
-    dictionary: DictionaryRegistry | None = None,
+    auth_provider: OAuthPKCEProvider,
     client_factory: ServiceNowClientProvider | None = None,
 ) -> None:
-    """Register the unified ``attachment`` read tool.
-
-    ``choices`` is unused here but accepted for unified-loader contract parity.
-    """
-    del choices, dictionary  # unused; signature retained for loader parity
+    """Register the unified ``attachment`` read tool."""
     client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
 
     @mcp.tool()
@@ -269,8 +253,6 @@ def register_tools(
         table: str = "",
         table_sys_id: str = "",
         file_name: str = "",
-        *,
-        correlation_id: str = "",
     ) -> str:
         """Read attachments. action: 'list' | 'get' | 'download' | 'download_by_name'.
 
@@ -282,7 +264,7 @@ def register_tools(
             file_name: File name (for download_by_name).
         """
         # --- 1. Argument validation (early exit) -------------------------
-        err = _validate_read_args(action, sys_id, table, table_sys_id, file_name, correlation_id)
+        err = _validate_read_args(action, sys_id, table, table_sys_id, file_name)
         if err:
             return err
 
@@ -291,4 +273,4 @@ def register_tools(
 
         # --- 3. Dispatch -------------------------------------------------
         async with client_factory() as client:
-            return await _dispatch_read_action(client, action, sys_id, table, table_sys_id, file_name, correlation_id)
+            return await _dispatch_read_action(client, action, sys_id, table, table_sys_id, file_name)

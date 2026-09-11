@@ -14,8 +14,7 @@ import logging
 
 from mcp.server import MCPServer
 
-from servicenow_mcp.auth import BasicAuthProvider
-from servicenow_mcp.choices import ChoiceRegistry
+from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
@@ -63,7 +62,6 @@ def _script_field_summary(fields: list[ScriptField]) -> list[dict[str, object]]:
 async def _run_list_script_fields(
     table: str,
     dictionary: DictionaryRegistry,
-    correlation_id: str,
 ) -> str:
     """Resolve script-bearing fields for ``table`` via ``DictionaryRegistry``.
 
@@ -73,7 +71,6 @@ async def _run_list_script_fields(
     if not table:
         return format_response(
             data=None,
-            correlation_id=correlation_id,
             status="error",
             error="table is required when action='list_script_fields'.",
         )
@@ -91,16 +88,14 @@ async def _run_list_script_fields(
             "script_fields": _script_field_summary(script_fields),
             "count": len(script_fields),
         },
-        correlation_id=correlation_id,
     )
 
 
 async def _run_list_tables(
     name_filter: str,
     settings: Settings,
-    auth_provider: BasicAuthProvider,
+    auth_provider: OAuthPKCEProvider,
     client_factory: ServiceNowClientProvider,
-    correlation_id: str,
 ) -> str:
     """List tables from ``sys_db_object``, optionally filtered by name/label.
 
@@ -132,7 +127,6 @@ async def _run_list_tables(
 
     return format_response(
         data={"tables": tables, "count": len(tables)},
-        correlation_id=correlation_id,
         warnings=warnings or None,
     )
 
@@ -140,19 +134,11 @@ async def _run_list_tables(
 def register_tools(
     mcp: MCPServer,
     settings: Settings,
-    auth_provider: BasicAuthProvider,
-    choices: ChoiceRegistry | None = None,
+    auth_provider: OAuthPKCEProvider,
     dictionary: DictionaryRegistry | None = None,
     client_factory: ServiceNowClientProvider | None = None,
 ) -> None:
-    """Register the unified ``describe`` tool on the MCP server.
-
-    Mirrors the unified-tool registration signature used by ``server.py`` for
-    ``unified.*`` modules. ``choices`` is unused by ``describe``; ``dictionary``
-    powers ``action='list_script_fields'``.
-    """
-    del choices  # unused; signature retained for loader parity
-
+    """Register the unified ``describe`` tool with optional shared dictionary metadata."""
     client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
     if dictionary is None:
         dictionary = DictionaryRegistry(settings, auth_provider, client_factory)
@@ -169,8 +155,6 @@ def register_tools(
         name_filter: str = "",
         field_offset: int = 0,
         field_limit: int = DEFAULT_DESCRIBE_FIELD_LIMIT,
-        *,
-        correlation_id: str = "",
     ) -> str:
         """Return slim field metadata for a table, or list tables / script fields.
 
@@ -198,18 +182,16 @@ def register_tools(
             if action not in _VALID_DESCRIBE_ACTIONS:
                 return format_response(
                     data=None,
-                    correlation_id=correlation_id,
                     status="error",
                     error=f"Unknown describe action {action!r}. Valid actions: {sorted(_VALID_DESCRIBE_ACTIONS)}.",
                 )
             if action == "list_tables":
-                return await _run_list_tables(name_filter, settings, auth_provider, client_factory, correlation_id)
-            return await _run_list_script_fields(table, dict_registry, correlation_id)
+                return await _run_list_tables(name_filter, settings, auth_provider, client_factory)
+            return await _run_list_script_fields(table, dict_registry)
 
         if not table:
             return format_response(
                 data=None,
-                correlation_id=correlation_id,
                 status="error",
                 error="table is required when action is not set.",
             )
@@ -220,14 +202,12 @@ def register_tools(
         if field_offset < 0:
             return format_response(
                 data=None,
-                correlation_id=correlation_id,
                 status="error",
                 error="field_offset must be zero or greater.",
             )
         if not 1 <= field_limit <= 100:
             return format_response(
                 data=None,
-                correlation_id=correlation_id,
                 status="error",
                 error="field_limit must be between 1 and 100.",
             )
@@ -237,7 +217,6 @@ def register_tools(
         if "*" in requested_fields:
             return format_response(
                 data=None,
-                correlation_id=correlation_id,
                 status="error",
                 error="fields='*' must be used alone.",
             )
@@ -269,7 +248,6 @@ def register_tools(
         selection = data.pop("selection")
         return format_response(
             data=data,
-            correlation_id=correlation_id,
             warnings=warnings or None,
             selection=selection,
         )

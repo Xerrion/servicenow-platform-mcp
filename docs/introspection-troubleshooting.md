@@ -2,6 +2,24 @@
 
 An investigation can be incomplete even when the caller has record access. Treat a failed tool, an unresolved reference, and a truncated answer as different conditions. Do not request more privileges without an explicit access denial.
 
+## REST 401 diagnostics
+
+A successful OAuth grant does not establish REST access. REST 401 errors include
+`Safe response evidence`: a parsed `error.message`, selected `WWW-Authenticate`
+scheme/error/error_description fields, and at most one `x-transaction-id`,
+`x-request-id`, or `x-correlation-id`. Text must match reviewed static phrases;
+unknown text gets an omission marker, not a partial quote. Trace values must be
+8-64 hex characters or a UUID. Known credential, cookie, and query reflections
+are excluded. Bodies over 8192 bytes and challenge headers over 4096 characters
+or four challenges are omitted. Bodies, other headers, and query strings are
+never copied into these diagnostics.
+
+Restart the full MCP process to load the change. Make one read-only tool call.
+The rejected request is never replayed. Only the matching access token is discarded.
+The next tool call opens public PKCE browser authorization again. If the new
+token also receives 401, share only the safe evidence with the administrator;
+an omitted field is not evidence that ServiceNow sent no diagnostic.
+
 ## Corrected server behavior
 
 - **Code Search group:** Both Code Search endpoints now send `sn_codesearch.Default Search Group` when `search_group` is empty. The checked-in Code Search specification requires a group when filtering by `table`. Omitting it allowed a table-specific search to return unrelated tables. An explicit group still takes precedence. The reported `list_tables` error (`"empty" is not defined`) came from the remote endpoint; the default removes the missing-group request, but a live retry is still required to confirm that instance's response.
@@ -22,6 +40,6 @@ The transcript's loaded MCP reference described retired tool names. Use the runn
 
 ## Remaining verification
 
-The transcript does not contain the raw HTTP responses behind three failed flow contracts. Their exact cause remains unknown. Retry with the contextual errors above. Start with `sections="flow,published_state"`, then request `steps`, `triggers`, and `warnings` separately to isolate the failed dependency. Keep errors and correlation IDs; do not interpret a failed section as an empty one.
+The transcript does not contain the raw HTTP responses behind three failed flow contracts. Their exact cause remains unknown. Retry with the contextual errors above. Start with `sections="flow,published_state"`, then request `steps`, `triggers`, and `warnings` separately to isolate the failed dependency. Keep sanitized error evidence and any allowed transaction ID. Do not interpret a failed section as an empty one.
 
 No live instance calls or record writes were used to validate these changes. Local tests use synthetic data and mocked HTTP responses. The customer transcript is not part of the committed change.

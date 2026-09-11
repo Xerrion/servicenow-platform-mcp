@@ -2,7 +2,7 @@
 
 import pytest
 
-from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
 
@@ -13,7 +13,7 @@ pytestmark = pytest.mark.integration
 class TestDomainRequest:
     """Test Request Management domain API operations on a live instance."""
 
-    async def test_request_list_returns_records(self, live_settings: Settings, live_auth: BasicAuthProvider) -> None:
+    async def test_request_list_returns_records(self, live_settings: Settings, live_auth: OAuthPKCEProvider) -> None:
         """Query service catalog requests without filters."""
         async with ServiceNowClient(live_settings, live_auth) as client:
             result = await client.query_records(
@@ -27,7 +27,7 @@ class TestDomainRequest:
     async def test_request_get_by_sys_id(
         self,
         live_settings: Settings,
-        live_auth: BasicAuthProvider,
+        live_auth: OAuthPKCEProvider,
         sc_request_sys_id: str | None,
     ) -> None:
         """Fetch a single request by sys_id."""
@@ -45,7 +45,7 @@ class TestDomainRequest:
     async def test_request_get_by_number(
         self,
         live_settings: Settings,
-        live_auth: BasicAuthProvider,
+        live_auth: OAuthPKCEProvider,
         sc_request_sys_id: str | None,
     ) -> None:
         """Fetch a request by REQ number (simulates request_get tool)."""
@@ -68,7 +68,7 @@ class TestDomainRequest:
     async def test_request_items_query(
         self,
         live_settings: Settings,
-        live_auth: BasicAuthProvider,
+        live_auth: OAuthPKCEProvider,
         sc_request_sys_id: str | None,
     ) -> None:
         """Query request items for a request (simulates request_items tool)."""
@@ -88,7 +88,7 @@ class TestDomainRequest:
         # May have 0 items - just verify API call succeeds
         assert isinstance(result["records"], list)
 
-    async def test_request_item_table_accessible(self, live_settings: Settings, live_auth: BasicAuthProvider) -> None:
+    async def test_request_item_table_accessible(self, live_settings: Settings, live_auth: OAuthPKCEProvider) -> None:
         """Verify sc_req_item table is queryable."""
         async with ServiceNowClient(live_settings, live_auth) as client:
             result = await client.query_records(

@@ -13,13 +13,11 @@ from typing import Any, Final
 
 from mcp.server import MCPServer
 
-from servicenow_mcp.auth import BasicAuthProvider
-from servicenow_mcp.choices import ChoiceRegistry
+from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.policy import check_table_access
-from servicenow_mcp.tools._dictionary import DictionaryRegistry
 from servicenow_mcp.utils import format_response, validate_identifier
 
 
@@ -49,9 +47,9 @@ _ACTION_REGISTRY: Final[dict[str, dict[str, Any]]] = {
 }
 
 
-def _error(correlation_id: str, message: str) -> str:
+def _error(message: str) -> str:
     """Serialize a standard error envelope."""
-    return format_response(data=None, correlation_id=correlation_id, status="error", error=message)
+    return format_response(data=None, status="error", error=message)
 
 
 def _effective_limit(limit: int, settings: Settings) -> int:
@@ -73,13 +71,10 @@ def _validate_table_filter(table: str) -> str | None:
 def register_tools(
     mcp: MCPServer,
     settings: Settings,
-    auth_provider: BasicAuthProvider,
-    choices: ChoiceRegistry | None = None,
-    dictionary: DictionaryRegistry | None = None,
+    auth_provider: OAuthPKCEProvider,
     client_factory: ServiceNowClientProvider | None = None,
 ) -> None:
     """Register the unified ``code_search`` tool on the MCP server."""
-    del choices, dictionary  # unused; signature retained for loader parity
     client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
 
     @mcp.tool()
@@ -92,7 +87,6 @@ def register_tools(
         limit: int = 20,
         *,
         extended_matching: bool = False,
-        correlation_id: str = "",
     ) -> str:
         """Search ServiceNow code or inspect Code Search table coverage.
 
@@ -108,21 +102,20 @@ def register_tools(
         normalized_action = action.strip().lower()
         if normalized_action not in _VALID_ACTIONS:
             return _error(
-                correlation_id,
                 f"Unknown action {action!r}. Available: {sorted(_VALID_ACTIONS)}",
             )
 
         if normalized_action == "describe":
-            return format_response(data={"actions": _ACTION_REGISTRY}, correlation_id=correlation_id)
+            return format_response(data={"actions": _ACTION_REGISTRY})
 
         async with client_factory() as client:
             if normalized_action == "list_tables":
                 result = await client.code_search_tables(search_group=search_group or None)
-                return format_response(data=result, correlation_id=correlation_id)
+                return format_response(data=result)
 
             stripped_term = term.strip()
             if not stripped_term:
-                return _error(correlation_id, "'term' is required for action='search'.")
+                return _error("'term' is required for action='search'.")
 
             table_filter = _validate_table_filter(table)
             effective_limit = _effective_limit(limit, settings)
@@ -133,4 +126,4 @@ def register_tools(
                 limit=effective_limit,
                 extended_matching=extended_matching,
             )
-            return format_response(data=result, correlation_id=correlation_id, pagination={"limit": effective_limit})
+            return format_response(data=result, pagination={"limit": effective_limit})

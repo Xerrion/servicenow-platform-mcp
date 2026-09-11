@@ -16,7 +16,7 @@ Repeated tool calls share one server-lifetime `httpx.AsyncClient` connection poo
 
 The application keeps `httpx` as a direct dependency for ServiceNow REST API communication. MCP SDK v2's `httpx2` dependency is transitive.
 
-Communication happens over **stdio transport**. The server runs as a child process of an AI agent, and all output is captured in a standardized JSON envelope.
+Communication happens over **stdio transport**. The server runs as a child process of an MCP client. Operational tools return a standardized JSON envelope; `list_tool_packages` returns the registry directly.
 
 ## Unified Tool Surface
 
@@ -39,11 +39,69 @@ The server entry point is `server.py`.
 
 ### Authentication
 
-Bootstrap selects the authentication provider from configuration. When `SERVICENOW_API_KEY` is set, requests use API-key authentication and include the key in the `x-sn-apikey` header. Otherwise, the server uses Basic Auth with `SERVICENOW_USERNAME` and `SERVICENOW_PASSWORD`. API-key configuration takes precedence over username and password when both are present.
+Bootstrap creates one `OAuthPKCEProvider` shared by all ServiceNow clients.
+The provider implements public authorization-code PKCE S256. Construction does
+not open a browser. The first outbound ServiceNow call starts authorization.
+
+`GET /oauth_auth.do` sends exactly:
+
+- `response_type=code`
+- `client_id`
+- `redirect_uri`
+- `code_challenge`
+- `code_challenge_method=S256`
+- `scope=useraccount`
+- random `state`
+
+`POST /oauth_token.do` sends exactly these form fields:
+
+- `grant_type=authorization_code`
+- `code`
+- `redirect_uri`
+- `client_id`
+- `code_verifier`
+
+Both endpoints use the configured HTTPS instance. The redirect URI is identical
+in both requests. No state, client secret, or HTTP Basic authentication is sent
+to the token endpoint. The callback code is not a REST credential.
+
+`oauth_callback.py` binds the configured `127.0.0.1` port before opening the
+browser. It validates callback state, path, and Host. The listener and accepted
+connections close before exchange and on denial, timeout, or cancellation.
+The browser and process must run on the same machine. MCP remains stdio;
+the temporary OAuth callback is not an MCP HTTP transport.
+
+The REST identity is the ServiceNow user who completes browser authorization.
+The client ID identifies the application. User roles, table and field ACLs,
+and REST-resource policies continue to control access.
+
+Only the access token and its monotonic expiry stay in memory. Tokens require
+a positive `expires_in`; expiry subtracts the smaller of 30 seconds or 10% of
+the lifetime. REST requests use `Authorization: Bearer <access_token>`, preserving
+opaque token values. Tokens are never persisted or sent in URLs.
+
+Concurrent calls share one successful authorization and reuse the valid token
+within the process. Restart or expiry requires browser authorization on the next
+outbound call. A REST 401 discards only the matching token and does not replay
+the request; it cannot invalidate a newer concurrent grant. The next outbound
+call authorizes again if no valid token remains.
+
+Non-empty `SERVICENOW_API_KEY`, `SERVICENOW_USERNAME`, and `SERVICENOW_PASSWORD`
+values fail startup. `SERVICENOW_OAUTH_CLIENT_SECRET` is not a settings field;
+stale environment or dotenv values are ignored. There is no legacy fallback.
+
+REST 401 evidence is bounded and allowlisted by `_rest_auth_evidence.py`.
+Unknown authentication schemes, including `API_KEY`, are omitted. An
+administrator may observe `WWW-Authenticate: API_KEY` outside the tool response;
+that is a reason to inspect the applicable REST policy, not to change PKCE or
+disable global protection. See [[Configuration]] for policy migration.
 
 ### Registration Pattern
 
-The loader uses one `register_tools()` signature for all tool groups:
+The loader injects dependencies by parameter name. Each `register_tools()`
+function declares only the dependencies its module consumes. Available names
+are `mcp`, `settings`, `auth_provider`, `choices`, `dictionary`, and
+`client_factory`. For example, a tool without registries uses:
 
 ```python
 from mcp.server import MCPServer
@@ -52,14 +110,15 @@ from mcp.server import MCPServer
 def register_tools(
     mcp: MCPServer,
     settings: Settings,
-    auth_provider: BasicAuthProvider,
-    choices: ChoiceRegistry | None = None,
-    dictionary: DictionaryRegistry | None = None,
+    auth_provider: OAuthPKCEProvider,
     client_factory: ServiceNowClientProvider | None = None,
 ) -> None: ...
 ```
 
 The bootstrap process dynamically imports modules from `servicenow_mcp.tools` and registers them.
+`query` also accepts both registries. Dictionary consumers accept `dictionary`;
+`resolve_choice` accepts only `mcp` and `choices`. Tests can inject the same
+dependencies directly without unused parity arguments.
 
 The server is constructed as `MCPServer("servicenow-platform-mcp")`. Tool decorators remain `@mcp.tool()` and `@tool_handler`. The entry point runs `mcp.run(transport="stdio")`.
 
@@ -67,39 +126,42 @@ MCP protocol model fields use snake_case Python names, such as `input_schema` an
 
 ## Wire Format
 
-All tool outputs are serialized using standard JSON. The TOON format from previous versions has been removed. Read tools can add top-level `selection` metadata that identifies returned and omitted fields or sections, effective limits, and truncation.
+All tool outputs are serialized using standard JSON. The TOON format from previous versions has been removed. Read tools can add top-level `selection` metadata that identifies selected fields or sections, effective limits, and truncation. Use the supplied continuation metadata to complete bounded reads.
 
 ### `format_response()` Envelope
 
-Every tool returns a standardized envelope:
+Operational tools return this envelope shape. `list_tool_packages` returns
+the registry directly. Optional metadata appears only when supplied, and an
+empty warnings list is omitted:
 
 ```json
 {
   "status": "success",
-  "correlation_id": "uuid-v4",
-  "data": { ... },
+  "data": {},
   "pagination": { "offset": 0, "limit": 100, "total": 500 },
-  "selection": { "mode": "explicit", "returned_fields": ["sys_id", "number"] },
-  "warnings": []
+  "selection": { "mode": "explicit", "returned_fields": ["sys_id", "number"] }
 }
 ```
 
 ## State Management
 
-The server maintains minimal in-memory state via `state.py`.
+The server keeps state in memory:
 
-- **PreviewTokenStore:** Mediates between `record_write` and `record_apply`. When `record_write` is called with `preview=true` (default), it stores the proposed mutation and returns a UUID token. `record_apply` then consumes this token to finalize the write. Tokens expire after 5 minutes.
+- **OAuthPKCEProvider (`auth.py`):** Holds the access token and expiry for outbound ServiceNow calls. It does not persist tokens.
+- **PreviewTokenStore (`state.py`):** Mediates between `record_write` and `record_apply`. When `record_write` is called with `preview=true` (default), it stores the proposed mutation and returns a UUID token. `record_apply` consumes it before the write attempt. Tokens expire after 5 minutes.
 - **Metadata cache:** Caches choices, dictionary chain and field metadata, script-field discovery, and audit configuration with a configurable TTL. Entries use a 1,000-entry LRU bound and explicit invalidation. Mutable records, query results, flows, attachments, previews, and audit row counts are not cached.
 
 The `QueryTokenStore` from previous versions has been deleted as agents now pass encoded queries directly.
 
 ## Error Handling Flow
 
-The `@tool_handler` decorator (in `decorators.py`) wraps every tool invocation:
+The `@tool_handler` decorator (in `decorators.py`) wraps operational tools,
+excluding the bootstrap `list_tool_packages` tool:
 
-1. **Correlation ID:** Generates a unique UUID4 for the request.
-2. **Sentry Context:** Attaches tool names and arguments to the Sentry scope.
-3. **Safe Execution:** Wraps the tool in `safe_tool_call()`, which catches all exceptions (including `ForbiddenError` and `PolicyError`) and returns them as `status: "error"` JSON envelopes.
+1. **Sentry Context:** Attaches tool names and redacted arguments to the Sentry scope.
+2. **Safe Execution:** Wraps the tool in `safe_tool_call()`, which catches all exceptions (including `ForbiddenError` and `PolicyError`) and returns them as `status: "error"` JSON envelopes.
+
+The decorator preserves the tool signature without injecting internal arguments.
 
 ## Source Layout
 

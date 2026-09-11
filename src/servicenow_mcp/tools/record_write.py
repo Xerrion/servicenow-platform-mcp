@@ -18,8 +18,7 @@ from typing import Any, Final
 
 from mcp.server import MCPServer
 
-from servicenow_mcp.auth import BasicAuthProvider
-from servicenow_mcp.choices import ChoiceRegistry
+from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
@@ -46,9 +45,9 @@ _VALID_ACTIONS: Final[frozenset[str]] = frozenset({"create", "update", "delete"}
 # ---------------------------------------------------------------------------
 
 
-def _err(correlation_id: str, message: str) -> str:
+def _err(message: str) -> str:
     """Return a serialized error envelope with the given message."""
-    return format_response(data=None, correlation_id=correlation_id, status="error", error=message)
+    return format_response(data=None, status="error", error=message)
 
 
 # ---------------------------------------------------------------------------
@@ -56,30 +55,30 @@ def _err(correlation_id: str, message: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _validate_create_args(sys_id: str, data: str, correlation_id: str) -> str | None:
+def _validate_create_args(sys_id: str, data: str) -> str | None:
     """Validate per-action constraints for ``action='create'``."""
     if not data:
-        return _err(correlation_id, "data is required for action='create'.")
+        return _err("data is required for action='create'.")
     if sys_id:
-        return _err(correlation_id, "sys_id must be empty for action='create'.")
+        return _err("sys_id must be empty for action='create'.")
     return None
 
 
-def _validate_update_args(sys_id: str, data: str, correlation_id: str) -> str | None:
+def _validate_update_args(sys_id: str, data: str) -> str | None:
     """Validate per-action constraints for ``action='update'``."""
     if not sys_id:
-        return _err(correlation_id, "sys_id is required for action='update'.")
+        return _err("sys_id is required for action='update'.")
     if not data:
-        return _err(correlation_id, "data is required for action='update'.")
+        return _err("data is required for action='update'.")
     return None
 
 
-def _validate_delete_args(sys_id: str, data: str, correlation_id: str) -> str | None:
+def _validate_delete_args(sys_id: str, data: str) -> str | None:
     """Validate per-action constraints for ``action='delete'``."""
     if not sys_id:
-        return _err(correlation_id, "sys_id is required for action='delete'.")
+        return _err("sys_id is required for action='delete'.")
     if data:
-        return _err(correlation_id, "data must be empty for action='delete'.")
+        return _err("data must be empty for action='delete'.")
     return None
 
 
@@ -88,25 +87,23 @@ def _validate_action_args(
     table: str,
     sys_id: str,
     data: str,
-    correlation_id: str,
 ) -> str | None:
     """Validate the cross-argument constraints. Returns error envelope or None."""
     if action not in _VALID_ACTIONS:
         return _err(
-            correlation_id,
             f"Unknown action {action!r}. Valid actions: {sorted(_VALID_ACTIONS)}.",
         )
 
     if not table:
-        return _err(correlation_id, "table is required.")
+        return _err("table is required.")
 
     # Per-action argument checks delegated to focused validators.
     if action == "create":
-        return _validate_create_args(sys_id, data, correlation_id)
+        return _validate_create_args(sys_id, data)
     if action == "update":
-        return _validate_update_args(sys_id, data, correlation_id)
+        return _validate_update_args(sys_id, data)
     # delete (membership in _VALID_ACTIONS narrows the action enum).
-    return _validate_delete_args(sys_id, data, correlation_id)
+    return _validate_delete_args(sys_id, data)
 
 
 # ---------------------------------------------------------------------------
@@ -120,12 +117,11 @@ async def _run_create(
     parsed_data: dict[str, Any],
     preview: bool,
     preview_store: PreviewTokenStore,
-    correlation_id: str,
     extra_data: dict[str, Any],
     dictionary: DictionaryRegistry,
 ) -> str:
     """Run a create action in either preview or direct mode."""
-    err = await _check_mandatory_or_error(client, table, parsed_data, correlation_id, dictionary)
+    err = await _check_mandatory_or_error(client, table, parsed_data, dictionary)
     if err:
         return err
 
@@ -140,7 +136,6 @@ async def _run_create(
                 "preview_token": token,
                 "preview": {"data": mask_sensitive_fields(parsed_data), **extra_data},
             },
-            correlation_id=correlation_id,
         )
 
     created = await client.create_record(table, parsed_data)
@@ -152,7 +147,6 @@ async def _run_create(
             "record": mask_sensitive_fields(created),
             **extra_data,
         },
-        correlation_id=correlation_id,
     )
 
 
@@ -163,7 +157,6 @@ async def _run_update(
     parsed_data: dict[str, Any],
     preview: bool,
     preview_store: PreviewTokenStore,
-    correlation_id: str,
     extra_data: dict[str, Any],
 ) -> str:
     """Run an update action in either preview or direct mode."""
@@ -181,7 +174,6 @@ async def _run_update(
                 "preview_token": token,
                 "preview": {"diff": diff, **extra_data},
             },
-            correlation_id=correlation_id,
         )
 
     updated = await client.update_record(table, sys_id, parsed_data)
@@ -193,7 +185,6 @@ async def _run_update(
             "record": mask_sensitive_fields(updated),
             **extra_data,
         },
-        correlation_id=correlation_id,
     )
 
 
@@ -203,7 +194,6 @@ async def _run_delete(
     sys_id: str,
     preview: bool,
     preview_store: PreviewTokenStore,
-    correlation_id: str,
     extra_data: dict[str, Any],
 ) -> str:
     """Run a delete action in either preview or direct mode."""
@@ -225,13 +215,11 @@ async def _run_delete(
                 "preview_token": token,
                 "preview": {"record_snapshot": mask_sensitive_fields(snapshot), **extra_data},
             },
-            correlation_id=correlation_id,
         )
 
     await client.delete_record(table, sys_id)
     return format_response(
         data={"action": "delete", "table": table, "sys_id": sys_id, "deleted": True, **extra_data},
-        correlation_id=correlation_id,
     )
 
 
@@ -245,13 +233,12 @@ async def _prepare_payload(
     data: str,
     table: str,
     dictionary: DictionaryRegistry,
-    correlation_id: str,
 ) -> dict[str, Any] | str:
     """Parse the bounded field map and reject invalid XML before staging a write."""
     if action == "delete":
         return {}
 
-    parsed = parse_payload_json(data, field_name="data", correlation_id=correlation_id)
+    parsed = parse_payload_json(data, field_name="data")
     if isinstance(parsed, str):
         return parsed
     fields = await dictionary.get_fields(table, list(parsed))
@@ -260,10 +247,10 @@ async def _prepare_payload(
             continue
         content = parsed[field.name]
         if not isinstance(content, str):
-            return _err(correlation_id, f"XML field {field.name!r} must be a string.")
+            return _err(f"XML field {field.name!r} must be a string.")
         xml_error = validate_ui_macro_xml(content)
         if xml_error:
-            return _err(correlation_id, f"Field {field.name!r}: {xml_error}")
+            return _err(f"Field {field.name!r}: {xml_error}")
     return parsed
 
 
@@ -275,19 +262,16 @@ async def _dispatch_record_write(
     parsed_data: dict[str, Any],
     preview: bool,
     preview_store: PreviewTokenStore,
-    correlation_id: str,
     extra_data: dict[str, Any],
     dictionary: DictionaryRegistry,
 ) -> str:
     """Route a validated ``record_write`` request to its ``_run_*`` helper."""
     if action == "create":
-        return await _run_create(
-            client, table, parsed_data, preview, preview_store, correlation_id, extra_data, dictionary
-        )
+        return await _run_create(client, table, parsed_data, preview, preview_store, extra_data, dictionary)
     if action == "update":
-        return await _run_update(client, table, sys_id, parsed_data, preview, preview_store, correlation_id, extra_data)
+        return await _run_update(client, table, sys_id, parsed_data, preview, preview_store, extra_data)
     # delete - membership in _VALID_ACTIONS narrows the action enum.
-    return await _run_delete(client, table, sys_id, preview, preview_store, correlation_id, extra_data)
+    return await _run_delete(client, table, sys_id, preview, preview_store, extra_data)
 
 
 # ---------------------------------------------------------------------------
@@ -299,14 +283,13 @@ async def _apply_payload(
     client: ServiceNowClient,
     payload: dict[str, Any],
     table: str,
-    correlation_id: str,
     dictionary: DictionaryRegistry,
 ) -> str:
     """Execute a previously previewed action."""
     action = payload["action"]
 
     if action == "create":
-        err = await _check_mandatory_or_error(client, table, payload["data"], correlation_id, dictionary)
+        err = await _check_mandatory_or_error(client, table, payload["data"], dictionary)
         if err:
             return err
         result = await client.create_record(table, payload["data"])
@@ -317,7 +300,6 @@ async def _apply_payload(
                 "sys_id": result["sys_id"],
                 "record": mask_sensitive_fields(result),
             },
-            correlation_id=correlation_id,
         )
 
     if action == "update":
@@ -330,7 +312,6 @@ async def _apply_payload(
                 "sys_id": sys_id,
                 "record": mask_sensitive_fields(result),
             },
-            correlation_id=correlation_id,
         )
 
     if action == "delete":
@@ -338,10 +319,9 @@ async def _apply_payload(
         await client.delete_record(table, sys_id)
         return format_response(
             data={"action": "delete", "table": table, "sys_id": sys_id, "deleted": True},
-            correlation_id=correlation_id,
         )
 
-    return _err(correlation_id, f"Unknown preview action: {action!r}")
+    return _err(f"Unknown preview action: {action!r}")
 
 
 # ---------------------------------------------------------------------------
@@ -352,13 +332,11 @@ async def _apply_payload(
 def register_tools(
     mcp: MCPServer,
     settings: Settings,
-    auth_provider: BasicAuthProvider,
-    choices: ChoiceRegistry | None = None,
+    auth_provider: OAuthPKCEProvider,
     dictionary: DictionaryRegistry | None = None,
     client_factory: ServiceNowClientProvider | None = None,
 ) -> None:
     """Register the unified ``record_write`` and ``record_apply`` tools."""
-    del choices  # unused; signature retained for loader parity
     client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
 
     if dictionary is None:
@@ -376,8 +354,6 @@ def register_tools(
         sys_id: str = "",
         data: str = "",
         preview: bool = True,
-        *,
-        correlation_id: str = "",
     ) -> str:
         """Create, update, or delete a record. Defaults to preview mode.
 
@@ -400,14 +376,14 @@ def register_tools(
                 immediately.
         """
         # --- 1. Cross-argument validation (early exit) -------------------
-        err = _validate_action_args(action, table, sys_id, data, correlation_id)
+        err = _validate_action_args(action, table, sys_id, data)
         if err:
             return err
 
         validate_identifier(table)
 
         # --- 2. Policy gate ----------------------------------------------
-        blocked = gate_write(table, settings, correlation_id)
+        blocked = gate_write(table, settings)
         if blocked:
             return blocked
 
@@ -421,7 +397,6 @@ def register_tools(
             data,
             table,
             dict_registry,
-            correlation_id,
         )
         if isinstance(prepared, str):
             return prepared
@@ -438,7 +413,6 @@ def register_tools(
                 parsed_data,
                 preview,
                 preview_store,
-                correlation_id,
                 extra_data,
                 dict_registry,
             )
@@ -447,8 +421,6 @@ def register_tools(
     @tool_handler
     async def record_apply(
         preview_token: str,
-        *,
-        correlation_id: str = "",
     ) -> str:
         """Commit a previously previewed write. Single-use token.
 
@@ -458,15 +430,15 @@ def register_tools(
         """
         payload = await preview_store.consume(preview_token)
         if payload is None:
-            return _err(correlation_id, "Invalid or expired preview token")
+            return _err("Invalid or expired preview token")
 
         table = payload["table"]
 
         # Defense in depth - re-check policy gates before committing.
         check_table_access(table)
-        blocked = write_gate(table, settings, correlation_id)
+        blocked = write_gate(table, settings)
         if blocked:
             return blocked
 
         async with client_factory() as client:
-            return await _apply_payload(client, payload, table, correlation_id, dict_registry)
+            return await _apply_payload(client, payload, table, dict_registry)

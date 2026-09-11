@@ -17,8 +17,8 @@ from servicenow_mcp.sentry import (
 
 _TEST_ENV: dict[str, str] = {
     "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
-    "SERVICENOW_USERNAME": "admin",
-    "SERVICENOW_PASSWORD": "s3cret",  # NOSONAR - test fixture with dummy value
+    "SERVICENOW_OAUTH_CLIENT_ID": "test-client",
+    "SERVICENOW_OAUTH_SCOPE": "useraccount",
     "SERVICENOW_ENV": "dev",
     "MCP_TOOL_PACKAGE": "full",
 }
@@ -81,6 +81,8 @@ class TestSetupSentry:
         assert call_kwargs["dsn"] == "https://key@sentry.io/123"
         assert call_kwargs["environment"] == "staging"
         assert call_kwargs["send_default_pii"] is False
+        assert call_kwargs["include_local_variables"] is False
+        assert [integration.identifier for integration in call_kwargs["disabled_integrations"]] == ["stdlib"]
         assert call_kwargs["integrations"] == []
         assert call_kwargs["traces_sample_rate"] == pytest.approx(0.1)
         assert call_kwargs["profiles_sample_rate"] is None
@@ -243,7 +245,7 @@ class TestSetSentryContext:
     def test_delegates_when_initialized(self) -> None:
         """set_sentry_context calls sentry_sdk.set_context when initialized."""
         sentry_mod._initialized = True
-        data = {"name": "incident_list", "correlation_id": "abc-123"}
+        data = {"name": "incident_list", "args": {"table": "incident"}}
 
         with (
             patch.object(sentry_mod, "HAS_SENTRY", True),
@@ -377,28 +379,32 @@ class TestSetSentryContextIntegration:
             )
 
     async def test_tool_handler_sets_tool_context(self) -> None:
-        """tool_handler sets tool context with name, correlation_id, and args."""
+        """tool_handler retains tool context and tags without an internal ID."""
         from servicenow_mcp.decorators import tool_handler
 
         @tool_handler
-        async def my_tool(table: str, *, correlation_id: str = "") -> str:
+        async def my_tool(table: str) -> str:
             return '{"status": "success"}'
 
-        with patch("servicenow_mcp.decorators.set_sentry_context") as mock_ctx:
+        with (
+            patch("servicenow_mcp.decorators.set_sentry_context") as mock_ctx,
+            patch("servicenow_mcp.decorators.set_sentry_tag") as mock_tag,
+        ):
             await my_tool(table="incident")
             mock_ctx.assert_called_once()
             call_args = mock_ctx.call_args
             assert call_args[0][0] == "tool"
             context_data = call_args[0][1]
             assert context_data["name"] == "my_tool"
-            assert "correlation_id" in context_data
+            assert "correlation_id" not in context_data
             assert context_data["args"] == {"table": "incident"}
+            mock_tag.assert_called_once_with("tool.name", "my_tool")
 
     def test_raise_for_status_sets_http_context(self) -> None:
         """_raise_for_status sets HTTP context before raising."""
         import httpx
 
-        from servicenow_mcp.auth import BasicAuthProvider
+        from servicenow_mcp.auth import OAuthPKCEProvider
         from servicenow_mcp.client import ServiceNowClient
         from servicenow_mcp.errors import ServerError
 
@@ -406,7 +412,7 @@ class TestSetSentryContextIntegration:
         mock_response = httpx.Response(500, request=mock_request, json={"error": {"message": "Server error"}})
 
         settings = _make_settings()
-        auth = BasicAuthProvider(settings)
+        auth = OAuthPKCEProvider(settings)
         client = ServiceNowClient(settings, auth)
 
         with patch("servicenow_mcp.client.set_sentry_context") as mock_ctx:

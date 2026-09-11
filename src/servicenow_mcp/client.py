@@ -6,11 +6,11 @@ import re
 import uuid
 from collections.abc import Callable
 from typing import Any
-from urllib.parse import quote
 
 import httpx
 
-from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp._rest_auth_evidence import rest_auth_evidence
+from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.errors import (
     ACLError,
@@ -43,12 +43,12 @@ class ServiceNowClient:
     """Async HTTP client for the ServiceNow REST API."""
 
     _settings: Settings
-    _auth_provider: BasicAuthProvider
+    _auth_provider: OAuthPKCEProvider
 
     def __init__(
         self,
         settings: Settings,
-        auth_provider: BasicAuthProvider,
+        auth_provider: OAuthPKCEProvider,
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
         self._settings = settings
@@ -124,11 +124,6 @@ class ServiceNowClient:
             return f"{self._attachment_url()}/file"
         return f"{self._attachment_url(sys_id)}/file"
 
-    def _attachment_file_by_name_url(self, table_sys_id: str, file_name: str) -> str:
-        """Build the Attachment by-name download URL."""
-        validate_sys_id(table_sys_id)
-        return f"{self._attachment_url()}/{table_sys_id}/{quote(file_name, safe='')}/file"
-
     async def _headers(self) -> dict[str, str]:
         """Build request headers including auth and correlation ID."""
         headers = await self._auth_provider.get_headers()
@@ -163,8 +158,25 @@ class ServiceNowClient:
         )
 
         if response.status_code == 401:
-            msg = self._extract_error_message(response, "Authentication failed")
-            raise AuthError(msg)
+            authorization = response.request.headers.get("Authorization", "")
+            token = self._auth_provider._token
+            self._auth_provider.invalidate(authorization)
+            evidence = rest_auth_evidence(
+                response,
+                (
+                    authorization.removeprefix("Bearer "),
+                    token.value if token else "",
+                    self._settings.servicenow_oauth_client_id,
+                ),
+            )
+            raise AuthError(
+                "ServiceNow rejected the OAuth token on a REST request (HTTP 401). "
+                "The request was not replayed. On the next tool call, authorize again in the browser. "
+                "If a newly issued token is rejected again, "
+                "ask the ServiceNow administrator to check the granted scopes, REST API access policy, "
+                "and user access on the configured instance. A successful token exchange does not establish REST access. "
+                f"Safe response evidence: {evidence}"
+            )
         if response.status_code == 403:
             msg = self._extract_error_message(response, "Access forbidden")
             if self._is_acl_error_response(response):
@@ -225,11 +237,9 @@ class ServiceNowClient:
     ) -> dict[str, Any]:
         """Fetch a single record by sys_id."""
         http = self._ensure_client()
-        params: dict[str, str] = {}
+        params: dict[str, str] = {"sysparm_display_value": str(display_values).lower()}
         if fields:
             params["sysparm_fields"] = ",".join(fields)
-        if display_values:
-            params["sysparm_display_value"] = "true"
 
         response = await http.get(
             self._table_url(table, sys_id),
@@ -242,7 +252,7 @@ class ServiceNowClient:
     async def query_records(
         self,
         table: str,
-        query: str,
+        query: str | None = None,
         fields: list[str] | None = None,
         limit: int = 100,
         offset: int = 0,
@@ -252,16 +262,16 @@ class ServiceNowClient:
         """Query records with encoded query string."""
         http = self._ensure_client()
         params: dict[str, str] = {
-            "sysparm_query": query,
             "sysparm_limit": str(limit),
             "sysparm_offset": str(offset),
+            "sysparm_display_value": str(display_values).lower(),
         }
+        if query:
+            params["sysparm_query"] = query
         if fields:
             params["sysparm_fields"] = ",".join(fields)
         if order_by:
             params["sysparm_orderby"] = order_by
-        if display_values:
-            params["sysparm_display_value"] = "true"
 
         response = await http.get(
             self._table_url(table),
@@ -274,7 +284,7 @@ class ServiceNowClient:
 
     async def list_attachments(
         self,
-        query: str = "",
+        query: str | None = None,
         limit: int = 100,
         offset: int = 0,
         order_by: str | None = None,
@@ -283,6 +293,7 @@ class ServiceNowClient:
         http = self._ensure_client()
         params: dict[str, str] = {
             "sysparm_limit": str(limit),
+            "sysparm_offset": str(offset),
         }
         effective_query = query
         if order_by:
@@ -290,8 +301,6 @@ class ServiceNowClient:
             effective_query = f"{query}^{order_clause}" if query else order_clause
         if effective_query:
             params["sysparm_query"] = effective_query
-        if offset:
-            params["sysparm_offset"] = str(offset)
 
         response = await http.get(
             self._attachment_url(),
@@ -357,16 +366,6 @@ class ServiceNowClient:
         self._raise_for_status(response)
         return response.content
 
-    async def download_attachment_by_name(self, table_sys_id: str, file_name: str) -> bytes:
-        """Download attachment content by record sys_id and file name."""
-        http = self._ensure_client()
-        response = await http.get(
-            self._attachment_file_by_name_url(table_sys_id, file_name),
-            headers=await self._headers(),
-        )
-        self._raise_for_status(response)
-        return response.content
-
     async def delete_attachment(self, sys_id: str) -> bool:
         """Delete an attachment by sys_id."""
         http = self._ensure_client()
@@ -396,7 +395,7 @@ class ServiceNowClient:
     async def aggregate(
         self,
         table: str,
-        query: str,
+        query: str | None = None,
         group_by: str | None = None,
         avg_fields: list[str] | None = None,
         min_fields: list[str] | None = None,
@@ -413,9 +412,11 @@ class ServiceNowClient:
         """
         http = self._ensure_client()
         params: dict[str, str] = {
-            "sysparm_query": query,
             "sysparm_count": "true",
+            "sysparm_display_value": str(display_value).lower(),
         }
+        if query:
+            params["sysparm_query"] = query
         if group_by:
             params["sysparm_group_by"] = group_by
         if avg_fields:
@@ -430,8 +431,6 @@ class ServiceNowClient:
             params["sysparm_orderby"] = order_by
         if having:
             params["sysparm_having"] = having
-        if display_value:
-            params["sysparm_display_value"] = "true"
 
         response = await http.get(
             self._stats_url(table),
@@ -750,11 +749,13 @@ class ServiceNowClient:
     async def sc_get_catalogs(
         self,
         limit: int | None = None,
-        text: str = "",
+        text: str | None = None,
     ) -> Any:
         """Retrieve list of catalogs the user has access to."""
         http = self._ensure_client()
-        params: dict[str, str] = {"sysparm_text": text}
+        params: dict[str, str] = {}
+        if text:
+            params["sysparm_text"] = text
         if limit is not None:
             params["sysparm_limit"] = str(limit)
 
@@ -815,13 +816,15 @@ class ServiceNowClient:
         self,
         limit: int | None = None,
         offset: int | None = None,
-        text: str = "",
-        catalog: str = "",
-        category: str = "",
+        text: str | None = None,
+        catalog: str | None = None,
+        category: str | None = None,
     ) -> Any:
         """Retrieve list of catalog items."""
         http = self._ensure_client()
-        params: dict[str, str] = {"sysparm_text": text}
+        params: dict[str, str] = {}
+        if text:
+            params["sysparm_text"] = text
         if limit is not None:
             params["sysparm_limit"] = str(limit)
         if offset is not None:
@@ -1203,10 +1206,11 @@ class ServiceNowClient:
     ) -> tuple[list[dict[str, Any]], int | None]:
         http = self._ensure_client()
         params = {
-            "sysparm_query": query,
             "sysparm_display_value": "all",
             "sysparm_limit": str(limit),
         }
+        if query:
+            params["sysparm_query"] = query
         if fields:
             params["sysparm_fields"] = fields
         response = await http.get(self._table_url(table), headers=await self._headers(), params=params)
@@ -1414,7 +1418,7 @@ class ServiceNowClientFactory:
     def __init__(
         self,
         settings: Settings,
-        auth_provider: BasicAuthProvider,
+        auth_provider: OAuthPKCEProvider,
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
         self._settings = settings

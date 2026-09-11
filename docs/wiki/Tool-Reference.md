@@ -2,7 +2,7 @@
 
 Complete reference for all 15 tools in the 13 tool groups provided by the ServiceNow Platform MCP server. The tools use dispatcher patterns and ServiceNow encoded queries.
 
-All tools return responses as JSON strings with a standardized envelope containing `correlation_id`, `status`, `data`, and optionally `pagination`, `selection`, and `warnings`. See [[Architecture]] for details on the response format.
+Operational tools return responses as JSON strings with `status`, `data`, and optional `error`, `pagination`, `selection`, and non-empty `warnings`. The always-on `list_tool_packages` tool returns the preset-to-group registry directly. Selection metadata describes selected fields or sections, effective limits, and truncation. Use the supplied continuation metadata to complete bounded reads.
 
 For security guardrails that apply across all tools, see [[Safety-and-Policy]]. For worked examples of complex queries and multi-tool workflows, see [Agent Recipes](../../docs/agent-recipes.md).
 
@@ -40,6 +40,8 @@ Search and retrieve records from any table using ServiceNow encoded query string
   ```
 
 ServiceNow encoded queries are the only supported query construction interface. Copy a filter breadcrumb from a ServiceNow list, or construct the encoded query string directly, then pass it in `encoded_query`. Query safety still applies.
+
+Only `table` is required by the `query` schema. Optional string inputs default to null, so callers can omit unused arguments instead of passing empty strings. List mode still requires `fields`. Empty or null filters are not sent to ServiceNow. Numeric defaults and false display-value flags remain meaningful values.
 
 ### `describe`
 
@@ -263,11 +265,13 @@ Resolves human-readable labels to underlying ServiceNow values using the `sys_ch
 
 Unified dispatcher for Service Catalog operations.
 
-- **Actions:** `list_catalogs`, `get_catalog`, `list_categories`, `get_category`, `list_items`, `get_item`, `get_variables`, `order_now`, `add_to_cart`, `get_cart`, `submit_cart`, `checkout`.
+Optional filters `text`, `catalog`, and `category` default to null. Omitted, null, and empty filters are not sent to ServiceNow; limits and zero offsets are preserved.
+
+- **Actions:** `catalogs_list`, `catalog_get`, `categories_list`, `category_get`, `items_list`, `item_get`, `item_variables`, `order_now`, `add_to_cart`, `cart_get`, `cart_submit`, `cart_checkout`.
 - **Example:**
 
   ```python
-  await service_catalog(action="list_items", text="laptop")
+  await service_catalog(action="items_list", text="laptop")
   ```
 
 ---

@@ -3,7 +3,7 @@
 import logging
 from typing import Any, ClassVar
 
-from servicenow_mcp.auth import BasicAuthProvider
+from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.metadata_cache import AsyncMetadataCache
@@ -121,12 +121,12 @@ class ChoiceRegistry:
     }
 
     _settings: Settings
-    _auth_provider: BasicAuthProvider
+    _auth_provider: OAuthPKCEProvider
 
     def __init__(
         self,
         settings: Settings,
-        auth_provider: BasicAuthProvider,
+        auth_provider: OAuthPKCEProvider,
         client_factory: ServiceNowClientProvider | None = None,
         telemetry: HttpTelemetry | None = None,
     ) -> None:

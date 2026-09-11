@@ -19,7 +19,6 @@ def parse_payload_json(
     raw: str,
     *,
     field_name: str,
-    correlation_id: str,
     max_bytes: int = MAX_JSON_PAYLOAD_BYTES,
     max_depth: int = MAX_JSON_DEPTH,
     validate_keys: bool = True,
@@ -32,7 +31,6 @@ def parse_payload_json(
     Args:
         raw: The raw JSON string from the caller.
         field_name: The parameter name for error messages (e.g. "data", "changes").
-        correlation_id: The tool's correlation_id for the error envelope.
         max_bytes: Max byte length of ``raw`` (defaults to 256 KiB).
         max_depth: Max nesting depth of the parsed structure.
         validate_keys: If True, every top-level key must satisfy ``validate_identifier``.
@@ -40,7 +38,6 @@ def parse_payload_json(
     if len(raw.encode("utf-8")) > max_bytes:
         return format_response(
             data=None,
-            correlation_id=correlation_id,
             status="error",
             error=f"{field_name} exceeds maximum size of {max_bytes} bytes",
         )
@@ -49,21 +46,18 @@ def parse_payload_json(
     except json.JSONDecodeError as e:
         return format_response(
             data=None,
-            correlation_id=correlation_id,
             status="error",
             error=f"{field_name} is not valid JSON: {e.msg}",
         )
     if not isinstance(parsed, dict):
         return format_response(
             data=None,
-            correlation_id=correlation_id,
             status="error",
             error=f"{field_name} must be a JSON object",
         )
     if _depth(parsed, max_depth=max_depth) > max_depth:
         return format_response(
             data=None,
-            correlation_id=correlation_id,
             status="error",
             error=f"{field_name} exceeds maximum nesting depth of {max_depth}",
         )
@@ -74,7 +68,6 @@ def parse_payload_json(
             except ValueError as e:
                 return format_response(
                     data=None,
-                    correlation_id=correlation_id,
                     status="error",
                     error=f"Invalid key in {field_name}: {e}",
                 )

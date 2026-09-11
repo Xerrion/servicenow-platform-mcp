@@ -16,7 +16,7 @@ class RegisteredToolLike(Protocol):
 
 
 def decode_response(raw: str) -> dict[str, Any]:
-    """Decode a JSON-encoded tool response, asserting it is a dict.
+    """Decode a JSON-encoded tool response and assert its envelope contract.
 
     All MCP tool responses in this project are JSON-encoded dicts. This helper
     narrows the return type from json.loads's broad union to dict[str, Any],
@@ -26,13 +26,15 @@ def decode_response(raw: str) -> dict[str, Any]:
         raw: JSON-encoded string from a tool call.
 
     Returns:
-        Decoded response dict with status, data, correlation_id, etc.
+        Decoded response dict with status, data, and optional metadata.
 
     Raises:
-        AssertionError: If the decoded value is not a dict.
+        AssertionError: If the value is not a dict or contains obsolete envelope metadata.
     """
     result = json.loads(raw)
     assert isinstance(result, dict), f"Expected dict from json.loads, got {type(result).__name__}"
+    assert "correlation_id" not in result
+    assert "omitted" not in result.get("selection", {})
     return result
 
 

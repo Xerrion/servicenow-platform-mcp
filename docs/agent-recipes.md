@@ -83,7 +83,7 @@ preview = json.loads(
 await record_apply(preview_token=preview["data"]["preview_token"])
 ```
 
-**Notes:** Preview/apply is the default safety mechanism for record writes. It allows the agent (or human) to inspect the impact before commitment. Callers can explicitly set `preview=False` for an immediate write. Every tool returns a JSON-serialized envelope string (see `format_response` in `utils.py`); always `json.loads(...)` before indexing into `data`.
+**Notes:** Preview/apply is the default safety mechanism for record writes. It allows the agent (or human) to inspect the impact before commitment. Callers can explicitly set `preview=False` for an immediate write. Every tool returns a JSON-serialized envelope string (see `format_response` in `response.py`); always `json.loads(...)` before indexing into `data`.
 
 ---
 

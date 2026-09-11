@@ -14,9 +14,10 @@ from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.policy import check_table_access, mask_record
+from servicenow_mcp.response import format_response
 from servicenow_mcp.tools._dictionary import DictionaryRegistry, ScriptField
 from servicenow_mcp.tools._record_helpers import _resolve_record_sys_id
-from servicenow_mcp.utils import format_response, validate_identifier, validate_sys_id
+from servicenow_mcp.validation import validate_identifier, validate_sys_id
 
 
 TOOL_NAMES: list[str] = ["record_read"]

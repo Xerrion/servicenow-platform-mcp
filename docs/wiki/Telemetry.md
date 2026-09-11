@@ -98,7 +98,7 @@ Every tool invocation sets:
 - **Context** (structured data):
   - `"tool"` context with `name` and redacted `args`
 
-### `safe_tool_call()` (utils.py)
+### `safe_tool_call()` (`tool_errors.py`)
 
 The error boundary that wraps all tool executions:
 
@@ -107,7 +107,7 @@ The error boundary that wraps all tool executions:
 
 Both paths call `capture_exception(e)` before returning the serialized error response.
 
-### `serialize()` (utils.py)
+### `serialize()` (`response.py`)
 
 Captures JSON serialization failures to Sentry before returning a JSON error envelope.
 

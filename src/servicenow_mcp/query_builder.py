@@ -1,19 +1,8 @@
-"""Utility functions for response formatting and query building."""
+"""ServiceNow encoded query construction."""
 
-import json
-import logging
-import re
-from collections.abc import Awaitable, Callable
-from typing import Any, override
+from typing import override
 
-from servicenow_mcp.errors import ACLError, ForbiddenError, ServiceNowMCPError
-from servicenow_mcp.sentry import capture_exception as sentry_capture
-
-
-logger = logging.getLogger(__name__)
-
-_IDENTIFIER_RE = re.compile(r"^[a-z0-9_]+(\.[a-z0-9_]+)*$")
-_SYS_ID_RE: re.Pattern[str] = re.compile(r"^[0-9a-f]{32}$")
+from servicenow_mcp.validation import sanitize_query_value, validate_identifier
 
 # Operators recognised by ``or_condition()``.
 _ALLOWED_OPERATORS: frozenset[str] = frozenset(
@@ -55,109 +44,6 @@ _ALLOWED_OPERATORS: frozenset[str] = frozenset(
         "CHANGESTO",
     }
 )
-
-
-def resolve_ref_value(val: Any) -> str:
-    """Coerce a ServiceNow field value to a plain string.
-
-    ServiceNow may return reference fields as dicts (e.g.
-    ``{"display_value": "...", "link": "https://..."}``) instead of plain
-    strings when ``display_value=true`` is used.  This helper normalises
-    any such value to a string so that downstream code can safely use it
-    as a dict key, pass it to ``validate_identifier()``, or call string
-    methods on it.
-
-    Args:
-        val: The raw field value - may be ``str``, ``dict``, ``None``, or
-            another primitive.
-
-    Returns:
-        A plain string representation of the value.
-    """
-    if isinstance(val, str):
-        return val
-    if isinstance(val, dict):
-        return str(val.get("value") or val.get("display_value") or "")
-    if val is None:
-        return ""
-    return str(val)
-
-
-def validate_identifier(name: str | dict[str, Any] | None) -> None:
-    """Raise ValueError if *name* is not a valid ServiceNow identifier.
-
-    ServiceNow field names consist of lowercase alphanumerics and
-    underscores (``[a-z0-9_]+``).  Dot-walked references such as
-    ``change_request.number`` or ``child.sys_id`` are also accepted
-    (one or more segments separated by a single dot).
-    """
-    if not isinstance(name, str):
-        name = resolve_ref_value(name)
-    if not _IDENTIFIER_RE.match(name):
-        raise ValueError(
-            f"Invalid identifier: {name!r}. "
-            "Only lowercase alphanumeric characters, underscores, and dot-walked segments are allowed."
-        )
-
-
-def validate_sys_id(value: str) -> None:
-    """Raise ValueError if *value* is not a valid ServiceNow sys_id (32-char hex)."""
-    if not isinstance(value, str):
-        value = resolve_ref_value(value)
-    if not _SYS_ID_RE.match(value):
-        raise ValueError(f"Invalid sys_id: {value!r}. Expected a 32-character lowercase hexadecimal string.")
-
-
-def sanitize_query_value(value: str | dict[str, Any] | None) -> str:
-    """Escape special encoded-query delimiters in a user-supplied value.
-
-    ServiceNow uses ``^`` as the condition separator in encoded queries.
-    A literal caret inside a *value* is represented as ``^^``.
-    """
-    if not isinstance(value, str):
-        value = resolve_ref_value(value)
-    return value.replace("^", "^^")
-
-
-def serialize(data: Any) -> str:
-    """Serialize *data* to a JSON string suitable for MCP tool output."""
-    try:
-        return json.dumps(data, default=str, ensure_ascii=False, separators=(",", ":"))
-    except (TypeError, ValueError) as e:
-        logger.warning("JSON serialization failed", exc_info=True)
-        sentry_capture(e)
-        envelope: dict[str, Any] = {"status": "error", "error": {"message": "Serialization failed"}}
-        return json.dumps(envelope)
-
-
-def format_response(
-    data: Any,
-    status: str = "success",
-    error: str | dict[str, str] | None = None,
-    pagination: dict[str, int] | None = None,
-    warnings: list[str] | None = None,
-    selection: dict[str, Any] | None = None,
-) -> str:
-    """Build and serialize a standardized response envelope.
-
-    The *error* field accepts a plain string (for backward compatibility)
-    or a structured dict (preferred: ``{"message": "..."}``). Empty warning
-    lists are omitted; data and supplied pagination/selection are preserved.
-    """
-    response: dict[str, Any] = {
-        "status": status,
-        "data": data,
-    }
-    if error is not None:
-        response["error"] = {"message": error} if isinstance(error, str) else error
-    if pagination is not None:
-        response["pagination"] = pagination
-    if warnings:
-        response["warnings"] = warnings
-    if selection is not None:
-        response["selection"] = selection
-
-    return serialize(response)
 
 
 class ServiceNowQuery:
@@ -712,61 +598,3 @@ class ServiceNowQuery:
     def __str__(self) -> str:
         """Return the built query string."""
         return self.build()
-
-
-async def safe_tool_call(
-    fn: Callable[[], Awaitable[str]],
-) -> str:
-    """Wrap an MCP tool body with standard error handling.
-
-    Catches ServiceNow ACL denials, generic forbidden errors, and generic
-    exceptions, returning consistent JSON error envelopes via format_response.
-    """
-    try:
-        return await fn()
-    except ACLError as e:
-        sentry_capture(e)
-        return format_response(
-            data=None,
-            status="error",
-            error=f"Access denied by ServiceNow ACL: {e}",
-        )
-    except ForbiddenError as e:
-        sentry_capture(e)
-        return format_response(
-            data=None,
-            status="error",
-            error=f"Access forbidden by ServiceNow: {e}",
-        )
-    except ServiceNowMCPError as e:
-        # Domain errors (PolicyError, QuerySafetyError, NotFoundError, ServerError,
-        # AuthError, ...) carry curated, caller-actionable messages and are safe
-        # to surface verbatim.
-        sentry_capture(e)
-        return format_response(
-            data=None,
-            status="error",
-            error=str(e),
-        )
-    except ValueError as e:
-        # Project convention: ValueError is the signal for "rejected user input"
-        # raised by validators like ``validate_identifier``. Messages are curated
-        # and safe to surface (they quote the caller's own input).
-        sentry_capture(e)
-        return format_response(
-            data=None,
-            status="error",
-            error=str(e),
-        )
-    except Exception as e:
-        # Truly unclassified failure (RuntimeError, OSError, httpx errors, ...).
-        # Log full detail locally for operators but return an opaque message to
-        # the caller so we do not leak internal hostnames, file paths, or
-        # platform stack fragments.
-        logger.exception("Unhandled exception in tool")
-        sentry_capture(e)
-        return format_response(
-            data=None,
-            status="error",
-            error="Internal error",
-        )

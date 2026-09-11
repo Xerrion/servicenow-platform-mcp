@@ -185,7 +185,7 @@ class ChoiceRegistry:
 
     async def _fetch_from_instance(self) -> dict[tuple[str, str], dict[str, str]] | None:
         """Query sys_choice for all tracked table/field combinations."""
-        from servicenow_mcp.utils import ServiceNowQuery
+        from servicenow_mcp.query_builder import ServiceNowQuery
 
         tracked = list(self._DEFAULTS.keys())
         if not tracked:

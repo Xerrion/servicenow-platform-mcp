@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from servicenow_mcp.decorators import _REDACTED, _redact_args, tool_handler
 from servicenow_mcp.errors import ForbiddenError
-from servicenow_mcp.utils import format_response
+from servicenow_mcp.response import format_response
 from tests.helpers import get_registered_tools
 
 
@@ -54,7 +54,7 @@ class TestToolHandler:
 
         The wire-level message MUST NOT contain ``str(exc)`` — that would leak
         internal hostnames, paths, and platform stack fragments. The full
-        exception is logged locally (see SECURITY in utils.safe_tool_call).
+        exception is logged locally by ``safe_tool_call``.
         """
 
         @tool_handler

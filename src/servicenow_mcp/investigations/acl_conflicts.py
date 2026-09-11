@@ -10,7 +10,8 @@ from servicenow_mcp.policy import (
     check_table_access,
     mask_sensitive_fields,
 )
-from servicenow_mcp.utils import ServiceNowQuery, validate_identifier
+from servicenow_mcp.query_builder import ServiceNowQuery
+from servicenow_mcp.validation import validate_identifier
 
 
 PARAMS: Final[dict[str, dict[str, Any]]] = {

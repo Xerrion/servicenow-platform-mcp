@@ -16,11 +16,11 @@ from servicenow_mcp.client import ServiceNowClientFactory
 from servicenow_mcp.config import Settings
 from servicenow_mcp.mcp_state import attach_servicenow_state
 from servicenow_mcp.packages import _TOOL_GROUP_MODULES, get_package, list_packages
+from servicenow_mcp.response import serialize
 from servicenow_mcp.sentry import capture_exception as sentry_capture
 from servicenow_mcp.sentry import set_sentry_context, setup_sentry, shutdown_sentry
 from servicenow_mcp.telemetry import HttpTelemetry, TelemetryAsyncClient
 from servicenow_mcp.tools._dictionary import DictionaryRegistry
-from servicenow_mcp.utils import serialize
 
 
 logger = logging.getLogger(__name__)

@@ -11,8 +11,10 @@ from typing import Any
 
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.policy import MASK_VALUE, is_sensitive_field
+from servicenow_mcp.query_builder import ServiceNowQuery
+from servicenow_mcp.response import format_response
 from servicenow_mcp.tools._dictionary import DictionaryRegistry
-from servicenow_mcp.utils import ServiceNowQuery, format_response, validate_sys_id
+from servicenow_mcp.validation import validate_sys_id
 
 
 async def _check_mandatory_fields(

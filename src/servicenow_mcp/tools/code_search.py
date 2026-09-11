@@ -18,7 +18,8 @@ from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.policy import check_table_access
-from servicenow_mcp.utils import format_response, validate_identifier
+from servicenow_mcp.response import format_response
+from servicenow_mcp.validation import validate_identifier
 
 
 TOOL_NAMES: list[str] = ["code_search"]

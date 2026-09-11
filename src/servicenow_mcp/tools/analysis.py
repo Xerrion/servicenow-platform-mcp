@@ -14,10 +14,10 @@ from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.errors import NotFoundError
 from servicenow_mcp.policy import MASK_VALUE, check_table_access, is_sensitive_field
+from servicenow_mcp.query_builder import ServiceNowQuery
+from servicenow_mcp.response import format_response
 from servicenow_mcp.tools._dictionary import DictionaryRegistry
-from servicenow_mcp.utils import (
-    ServiceNowQuery,
-    format_response,
+from servicenow_mcp.validation import (
     resolve_ref_value,
     validate_identifier,
     validate_sys_id,

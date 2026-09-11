@@ -29,8 +29,9 @@ from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.policy import INTERNAL_QUERY_LIMIT
+from servicenow_mcp.response import format_response
 from servicenow_mcp.tools._flow_values import decode_values, looks_compressed
-from servicenow_mcp.utils import format_response, validate_identifier, validate_sys_id
+from servicenow_mcp.validation import validate_identifier, validate_sys_id
 
 
 TOOL_NAMES: list[str] = ["flow"]

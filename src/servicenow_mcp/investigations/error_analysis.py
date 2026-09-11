@@ -10,7 +10,7 @@ from servicenow_mcp.investigation_helpers import (
     parse_int_param,
 )
 from servicenow_mcp.policy import check_table_access, mask_sensitive_fields
-from servicenow_mcp.utils import ServiceNowQuery
+from servicenow_mcp.query_builder import ServiceNowQuery
 
 
 PARAMS: Final[dict[str, dict[str, Any]]] = {

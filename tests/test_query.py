@@ -514,9 +514,9 @@ class TestExtractQueryFields:
     )
     def test_extracts_root_fields(self, encoded_query: str, expected: list[str]) -> None:
         """Root field names are pulled out, deduped, and order-preserved."""
-        from servicenow_mcp.tools.query import _extract_query_fields
+        from servicenow_mcp.tools._query_parsing import extract_query_fields
 
-        assert _extract_query_fields(encoded_query) == expected
+        assert extract_query_fields(encoded_query) == expected
 
 
 # ---------------------------------------------------------------------------

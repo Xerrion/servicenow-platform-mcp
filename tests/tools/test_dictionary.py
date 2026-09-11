@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any, cast
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
@@ -417,10 +417,11 @@ class TestCache:
 
         client_factory = cast("ServiceNowClientProvider", ClientContext)
         registry = DictionaryRegistry(settings, auth_provider, client_factory)
-        registry._resolve_chain = AsyncMock(return_value=["incident"])  # type: ignore[method-assign]
-
-        assert await registry.get_chain("incident") == ["incident"]
-        assert await registry.get_chain("incident") == ["incident"]
+        with patch("servicenow_mcp.tools._dictionary.resolve_chain", new_callable=AsyncMock) as resolver:
+            resolver.return_value = ["incident"]
+            assert await registry.get_chain("incident") == ["incident"]
+            assert await registry.get_chain("incident") == ["incident"]
+            resolver.assert_awaited_once()
         assert entered == 1
 
     @pytest.mark.asyncio()

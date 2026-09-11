@@ -5,7 +5,7 @@ from typing import Any
 
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.policy import check_table_access, mask_sensitive_fields
-from servicenow_mcp.utils import validate_identifier
+from servicenow_mcp.validation import validate_identifier
 
 
 def parse_int_param(params: dict[str, Any], key: str, default: int) -> int:

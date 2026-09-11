@@ -5,7 +5,7 @@ from collections.abc import Callable, Coroutine
 from typing import Any
 
 from servicenow_mcp.sentry import set_sentry_context, set_sentry_tag
-from servicenow_mcp.utils import safe_tool_call
+from servicenow_mcp.tool_errors import safe_tool_call
 
 
 # Arg names whose values may carry credentials, PII, or large untrusted payloads.

@@ -8,12 +8,40 @@ from mcp.server import MCPServer
 from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
-from servicenow_mcp.errors import ServerError
+from servicenow_mcp.errors import ServerError, ServiceNowMCPError
 from servicenow_mcp.tools.flow import register_tools
 from tests.helpers import decode_response, get_tool_functions
 
 
 BASE_URL = "https://test.service-now.com/api/now/table"
+
+
+@respx.mock
+async def test_flow_read_rejects_async_acceptance_response(settings: Settings) -> None:
+    """A Table API read must return completed records rather than HTTP 202."""
+    respx.get(f"{BASE_URL}/sys_hub_flow/{'a' * 32}").respond(202)
+
+    async with ServiceNowClient(settings, OAuthPKCEProvider(settings)) as client:
+        with pytest.raises(ServiceNowMCPError, match=r"HTTP 202 Accepted.*synchronous Table API response") as exc:
+            await client.get_flow_by_sys_id("a" * 32)
+
+    assert exc.value.status_code == 202
+
+
+@respx.mock
+async def test_inspect_surfaces_async_acceptance_response(settings: Settings) -> None:
+    """The inspector reports an actionable error when its flow-header read returns HTTP 202."""
+    flow_sys_id = "a" * 32
+    route = respx.get(f"{BASE_URL}/sys_hub_flow/{flow_sys_id}").respond(202)
+    mcp = MCPServer("test")
+    register_tools(mcp, settings, OAuthPKCEProvider(settings))
+
+    result = decode_response(await get_tool_functions(mcp)["flow"](action="inspect", sys_id=flow_sys_id))
+
+    assert result["status"] == "error"
+    assert "HTTP 202 Accepted" in result["error"]["message"]
+    assert "Retry the read" in result["error"]["message"]
+    assert dict(route.calls.last.request.url.params) == {"sysparm_display_value": "all"}
 
 
 @pytest.mark.parametrize(

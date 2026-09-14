@@ -2,9 +2,9 @@
 
 Six actions:
 
-* ``contract``       - concise declared fields, ordered V2 checks/actions, and bindings.
+* ``contract``       - concise declared fields, configured stages, ordered V2 checks/actions, and bindings.
 * ``inspect``        - assemble one flow by sys_id or name: header, triggers,
-  inputs/outputs/variables, decoded V2 nodes, canvas tree, snapshot drift.
+  inputs/outputs/variables, configured stages, decoded V2 nodes, canvas tree, snapshot drift.
 * ``find_by_table``  - find flows with record triggers on a given table
   (merges V1 + V2).
 * ``decode_values``  - stateless decode of a gzip+base64+JSON ``values`` blob.
@@ -73,6 +73,7 @@ _SECTION_DEPENDENCIES: Final[dict[str, frozenset[str]]] = {
     "inputs": frozenset({"inputs"}),
     "outputs": frozenset({"outputs"}),
     "variables": frozenset({"variables"}),
+    "stages": frozenset(),
     "triggers": frozenset({"triggers_v2", "triggers_v1"}),
     "canvas": frozenset({"actions_v2", "logic_v2"}),
     "v1_actions": frozenset({"actions_v1"}),
@@ -87,6 +88,7 @@ _INSPECT_SECTIONS: Final[tuple[str, ...]] = (
     "inputs",
     "outputs",
     "variables",
+    "stages",
     "triggers",
     "canvas",
     "v1_actions",
@@ -100,6 +102,7 @@ _CONTRACT_SECTIONS: Final[tuple[str, ...]] = (
     "inputs",
     "outputs",
     "variables",
+    "stages",
     "triggers",
     "steps",
     "warnings",
@@ -117,7 +120,7 @@ _ACTION_REGISTRY: Final[dict[str, dict[str, Any]]] = {
         "params": {
             "sys_id": "str (32-char)",
             "name": "str",
-            "sections": "comma-separated: flow,published_state,structural_summary,inputs,outputs,variables,triggers,steps,warnings; '*' selects all",
+            "sections": "comma-separated: flow,published_state,structural_summary,inputs,outputs,variables,stages,triggers,steps,warnings; '*' selects all",
             "section_limit": "int (default 100; shared row/node cap)",
         },
     },
@@ -126,7 +129,7 @@ _ACTION_REGISTRY: Final[dict[str, dict[str, Any]]] = {
         "params": {
             "sys_id": "str (32-char)",
             "name": "str",
-            "sections": "comma-separated: flow,published_state,structural_summary,inputs,outputs,variables,triggers,canvas,v1_actions,v1_variable_values,warnings; '*' selects all",
+            "sections": "comma-separated: flow,published_state,structural_summary,inputs,outputs,variables,stages,triggers,canvas,v1_actions,v1_variable_values,warnings; '*' selects all",
             "section_limit": "int (default 100; shared row/node cap)",
         },
     },
@@ -212,6 +215,73 @@ def _index_by_sys_id(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
         if key:
             indexed[key] = row
     return indexed
+
+
+def _stage_definition(row: dict[str, Any]) -> dict[str, Any]:
+    """Project a stored Flow Designer stage into its configured lifecycle fields."""
+    definition: dict[str, Any] = {
+        "stage_id": _v(row.get("stage_id")),
+        "label": _v(row.get("label")),
+        "value": _v(row.get("value")),
+        "states": _v(row.get("states")),
+        "type": _v(row.get("type")),
+        "order": _v(row.get("order")),
+        "component_indexes": _v(row.get("component_indexes")),
+        "ancestor_component_id": _v(row.get("ancestor_component_id")),
+        "ancestor_stage_id": _v(row.get("ancestor_stage_id")),
+        "ancestral_if_else_logic": _v(row.get("ancestral_if_else_logic")),
+        "always_show": _v(row.get("always_show")).lower() == "true",
+    }
+    return definition
+
+
+async def _flow_stages(
+    client: ServiceNowClient,
+    *,
+    root_flow_sys_id: str,
+    published_snapshot_sys_id: str,
+    section_limit: int,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Read configured stages with root-flow and published-snapshot provenance."""
+    source_roles = {root_flow_sys_id: ["root_flow"]}
+    if published_snapshot_sys_id:
+        source_roles.setdefault(published_snapshot_sys_id, []).append("published_snapshot")
+    source_ids = list(source_roles)
+    source_rows = await asyncio.gather(
+        *(client.list_flow_stages(source_id, section_limit + 1) for source_id in source_ids)
+    )
+    sources: list[dict[str, Any]] = []
+    truncated_sources: list[dict[str, Any]] = []
+    for source_id, rows in zip(source_ids, source_rows, strict=True):
+        definitions = [_stage_definition(row) for row in rows[:section_limit]]
+        sources.append(
+            {
+                "flow_sys_id": source_id,
+                "roles": source_roles[source_id],
+                "definitions": definitions,
+            }
+        )
+        if len(rows) > section_limit:
+            truncated_sources.append(
+                {
+                    "flow_sys_id": source_id,
+                    "roles": source_roles[source_id],
+                    "returned": len(definitions),
+                    "observed_at_least": len(rows),
+                    "omitted_at_least": len(rows) - len(definitions),
+                }
+            )
+
+    return (
+        {
+            "semantics": (
+                "Configured Flow Designer lifecycle stages. These are not executed steps or evidence of record field "
+                "writes."
+            ),
+            "sources": sources,
+        },
+        truncated_sources,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -574,6 +644,7 @@ def _build_flow_contract(
         "inputs": [_contract_field(row) for row in payload["inputs"]],
         "outputs": [_contract_field(row) for row in payload["outputs"]],
         "variables": [_contract_field(row) for row in payload["variables"]],
+        "stages": payload["stages"],
         "triggers": [_contract_trigger(trigger) for trigger in payload["triggers"]],
         "steps": _contract_steps(
             payload["canvas"],
@@ -644,6 +715,16 @@ def _warning_continuation(*, section_limit: int, max_row_limit: int, flow_sys_id
         "sys_id from the V2 actions and query sys_hub_action_type_base "
         "(encoded_query=sys_idIN<action_type_sys_ids>, fields=sys_id,category,sys_scope) for spoke detection. "
         "Use limit and offset to continue each read. Query safety and row limits still apply."
+    )
+
+
+def _stage_continuation(*, section_limit: int, max_row_limit: int, flow_sys_id: str) -> str:
+    if section_limit < max_row_limit:
+        return f"Re-run with section_limit greater than {section_limit}."
+    return (
+        f"The configured MAX_ROW_LIMIT of {max_row_limit} has been reached; no further continuation is available "
+        "through flow. Use query with an explicit fields projection and pagination on sys_hub_flow_stage "
+        f"(encoded_query=flow={flow_sys_id}^ORDERBYorder). Query safety and row limits still apply."
     )
 
 
@@ -781,8 +862,34 @@ async def _action_inspect(
         if header is None:
             return _error(f"Flow {resolved_sys_id} not found.")
 
+        master = _v(header.get("master_snapshot"))
+        latest = _v(header.get("latest_snapshot"))
+        drift = bool(master and latest and master != latest)
         datasets, requested_limits = await _fetch_flow_datasets(client, resolved_sys_id, required, effective_limit)
         truncation: dict[str, dict[str, Any]] = {}
+        stages: dict[str, Any] = {"semantics": "", "sources": []}
+        if "stages" in selected_sections:
+            stages, truncated_stage_sources = await _flow_stages(
+                client,
+                root_flow_sys_id=resolved_sys_id,
+                published_snapshot_sys_id=master,
+                section_limit=effective_limit,
+            )
+            requested_limits["stages_per_source"] = effective_limit + 1
+            if truncated_stage_sources:
+                truncation["stages"] = {
+                    "sources": [
+                        {
+                            **source,
+                            "continuation": _stage_continuation(
+                                section_limit=effective_limit,
+                                max_row_limit=settings.max_row_limit,
+                                flow_sys_id=source["flow_sys_id"],
+                            ),
+                        }
+                        for source in truncated_stage_sources
+                    ]
+                }
         inputs = _bounded_rows(
             datasets.get("inputs", []),
             section="inputs",
@@ -1025,10 +1132,6 @@ async def _action_inspect(
         triggers = [_v2_trigger_entry(row, condition_lookup=condition_lookup) for row in returned_triggers_v2]
         triggers.extend(_v1_trigger_entry(row) for row in returned_triggers_v1)
 
-    master = _v(header.get("master_snapshot"))
-    latest = _v(header.get("latest_snapshot"))
-    drift = bool(master and latest and master != latest)
-
     warnings = _build_inspect_warnings(
         drift=drift,
         master=master,
@@ -1060,6 +1163,7 @@ async def _action_inspect(
         "inputs": [_flatten_record(row) for row in inputs],
         "outputs": [_flatten_record(row) for row in outputs],
         "variables": [_flatten_record(row) for row in variables],
+        "stages": stages,
         "triggers": triggers,
         "canvas": canvas,
         "v1_actions": (

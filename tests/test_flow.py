@@ -202,6 +202,7 @@ def _empty_inspect_kwargs(header_sys_id: str = SYS_ID_FLOW) -> dict[str, Any]:
         "list_flow_inputs": [],
         "list_flow_outputs": [],
         "list_flow_variables": [],
+        "list_flow_stages": [],
         "list_action_instances_v2": [],
         "list_action_instances_v1": [],
         "list_logic_instances_v2": [],
@@ -1030,6 +1031,7 @@ async def test_inspect_happy_path_assembles_canvas(settings: Settings, auth_prov
         list_flow_inputs=[],
         list_flow_outputs=[],
         list_flow_variables=[],
+        list_flow_stages=[],
         list_action_instances_v2=actions_v2,
         list_action_instances_v1=[],
         list_logic_instances_v2=logic_v2,
@@ -1077,6 +1079,7 @@ async def test_inspect_happy_path_assembles_canvas(settings: Settings, auth_prov
         "inputs",
         "outputs",
         "variables",
+        "stages",
         "triggers",
         "canvas",
         "v1_actions",
@@ -1103,6 +1106,108 @@ async def test_inspect_snapshot_drift_emits_warning(settings: Settings, auth_pro
     assert result["status"] == "success"
     assert result["data"]["published_state"]["drift"] is True
     assert any("snapshot drift" in w for w in result["data"]["warnings"])
+
+
+@pytest.mark.parametrize("action", ["inspect", "contract"])
+@pytest.mark.asyncio()
+async def test_flow_stages_include_root_and_snapshot_provenance(
+    settings: Settings,
+    auth_provider: OAuthPKCEProvider,
+    action: str,
+) -> None:
+    """Stage definitions stay separate from steps and identify their source records."""
+    header = _minimal_flow_header()
+    header["master_snapshot"] = _ref("a" * 32)
+    kwargs = _empty_inspect_kwargs()
+    kwargs["get_flow_by_sys_id"] = header
+    client = _make_client_mock(**kwargs)
+    stage_rows = {
+        SYS_ID_FLOW: [
+            {
+                "sys_id": _ref("root_stage"),
+                "stage_id": _ref("stage_fulfillment"),
+                "label": _ref("Fulfillment"),
+                "value": _ref("fulfillment"),
+                "states": _ref("in_progress,complete"),
+                "type": _ref("linear"),
+                "order": _ref("10"),
+                "component_indexes": _ref("1"),
+                "ancestor_component_id": _ref(""),
+                "ancestor_stage_id": _ref(""),
+                "ancestral_if_else_logic": _ref(""),
+                "always_show": _ref("true"),
+            }
+        ],
+        "a" * 32: [
+            {
+                "sys_id": _ref("published_stage"),
+                "stage_id": _ref("stage_fulfillment"),
+                "label": _ref("Fulfillment"),
+                "value": _ref("fulfillment"),
+                "states": _ref("in_progress,complete"),
+                "type": _ref("linear"),
+                "order": _ref("10"),
+                "component_indexes": _ref("1"),
+                "ancestor_component_id": _ref(""),
+                "ancestor_stage_id": _ref(""),
+                "ancestral_if_else_logic": _ref(""),
+                "always_show": _ref("true"),
+            }
+        ],
+    }
+    client.list_flow_stages.side_effect = lambda flow_id, _limit: stage_rows[flow_id]
+    tools = _register_and_get_tools(settings, auth_provider)
+
+    with _patch_client(client):
+        result = decode_response(
+            await tools["flow"](action=action, sys_id=SYS_ID_FLOW, sections="stages", section_limit=25)
+        )
+
+    stages = result["data"]["stages"]
+    assert "not executed steps or evidence of record field writes" in stages["semantics"]
+    assert [source["roles"] for source in stages["sources"]] == [
+        ["root_flow"],
+        ["published_snapshot"],
+    ]
+    root_definition = stages["sources"][0]["definitions"][0]
+    assert root_definition == {
+        "stage_id": "stage_fulfillment",
+        "label": "Fulfillment",
+        "value": "fulfillment",
+        "states": "in_progress,complete",
+        "type": "linear",
+        "order": "10",
+        "component_indexes": "1",
+        "ancestor_component_id": "",
+        "ancestor_stage_id": "",
+        "ancestral_if_else_logic": "",
+        "always_show": True,
+    }
+    assert result["selection"]["dataset_probe_limits"]["stages_per_source"] == 26
+    assert client.list_flow_stages.await_count == 2
+
+
+@pytest.mark.parametrize("action", ["inspect", "contract"])
+@pytest.mark.asyncio()
+async def test_flow_stages_empty_and_shared_snapshot_are_normalized(
+    settings: Settings,
+    auth_provider: OAuthPKCEProvider,
+    action: str,
+) -> None:
+    """A flow without stages returns explicit empty definitions and reads a shared snapshot once."""
+    kwargs = _empty_inspect_kwargs()
+    client = _make_client_mock(**kwargs)
+    tools = _register_and_get_tools(settings, auth_provider)
+
+    with _patch_client(client):
+        result = decode_response(await tools["flow"](action=action, sys_id=SYS_ID_FLOW, sections="stages"))
+
+    stages = result["data"]["stages"]
+    assert stages["sources"] == [
+        {"flow_sys_id": SYS_ID_FLOW, "roles": ["root_flow"], "definitions": []},
+        {"flow_sys_id": "snap1", "roles": ["published_snapshot"], "definitions": []},
+    ]
+    assert client.list_flow_stages.await_count == 2
 
 
 @pytest.mark.asyncio()

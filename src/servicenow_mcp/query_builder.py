@@ -4,6 +4,7 @@ from typing import override
 
 from servicenow_mcp.validation import sanitize_query_value, validate_identifier
 
+
 # Operators recognised by ``or_condition()``.
 _ALLOWED_OPERATORS: frozenset[str] = frozenset(
     {

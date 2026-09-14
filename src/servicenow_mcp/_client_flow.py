@@ -55,6 +55,18 @@ class FlowDesignerApiClient(ServiceNowRequestClient):
         """List flow-scoped variables."""
         return await self._list_flow_rows("sys_hub_flow_variable", f"model={flow_sys_id}^ORDERBYorder", limit=limit)
 
+    async def list_flow_stages(self, flow_sys_id: str, limit: int | None = None) -> list[dict[str, Any]]:
+        """List configured lifecycle stages owned by a flow-base record."""
+        return await self._list_flow_rows(
+            "sys_hub_flow_stage",
+            f"flow={flow_sys_id}^ORDERBYorder",
+            fields=(
+                "stage_id,label,value,states,type,order,component_indexes,ancestor_component_id,"
+                "ancestor_stage_id,ancestral_if_else_logic,always_show"
+            ),
+            limit=limit,
+        )
+
     async def list_action_instances_v2(self, flow_sys_id: str, limit: int = 1000) -> list[dict[str, Any]]:
         """List V2 action instances for a flow."""
         return await self._list_flow_rows("sys_hub_action_instance_v2", f"flow={flow_sys_id}^ORDERBYorder", limit=limit)

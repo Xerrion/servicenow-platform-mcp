@@ -2,8 +2,10 @@
 
 from typing import Any
 
+import httpx
+
 from servicenow_mcp._client_transport import ServiceNowRequestClient
-from servicenow_mcp.errors import NotFoundError
+from servicenow_mcp.errors import NotFoundError, ServiceNowMCPError
 from servicenow_mcp.policy import INTERNAL_QUERY_LIMIT
 from servicenow_mcp.query_builder import ServiceNowQuery
 from servicenow_mcp.validation import resolve_ref_value, sanitize_query_value, validate_identifier, validate_sys_id
@@ -11,6 +13,17 @@ from servicenow_mcp.validation import resolve_ref_value, sanitize_query_value, v
 
 class FlowDesignerApiClient(ServiceNowRequestClient):
     """Implement Flow Designer record discovery and bounded joins."""
+
+    def _raise_for_flow_read_status(self, response: httpx.Response) -> None:
+        """Require a completed Table API response for a Flow Designer read."""
+        self._raise_for_status(response)
+        if response.status_code != 200:
+            raise ServiceNowMCPError(
+                f"Flow Designer Table API read returned HTTP {response.status_code} {response.reason_phrase}; "
+                "the response does not contain a completed record result. Retry the read. If it remains accepted, "
+                "check the instance REST access policy or intermediary that changed this synchronous Table API response.",
+                status_code=response.status_code,
+            )
 
     async def get_flow_by_sys_id(self, sys_id: str) -> dict[str, Any] | None:
         """Fetch a flow with display values, or return None when it does not exist."""
@@ -20,7 +33,7 @@ class FlowDesignerApiClient(ServiceNowRequestClient):
                 headers=await self._headers(),
                 params={"sysparm_display_value": "all"},
             )
-            self._raise_for_status(response)
+            self._raise_for_flow_read_status(response)
         except NotFoundError:
             return None
         return self._extract_json_result(response)
@@ -41,6 +54,18 @@ class FlowDesignerApiClient(ServiceNowRequestClient):
     async def list_flow_variables(self, flow_sys_id: str, limit: int | None = None) -> list[dict[str, Any]]:
         """List flow-scoped variables."""
         return await self._list_flow_rows("sys_hub_flow_variable", f"model={flow_sys_id}^ORDERBYorder", limit=limit)
+
+    async def list_flow_stages(self, flow_sys_id: str, limit: int | None = None) -> list[dict[str, Any]]:
+        """List configured lifecycle stages owned by a flow-base record."""
+        return await self._list_flow_rows(
+            "sys_hub_flow_stage",
+            f"flow={flow_sys_id}^ORDERBYorder",
+            fields=(
+                "stage_id,label,value,states,type,order,component_indexes,ancestor_component_id,"
+                "ancestor_stage_id,ancestral_if_else_logic,always_show"
+            ),
+            limit=limit,
+        )
 
     async def list_action_instances_v2(self, flow_sys_id: str, limit: int = 1000) -> list[dict[str, Any]]:
         """List V2 action instances for a flow."""
@@ -139,7 +164,7 @@ class FlowDesignerApiClient(ServiceNowRequestClient):
             headers=await self._headers(),
             params=params,
         )
-        self._raise_for_status(response)
+        self._raise_for_flow_read_status(response)
         return self._extract_json_result(response)
 
     async def _flow_lookup_page(
@@ -155,7 +180,7 @@ class FlowDesignerApiClient(ServiceNowRequestClient):
             headers=await self._headers(),
             params=params,
         )
-        self._raise_for_status(response)
+        self._raise_for_flow_read_status(response)
         rows = self._extract_json_result(response)
         try:
             total = int(response.headers["X-Total-Count"])

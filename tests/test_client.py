@@ -1459,6 +1459,30 @@ class TestServiceNowClientFlowDesigner:
 
     @pytest.mark.asyncio()
     @respx.mock
+    async def test_list_flow_stages_uses_explicit_projection_and_flow_relation(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
+        """Stage reads select the lifecycle fields and bind them to one flow-base record."""
+        from servicenow_mcp.client import ServiceNowClient
+
+        flow_id = "a" * 32
+        route = respx.get(f"{BASE_URL}/api/now/table/sys_hub_flow_stage").mock(
+            return_value=httpx.Response(200, json={"result": []}),
+        )
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            assert await client.list_flow_stages(flow_id, limit=17) == []
+
+        params = route.calls.last.request.url.params
+        assert params["sysparm_query"] == f"flow={flow_id}^ORDERBYorder"
+        assert params["sysparm_limit"] == "17"
+        assert params["sysparm_fields"] == (
+            "stage_id,label,value,states,type,order,component_indexes,ancestor_component_id,"
+            "ancestor_stage_id,ancestral_if_else_logic,always_show"
+        )
+
+    @pytest.mark.asyncio()
+    @respx.mock
     async def test_flow_dataset_limit_is_forwarded(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """Flow dataset helpers forward a caller-supplied ServiceNow row cap."""
         from servicenow_mcp.client import ServiceNowClient

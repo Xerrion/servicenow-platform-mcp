@@ -52,6 +52,22 @@
   still depends on ServiceNow ACLs. Script discovery through `record_read` and
   `describe`, preview/apply safety, and masking remain unchanged.
 
+## [2.0.0](https://github.com/Xerrion/servicenow-platform-mcp/compare/v1.0.0...v2.0.0) (2026-09-11)
+
+
+### ⚠ BREAKING CHANGES
+
+* replace ServiceNow legacy auth with OAuth PKCE ([#162](https://github.com/Xerrion/servicenow-platform-mcp/issues/162))
+
+### Features
+
+* replace ServiceNow legacy auth with OAuth PKCE ([#162](https://github.com/Xerrion/servicenow-platform-mcp/issues/162)) ([619e583](https://github.com/Xerrion/servicenow-platform-mcp/commit/619e58351e66ede8abac7e4c7fbde895807c27ed))
+
+
+### Bug Fixes
+
+* translate query ordering into encoded clauses ([#164](https://github.com/Xerrion/servicenow-platform-mcp/issues/164)) ([29c5e5a](https://github.com/Xerrion/servicenow-platform-mcp/commit/29c5e5a0c21fef7c0fffc936abe4ea8ea494bf0d))
+
 ## [1.0.0](https://github.com/Xerrion/servicenow-platform-mcp/compare/v0.12.1...v1.0.0) (2026-09-10)
 
 

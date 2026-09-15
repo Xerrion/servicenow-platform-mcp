@@ -67,7 +67,6 @@ Create `.env.local` in the working directory used to launch the MCP server:
 ```dotenv
 SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com
 SERVICENOW_OAUTH_CLIENT_ID=your-public-client-id
-SERVICENOW_OAUTH_SCOPE=useraccount
 SERVICENOW_OAUTH_REDIRECT_URI=http://127.0.0.1:8765/oauth/callback
 SERVICENOW_OAUTH_TIMEOUT_SECONDS=180
 MCP_TOOL_PACKAGE=readonly
@@ -75,7 +74,8 @@ SERVICENOW_ENV=dev
 ```
 
 Use an HTTPS instance origin without credentials, path, query, or fragment.
-One trailing slash is removed. The scope must be exactly `useraccount`.
+One trailing slash is removed. The OAuth scope defaults to `useraccount` and
+can be overridden with `SERVICENOW_OAUTH_SCOPE`.
 The redirect URI must match the Application Registry entry and the format
 `http://127.0.0.1:<port>/oauth/callback`, with port `1024`-`65535`.
 `localhost`, other paths, query strings, and fragments are not accepted.
@@ -186,7 +186,6 @@ It requires `uv sync` first and sets `cwd` to that checkout.
   "env": {
     "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
     "SERVICENOW_OAUTH_CLIENT_ID": "your-public-client-id",
-    "SERVICENOW_OAUTH_SCOPE": "useraccount",
     "SERVICENOW_OAUTH_REDIRECT_URI": "http://127.0.0.1:8765/oauth/callback",
     "MCP_TOOL_PACKAGE": "readonly",
     "SERVICENOW_ENV": "prod"
@@ -212,7 +211,6 @@ console entry point without a source checkout:
   "env": {
     "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
     "SERVICENOW_OAUTH_CLIENT_ID": "your-public-client-id",
-    "SERVICENOW_OAUTH_SCOPE": "useraccount",
     "SERVICENOW_OAUTH_REDIRECT_URI": "http://127.0.0.1:8765/oauth/callback",
     "MCP_TOOL_PACKAGE": "readonly",
     "SERVICENOW_ENV": "prod"
@@ -235,7 +233,7 @@ environment variables override both.
 | --- | --- | --- | --- | --- |
 | `SERVICENOW_INSTANCE_URL` | Yes | None | HTTPS origin without credentials, path, query, or fragment | ServiceNow instance. One trailing slash is removed. |
 | `SERVICENOW_OAUTH_CLIENT_ID` | Yes | None | Non-empty printable ASCII; surrounding spaces removed | Public ServiceNow OAuth application. |
-| `SERVICENOW_OAUTH_SCOPE` | Yes | None | Exactly `useraccount` | Scope for the public PKCE application. |
+| `SERVICENOW_OAUTH_SCOPE` | No | `useraccount` | Scope enabled for the public PKCE application | OAuth authorization scope. |
 | `SERVICENOW_OAUTH_REDIRECT_URI` | No | `http://127.0.0.1:8765/oauth/callback` | Exactly `http://127.0.0.1:<port>/oauth/callback`; port `1024`-`65535` | Registered loopback URI. |
 | `SERVICENOW_OAUTH_TIMEOUT_SECONDS` | No | `180` | `1`-`600` | Authorization wait in seconds. |
 | `MCP_TOOL_PACKAGE` | No | `full` | Preset or comma-separated groups | Selects loaded tool groups. |
@@ -388,7 +386,7 @@ Other important limits include:
 | --- | --- |
 | `Cannot bind OAuth loopback port` | Close only a known conflicting listener, or configure and register another allowed port. |
 | `ServiceNow authorization timed out` | Complete authorization on the same machine before the timeout. Check the exact callback URL and retry. The wait defaults to 180 seconds and accepts 1-600. |
-| Missing or invalid scope | Set exactly `SERVICENOW_OAUTH_SCOPE=useraccount`. For a ServiceNow scope error, also confirm the application enables `useraccount`. |
+| ServiceNow rejects the scope | Confirm the application enables `useraccount`, or set `SERVICENOW_OAUTH_SCOPE` to an enabled scope. |
 | `Cannot open the local browser` | Check the local browser setup. This is a launch failure, not proof of an Application Registry error. |
 | Error on the ServiceNow authorization page | Check **Public Client=true**, PKCE S256, client ID, scope, and exact redirect URL. |
 | `OAuth token exchange rejected (HTTP ...)` | Check the public application and OAuth settings. Token exchange failure is separate from a later REST 401. |

@@ -124,12 +124,20 @@ async def test_query_401_then_reauthorize_on_same_loopback_port(settings: Settin
 
 
 @respx.mock
+@pytest.mark.parametrize("configured_scope", [None, "custom"])
 async def test_public_pkce_loopback_exchange_and_bearer_request(
-    settings: Settings, redirect_uri: str, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    settings: Settings,
+    redirect_uri: str,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    configured_scope: str | None,
 ) -> None:
     """Stale extra configuration cannot change the exact public PKCE wire contract."""
     monkeypatch.setenv("SERVICENOW_OAUTH_CLIENT_SECRET", "test-only-secret")
-    settings = Settings(_env_file=None, **settings.model_dump())
+    settings_data = settings.model_dump()
+    if configured_scope is not None:
+        settings_data["servicenow_oauth_scope"] = configured_scope
+    settings = Settings(_env_file=None, **settings_data)
     settings.servicenow_oauth_redirect_uri = redirect_uri
     authorization: dict[str, list[str]] = {}
 
@@ -164,7 +172,7 @@ async def test_public_pkce_loopback_exchange_and_bearer_request(
             "client_id": [settings.servicenow_oauth_client_id],
             "redirect_uri": [redirect_uri],
             "state": authorization["state"],
-            "scope": ["useraccount"],
+            "scope": [settings.servicenow_oauth_scope],
             "code_challenge": [challenge],
             "code_challenge_method": ["S256"],
         }
@@ -350,6 +358,20 @@ async def test_exchange_failure_is_sanitized(settings: Settings, status: int, ca
         assert sensitive not in str(exc.value)
         assert sensitive not in caplog.text
     assert route.call_count == 1
+
+
+@respx.mock
+async def test_exchange_failure_names_configured_scope(settings: Settings) -> None:
+    settings_data = settings.model_dump()
+    settings_data["servicenow_oauth_scope"] = "custom"
+    settings = Settings(_env_file=None, **settings_data)
+    respx.post(f"{BASE_URL}/oauth_token.do").respond(400)
+    with (
+        patch("servicenow_mcp.auth.receive_authorization_code", return_value="test-code"),
+        pytest.raises(AuthError, match="configured OAuth scope") as exc,
+    ):
+        await OAuthPKCEProvider(settings).get_headers()
+    assert "useraccount" not in str(exc.value)
 
 
 @respx.mock

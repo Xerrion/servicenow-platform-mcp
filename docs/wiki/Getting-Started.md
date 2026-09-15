@@ -61,7 +61,6 @@ Create `.env.local` in the working directory used to start the MCP server:
 ```dotenv
 SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com
 SERVICENOW_OAUTH_CLIENT_ID=your-public-client-id
-SERVICENOW_OAUTH_SCOPE=useraccount
 SERVICENOW_OAUTH_REDIRECT_URI=http://127.0.0.1:8765/oauth/callback
 SERVICENOW_OAUTH_TIMEOUT_SECONDS=180
 MCP_TOOL_PACKAGE=readonly
@@ -69,7 +68,8 @@ SERVICENOW_ENV=dev
 ```
 
 Use an HTTPS instance origin without credentials, path, query, or fragment.
-The scope must be exactly `useraccount`. The redirect URI must match the
+The OAuth scope defaults to `useraccount`; set `SERVICENOW_OAUTH_SCOPE` only
+to override it. The redirect URI must match the
 registered URL and the format `http://127.0.0.1:<port>/oauth/callback`, with port
 `1024`-`65535`. `localhost`, other paths, query strings, and fragments are not
 accepted. Register the complete new URL if you change the port.
@@ -99,7 +99,6 @@ environment. This generic example uses a prepared source checkout:
   "env": {
     "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
     "SERVICENOW_OAUTH_CLIENT_ID": "your-public-client-id",
-    "SERVICENOW_OAUTH_SCOPE": "useraccount",
     "SERVICENOW_OAUTH_REDIRECT_URI": "http://127.0.0.1:8765/oauth/callback",
     "MCP_TOOL_PACKAGE": "readonly"
   }
@@ -163,7 +162,7 @@ permissions, and policy migration.
 | --- | --- |
 | `Cannot bind OAuth loopback port` | Close only a known conflicting listener, or configure and register another allowed port. |
 | `ServiceNow authorization timed out` | Complete authorization on the same machine before the timeout. Check the exact callback URL and retry. |
-| Missing or invalid scope | Set exactly `useraccount` locally and enable it on the application. |
+| ServiceNow rejects the scope | Enable `useraccount` on the application, or set `SERVICENOW_OAUTH_SCOPE` to an enabled scope. |
 | `Cannot open the local browser` | Check the local browser setup. This is distinct from a ServiceNow authorization-page error. |
 | Error on the ServiceNow authorization page | Check **Public Client=true**, PKCE S256, client ID, scope, and exact redirect URL. |
 | `OAuth token exchange rejected (HTTP ...)` | Check the public application and OAuth settings. Token exchange failure is separate from a later REST 401. |

@@ -1,8 +1,9 @@
 """Configuration settings for the ServiceNow MCP server."""
 
 import math
+import re
 from functools import cached_property
-from typing import ClassVar, Literal
+from typing import ClassVar
 from urllib.parse import urlsplit
 
 from pydantic import SecretStr, field_validator, model_validator
@@ -20,7 +21,7 @@ class Settings(BaseSettings):
     servicenow_password: SecretStr = SecretStr("")
     servicenow_api_key: SecretStr = SecretStr("")
     servicenow_oauth_client_id: str
-    servicenow_oauth_scope: Literal["useraccount"]
+    servicenow_oauth_scope: str = "useraccount"
     servicenow_oauth_redirect_uri: str = "http://127.0.0.1:8765/oauth/callback"
     servicenow_oauth_timeout_seconds: int = 180
     mcp_tool_package: str = "full"
@@ -85,6 +86,14 @@ class Settings(BaseSettings):
         if not v.strip() or not v.isascii() or any(ord(char) < 32 or ord(char) == 127 for char in v):
             raise ValueError("OAuth client ID must be non-empty printable ASCII")
         return v.strip()
+
+    @field_validator("servicenow_oauth_scope")
+    @classmethod
+    def validate_oauth_scope(cls, v: str) -> str:
+        """Require one or more printable ASCII OAuth scope tokens."""
+        if not re.fullmatch(r"[\x21\x23-\x5B\x5D-\x7E]+(?: [\x21\x23-\x5B\x5D-\x7E]+)*", v):
+            raise ValueError("OAuth scope must contain printable ASCII scope tokens separated by single spaces")
+        return v
 
     @field_validator("servicenow_oauth_redirect_uri")
     @classmethod

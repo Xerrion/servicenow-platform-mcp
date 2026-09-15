@@ -73,7 +73,6 @@ Example:
   "env": {
     "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
     "SERVICENOW_OAUTH_CLIENT_ID": "your-public-client-id",
-    "SERVICENOW_OAUTH_SCOPE": "useraccount",
     "SERVICENOW_OAUTH_REDIRECT_URI": "http://127.0.0.1:8765/oauth/callback",
     "MCP_TOOL_PACKAGE": "readonly",
     "SERVICENOW_ENV": "dev"
@@ -82,9 +81,10 @@ Example:
 ```
 
 The instance value must be an HTTPS origin without credentials, path, query, or
-fragment. The redirect value must match ServiceNow exactly. The server accepts
-the form `http://127.0.0.1:<port>/oauth/callback` with a port from `1024` to
-`65535`.
+fragment. OAuth scope defaults to `useraccount`; set `SERVICENOW_OAUTH_SCOPE`
+only to override it. The redirect value must match ServiceNow exactly. The
+server accepts the form `http://127.0.0.1:<port>/oauth/callback` with a port
+from `1024` to `65535`.
 
 ### Launch with `uvx`
 
@@ -209,7 +209,7 @@ table when needed.
 | `Cannot open the local browser` | Check the browser on the machine running the MCP server. |
 | `ServiceNow authorization timed out` | Authorize on the same machine. Check the exact redirect URL and retry. |
 | `Cannot bind OAuth loopback port` | Close a known conflicting listener, or configure and register another allowed `127.0.0.1` port. |
-| Missing or invalid scope | Set `SERVICENOW_OAUTH_SCOPE=useraccount` and enable `useraccount` in the Application Registry. |
+| ServiceNow rejects the scope | Enable `useraccount` in the Application Registry, or set `SERVICENOW_OAUTH_SCOPE` to an enabled scope. |
 | OAuth token exchange rejected | Check public client, PKCE S256, scope, client ID, and exact redirect URL. |
 | REST 401 or `User Not Authenticated` | Authorize on the next call. If it persists, ask an administrator to check scopes, REST API policies, and user access. |
 | HTTP 403 | Check REST resource permissions, roles, table ACLs, and field ACLs. |

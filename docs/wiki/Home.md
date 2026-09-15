@@ -62,10 +62,12 @@ values through the MCP client's environment settings:
 ```dotenv
 SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com
 SERVICENOW_OAUTH_CLIENT_ID=your-public-client-id
-SERVICENOW_OAUTH_SCOPE=useraccount
 SERVICENOW_OAUTH_REDIRECT_URI=http://127.0.0.1:8765/oauth/callback
 MCP_TOOL_PACKAGE=readonly
 ```
+
+OAuth scope defaults to `useraccount`. Set `SERVICENOW_OAUTH_SCOPE` only to
+override it with another scope enabled on the application.
 
 Remove `SERVICENOW_API_KEY`, `SERVICENOW_USERNAME`, and `SERVICENOW_PASSWORD`;
 non-empty values fail startup. A stale `SERVICENOW_OAUTH_CLIENT_SECRET` is

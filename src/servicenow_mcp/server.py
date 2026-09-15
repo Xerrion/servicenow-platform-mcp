@@ -19,7 +19,7 @@ from servicenow_mcp.packages import _TOOL_GROUP_MODULES, get_package, list_packa
 from servicenow_mcp.response import serialize
 from servicenow_mcp.sentry import capture_exception as sentry_capture
 from servicenow_mcp.sentry import set_sentry_context, setup_sentry, shutdown_sentry
-from servicenow_mcp.telemetry import HttpTelemetry, TelemetryAsyncClient
+from servicenow_mcp.telemetry import HttpTelemetry, TelemetryAsyncClient, configure_diagnostic_logging
 from servicenow_mcp.tools._dictionary import DictionaryRegistry
 
 
@@ -117,6 +117,7 @@ def create_mcp_server() -> MCPServer:
 
 def main() -> None:
     """Run the MCP server with stdio transport."""
+    configure_diagnostic_logging()
     try:
         mcp = create_mcp_server()
     except ValidationError as exc:

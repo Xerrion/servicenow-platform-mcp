@@ -5,6 +5,7 @@ from collections.abc import Callable, Coroutine
 from typing import Any
 
 from servicenow_mcp.sentry import set_sentry_context, set_sentry_tag
+from servicenow_mcp.telemetry import trace_tool_call
 from servicenow_mcp.tool_errors import safe_tool_call
 
 
@@ -89,6 +90,7 @@ def tool_handler(
         async def _run() -> str:
             return await fn(*args, **kwargs)
 
-        return await safe_tool_call(_run)
+        with trace_tool_call(fn.__name__):
+            return await safe_tool_call(_run)
 
     return wrapper

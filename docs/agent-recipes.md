@@ -175,14 +175,21 @@ await query(
 # sys_audit is a massive table; strict filtering is required.
 await query(
     table="sys_audit",
-    encoded_query="tablename=incident^documentkey=<sys_id>",
+    encoded_query="tablename=incident^documentkey=<sys_id>^sys_created_on>=javascript:gs.daysAgoStart(7)",
     fields="fieldname,oldvalue,newvalue,sys_created_by,sys_created_on",
     order_by="-sys_created_on",
     limit=100,
 )
 ```
 
-**Notes:** For high-volume production instances, always combine `documentkey` with a `sys_created_on` filter if the history is expected to be long.
+**Notes:** Always combine `documentkey` with a date filter. Set the window from
+the event time; the example covers the last seven days. `limit` bounds returned
+rows, not database scan or count work. If a call times out, inspect its trace
+before repeating it with a different sort or aggregate.
+
+Audit values and rules that populate `reopened_by` or `reopen_count` are evidence
+of a change, not proof of the initiating writer. Trace that writer separately.
+See [Timeouts and repeated investigation calls](introspection-troubleshooting.md#timeouts-and-repeated-investigation-calls).
 
 ---
 

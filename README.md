@@ -1,806 +1,235 @@
 # servicenow-platform-mcp
 
-`servicenow-platform-mcp` is an asynchronous Python 3.12+ server that gives AI
-tools access to ServiceNow. It uses the Model Context Protocol (MCP) as the
-AI and tool access layer. It still uses ServiceNow REST APIs underneath.
+`servicenow-platform-mcp` is an MCP server for controlled access to ServiceNow
+through ServiceNow REST APIs. It uses MCP stdio transport. An MCP client starts
+the server as a local process.
 
-Use it to discover schemas, read bounded record data, inspect attachments and
-Flow Designer records, inspect audit configuration and history, run
-investigations, analyse fulfilled catalog requests, and perform gated writes.
+Use it to read records and metadata, inspect attachments and platform data,
+search ServiceNow code, run analyses and investigations, and perform writes
+when the selected tool package includes write tools and permissions allow them.
 
-## Contents
+## Prerequisites
 
-- [Capabilities](#capabilities)
-- [Architecture and transport](#architecture-and-transport)
-- [Install and run](#install-and-run)
-- [Configuration and authentication](#configuration-and-authentication)
-- [MCP client configuration](#mcp-client-configuration)
-- [Tool packages](#tool-packages)
-- [Tool reference](#tool-reference)
-- [Analysis details](#analysis-details)
-- [Query, selection, pagination, and schema discovery](#query-selection-pagination-and-schema-discovery)
-- [Writes and safety](#writes-and-safety)
-- [ServiceNow permissions](#servicenow-permissions)
-- [Flow, audit, investigations, and Service Catalog](#flow-audit-investigations-and-service-catalog)
-- [Attachments](#attachments)
-- [Responses, errors, and observability](#responses-errors-and-observability)
-- [Development and verification](#development-and-verification)
-- [Known limitations and non-goals](#known-limitations-and-non-goals)
-- [Security](#security)
-- [Contributing and license](#contributing-and-license)
+- Python 3.12 or newer
+- [`uv`](https://docs.astral.sh/uv/)
+- An MCP client that supports local stdio servers
+- A ServiceNow instance
+- Permission to create or use a ServiceNow **Application Registry** entry
+- A ServiceNow user with roles, REST API access, and table and field ACL access
+  for the tools and tables you select
 
-## Capabilities
+The browser and MCP server must run on the same machine. OAuth uses an IPv4
+loopback callback.
 
-- **Schema discovery.** Describe ServiceNow tables, inherited fields, field
-  types, documentation, and dictionary provenance.
-- **Bounded reads.** Query records and aggregates with encoded queries,
-  explicit projections, pagination, and display values.
-- **Generic table support.** The same tools work with Incident, Problem,
-  REQ/RITM, `sc_task`, `task_sla`, CMDB relations such as `cmdb_rel_ci`, and
-  custom tables and fields. These are examples, not a hardcoded table list.
-- **Attachments.** List, inspect, and download attachments. Upload and delete
-  operations are in a separate, explicit tool group.
-- **Flow inspection.** Read Flow Designer flows and subflows from their table
-  records, including triggers, inputs, outputs, variables, actions, logic, and
-  warnings.
-- **Audit inspection.** Check table and field audit posture and read a masked,
-  date-bounded audit trail.
-- **Investigations.** Run registered investigations and explain findings.
-- **Read-only analysis.** Compose submitted variables for one fulfilled RITM
-  and read dictionary-confirmed journal history.
-- **Gated writes.** Create, update, delete, and write script-bearing records
-  through a preview/apply workflow by default. Service Catalog ordering and
-  state-changing cart actions are also gated.
-- **Choice resolution.** Map a human-readable choice label to its stored value.
-- **Code search.** Search script-bearing artifacts through ServiceNow Code
-  Search.
+## Configure ServiceNow OAuth
 
-## Architecture and transport
+This server uses a public OAuth authorization-code flow with PKCE S256. The
+server does not receive Basic Auth credentials, API keys, passwords, or client
+secrets.
 
-The server uses MCP SDK v2 (`mcp>=2.1.1`) and `MCPServer`. It runs over stdio.
-MCP clients launch or connect to the process and call its tools.
+In ServiceNow, open **System OAuth > Application Registry**. Create or select
+an application for this server, then set:
 
-ServiceNow calls are asynchronous and use `httpx`. The server shares one HTTP
-pool for its lifetime. Choice, dictionary, and audit configuration use shared
-metadata registries and a bounded TTL cache. Records, query results, previews,
-attachments, and audit row counts are not metadata-cache entries.
-
-Each operational tool wrapped by `@tool_handler` returns a serialized JSON
-response envelope with `status` and `data`. The bootstrap
-`list_tool_packages` tool returns the preset-to-group registry directly and is
-the only public tool that does not use this envelope.
-
-## Install and run
-
-The current project version is 1.0.0. Supported Python versions are 3.12,
-3.13, and 3.14. The project uses `uv`.
-
-```bash
-git clone https://github.com/Xerrion/servicenow-platform-mcp.git
-cd servicenow-platform-mcp
-uv sync --group dev
-```
-
-For local development, run the installed editable entry point:
-
-```bash
-uv run servicenow-platform-mcp
-```
-
-Run this command with the cloned project as the working directory, unless the
-package is installed in another managed environment.
-
-The entry point is `servicenow_mcp.server:main`. To build a distribution:
-
-```bash
-uv build
-```
-
-The process uses stdio. Do not start it as an HTTP endpoint for an MCP client.
-
-## Configuration and authentication
-
-The server uses one outbound authentication method: ServiceNow public OAuth
-authorization-code flow with PKCE S256. Configure the ServiceNow Application
-Registry first, then configure the local MCP server. The Application Registry
-controls which OAuth requests ServiceNow accepts. Local settings select the
-instance, public client, scope, and callback.
-
-### 1. Configure the ServiceNow Application Registry
-
-In **System OAuth > Application Registry**, create or select the application
-used by this server:
-
-1. Set **Public Client** to `true`.
-2. Enable authorization-code PKCE with **S256**.
-3. Enable the `useraccount` scope.
-4. Register this exact redirect URL:
+1. **Public Client** to `true`.
+2. Authorization-code PKCE to **S256**.
+3. Scope to `useraccount`.
+4. Redirect URL to:
 
    ```text
    http://127.0.0.1:8765/oauth/callback
    ```
 
-5. Save the application and copy its client ID.
+Save the application. Copy its public client ID.
 
-Use a ServiceNow user with the roles and REST, table, and field ACL access
-required by the selected tools. OAuth authentication does not grant additional
-permissions. REST API access policies must allow the intended OAuth Bearer
-requests.
+OAuth identifies and authorizes the user. It does not grant access to
+ServiceNow tables or fields. REST API access policies, user roles, table ACLs,
+field ACLs, and row visibility still control each request.
 
-The browser and MCP server must run on the **same machine**. The callback uses
-IPv4 loopback only. It is not an MCP HTTP transport. Remote-browser, headless,
-and container-to-host callback arrangements are not supported.
+For a read-only setup, use a read-only ServiceNow user, GET-only REST API
+policies, and `MCP_TOOL_PACKAGE=readonly`. The selected tools can require:
 
-### 2. Configure the local server
+- Table API access for records, metadata, Flow data, and analysis.
+- Attachment API GET access for attachment metadata and downloads.
+- Aggregate API access for aggregate queries and audit positive-control counts.
+- Code Search or Service Catalog API access only when those tools are selected.
+- Read access to target tables and fields.
 
-Create `.env.local` in the working directory used to start the MCP server:
+## Configure an MCP client
 
-```dotenv
-SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com
-SERVICENOW_OAUTH_CLIENT_ID=your-public-client-id
-SERVICENOW_OAUTH_SCOPE=useraccount
-SERVICENOW_OAUTH_REDIRECT_URI=http://127.0.0.1:8765/oauth/callback
-SERVICENOW_OAUTH_TIMEOUT_SECONDS=180
-MCP_TOOL_PACKAGE=readonly
-SERVICENOW_ENV=dev
-```
+Pass settings through the client process environment. Do not rely on a client
+working directory or dotenv files. Client configuration format varies; use the
+equivalent stdio fields for `command`, `args`, and `env`.
 
-The scope must be exactly `useraccount`. The redirect URI must be exactly
-`http://127.0.0.1:<port>/oauth/callback`, with a port from `1024` to `65535`.
-`localhost`, HTTPS callbacks, other paths, query strings, and fragments are
-not accepted. If you change the port, register the complete new URL in
-ServiceNow and use the same URL in the local configuration.
-
-The process reads `.env`, then `.env.local`, from its working directory. Later
-dotenv values override earlier ones. Process environment variables override
-both files. A client that starts the process elsewhere will not read the
-repository's dotenv files. Restart the full MCP server after changing settings.
-Never commit `.env` or `.env.local`.
-
-Remove `SERVICENOW_API_KEY`, `SERVICENOW_USERNAME`, and `SERVICENOW_PASSWORD`
-from the process environment and dotenv files. Non-empty values, including
-whitespace-only values, fail startup. There is no Basic Auth or API-key fallback.
-A stale `SERVICENOW_OAUTH_CLIENT_SECRET` is **ignored**, not used or rejected.
-Remove it to avoid confusion. The server never sends a client secret.
-
-Instance and OAuth settings are validated at startup, including for packages
-that do not make ServiceNow requests.
-
-### Configuration reference
-
-| Environment variable | Required | Default | Valid range or values | Purpose |
-| --- | --- | --- | --- | --- |
-| `SERVICENOW_INSTANCE_URL` | Yes | None | HTTPS origin, without credentials, path, query or fragment | ServiceNow instance. One trailing slash is removed. |
-| `SERVICENOW_OAUTH_CLIENT_ID` | Yes | None | Non-empty printable ASCII; surrounding spaces removed | Public ServiceNow OAuth application. |
-| `SERVICENOW_OAUTH_SCOPE` | Yes | None | Exactly `useraccount` | Scope for the public PKCE application. |
-| `SERVICENOW_OAUTH_REDIRECT_URI` | No | `http://127.0.0.1:8765/oauth/callback` | Exactly `http://127.0.0.1:<port>/oauth/callback`; port `1024`-`65535` | Registered loopback callback. |
-| `SERVICENOW_OAUTH_TIMEOUT_SECONDS` | No | `180` | `1`-`600` | Browser authorization timeout. |
-| `MCP_TOOL_PACKAGE` | No | `full` | Preset or comma-separated groups | Selects loaded tool groups. |
-| `SERVICENOW_ENV` | No | `dev` | Any string; `prod` and `production` block writes | Local environment label and write policy input. |
-| `MAX_ROW_LIMIT` | No | `100` | `1`-`10000` | Maximum row count for bounded generic and query-oriented tool paths that use this setting. It is not a universal response or egress cap. |
-| `LARGE_TABLE_NAMES_CSV` | No | `syslog,sys_audit,sys_log_transaction,sys_email_log` | Comma-separated table names | Tables that require date-bounded queries. |
-| `HTTPX_TIMEOUT_SECONDS` | No | `30.0` | `1.0`-`600.0`, finite | ServiceNow HTTP timeout. |
-| `METADATA_CACHE_TTL_SECONDS` | No | `300` | `1`-`86400` | Metadata freshness window. |
-| `SENTRY_DSN` | No | Empty | String accepted by the Sentry SDK as a DSN | Enables optional Sentry error reporting. |
-| `SENTRY_ENVIRONMENT` | No | Empty | Any string | Sentry environment; empty uses `SERVICENOW_ENV`. |
-
-### 3. First tool call and user identity
-
-The first tool call that needs ServiceNow access opens the default browser.
-Starting the process or calling `list_tool_packages` does not open it. Complete
-authorization as the ServiceNow user whose roles and ACLs should apply to tool
-calls. The client ID identifies the application, not a separate service account.
-The authorized user's permissions remain in force.
-
-Allow the MCP client enough tool-call time for browser authorization. The
-temporary listener binds only `127.0.0.1` on the configured port before the
-browser opens. It validates the callback path, Host, and single-use state.
-The listener and accepted connections close before token exchange and on
-denial, timeout, or cancellation. New flows reuse the configured port; normal
-TCP cleanup does not require a different redirect URI.
-
-#### Exact OAuth requests
-
-`GET /oauth_auth.do` sends exactly `response_type=code`, `client_id`,
-`redirect_uri`, `code_challenge`, `code_challenge_method=S256`,
-`scope=useraccount`, and random `state`. State must return unchanged in the
-callback. Missing, duplicate, or mismatched state is never accepted.
-
-`POST /oauth_token.do` sends exactly `grant_type=authorization_code`, `code`,
-`redirect_uri`, `client_id`, and `code_verifier` in an
-`application/x-www-form-urlencoded` body. The redirect URI is identical in both
-requests. State stays out of the token form. Both endpoints use the configured
-HTTPS instance. The token request uses neither a client secret nor HTTP Basic
-authentication. Tokens never appear in URLs. The authorization code returns
-through the callback query string; do not copy or log that callback URL.
-
-### 4. Memory-only token lifecycle
-
-Only the access token and its expiry stay in process memory. API calls use
-`Authorization: Bearer <access_token>`, preserving opaque values unchanged.
-Tokens require a positive `expires_in`; expiry uses a monotonic clock with a
-safety margin. Restart or expiry requires new browser authorization on the next
-outbound call. Tokens are not saved to dotenv files, disk, or persistent
-application state.
-
-A REST 401 discards only the matching access token and returns an error without
-replaying the API call. The next outbound call authorizes again unless a newer
-concurrent grant already exists. Concurrent calls share one successful
-authorization per server process. Calls reuse its token while valid; separate
-MCP processes each need authorization.
-
-### 5. Migrate REST API access policies narrowly
-
-If a newly issued token is rejected by a REST request with HTTP 401, the code
-exchange succeeded but REST access did not. Ask the ServiceNow administrator
-to check the granted scopes, REST API access policy, and user access on the
-configured instance. This response alone does not identify which policy failed
-or establish a PKCE incompatibility. Token-endpoint errors are reported separately
-as OAuth token exchange failures. Do not change the redirect URI to work around
-a REST 401. Give the administrator only the sanitized error and transaction ID,
-when present.
-
-An old API-key-only REST API access policy can reject OAuth Bearer requests
-after successful token issuance. If administrator-side response inspection
-shows `HTTP 401` with `WWW-Authenticate: API_KEY`, check for that policy mismatch.
-The server's sanitized evidence omits unrecognized authentication schemes,
-including `API_KEY`; it does not reproduce that header value. Its absence from
-the tool error does not rule out an API-key-only policy.
-
-1. Ask the administrator to identify the policy that applies to the failed REST
-   resource, method, and intended user or application.
-2. Check whether it requires an API key or otherwise excludes OAuth Bearer.
-3. Adjust or replace only the affected policy to permit the intended OAuth
-   Bearer requests. Preserve unrelated policies and restrictions.
-4. Test a small read-only request with the intended user's roles and ACLs.
-5. Retire an obsolete API-key requirement only within the affected policy and
-   its approved migration scope. Review other consumers before removing it.
-
-Do not disable global protection or unrelated policies to troubleshoot this
-server. Do not add an API key to the MCP configuration.
-
-### Authentication troubleshooting
-
-| Observed error or event | Meaning and safe action |
-| --- | --- |
-| `Cannot bind OAuth loopback port` | Another listener may own the port. Close only a known conflicting listener, or configure and register another allowed port. |
-| `ServiceNow authorization timed out` | No accepted callback arrived before the timeout. Complete authorization on the same machine, check the exact redirect URI, and retry. The wait defaults to 180 seconds and accepts 1-600. |
-| Missing or invalid scope | Local validation requires exactly `SERVICENOW_OAUTH_SCOPE=useraccount`. If ServiceNow reports a scope error, also confirm that the application enables `useraccount`. |
-| `Cannot open the local browser` | The local browser could not be launched. Check the local browser setup; this does not identify an Application Registry error. |
-| Error on the ServiceNow authorization page | Check the public client ID, **Public Client=true**, PKCE S256, scope, and exact redirect URI. The page alone does not establish which setting failed. |
-| `OAuth token exchange rejected (HTTP ...)` | The token endpoint rejected the exchange. Check the public application and exact OAuth settings. This is separate from a later REST 401. |
-| REST 401, including `User Not Authenticated` | The call was not replayed. Authorize on the next outbound call. If a new token also fails, ask the administrator to check scopes, REST policy, and user access. |
-| REST 401 plus administrator-observed `WWW-Authenticate: API_KEY` | Check for an API-key-only policy. Migrate only the affected policy as described above; this scheme is omitted from sanitized tool evidence. |
-| HTTP 403 | Check REST-resource permissions, user roles, and table and field ACLs. Do not assume every 403 is a table ACL denial. |
-| Token expiry or server restart | The next outbound call starts browser authorization again. |
-
-Do not copy callback URLs, query strings, codes, verifiers, or tokens into logs,
-issue reports, or configuration. Share only sanitized error evidence and an
-allowed transaction ID when available. Sentry stack-local capture is
-disabled so OAuth material in local variables is not exported. Sentry's stdlib
-integration is disabled because browser-launch subprocess arguments contain
-the authorization URL and state.
-
-## MCP client configuration
-
-MCP clients normally start the command below and communicate over stdio. The
-following generic shape avoids client-specific fields. Use the equivalent
-stdio configuration fields supported by your client.
-
-Public authorization-code PKCE S256:
+Example:
 
 ```json
 {
-  "command": "uv",
-  "args": ["run", "servicenow-platform-mcp"],
+  "command": "uvx",
+  "args": [
+    "--from",
+    "servicenow-platform-mcp==2.0.0",
+    "servicenow-platform-mcp"
+  ],
   "env": {
     "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
     "SERVICENOW_OAUTH_CLIENT_ID": "your-public-client-id",
     "SERVICENOW_OAUTH_SCOPE": "useraccount",
     "SERVICENOW_OAUTH_REDIRECT_URI": "http://127.0.0.1:8765/oauth/callback",
-    "MCP_TOOL_PACKAGE": "readonly"
+    "MCP_TOOL_PACKAGE": "readonly",
+    "SERVICENOW_ENV": "dev"
   }
 }
 ```
 
-Replace the instance and public client ID placeholders. Use the client's
-documented environment forwarding feature. Do not place tokens, authorization
-codes, PKCE verifiers, callback query strings, API keys, Basic credentials, or
-client secrets in this configuration.
+The instance value must be an HTTPS origin without credentials, path, query, or
+fragment. The redirect value must match ServiceNow exactly. The server accepts
+the form `http://127.0.0.1:<port>/oauth/callback` with a port from `1024` to
+`65535`.
 
-## Tool packages
+### Launch with `uvx`
 
-A **tool group** is a loader module. A **public MCP tool** is a callable tool
-registered by a group. The `record_write` group registers two public tools.
-
-The server always registers `list_tool_packages`. The preset package counts
-below include that tool.
-
-| Preset | Groups | Public MCP tools | Purpose |
-| --- | --- | ---: | --- |
-| `full` | All 13 groups | 15 | Complete surface, including all writes. |
-| `readonly` | `query`, `describe`, `record_read`, `attachment`, `investigate`, `resolve_choice`, `analysis`, `audit`, `flow`, `code_search` | 11 | Read-only operational and analysis surface. |
-| `core_readonly` | `query`, `describe`, `attachment` | 4 | Small read-only core. |
-| `none` | No groups | 1 | Only `list_tool_packages`. |
-
-`full` includes both `attachment` and `attachment_write`. `attachment` is
-read-only. `attachment_write` is explicit opt-in in custom packages.
-`readonly` and `core_readonly` exclude attachment writes. `analysis` is in
-`full` and `readonly`, but not `core_readonly`.
-
-Custom packages use comma-separated group names:
+Pinned launch for this release:
 
 ```bash
-MCP_TOOL_PACKAGE=query,describe,record_read,attachment uv run servicenow-platform-mcp
+uvx --from 'servicenow-platform-mcp==2.0.0' servicenow-platform-mcp
 ```
 
-Valid groups are `query`, `describe`, `record_write`, `record_read`,
-`attachment`, `attachment_write`, `investigate`, `resolve_choice`,
-`service_catalog`, `analysis`, `audit`, `flow`, and `code_search`.
-`list_tool_packages` reports the preset-to-group mapping. It does not expand
-groups into the public tool names shown below.
-
-## Tool reference
-
-All tools return JSON strings. The `query` schema requires only `table`.
-Optional string inputs default to null, so callers can omit unused arguments.
-List mode still requires `fields`. Empty or null filters are not sent to
-ServiceNow; zero offsets, false display-value flags, and valid limits are preserved.
-
-| Tool | Purpose and important actions | Essential inputs and behavior | Packages |
-| --- | --- | --- | --- |
-| `list_tool_packages` | Lists preset packages and their groups. | No inputs. Always available. Returns the registry as JSON without the standard response envelope. | All |
-| `query` | Reads records or aggregates. | `table`; list mode needs `fields`; use `encoded_query`, `limit`, `offset`, `order_by`, `display_values`, `aggregate`, `group_by`, and `resolve_labels`. Exact `sys_id` mode is also supported. | `full`, `readonly`, `core_readonly` |
-| `describe` | Describes fields, tables, or script fields. | Default table description; `action=list_tables` with optional `name_filter`; `action=list_script_fields` with `table`. Supports `fields`, `verbose`, `include_docs`, `field_offset`, and `field_limit`. | `full`, `readonly`, `core_readonly` |
-| `record_read` | Reads one record by `sys_id` or `name`. | `table` and exactly one selector. `fields` is optional; `*` requests all masked fields. Includes discovered `script_fields`. | `full`, `readonly` |
-| `record_write` | Creates, updates, or deletes a record. | `action=create \| update \| delete`, `table`, optional `sys_id`, JSON `data` with all field values (including scripts), and `preview` (default `true`). | `full` |
-| `record_apply` | Applies a record-write preview. | `preview_token` from `record_write`. The token is single-use. | `full` |
-| `attachment` | Reads attachment metadata and content. | `action=list \| get \| download \| download_by_name`; list and name lookup use `table` and `table_sys_id`; direct actions use attachment `sys_id`. | `full`, `readonly`, `core_readonly` |
-| `attachment_write` | Uploads or deletes attachments. | `action=upload \| delete`; upload uses parent table, record ID, file name, Base64 content, and MIME type; delete uses attachment `sys_id`. | `full` |
-| `investigate` | Runs or explains investigations. | `action=run \| explain \| describe`; run uses `name` and JSON `params`; explain uses `element_id=table:sys_id` and optional `name`. | `full`, `readonly` |
-| `resolve_choice` | Resolves choice labels. | `table`, `field`, and optional `label`. An empty label returns the full mapping. | `full`, `readonly` |
-| `service_catalog` | Reads catalogs and performs catalog/cart actions. | Actions are listed below. Reads use IDs, filters, and paging. `order_now` and `add_to_cart` accept a JSON `variables` object; all state-changing actions are gated. | `full` |
-| `audit` | Inspects audit posture and history. | `action=check_field \| check_fields \| check_table \| history \| describe`; table and field selectors are action-dependent. | `full`, `readonly` |
-| `flow` | Inspects Flow Designer data. | `action=contract \| inspect \| find_by_table \| decode_values \| list_triggers \| describe`; flow selection uses `sys_id` or `name`. | `full`, `readonly` |
-| `code_search` | Searches ServiceNow script artifacts. | `action=search \| list_tables \| describe`; search needs `term` and accepts `table`, `search_group`, and `limit`. | `full`, `readonly` |
-| `analysis` | Composes RITM variables or reads journal history. | `action=ritm_variables \| journal_history \| describe`; inputs are detailed below. | `full`, `readonly` |
-
-Use each tool's `describe` action where available for the runtime action
-registry. The public tool schemas are the authoritative input contract.
-
-Schema defaults are empty strings for optional string inputs unless stated
-otherwise. Important exceptions and effective defaults are:
-
-- `query`: optional strings default to null; `limit=20`, `offset=0`, and `display_values=false`;
-- `describe`: empty `action` selects table description, `field_limit=25`,
-  `field_offset=0`, `verbose=false`, and `include_docs=false`;
-- `record_write`: `preview=true`;
-- `attachment_write`: `content_type="application/octet-stream"`;
-- `investigate`: `params="{}"`;
-- `service_catalog`: `text`, `catalog`, and `category` default to null; `limit=20`, `offset=0`, and
-  `top_level_only=false`;
-- `code_search`: `action="search"` and `limit=20`;
-- `analysis`: schema values `limit=0` and `window_days=0` select the effective
-  defaults described below;
-- `audit`: schema values `limit=0` and `window_days=0` select
-  `MAX_ROW_LIMIT` and 90 days where the action uses them; and
-- `flow`: schema values `limit=0` and `section_limit=0` select effective
-  defaults of 100, with section limits still capped by `MAX_ROW_LIMIT`.
-
-All other required inputs and action-specific combinations are shown in the
-tool table or the detailed sections below. Optional booleans not listed above
-default to `false`.
-
-## Analysis details
-
-### Fulfilled RITM variables
-
-Call `analysis(action="ritm_variables", sys_id="<32-char-sys-id>")`. Optional
-`limit` and `offset` are bounded by `MAX_ROW_LIMIT`. The tool first confirms
-the `sc_req_item`, then composes submitted answers through:
-
-1. `sc_item_option_mtom` for submitted-answer links;
-2. `sc_item_option` for submitted values; and
-3. `item_option_new` for variable definitions.
-
-The response contains `data.table`, `data.sys_id`, `entry_count`, and
-`entries`. A resolved entry includes answer and definition IDs, `name`,
-`label`, `type`, `raw_value`, `display_value`, `reference_target`,
-`variable_set`, `multi_value`, `masked`, and `status`. Degraded entries for
-missing options or definitions are intentionally sparse and identify their
-condition through `status`. The response also contains pagination and
-selection metadata.
-
-Variable names and labels that indicate a password, token, secret, credential,
-API key, or private key cause masking. If either the name or label is missing,
-the affected answer is masked conservatively.
-
-Variable types `21`, `list_collector`, and `List Collector` are all treated as
-List Collectors. Unmasked List Collector values retain their raw identifiers.
-The response includes a warning, sets `multi_value=true` when a
-comma-separated value contains more than one non-empty identifier, and sets
-`display_value` to `null`. Reference values also keep raw sys_ids and do not
-receive generic display-value resolution.
-
-Every successful `ritm_variables` response contains:
-
-```json
-{
-  "unsupported_features": {
-    "multi_row_variable_sets": {
-      "present": false,
-      "payload_fields_retrieved": false
-    }
-  }
-}
-```
-
-The `present` value reflects a bounded presence query on
-`sc_multi_row_question_answer`. MRVS payload fields are not retrieved or
-decoded. This metadata does not change answer pagination.
-
-An inaccessible or missing submitted option produces an `orphaned_option`
-entry and a warning. An inaccessible or missing definition produces an
-`inaccessible_definition` entry, masked values, and a warning. Duplicate
-submitted-answer links are preserved and reported. Row ACLs, field ACLs,
-missing definitions, and instance data affect completeness.
-
-### Journal history
-
-Call `analysis(action="journal_history", table="incident",
-sys_id="<32-char-sys-id>")`. Optional inputs are:
-
-- `fields_csv`: comma-separated `comments`, `work_notes`, and
-  `close_notes`. The default is `comments,work_notes`.
-- `since`: `YYYY-MM-DD`; it overrides `window_days`.
-- `window_days`: non-negative integer. The default is 90 days.
-- `limit` and `offset`: bounded pagination. The default limit is
-  `MAX_ROW_LIMIT`.
-
-Each requested field must exist in the resolved dictionary and have a journal
-type. Entries come from `sys_journal_field` and are ordered by
-`sys_created_on`, then `sys_id`, ascending. The response reports the effective
-date window, fields, entries, selection, pagination, and an ACL/retention
-warning.
-
-This is journal history. It is different from `audit(action="history")`,
-which reads field changes from `sys_audit`.
-
-## Query, selection, pagination, and schema discovery
-
-`query` has three modes: exact-record mode when `sys_id` is set, aggregate
-mode when `aggregate` is set, and list mode otherwise. List-mode calls require
-an explicit `fields` projection. Use
-`fields="*"` only when all masked fields are intentional. `sys_id` is always
-included. Exact-record mode defaults to `sys_id,sys_updated_on` and accepts an
-explicit projection or `*`.
-
-`query` and `code_search` report the effective row cap in `pagination.limit`,
-without a redundant limit-cap warning. Query offsets, totals, and selection
-metadata remain available for continuing bounded reads. Empty warning lists
-are omitted from response envelopes; non-empty warnings are preserved.
-
-`code_search` defaults to `extended_matching=false` to avoid additional
-context fields from the search group's configuration. Set
-`extended_matching=true` to request that context. Search result fields and
-platform metadata are otherwise passed through unchanged. Its `pagination`
-reports only the effective limit; it does not imply offset support or a known
-total. Keep platform completeness signals and narrow the search when needed.
-
-`record_read` with empty `fields` returns compact identity and update fields
-plus all discovered script-bearing fields. `fields="*"` returns the full
-masked record. `record_read` always includes `script_fields` and `sys_id`.
-
-`describe` walks `sys_db_object.super_class` child-first. Child declarations
-override ancestor declarations. Each field includes `inherited_from` where
-the response shape supports provenance. Empty `fields` returns an alphabetical
-page of 25 fields by default. `field_offset` continues the page and
-`field_limit` accepts 1-100. `fields="*"` requests all fields. Use
-`action=list_script_fields` to return discovered script fields and their
-resolved chain.
-
-The default and verbose describe shapes include a `choice_count`. Choice
-counts are read from the queried table first and then from each inherited
-field's declaring table when needed. `include_docs=true` adds matching
-`sys_documentation` records for the selected fields, with the same fallback to
-the declaring table. Choice-count failures produce a warning and zero counts;
-documentation failures follow normal tool error handling.
-
-Choice, dictionary, and audit-configuration caches use
-`METADATA_CACHE_TTL_SECONDS`. Each metadata cache is limited to 1,000 entries,
-uses least-recently-used eviction, shares one in-flight load for the same key,
-and permits different keys to load concurrently. Expired entries are reloaded
-before the requesting call returns. These caches do not store records, query
-results, previews, attachments, or audit row counts.
-
-Encoded queries are passed to ServiceNow. Identifiers are validated and query
-safety caps the effective limit at `MAX_ROW_LIMIT`. Tables in
-`LARGE_TABLE_NAMES_CSV` require a structural date constraint such as
-`sys_created_on>=YYYY-MM-DD`. Aggregate requests use the Aggregate API.
-
-`MAX_ROW_LIMIT` applies only to bounded generic and query-oriented paths that
-use it. It is not a universal response or egress cap. Service Catalog actions
-have action-specific limits. The attachment list has a fixed maximum of 100
-metadata records and no caller-controlled offset or pagination.
-
-Successful bounded reads can include `selection` and `pagination` metadata.
-Use `next_offset`, `truncated`, `total`, and returned-field metadata to
-continue a read. A tool may add warnings when a platform or local limit caps a
-request.
-
-## Writes and safety
-
-The policy layer blocks these tables:
-
-`sys_user_has_password`, `oauth_credential`, `oauth_entity`, `sys_certificate`,
-`sys_ssh_key`, `sys_credentials`, `discovery_credentials`, and
-`sys_user_token`.
-
-Key-name masking for names containing password, token, secret, credential,
-`api_key`, or `private_key` applies only on specific record-oriented paths that
-call the local masking helpers. It is not a global output filter. Query
-aggregate mode returns Stats API results directly, without local field-value
-masking. Code Search, Flow, Service Catalog, and other arbitrary payload
-surfaces are not universally masked. Do not group or aggregate sensitive
-fields. Enforce ServiceNow field ACLs as the primary control. Audit rows use
-the audit field name to mask old and new values.
-
-Writes are blocked when `SERVICENOW_ENV` is `prod` or `production`. This local
-gate does not replace ServiceNow ACLs. ServiceNow remains the authority for
-authorization.
-
-`record_write` defaults to preview mode. A preview returns a single-use
-`preview_token` and a masked preview. `record_apply` consumes the token and
-re-checks policy before applying it. Tokens expire after five minutes and are
-single-use, are held only in the server process that created them, and are
-consumed before the application attempt. A failed attempt cannot be retried
-with the same token. Set `preview=false` only when an immediate write is
-appropriate.
-
-`record_write.data` is the only field-value input. Supply a JSON string such as
-`{"script":"run();\n","active":true}`. Include the complete value for each
-field you change; omitted fields stay unchanged on update. Multiple script
-fields can be changed in one payload. Use `record_read` or
-`describe(action="list_script_fields", table=...)` to discover field names.
-The server does not read local script files.
-
-The complete UTF-8 JSON input is limited to 256 KiB (262144 bytes), including
-field names and JSON escaping. Before staging or writing, the server queries
-dictionary types for supplied fields only, resolving inherited fields
-child-first. Values for XML fields must be strings containing well-formed XML;
-empty, null, and malformed values are rejected. Metadata request errors block
-the write. Dictionary visibility depends on ServiceNow ACLs; fields not
-returned by the dictionary cannot receive local type validation. These checks
-do not validate script syntax or replace ServiceNow authorization.
-
-Attachment upload and delete are in `attachment_write`, which is separate from
-read-only `attachment` and is gated again at runtime. Attachment transfer size
-is limited to 10 MiB.
-
-Service Catalog write actions are `order_now`, `add_to_cart`, `cart_submit`,
-and `cart_checkout`. They apply write gates to the relevant request or cart
-table. A read of fulfilled RITM variables through `analysis` is read-only and
-does not order or change a catalog item.
-
-For a true read-only deployment, combine all of the following:
-
-1. `MCP_TOOL_PACKAGE=readonly`, or a smaller custom package containing only
-   read groups;
-2. GET-only ServiceNow REST API resources;
-3. read-only table and field ACLs; and
-4. a production environment label so local writes are blocked.
-
-Package selection is not a replacement for ServiceNow authorization.
-
-## ServiceNow permissions
-
-Authentication and authorization are separate controls. The OAuth grant and
-user must permit the required REST API resources. Table ACLs and field ACLs
-then control the records and fields that those resources can return or change.
-
-The registered tools use these ServiceNow APIs and resources as applicable.
-API titles match the local OpenAPI specifications:
-
-| API title | Paths and methods used by registered tools | Use |
-| --- | --- | --- |
-| Table API | `GET/POST /api/now/table/{table}`; `GET/PATCH/DELETE /api/now/table/{table}/{sys_id}` | Query, describe metadata reads, record reads and writes, Flow inspection, analysis composition, and attachment-by-name metadata lookup. |
-| Aggregate API | `GET /api/now/stats/{table}` | Query aggregates and audit positive-control counts. |
-| Attachment API | `GET /api/now/attachment`; `GET/DELETE /api/now/attachment/{sys_id}`; `GET /api/now/attachment/{sys_id}/file`; `POST /api/now/attachment/file` | Attachment metadata, downloads, uploads, and deletes. |
-| Code Search | `GET /api/sn_codesearch/code_search/search`; `GET /api/sn_codesearch/code_search/tables` | `code_search`. |
-| Service Catalog API | GET under `/api/sn_sc/servicecatalog/catalogs`, `/categories`, `/items`, and `/cart`; POST to `/items/{sys_id}/order_now`, `/items/{sys_id}/add_to_cart`, `/cart/submit_order`, and `/cart/checkout` | Catalog, item, variable, cart, and order actions. |
-
-For a read-only package, allow GET on the Table, Aggregate, Attachment
-metadata/download, Code Search, and read-only Service Catalog paths used by
-the selected tools. For writes, add only the POST, PATCH, and DELETE resource
-permissions needed by the selected Table, Attachment, and Service Catalog
-actions. The client retains methods for some APIs that no registered tool
-uses; those endpoints are not required for the tool surface documented here.
-The exact OAuth and REST-resource policy depends on the instance and must be
-configured in ServiceNow.
-
-Analysis needs Table API access and applicable read ACLs for `sc_req_item`,
-`sc_item_option_mtom`, `sc_item_option`, `item_option_new`,
-`sc_multi_row_question_answer`, `sys_journal_field`, `sys_db_object`, and
-`sys_dictionary`. General tools also need read access to the target tables and
-their selected fields. Flow inspection uses Table API records. It does not
-use Workflow Studio APIs or undocumented `processflow` endpoints.
-
-Dynamic table access and instance-specific ACL design must be configured in
-ServiceNow. The MCP package cannot grant access that the instance denies.
-
-## Flow, audit, investigations, and Service Catalog
-
-### Flow
-
-`flow` supports `contract`, `inspect`, `find_by_table`, `decode_values`,
-`list_triggers`, and `describe`. It reads both V1 and V2 Flow Designer tables.
-It joins V2 record-trigger conditions through the remote trigger ID. The
-decoder handles gzip plus Base64 plus JSON `values` blobs. A decode failure is
-reported on the affected node while the enclosing inspection can still
-succeed.
-
-The implementation deliberately does not call undocumented
-`/api/now/processflow/*` endpoints. It also skips `sys_hub_flow_snapshot`, an
-opaque compiled cache.
-
-### Audit
-
-`audit` supports `check_field`, `check_fields`, `check_table`, `history`, and
-`describe`. Audit reads use a default 90-day window because `sys_audit` is a
-large table. `since` on `history` overrides `window_days`.
-
-Verdicts include `audited`, `not_audited_field_flag`,
-`not_audited_table_flag`, `audited_but_inactive`, and `inconclusive`. Field
-configuration is resolved child-first. The `no_audit=true` attribute vetoes a
-field audit flag. Positive-control counts distinguish configured but inactive
-fields from cases that cannot be determined.
-
-### Investigations
-
-`investigate` supports `run`, `explain`, and `describe`. The seven registered
-modules are:
-
-- `stale_automations` - finds unused or stale automation rules;
-- `deprecated_apis` - detects deprecated API usage;
-- `table_health` - analyses table structure and data quality;
-- `acl_conflicts` - finds conflicting ACL rules;
-- `error_analysis` - analyses error patterns;
-- `slow_transactions` - identifies slow transactions; and
-- `performance_bottlenecks` - identifies performance issues.
-
-### Service Catalog
-
-`service_catalog` supports `catalogs_list`, `catalog_get`,
-`categories_list`, `category_get`, `items_list`, `item_get`,
-`item_variables`, `order_now`, `add_to_cart`, `cart_get`, `cart_submit`, and
-`cart_checkout`. List actions support text, catalog/category filters, limits,
-offsets, and top-level category selection. `order_now` and cart actions that
-change state are write-gated. This surface is separate from read-only
-inspection of fulfilled RITM answers through `analysis`.
-
-## Attachments
-
-The read-only `attachment` tool supports:
-
-- `list` - list metadata for a parent table and record;
-- `get` - return masked metadata for one attachment;
-- `download` - return masked metadata and Base64 content; and
-- `download_by_name` - resolve metadata by parent and file name, then download
-  the earliest-created match when multiple rows match.
-
-Reads validate parent table access and attachment metadata. Downloads check the
-declared and received size. The maximum supported transfer size is 10 MiB.
-Attachment content is returned as data and is not content-classified by MCP.
-`attachment(action="list")` returns at most 100 metadata records. It has no
-caller-controlled offset or pagination, so do not assume that a list is
-complete beyond that fixed bound.
-
-The separate `attachment_write` tool supports `upload` and `delete`. Uploads
-use Base64 content and a default MIME type of
-`application/octet-stream`. Among presets, upload and delete are available
-only in `full`; a custom package can opt in with `attachment_write`. Both
-actions are subject to write gates and ServiceNow authorization.
-
-## Responses, errors, and observability
-
-The standard success envelope is:
-
-```json
-{
-  "status": "success",
-  "data": {}
-}
-```
-
-Depending on the tool, the envelope can also contain `pagination`, `selection`,
-and `warnings`. An error envelope has `status: "error"`, `data: null`, and an
-`error` object with a `message` field:
-
-```json
-{
-  "status": "error",
-  "data": null,
-  "error": {"message": "reason"}
-}
-```
-
-Selection metadata describes the selected fields or sections, effective limits,
-and truncation. Use the supplied continuation metadata to complete bounded reads.
-
-`@tool_handler` records redacted tool context for Sentry and routes exceptions
-through safe tool handling. It does not generate or inject internal arguments. Tool functions do
-not leak Python exceptions to MCP callers. If Sentry is enabled, unexpected
-exceptions are captured before the error envelope is returned.
-
-### Troubleshooting
-
-- **Missing instance URL:** set `SERVICENOW_INSTANCE_URL` to a full HTTPS URL.
-  Startup validation errors list setting names and constraints without input
-  values.
-- **Authentication failures:** use the [authentication troubleshooting matrix](#authentication-troubleshooting).
-  It separates browser, callback, token-exchange, REST 401, and policy failures.
-- **OAuth policy failure:** check the configured scopes and REST-resource
-  permissions. An access token does not automatically grant table or field access.
-- **Table or field denial:** check the target table ACL and field ACL. The
-  selected MCP package only controls which tools are exposed.
-- **Changed environment values have no effect:** restart the full MCP process.
-- **`-32000`:** this can be a client-level wrapper. Inspect the MCP client's
-  stderr and the underlying server process error before choosing a cause.
-
-## Development and verification
+This is normally the command configured in the MCP client. The unpinned form
 
 ```bash
-uv sync --group dev
-uv run pytest
-uv run pytest tests/test_client.py
-uv run pytest -m integration
-uv run ruff check .
-uv run ruff format --check .
-uv run mypy src/
-uv build
+uvx servicenow-platform-mcp
 ```
 
-Integration tests use a live instance and require OAuth client settings in
-`.env.local`, plus interactive browser authorization. Do not use production for tests.
+resolves the newest available release and can change server behavior when a
+new release is published.
 
-Source uses a `src/servicenow_mcp/` layout. Tool groups live in
-`src/servicenow_mcp/tools/`. Tests live in `tests/` and use `pytest`,
-`pytest-asyncio`, and `respx` for HTTP mocking. The default test command
-excludes tests marked `integration`.
+The server starts without opening a browser. The first tool call that needs
+ServiceNow access opens the default browser. Authorize as the ServiceNow user
+whose permissions should apply. Access tokens stay in process memory. A server
+restart or token expiry requires authorization again.
 
-## Known limitations and non-goals
+## Select tools
 
-- Custom fields require dictionary discovery and suitable ServiceNow ACLs.
-- RITM reference and List Collector answers retain raw sys_ids. Generic
-  display-value resolution is not provided.
-- List Collector display values are not fabricated from raw identifiers.
-- MRVS payload fields are not retrieved or decoded.
-- RITM results can contain orphaned options or inaccessible definitions.
-- Journal and audit completeness depends on row ACLs, field ACLs, and instance
-  retention.
-- Flow inspection reads documented table records and does not inspect opaque
-  compiled snapshots.
-- Attachment content is not classified by MCP. Treat downloaded content as
-  untrusted.
-- ServiceNow instance configuration, OAuth resource policy, ACLs, and row
-  visibility can limit results beyond the local tool limits.
+`list_tool_packages` is always available. Set `MCP_TOOL_PACKAGE` to select
+additional tool groups:
+
+| Value | Use |
+| --- | --- |
+| `readonly` | Read and analysis tools, including `query`, `describe`, `record_read`, `attachment`, `investigate`, `resolve_choice`, `analysis`, `audit`, `flow`, and `code_search` |
+| `core_readonly` | `query`, `describe`, and read-only `attachment` |
+| `full` | All tool groups, including write tools |
+| `none` | Only `list_tool_packages` |
+
+You can also provide comma-separated groups, for example:
+
+```text
+MCP_TOOL_PACKAGE=query,describe,record_read,attachment
+```
+
+Package selection controls which tools load. It is not a ServiceNow
+authorization boundary.
+
+## Use tools
+
+Call `list_tool_packages` with no arguments to confirm that the MCP client can
+reach the server. It lists available package presets and groups. It does not
+contact ServiceNow or report the active package.
+
+Use `query` for a small, explicit read:
+
+```json
+{
+  "table": "incident",
+  "fields": "sys_id,number,short_description,state",
+  "encoded_query": "active=true",
+  "limit": 10,
+  "display_values": true
+}
+```
+
+`query` list mode requires `table` and `fields`. `limit` defaults to `20` and
+`offset` defaults to `0`.
+
+Use `record_read` for one record. Provide exactly one of `sys_id` or `name`:
+
+```json
+{
+  "table": "incident",
+  "sys_id": "32-character-sys-id",
+  "fields": "sys_id,number,short_description,state"
+}
+```
+
+Use `describe` to inspect a table and its fields:
+
+```json
+{
+  "table": "incident",
+  "include_docs": true
+}
+```
+
+Use each tool's `describe` action where available. The runtime tool schema is
+the authoritative input contract.
+
+### Writes
+
+Record writes require `full` or a custom package containing `record_write`.
+They also require matching ServiceNow REST API permissions and ACLs. `record_write`
+previews by default; apply its single-use `preview_token` with
+`record_apply`. Set `SERVICENOW_ENV=prod` or `SERVICENOW_ENV=production` to
+block local writes.
+
+## Verify setup
+
+1. Restart the MCP server after changing configuration.
+2. Call `list_tool_packages`.
+3. Call `query` with one small read against a table the authorized user can
+   access:
+
+   ```json
+   {
+     "table": "incident",
+     "fields": "sys_id,number",
+     "limit": 1
+   }
+   ```
+
+4. Complete browser authorization when prompted.
+5. Confirm a successful tool response.
+
+The `incident` examples require access to `incident`. Use another permitted
+table when needed.
+
+## Troubleshooting
+
+| Symptom | Action |
+| --- | --- |
+| Invalid configuration at startup | Check variable names and values. Pass them through the MCP client's `env`. |
+| `Cannot open the local browser` | Check the browser on the machine running the MCP server. |
+| `ServiceNow authorization timed out` | Authorize on the same machine. Check the exact redirect URL and retry. |
+| `Cannot bind OAuth loopback port` | Close a known conflicting listener, or configure and register another allowed `127.0.0.1` port. |
+| Missing or invalid scope | Set `SERVICENOW_OAUTH_SCOPE=useraccount` and enable `useraccount` in the Application Registry. |
+| OAuth token exchange rejected | Check public client, PKCE S256, scope, client ID, and exact redirect URL. |
+| REST 401 or `User Not Authenticated` | Authorize on the next call. If it persists, ask an administrator to check scopes, REST API policies, and user access. |
+| HTTP 403 | Check REST resource permissions, roles, table ACLs, and field ACLs. |
+| Configuration changes have no effect | Restart the full MCP server process. |
 
 ## Security
 
-Use the required `useraccount` scope with least-privilege user roles, REST
-resource policies, and ServiceNow ACLs. Expose only the tool groups
-that operators need. Prefer `readonly` or a smaller custom package for read
-workflows. Keep write operations in a non-production environment until they
-are understood and tested.
+- Use least-privilege ServiceNow roles, REST policies, table ACLs, and field
+  ACLs.
+- Prefer `readonly` or a smaller read-only custom package.
+- Do not configure API keys, passwords, Basic Auth, or client secrets.
+- Do not put access tokens, authorization codes, PKCE verifiers, or callback
+  query strings in configuration or logs.
+- Sensitive-value masking applies to selected record paths, not every tool
+  response. Enforce ServiceNow ACLs for sensitive data.
+- Treat attachments and other ServiceNow content as untrusted data.
+- Never commit configuration containing credentials or tokens.
 
-Do not commit `.env`, `.env.local`, credentials, API keys, or generated files
-that contain sensitive values. Do not log secrets, tokens, passwords, or PII.
-Review attachment content and submitted catalog values before forwarding them
-to other systems.
+## Links
 
-## Contributing and license
-
-Open an issue for a bug or feature request:
-<https://github.com/Xerrion/servicenow-platform-mcp/issues>.
-
-The project is licensed under the [MIT License](LICENSE).
+- [PyPI package](https://pypi.org/project/servicenow-platform-mcp/)
+- [MCP stdio transport](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio)
+- [`uv` tool guide](https://docs.astral.sh/uv/guides/tools/)

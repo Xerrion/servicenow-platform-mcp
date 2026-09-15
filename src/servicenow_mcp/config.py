@@ -10,7 +10,7 @@ from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-_DEFAULT_LARGE_TABLES = "syslog,sys_audit,sys_log_transaction,sys_email_log"
+_DEFAULT_LARGE_TABLES = "syslog,sys_audit,syslog_transaction,sys_email_log"
 
 
 class Settings(BaseSettings):

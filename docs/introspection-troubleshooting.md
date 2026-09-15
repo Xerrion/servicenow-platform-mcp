@@ -2,6 +2,32 @@
 
 An investigation can be incomplete even when the caller has record access. Treat a failed tool, an unresolved reference, and a truncated answer as different conditions. Do not request more privileges without an explicit access denial.
 
+## Timeouts and repeated investigation calls
+
+`MCP error -32001: Request timed out` means the MCP client stopped waiting.
+It does not establish an HTTP timeout, an ACL denial, or a server crash.
+The CLI's local trace records tool, authorization, and HTTP timing without
+query or record contents. See [Local timeout diagnostics](wiki/Telemetry.md#local-timeout-diagnostics).
+
+For `error.code=UPSTREAM_TIMEOUT`, inspect `error.phase`, `error.operation`,
+and `error.trace_id` before choosing another call. A connection or pool timeout
+needs a different response from a slow record query. `describe(table="sys_audit")`
+reads metadata, not audit records. Reducing an audit query's date range cannot
+fix a stalled dictionary lookup.
+
+Start an audit investigation with the target record's `documentkey` and a
+bounded time window. Repeating the same broad lookup with a different sort,
+a smaller `limit`, or `aggregate="count"` does not establish a cheaper query.
+After a timeout, change a specific premise based on the trace, or report the
+missing evidence. Do not retry writes without checking their remote outcome.
+
+Separate the initiating write from its effects. An audit entry identifies a
+field change and recorded user. A Business Rule that sets `reopened_by` or
+`reopen_count` explains a downstream effect, not necessarily the initiating
+transaction. Establish the initiating transaction, the writing code, and the
+state transition before naming a root cause. Otherwise label the explanation
+as a hypothesis and state the missing evidence.
+
 ## REST 401 diagnostics
 
 A successful OAuth grant does not establish REST access. REST 401 errors include

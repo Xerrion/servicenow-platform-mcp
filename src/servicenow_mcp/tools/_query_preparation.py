@@ -4,10 +4,13 @@ import logging
 from dataclasses import dataclass
 from typing import Final
 
+import httpx
+
 from servicenow_mcp.choices import ChoiceRegistry
 from servicenow_mcp.config import Settings
 from servicenow_mcp.policy import check_table_access, enforce_query_safety
 from servicenow_mcp.response import format_response
+from servicenow_mcp.telemetry import current_tool_trace, timeout_phase
 from servicenow_mcp.tools._dictionary import DictionaryRegistry
 from servicenow_mcp.tools._query_parsing import (
     AggregatePlan,
@@ -163,14 +166,25 @@ async def validate_query_fields(
     if not candidates:
         return []
     try:
-        known = await dictionary.get_all_fields(table)
-    except Exception:
-        logger.warning("field validation skipped for table=%s: dictionary lookup failed", table, exc_info=True)
-        return []
+        known = await dictionary.get_fields(table, candidates)
+    except Exception as exc:
+        reason = (
+            f"HTTP timeout ({timeout_phase(exc)})"
+            if isinstance(exc, httpx.TimeoutException)
+            else "metadata lookup failed"
+        )
+        trace = current_tool_trace()
+        trace_note = f" trace_id={trace.trace_id}" if trace else ""
+        logger.warning("Query field validation skipped:%s reason=%s", trace_note, reason)
+        return [
+            (
+                f"Could not validate query fields for table '{table}': {reason}.{trace_note} "
+                "ServiceNow may ignore unknown fields and "
+                "broaden the query; verify field names before trusting the result."
+            )
+        ]
 
     known_names = {entry.name for entry in known}
-    if not known_names:
-        return []
     unknown = [name for name in candidates if name not in known_names and name not in _UNIVERSAL_FIELDS]
     if not unknown:
         return []

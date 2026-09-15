@@ -52,7 +52,7 @@ Tables in `LARGE_TABLE_NAMES_CSV` require a structural date constraint. The
 default tables are:
 
 ```text
-syslog, sys_audit, sys_log_transaction, sys_email_log
+syslog, sys_audit, syslog_transaction, sys_email_log
 ```
 
 Example encoded query:

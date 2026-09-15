@@ -31,7 +31,7 @@ and an MCP client that can start local stdio servers.
          "command": "uvx",
          "args": [
            "--from",
-           "servicenow-platform-mcp==2.0.0",
+           "servicenow-platform-mcp==2.0.1",
            "servicenow-platform-mcp"
          ],
          "env": {
@@ -71,7 +71,7 @@ claude mcp add \
   --env SERVICENOW_OAUTH_CLIENT_ID=your-public-client-id \
   --env MCP_TOOL_PACKAGE=readonly \
   --env SERVICENOW_ENV=dev \
-  -- uvx --from servicenow-platform-mcp==2.0.0 servicenow-platform-mcp
+  -- uvx --from servicenow-platform-mcp==2.0.1 servicenow-platform-mcp
 ```
 
 Run `claude mcp list` to confirm that Claude Code added the server.
@@ -88,7 +88,7 @@ Create or edit `.vscode/mcp.json` in your workspace:
       "command": "uvx",
       "args": [
         "--from",
-        "servicenow-platform-mcp==2.0.0",
+        "servicenow-platform-mcp==2.0.1",
         "servicenow-platform-mcp"
       ],
       "env": {
@@ -118,7 +118,7 @@ Add the server to `opencode.json` in your project root, or to
       "command": [
         "uvx",
         "--from",
-        "servicenow-platform-mcp==2.0.0",
+        "servicenow-platform-mcp==2.0.1",
         "servicenow-platform-mcp"
       ],
       "environment": {
@@ -142,13 +142,13 @@ tokens, authorization codes, or PKCE verifiers to any client configuration.
 Open **System OAuth > Application Registry**, then create or select the
 application for this server. Configure it as follows:
 
-| Setting | Value |
-| --- | --- |
-| Public Client | `true` |
-| Authorization flow | Authorization code with PKCE |
-| PKCE method | `S256` |
-| Scope | `useraccount` |
-| Redirect URL | `http://127.0.0.1:8765/oauth/callback` |
+| Setting            | Value                                  |
+| ------------------ | -------------------------------------- |
+| Public Client      | `true`                                 |
+| Authorization flow | Authorization code with PKCE           |
+| PKCE method        | `S256`                                 |
+| Scope              | `useraccount`                          |
+| Redirect URL       | `http://127.0.0.1:8765/oauth/callback` |
 
 Save the application and use its public client ID for
 `SERVICENOW_OAUTH_CLIENT_ID`. The default OAuth scope is `useraccount`; set
@@ -162,12 +162,12 @@ visibility still apply to every request.
 
 Set `MCP_TOOL_PACKAGE` to load only the tools you need:
 
-| Package | Includes | Recommended use |
-| --- | --- | --- |
-| `readonly` | Records, metadata, attachments, investigations, analysis, audits, flows, and code search | Normal read-only work |
-| `core_readonly` | `query`, `describe`, and read-only `attachment` | Minimal inspection access |
-| `full` | Every tool group, including record and attachment writes | Controlled write workflows |
-| `none` | Only `list_tool_packages` | Test client connectivity |
+| Package         | Includes                                                                                 | Recommended use            |
+| --------------- | ---------------------------------------------------------------------------------------- | -------------------------- |
+| `readonly`      | Records, metadata, attachments, investigations, analysis, audits, flows, and code search | Normal read-only work      |
+| `core_readonly` | `query`, `describe`, and read-only `attachment`                                          | Minimal inspection access  |
+| `full`          | Every tool group, including record and attachment writes                                 | Controlled write workflows |
+| `none`          | Only `list_tool_packages`                                                                | Test client connectivity   |
 
 You can also select individual comma-separated tool groups:
 
@@ -256,15 +256,15 @@ policies, and `MCP_TOOL_PACKAGE=readonly`.
 
 ## Troubleshooting
 
-| Problem | What to check |
-| --- | --- |
-| Configuration fails at startup | Use the exact environment variable names. Make sure the client forwards them or starts in the directory with the intended dotenv file. |
-| Browser does not open | The browser must be available on the machine running the MCP server. |
-| Authorization times out | Use the same machine for the browser and server. Confirm the redirect URL exactly matches the Application Registry. |
-| OAuth token exchange is rejected | Confirm public-client mode, PKCE S256, the client ID, enabled scope, and redirect URL. |
-| HTTP 401 or `User Not Authenticated` | Authorize on the next call. If it persists, review scopes, REST API policies, and user access. |
-| HTTP 403 | Review REST resource permissions, roles, table ACLs, and field ACLs. |
-| Configuration changes do not apply | Restart the MCP server process. |
+| Problem                              | What to check                                                                                                                          |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Configuration fails at startup       | Use the exact environment variable names. Make sure the client forwards them or starts in the directory with the intended dotenv file. |
+| Browser does not open                | The browser must be available on the machine running the MCP server.                                                                   |
+| Authorization times out              | Use the same machine for the browser and server. Confirm the redirect URL exactly matches the Application Registry.                    |
+| OAuth token exchange is rejected     | Confirm public-client mode, PKCE S256, the client ID, enabled scope, and redirect URL.                                                 |
+| HTTP 401 or `User Not Authenticated` | Authorize on the next call. If it persists, review scopes, REST API policies, and user access.                                         |
+| HTTP 403                             | Review REST resource permissions, roles, table ACLs, and field ACLs.                                                                   |
+| Configuration changes do not apply   | Restart the MCP server process.                                                                                                        |
 
 ## Security
 

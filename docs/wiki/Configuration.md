@@ -16,8 +16,8 @@ The server loads settings from environment variables through
 | `MCP_TOOL_PACKAGE` | No | `full` | Preset or comma-separated tool groups. |
 | `SERVICENOW_ENV` | No | `dev` | `prod` and `production` block local writes. |
 | `MAX_ROW_LIMIT` | No | `100` | `1`-`10000`; cap for bounded paths that use it, not a global response cap. |
-| `LARGE_TABLE_NAMES_CSV` | No | `syslog,sys_audit,sys_log_transaction,sys_email_log` | Comma-separated table names that require date-bounded queries. |
-| `HTTPX_TIMEOUT_SECONDS` | No | `30.0` | Finite HTTP timeout, `1.0`-`600.0` seconds. |
+| `LARGE_TABLE_NAMES_CSV` | No | `syslog,sys_audit,syslog_transaction,sys_email_log` | Comma-separated table names that require date-bounded queries. |
+| `HTTPX_TIMEOUT_SECONDS` | No | `30.0` | HTTPX connection/read/write/pool timeout, `1.0`-`600.0` seconds. Not a total MCP request deadline. |
 | `METADATA_CACHE_TTL_SECONDS` | No | `300` | Metadata freshness, `1`-`86400` seconds. |
 | `SENTRY_DSN` | No | Empty | Enables Sentry when non-empty. |
 | `SENTRY_ENVIRONMENT` | No | Empty | Sentry environment label. Empty uses `SERVICENOW_ENV`. |
@@ -78,7 +78,7 @@ group names.
 
 `MAX_ROW_LIMIT` caps bounded reads that use it. Tables in
 `LARGE_TABLE_NAMES_CSV` require a structural date filter. The default list is
-`syslog`, `sys_audit`, `sys_log_transaction`, and `sys_email_log`.
+`syslog`, `sys_audit`, `syslog_transaction`, and `sys_email_log`.
 
 `METADATA_CACHE_TTL_SECONDS` controls choice, dictionary, script-field, and
 audit-configuration metadata. It does not cache records, query results, flows,
@@ -108,6 +108,8 @@ changes. Never commit `.env` or `.env.local`.
 | `OAuth token exchange rejected (HTTP ...)` | Check the public application and OAuth settings. |
 | REST 401 or `User Not Authenticated` | Authorize on the next call. If it persists, check REST policy, scopes, and user access. |
 | HTTP 403 | Check REST resource permissions, roles, and table and field ACLs. |
+| `UPSTREAM_TIMEOUT` | Use `error.phase`, `error.operation`, and `error.trace_id` to locate the failed HTTP operation in stderr. See [[Telemetry]]. |
+| MCP `-32001: Request timed out` | The client stopped waiting. Inspect the server trace and the client's deadline before changing the HTTP timeout. |
 
 Report sanitized evidence and an allowed transaction ID when available. Do not
 attach raw headers, tokens, callback data, or query strings.

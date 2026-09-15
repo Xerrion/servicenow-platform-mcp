@@ -1,10 +1,16 @@
 """Bounded operational telemetry for ServiceNow HTTP traffic."""
 
+import asyncio
 import logging
+import sys
+from collections.abc import Generator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from enum import StrEnum
 from time import perf_counter
 from typing import Any, Literal
+from uuid import uuid4
 
 import httpx
 
@@ -12,6 +18,120 @@ from servicenow_mcp.sentry import set_sentry_context
 
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(slots=True)
+class ToolTrace:
+    """Local identity and HTTP count for one tool invocation, including child tasks."""
+
+    trace_id: str
+    tool: str
+    request_count: int = 0
+
+
+_tool_trace: ContextVar[ToolTrace | None] = ContextVar("servicenow_tool_trace", default=None)
+
+
+def configure_diagnostic_logging() -> None:
+    """Write bounded diagnostics to stderr without enabling raw HTTP request logs."""
+    logging.basicConfig(
+        level=logging.WARNING,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+        stream=sys.stderr,
+    )
+    logger.setLevel(logging.INFO)
+    for name in ("httpx", "httpcore"):
+        logging.getLogger(name).setLevel(logging.WARNING)
+
+
+def current_tool_trace() -> ToolTrace | None:
+    """Return the invoking tool's trace, or None outside a tool invocation."""
+    return _tool_trace.get()
+
+
+@contextmanager
+def trace_tool_call(tool: str) -> Generator[None, None, None]:
+    """Trace a tool's total duration and preserve cancellation and nested context."""
+    trace = ToolTrace(trace_id=str(uuid4()), tool=tool)
+    token = _tool_trace.set(trace)
+    started = perf_counter()
+    outcome = "returned"
+    logger.info("ServiceNow tool started trace_id=%s tool=%s", trace.trace_id, trace.tool)
+    try:
+        yield
+    except asyncio.CancelledError:
+        outcome = "cancelled"
+        raise
+    except BaseException:
+        outcome = "failed"
+        raise
+    finally:
+        logger.info(
+            "ServiceNow tool finished trace_id=%s tool=%s outcome=%s duration_ms=%.3f http_requests=%d",
+            trace.trace_id,
+            trace.tool,
+            outcome,
+            (perf_counter() - started) * 1000,
+            trace.request_count,
+        )
+        _tool_trace.reset(token)
+
+
+@contextmanager
+def trace_authorization_wait() -> Generator[None, None, None]:
+    """Measure header authorization, including lock and browser waits, without inputs."""
+    trace = current_tool_trace()
+    trace_id = trace.trace_id if trace else "-"
+    started = perf_counter()
+    outcome = "failed"
+    logger.info("ServiceNow authorization started trace_id=%s", trace_id)
+    try:
+        yield
+        outcome = "completed"
+    except asyncio.CancelledError:
+        outcome = "cancelled"
+        raise
+    finally:
+        logger.info(
+            "ServiceNow authorization finished trace_id=%s outcome=%s duration_ms=%.3f",
+            trace_id,
+            outcome,
+            (perf_counter() - started) * 1000,
+        )
+
+
+def request_operation(request: httpx.Request) -> str:
+    """Classify a request into fixed operation labels without exposing URL values."""
+    path = request.url.path
+    if path.startswith("/api/now/table/"):
+        table = path.split("/")[4]
+        metadata = {
+            "sys_db_object": "table_metadata",
+            "sys_dictionary": "dictionary",
+            "sys_choice": "choices",
+            "sys_documentation": "documentation",
+        }
+        return metadata.get(table, "records")
+    if path.startswith("/api/now/stats/"):
+        return "aggregate"
+    if path.startswith("/api/now/attachment"):
+        return "attachment"
+    if path == "/oauth_token.do":
+        return "oauth"
+    return "other"
+
+
+def timeout_phase(error: httpx.TimeoutException) -> str:
+    """Classify HTTPX timeouts without including exception text or request data."""
+    for error_type, phase in (
+        (httpx.ConnectTimeout, "connect"),
+        (httpx.ReadTimeout, "read"),
+        (httpx.WriteTimeout, "write"),
+        (httpx.PoolTimeout, "pool"),
+    ):
+        if isinstance(error, error_type):
+            return phase
+    return "unknown"
 
 
 class CacheName(StrEnum):
@@ -151,17 +271,40 @@ class TelemetryAsyncClient(httpx.AsyncClient):
 
     async def send(self, request: httpx.Request, **kwargs: Any) -> httpx.Response:
         """Send one request and record safe operational measurements."""
+        trace = current_tool_trace()
+        trace_id = trace.trace_id if trace else "-"
+        request_number = 0
+        if trace is not None:
+            trace.request_count += 1
+            request_number = trace.request_count
+        operation = request_operation(request)
+        method = request.method if request.method in {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"} else "OTHER"
         self._telemetry.record_started(is_shared_pool=self._is_shared_pool)
         started = perf_counter()
+        logger.info(
+            "ServiceNow HTTP request started trace_id=%s request=%d operation=%s method=%s",
+            trace_id,
+            request_number,
+            operation,
+            method,
+        )
         try:
             response = await super().send(request, **kwargs)
-        except BaseException:
+        except BaseException as exc:
             duration_ms = (perf_counter() - started) * 1000
             self._telemetry.record_failed(duration_ms=duration_ms)
             set_sentry_context("http_telemetry", self._telemetry.sentry_context())
+            outcome = "cancelled" if isinstance(exc, asyncio.CancelledError) else "failed"
+            phase = timeout_phase(exc) if isinstance(exc, httpx.TimeoutException) else "none"
             logger.info(
-                "ServiceNow HTTP request failed method=%s duration_ms=%.3f shared_pool=%s",
-                request.method,
+                "ServiceNow HTTP request %s trace_id=%s request=%d operation=%s method=%s "
+                "timeout_phase=%s duration_ms=%.3f shared_pool=%s",
+                outcome,
+                trace_id,
+                request_number,
+                operation,
+                method,
+                phase,
                 duration_ms,
                 self._is_shared_pool,
             )
@@ -172,8 +315,12 @@ class TelemetryAsyncClient(httpx.AsyncClient):
         self._telemetry.record_completed(response_bytes=response_bytes, duration_ms=duration_ms)
         set_sentry_context("http_telemetry", self._telemetry.sentry_context())
         logger.info(
-            "ServiceNow HTTP request completed method=%s status_code=%d duration_ms=%.3f response_bytes=%d shared_pool=%s",
-            request.method,
+            "ServiceNow HTTP request completed trace_id=%s request=%d operation=%s method=%s "
+            "status_code=%d duration_ms=%.3f response_bytes=%d shared_pool=%s",
+            trace_id,
+            request_number,
+            operation,
+            method,
             response.status_code,
             duration_ms,
             response_bytes,

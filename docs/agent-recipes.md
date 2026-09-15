@@ -175,14 +175,21 @@ await query(
 # sys_audit is a massive table; strict filtering is required.
 await query(
     table="sys_audit",
-    encoded_query="tablename=incident^documentkey=<sys_id>",
+    encoded_query="tablename=incident^documentkey=<sys_id>^sys_created_on>=javascript:gs.daysAgoStart(7)",
     fields="fieldname,oldvalue,newvalue,sys_created_by,sys_created_on",
     order_by="-sys_created_on",
     limit=100,
 )
 ```
 
-**Notes:** For high-volume production instances, always combine `documentkey` with a `sys_created_on` filter if the history is expected to be long.
+**Notes:** Always combine `documentkey` with a date filter. Set the window from
+the event time; the example covers the last seven days. `limit` bounds returned
+rows, not database scan or count work. If a call times out, inspect its trace
+before repeating it with a different sort or aggregate.
+
+Audit values and rules that populate `reopened_by` or `reopen_count` are evidence
+of a change, not proof of the initiating writer. Trace that writer separately.
+See [Timeouts and repeated investigation calls](introspection-troubleshooting.md#timeouts-and-repeated-investigation-calls).
 
 ---
 
@@ -312,9 +319,9 @@ await flow(
 
 ## 💡 Tips and Patterns
 
-### Describe First
+### Describe When Needed
 
-When working with an unfamiliar table, always call `describe(table="...")` first. It provides the field names, types, and mandatory flags in a slim format (8 keys per field). This is significantly lower "context cost" for the agent than fetching actual records.
+Call `describe(table="...", fields="field_a,field_b")` when field names or types are unknown. Do not add a broad metadata call when the query fields are already known. The `query` tool validates filter fields and warns when ServiceNow can ignore an unknown field.
 
 ### Use Display Values
 
@@ -322,11 +329,11 @@ When you need human-readable labels for reference fields (like `assigned_to`) or
 
 ### Large Table Constraints
 
-Queries against `syslog`, `sys_audit`, `sys_log_transaction`, and `sys_email_log` are gated. You **must** include a date filter (e.g., `sys_created_on>=javascript:gs.daysAgoStart(1)`) or the server will reject the query to protect instance performance.
+Queries against `syslog`, `sys_audit`, `syslog_transaction`, and `sys_email_log` are gated. You **must** include a date filter (e.g., `sys_created_on>=javascript:gs.daysAgoStart(1)`) or the server will reject the query to protect instance performance.
 
 ### Pagination
 
-The `query` tool returns a `pagination` object containing `offset`, `limit`, and `total`. To fetch the next page, call the tool again with the same parameters but increment the `offset` by the `limit`.
+The `query` tool returns a `pagination` object containing `offset`, `limit`, and `total`. `limit` caps returned rows, not database scan or count cost. An empty page with a nonzero total can result from ACL filtering because ServiceNow applies the limit before ACL evaluation. Follow the response warning; change ordering or offset instead of treating the page as proof that no records match.
 
 ---
 

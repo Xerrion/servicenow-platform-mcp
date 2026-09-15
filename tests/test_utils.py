@@ -3,6 +3,7 @@
 import json
 from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
 
 from servicenow_mcp.errors import ForbiddenError
@@ -906,6 +907,63 @@ class TestSafeToolCall:
         assert "something broke" not in message
         assert message == "Internal error"
         assert "correlation_id" not in parsed
+
+    async def test_get_timeout_returns_query_narrowing_advice(self) -> None:
+        async def fn() -> str:
+            raise httpx.ReadTimeout(
+                "private request details",
+                request=httpx.Request("GET", "https://test.service-now.com/api/now/table/incident"),
+            )
+
+        result = await safe_tool_call(fn)
+        parsed = decode_response(result)
+        message = parsed["error"]["message"]
+
+        assert parsed["status"] == "error"
+        assert "timed out" in message
+        assert "narrow" in message.lower()
+        assert "Lowering limit only reduces returned rows" in message
+        assert "private request details" not in message
+
+    @pytest.mark.parametrize(
+        ("method", "timeout_type", "phase"),
+        [
+            ("POST", httpx.ReadTimeout, "receiving the response"),
+            ("PATCH", httpx.WriteTimeout, "sending the request"),
+            ("DELETE", httpx.ConnectTimeout, "connecting"),
+        ],
+    )
+    async def test_mutation_timeout_requires_verification_before_retry(
+        self,
+        method: str,
+        timeout_type: type[httpx.TimeoutException],
+        phase: str,
+    ) -> None:
+        async def fn() -> str:
+            raise timeout_type(
+                "private request details",
+                request=httpx.Request(method, "https://test.service-now.com/api/now/table/incident"),
+            )
+
+        result = await safe_tool_call(fn)
+        message = decode_response(result)["error"]["message"]
+
+        assert method in message
+        assert phase in message
+        assert "remote outcome is unknown" in message
+        assert "Verify the remote outcome before retrying" in message
+        assert "narrow" not in message.lower()
+        assert "private request details" not in message
+
+    async def test_timeout_without_request_has_no_query_advice(self) -> None:
+        async def fn() -> str:
+            raise httpx.PoolTimeout("private request details")
+
+        message = decode_response(await safe_tool_call(fn))["error"]["message"]
+
+        assert "waiting for a connection" in message
+        assert "narrow" not in message.lower()
+        assert "private request details" not in message
 
 
 # ---------------------------------------------------------------------------

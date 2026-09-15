@@ -239,7 +239,7 @@ environment variables override both.
 | `MCP_TOOL_PACKAGE` | No | `full` | Preset or comma-separated groups | Selects loaded tool groups. |
 | `SERVICENOW_ENV` | No | `dev` | Any string | `prod` and `production` block writes. |
 | `MAX_ROW_LIMIT` | No | `100` | `1`-`10000` | Cap for bounded generic and query-oriented paths that use it. Not a global response cap. |
-| `LARGE_TABLE_NAMES_CSV` | No | `syslog,sys_audit,sys_log_transaction,sys_email_log` | Comma-separated names | Tables that require date-bounded queries. |
+| `LARGE_TABLE_NAMES_CSV` | No | `syslog,sys_audit,syslog_transaction,sys_email_log` | Comma-separated names | Tables that require date-bounded queries. |
 | `HTTPX_TIMEOUT_SECONDS` | No | `30.0` | `1.0`-`600.0`, finite | ServiceNow HTTP timeout. |
 | `METADATA_CACHE_TTL_SECONDS` | No | `300` | `1`-`86400` | Freshness window for choice, dictionary, and audit-configuration metadata. |
 | `SENTRY_DSN` | No | Empty | Sentry DSN | Optional error reporting. |

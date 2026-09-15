@@ -28,6 +28,7 @@ class DictionaryRegistry:
     _client_factory: ServiceNowClientProvider
     _script_cache: AsyncMetadataCache[str, list[ScriptField]]
     _all_cache: AsyncMetadataCache[str, list[DictionaryField]]
+    _selected_cache: AsyncMetadataCache[tuple[str, tuple[str, ...]], list[DictionaryField]]
     _chain_cache: AsyncMetadataCache[str, list[str]]
 
     def __init__(
@@ -43,6 +44,9 @@ class DictionaryRegistry:
             name=CacheName.DICTIONARY_SCRIPT_FIELDS, ttl_seconds=ttl, telemetry=telemetry
         )
         self._all_cache = AsyncMetadataCache[str, list[DictionaryField]](
+            name=CacheName.DICTIONARY_FIELDS, ttl_seconds=ttl, telemetry=telemetry
+        )
+        self._selected_cache = AsyncMetadataCache[tuple[str, tuple[str, ...]], list[DictionaryField]](
             name=CacheName.DICTIONARY_FIELDS, ttl_seconds=ttl, telemetry=telemetry
         )
         self._chain_cache = AsyncMetadataCache[str, list[str]](
@@ -80,40 +84,45 @@ class DictionaryRegistry:
         return list(await self._all_cache.get_or_load(table, load))
 
     async def get_fields(self, table: str, names: list[str]) -> list[DictionaryField]:
-        """Resolve only named fields child first, without populating the broad cache."""
+        """Resolve and cache only named fields child first."""
         validate_identifier(table)
         for name in names:
             validate_identifier(name)
         if not names:
             return []
 
-        remaining = set(names)
-        fields: list[DictionaryField] = []
-        chain = await self.get_chain(table)
-        async with self._client_factory() as client:
-            for level, current in enumerate(chain):
-                pending = sorted(remaining)
-                for start in range(0, len(pending), 100):
-                    batch = pending[start : start + 100]
-                    result = await client.query_records(
-                        table="sys_dictionary",
-                        query=ServiceNowQuery()
-                        .equals("name", current)
-                        .in_list("element", batch)
-                        .equals("active", "true")
-                        .build(),
-                        fields=["element", "internal_type.name"],
-                        limit=len(batch),
-                    )
-                    for row in result.get("records", []):
-                        name = str(row.get("element") or "").strip()
-                        if name not in remaining or name not in batch:
-                            continue
-                        fields.append(_dictionary_field(row, None if level == 0 else current))
-                        remaining.remove(name)
-                if not remaining:
-                    break
-        return fields
+        key = (table, tuple(sorted(set(names))))
+
+        async def load() -> list[DictionaryField]:
+            remaining = set(key[1])
+            fields: list[DictionaryField] = []
+            chain = await self.get_chain(table)
+            async with self._client_factory() as client:
+                for level, current in enumerate(chain):
+                    pending = sorted(remaining)
+                    for start in range(0, len(pending), 100):
+                        batch = pending[start : start + 100]
+                        result = await client.query_records(
+                            table="sys_dictionary",
+                            query=ServiceNowQuery()
+                            .equals("name", current)
+                            .in_list("element", batch)
+                            .equals("active", "true")
+                            .build(),
+                            fields=["element", "internal_type.name"],
+                            limit=len(batch),
+                        )
+                        for row in result.get("records", []):
+                            name = str(row.get("element") or "").strip()
+                            if name not in remaining or name not in batch:
+                                continue
+                            fields.append(_dictionary_field(row, None if level == 0 else current))
+                            remaining.remove(name)
+                    if not remaining:
+                        break
+            return fields
+
+        return list(await self._selected_cache.get_or_load(key, load))
 
     async def get_chain(self, table: str) -> list[str]:
         """Return the cached super-class chain child first."""
@@ -129,6 +138,10 @@ class DictionaryRegistry:
         caches = (self._script_cache, self._all_cache, self._chain_cache)
         for cache in caches:
             cache.invalidate() if table is None else cache.invalidate(table)
+        if table is None:
+            self._selected_cache.invalidate()
+        else:
+            self._selected_cache.invalidate_where(lambda key: key[0] == table)
 
 
 def _dictionary_field(row: dict[str, Any], inherited_from: str | None) -> DictionaryField:

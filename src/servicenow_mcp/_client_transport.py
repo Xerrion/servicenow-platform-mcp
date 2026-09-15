@@ -20,6 +20,7 @@ from servicenow_mcp.errors import (
     ServiceNowMCPError,
 )
 from servicenow_mcp.sentry import set_sentry_context
+from servicenow_mcp.telemetry import current_tool_trace, trace_authorization_wait
 from servicenow_mcp.validation import validate_identifier
 
 
@@ -65,8 +66,10 @@ class ServiceNowRequestClient:
 
     async def _headers(self) -> dict[str, str]:
         """Build isolated request headers with authorization and correlation data."""
-        headers = await self._auth_provider.get_headers()
-        headers["X-Correlation-ID"] = str(uuid.uuid4())
+        with trace_authorization_wait():
+            headers = await self._auth_provider.get_headers()
+        trace = current_tool_trace()
+        headers["X-Correlation-ID"] = trace.trace_id if trace else str(uuid.uuid4())
         return headers
 
     def _table_url(self, table: str, sys_id: str | None = None) -> str:

@@ -3,6 +3,55 @@
 Contributor reference for optional Sentry error tracking and bounded runtime
 measurements. No telemetry MCP tool is exposed.
 
+## Local timeout diagnostics
+
+A tool call can wait for authorization, metadata, and several HTTP requests.
+Its total duration is not bounded by `HTTPX_TIMEOUT_SECONDS`, which controls
+HTTPX connection, read, write, and pool waits. The MCP client has a separate
+request deadline. Increasing the HTTP timeout does not increase that deadline.
+
+The CLI writes diagnostic events to stderr. Restart the full MCP process to
+load this behavior, then inspect its stderr in the agent host's server logs.
+No Sentry configuration is needed. Stdout remains reserved for MCP messages.
+Raw `httpx` and `httpcore` request logs are suppressed at INFO and DEBUG levels.
+
+Each decorated tool invocation has a random `trace_id`. Events include:
+
+- Tool start and finish, total duration, and the number of HTTP requests started.
+- Authorization start and finish, including time waiting for the auth lock or browser.
+- HTTP start and finish, a request number, a fixed operation label, method,
+  duration, response size, and HTTP status when available.
+- HTTP failure or cancellation, with `timeout_phase` set to `connect`, `read`,
+  `write`, `pool`, or `unknown` for HTTPX timeouts, and `none` for other failures.
+
+Operation labels distinguish `dictionary`, `table_metadata`, `choices`,
+`documentation`, `records`, `aggregate`, `attachment`, `oauth`, and `other`.
+They do not disclose target table names, record IDs, URLs, query strings,
+headers, or record contents. The outbound `X-Correlation-ID` carries the tool's
+trace ID. It is not a ServiceNow transaction ID.
+
+`outcome=returned` means the tool returned a response, including error envelopes;
+it does not mean the operation succeeded. `outcome=cancelled` means cancellation
+reached the server. Cancellation alone does not establish a client timeout.
+An unmatched start can also mean the process was stopped or logs are incomplete.
+
+Concurrent tools have separate trace IDs. Shared metadata loads retain the
+initiating tool's trace and can continue after that caller is cancelled.
+HTTP counts cover requests started under that trace, not requests borrowed from
+another caller's in-flight metadata load. Authorization timing includes token
+exchange, but token-exchange HTTP traffic is outside the shared HTTP counters.
+
+An HTTPX timeout returned by a decorated tool has `error.code=UPSTREAM_TIMEOUT`,
+`error.phase`, `error.operation`, and `error.trace_id`. Use that ID to find its
+HTTP event. A timeout without a request object reports `operation=unknown`.
+Timeout errors are not replayed. If a write timed out, verify the remote outcome
+before retrying. A metadata timeout must not be treated as evidence that the
+target record query is slow.
+
+If advisory query-field validation fails, the query can still run, but its
+response includes a warning. Metadata timeouts name the phase and trace ID.
+Do not treat that response as proof that all filter fields were checked.
+
 ## Sentry
 
 `SENTRY_DSN` is the activation gate. Empty `SENTRY_DSN` disables Sentry.
@@ -72,8 +121,8 @@ Use the public helpers in `servicenow_mcp.sentry`:
 
 Tests reset Sentry initialization state through the autouse fixture in
 `tests/conftest.py`, so unit tests do not send real events. Keep telemetry
-fixed-size and aggregate. Do not add raw request bodies, tokens, callback data,
-or unrestricted user input.
+aggregate or scoped to an invocation, with fixed operation labels. Do not add
+raw request bodies, tokens, callback data, or unrestricted user input.
 
 See [[Configuration]] for environment variables and [[Architecture]] for where
 telemetry enters runtime flow.

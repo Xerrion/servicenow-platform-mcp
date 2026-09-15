@@ -92,6 +92,18 @@ class TestSelectedFields:
         assert metadata.call_count == 2
 
     @respx.mock
+    async def test_repeated_selection_uses_cache(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+        _mock_root_table([_row("active", "boolean")])
+        registry = DictionaryRegistry(settings, auth_provider)
+
+        first = await registry.get_fields("incident", ["active"])
+        second = await registry.get_fields("incident", ["active"])
+
+        assert [field.name for field in first] == ["active"]
+        assert second == first
+        assert len(respx.calls) == 2
+
+    @respx.mock
     async def test_selection_is_batched_and_stops_after_resolution(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:

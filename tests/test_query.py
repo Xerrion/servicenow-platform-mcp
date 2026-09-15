@@ -13,7 +13,7 @@ from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.choices import ChoiceRegistry
 from servicenow_mcp.config import Settings
 from servicenow_mcp.policy import DENIED_TABLES
-from tests.helpers import decode_response, get_tool_functions
+from tests.helpers import decode_response, get_registered_tools, get_tool_functions
 
 
 BASE_URL = "https://test.service-now.com"
@@ -48,6 +48,20 @@ def _register_and_get_tools(
 
 class TestQueryMode:
     """Default mode: paginated record query."""
+
+    async def test_large_table_contract_matches_date_constraint_policy(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
+        from mcp.server import MCPServer
+
+        from servicenow_mcp.tools.query import register_tools
+
+        mcp = MCPServer("test")
+        register_tools(mcp, settings, auth_provider)
+
+        description = (await get_registered_tools(mcp))["query"].description or ""
+        assert "Large tables require a recognized date constraint." in description
+        assert "narrow date bound" not in description
 
     @pytest.mark.parametrize("total", [3, 50])
     @respx.mock

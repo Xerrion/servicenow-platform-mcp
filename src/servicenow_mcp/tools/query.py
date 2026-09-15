@@ -61,7 +61,7 @@ def register_tools(
                 except `fields` and `display_values`).
             encoded_query: ServiceNow encoded query string (e.g. 'state=1^priority=2').
                 Omit or pass null for no filter; empty strings are also accepted.
-                Large tables require a narrow date bound. For sys_audit, prefer
+                Large tables require a recognized date constraint. For sys_audit, prefer
                 tablename plus documentkey when investigating one record.
             fields: Comma-separated field projection. List mode requires this argument.
                 ``'*'`` explicitly requests all masked fields. Exact sys_id mode defaults

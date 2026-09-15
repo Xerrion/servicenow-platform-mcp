@@ -50,7 +50,7 @@ not open a browser. The first outbound ServiceNow call starts authorization.
 - `redirect_uri`
 - `code_challenge`
 - `code_challenge_method=S256`
-- `scope=useraccount`
+- configured OAuth `scope` (defaults to `useraccount`)
 - random `state`
 
 `POST /oauth_token.do` sends exactly these form fields:

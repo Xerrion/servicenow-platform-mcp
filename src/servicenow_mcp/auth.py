@@ -120,7 +120,7 @@ class OAuthPKCEProvider:
         if response.status_code != 200:
             raise AuthError(
                 f"OAuth token exchange rejected (HTTP {response.status_code}). "
-                "Check the public application client ID, PKCE S256, useraccount scope and registered redirect URI."
+                "Check the public application client ID, PKCE S256, configured OAuth scope and registered redirect URI."
             )
         try:
             payload = response.json()

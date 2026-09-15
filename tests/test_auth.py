@@ -361,6 +361,20 @@ async def test_exchange_failure_is_sanitized(settings: Settings, status: int, ca
 
 
 @respx.mock
+async def test_exchange_failure_names_configured_scope(settings: Settings) -> None:
+    settings_data = settings.model_dump()
+    settings_data["servicenow_oauth_scope"] = "custom"
+    settings = Settings(_env_file=None, **settings_data)
+    respx.post(f"{BASE_URL}/oauth_token.do").respond(400)
+    with (
+        patch("servicenow_mcp.auth.receive_authorization_code", return_value="test-code"),
+        pytest.raises(AuthError, match="configured OAuth scope") as exc,
+    ):
+        await OAuthPKCEProvider(settings).get_headers()
+    assert "useraccount" not in str(exc.value)
+
+
+@respx.mock
 async def test_exchange_network_and_json_errors(settings: Settings) -> None:
     route = respx.post(f"{BASE_URL}/oauth_token.do").mock(side_effect=httpx.ConnectError("private"))
     with patch("servicenow_mcp.auth.receive_authorization_code", return_value="test-code"):

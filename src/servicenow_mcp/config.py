@@ -1,6 +1,7 @@
 """Configuration settings for the ServiceNow MCP server."""
 
 import math
+import re
 from functools import cached_property
 from typing import ClassVar
 from urllib.parse import urlsplit
@@ -85,6 +86,14 @@ class Settings(BaseSettings):
         if not v.strip() or not v.isascii() or any(ord(char) < 32 or ord(char) == 127 for char in v):
             raise ValueError("OAuth client ID must be non-empty printable ASCII")
         return v.strip()
+
+    @field_validator("servicenow_oauth_scope")
+    @classmethod
+    def validate_oauth_scope(cls, v: str) -> str:
+        """Require one or more printable ASCII OAuth scope tokens."""
+        if not re.fullmatch(r"[\x21\x23-\x5B\x5D-\x7E]+(?: [\x21\x23-\x5B\x5D-\x7E]+)*", v):
+            raise ValueError("OAuth scope must contain printable ASCII scope tokens separated by single spaces")
+        return v
 
     @field_validator("servicenow_oauth_redirect_uri")
     @classmethod

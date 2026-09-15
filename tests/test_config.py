@@ -148,14 +148,26 @@ class TestSettings:
         ):
             Settings(_env_file=None)
 
-    def test_explicit_oauth_scope_is_preserved(self) -> None:
+    @pytest.mark.parametrize("scope", ["custom", "useraccount custom/read"])
+    def test_explicit_oauth_scope_is_preserved(self, scope: str) -> None:
         """An explicit OAuth scope overrides the default."""
         from servicenow_mcp.config import Settings
 
-        with patch.dict("os.environ", self._make_env(SERVICENOW_OAUTH_SCOPE="custom"), clear=True):
+        with patch.dict("os.environ", self._make_env(SERVICENOW_OAUTH_SCOPE=scope), clear=True):
             settings = Settings(_env_file=None)
 
-        assert settings.servicenow_oauth_scope == "custom"
+        assert settings.servicenow_oauth_scope == scope
+
+    @pytest.mark.parametrize("scope", ["", " ", "useraccount  custom", "useraccount\n", "scope\tother", "scopé"])
+    def test_invalid_oauth_scope_rejected(self, scope: str) -> None:
+        """Explicit OAuth scopes must use printable ASCII scope-token syntax."""
+        from servicenow_mcp.config import Settings
+
+        with (
+            patch.dict("os.environ", self._make_env(SERVICENOW_OAUTH_SCOPE=scope), clear=True),
+            pytest.raises(ValueError, match="OAuth scope"),
+        ):
+            Settings(_env_file=None)
 
     def test_default_mcp_tool_package(self) -> None:
         """MCP_TOOL_PACKAGE defaults to 'full'."""

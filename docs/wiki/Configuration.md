@@ -10,7 +10,7 @@ All configuration is handled through environment variables, loaded via [pydantic
 | --- | --- | --- | --- |
 | `SERVICENOW_INSTANCE_URL` | Yes | - | HTTPS origin without credentials, path, query, or fragment; one trailing slash is removed |
 | `SERVICENOW_OAUTH_CLIENT_ID` | Yes | - | Public ServiceNow OAuth client ID; non-empty printable ASCII, with surrounding spaces removed |
-| `SERVICENOW_OAUTH_SCOPE` | Yes | None | Exactly `useraccount`; enable this scope on the public PKCE application |
+| `SERVICENOW_OAUTH_SCOPE` | No | `useraccount` | OAuth scope enabled on the public PKCE application |
 | `SERVICENOW_OAUTH_REDIRECT_URI` | No | `http://127.0.0.1:8765/oauth/callback` | Exactly `http://127.0.0.1:<port>/oauth/callback`, port 1024-65535; must be registered |
 | `SERVICENOW_OAUTH_TIMEOUT_SECONDS` | No | `180` | Browser authorization wait, 1-600 seconds |
 | `MCP_TOOL_PACKAGE` | No | `"full"` | Tool package (`full`, `readonly`, `core_readonly`, `none`) or comma-separated groups |
@@ -48,13 +48,13 @@ Create `.env.local` in the MCP server's working directory:
 ```dotenv
 SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com
 SERVICENOW_OAUTH_CLIENT_ID=your-public-client-id
-SERVICENOW_OAUTH_SCOPE=useraccount
 SERVICENOW_OAUTH_REDIRECT_URI=http://127.0.0.1:8765/oauth/callback
 SERVICENOW_OAUTH_TIMEOUT_SECONDS=180
 ```
 
-The scope must be exactly `useraccount`. Missing or different values fail
-startup. The redirect URI must exactly match the registered URL and the format
+The OAuth scope defaults to `useraccount`. Set `SERVICENOW_OAUTH_SCOPE` only to
+override it with another enabled scope. The redirect URI must exactly match the
+registered URL and the format
 `http://127.0.0.1:<port>/oauth/callback`, with port `1024`-`65535`.
 `localhost`, other paths, query strings, and fragments are not accepted.
 If you change the port, register the complete new URL in ServiceNow.
@@ -116,7 +116,7 @@ an API key to the MCP configuration.
 | --- | --- |
 | `Cannot bind OAuth loopback port` | Close only a known conflicting listener, or configure and register another allowed port. |
 | `ServiceNow authorization timed out` | Complete authorization on the same machine before the timeout. Check the exact callback URL and retry. |
-| Missing or invalid scope | Set exactly `useraccount` locally and enable it on the Application Registry entry. |
+| ServiceNow rejects the scope | Enable `useraccount` on the Application Registry entry, or set `SERVICENOW_OAUTH_SCOPE` to an enabled scope. |
 | `Cannot open the local browser` | Check the local browser setup. This is a launch failure, not proof of an application error. |
 | Error on the ServiceNow authorization page | Check **Public Client=true**, PKCE S256, client ID, scope, and exact redirect URL. |
 | `OAuth token exchange rejected (HTTP ...)` | Check the public application and OAuth settings. This is separate from a later REST failure. |

@@ -30,7 +30,6 @@ def settings() -> Settings:
     env = {
         "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
         "SERVICENOW_OAUTH_CLIENT_ID": "test-client",
-        "SERVICENOW_OAUTH_SCOPE": "useraccount",
         "SERVICENOW_ENV": "dev",
         "MCP_TOOL_PACKAGE": "full",
     }
@@ -44,7 +43,6 @@ def prod_settings() -> Settings:
     env = {
         "SERVICENOW_INSTANCE_URL": "https://prod.service-now.com",
         "SERVICENOW_OAUTH_CLIENT_ID": "test-client",
-        "SERVICENOW_OAUTH_SCOPE": "useraccount",
         "SERVICENOW_ENV": "prod",
         "MCP_TOOL_PACKAGE": "full",
     }

@@ -54,7 +54,6 @@ class TestSettings:
         base = {
             "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
             "SERVICENOW_OAUTH_CLIENT_ID": "test-client",
-            "SERVICENOW_OAUTH_SCOPE": "useraccount",
         }
         base.update(overrides)
         return base
@@ -149,21 +148,14 @@ class TestSettings:
         ):
             Settings(_env_file=None)
 
-    @pytest.mark.parametrize("scope", [None, "", " ", "custom", "useraccount custom", "useraccount\n", "scopé"])
-    def test_missing_or_wrong_scope_rejected(self, scope: str | None) -> None:
-        """Only the selected useraccount scope is accepted."""
+    def test_explicit_oauth_scope_is_preserved(self) -> None:
+        """An explicit OAuth scope overrides the default."""
         from servicenow_mcp.config import Settings
 
-        env = self._make_env()
-        if scope is None:
-            del env["SERVICENOW_OAUTH_SCOPE"]
-        else:
-            env["SERVICENOW_OAUTH_SCOPE"] = scope
-        with (
-            patch.dict("os.environ", env, clear=True),
-            pytest.raises(ValueError, match="servicenow_oauth_scope"),
-        ):
-            Settings(_env_file=None)
+        with patch.dict("os.environ", self._make_env(SERVICENOW_OAUTH_SCOPE="custom"), clear=True):
+            settings = Settings(_env_file=None)
+
+        assert settings.servicenow_oauth_scope == "custom"
 
     def test_default_mcp_tool_package(self) -> None:
         """MCP_TOOL_PACKAGE defaults to 'full'."""

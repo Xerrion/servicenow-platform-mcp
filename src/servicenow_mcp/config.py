@@ -2,7 +2,7 @@
 
 import math
 from functools import cached_property
-from typing import ClassVar, Literal
+from typing import ClassVar
 from urllib.parse import urlsplit
 
 from pydantic import SecretStr, field_validator, model_validator
@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     servicenow_password: SecretStr = SecretStr("")
     servicenow_api_key: SecretStr = SecretStr("")
     servicenow_oauth_client_id: str
-    servicenow_oauth_scope: Literal["useraccount"]
+    servicenow_oauth_scope: str = "useraccount"
     servicenow_oauth_redirect_uri: str = "http://127.0.0.1:8765/oauth/callback"
     servicenow_oauth_timeout_seconds: int = 180
     mcp_tool_package: str = "full"

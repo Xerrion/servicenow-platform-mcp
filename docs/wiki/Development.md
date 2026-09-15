@@ -48,14 +48,14 @@ For live calls, configure `.env.local` in the process working directory:
 ```dotenv
 SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com
 SERVICENOW_OAUTH_CLIENT_ID=your-public-client-id
-SERVICENOW_OAUTH_SCOPE=useraccount
 SERVICENOW_OAUTH_REDIRECT_URI=http://127.0.0.1:8765/oauth/callback
 SERVICENOW_OAUTH_TIMEOUT_SECONDS=180
 MCP_TOOL_PACKAGE=readonly
 SERVICENOW_ENV=dev
 ```
 
-The scope must be exactly `useraccount`. The callback must use
+The OAuth scope defaults to `useraccount`; set `SERVICENOW_OAUTH_SCOPE` only
+to override it. The callback must use
 `http://127.0.0.1:<port>/oauth/callback`, port `1024`-`65535`, and match the
 Application Registry entry. Process environment variables override `.env.local`,
 which overrides `.env`. Restart after changing settings.

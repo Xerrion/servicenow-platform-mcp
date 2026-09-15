@@ -1,6 +1,8 @@
 # Tool Reference
 
-Complete reference for all 15 tools in the 13 tool groups provided by the ServiceNow Platform MCP server. The tools use dispatcher patterns and ServiceNow encoded queries.
+Complete reference for all 15 public tools in 13 tool groups. Use this page when
+you need an action, input, limit, or response detail. Tools use dispatcher
+patterns and ServiceNow encoded queries.
 
 Operational tools return responses as JSON strings with `status`, `data`, and optional `error`, `pagination`, `selection`, and non-empty `warnings`. The always-on `list_tool_packages` tool returns the preset-to-group registry directly. Selection metadata describes selected fields or sections, effective limits, and truncation. Use the supplied continuation metadata to complete bounded reads.
 
@@ -36,8 +38,8 @@ Search and retrieve records from any table using ServiceNow encoded query string
 - **Example:**
 
   ```python
-  await query(table="incident", encoded_query="active=true^priority=1", fields="number,short_description")
-  ```
+   await query(table="incident", encoded_query="active=true^priority=1", fields="number,short_description")
+   ```
 
 ServiceNow encoded queries are the only supported query construction interface. Copy a filter breadcrumb from a ServiceNow list, or construct the encoded query string directly, then pass it in `encoded_query`. Query safety still applies.
 
@@ -49,7 +51,7 @@ Retrieve inherited schema and metadata for a table, or enumerate its script-bear
 
 - **Purpose:** Understand a table's structure before querying or writing; discover dictionary-driven script fields at runtime.
 - **Key Parameters:**
-  - `action`: Optional. `describe_table` (default) or `list_script_fields`. When `list_script_fields`, returns the resolved super_class `chain` and the script-bearing fields (`name`, `internal_type`, `inherited_from`, `via_heuristic`) for the supplied `table`.
+   - `action`: Optional. Empty uses normal table description. `list_script_fields` returns the resolved super_class `chain` and the script-bearing fields (`name`, `internal_type`, `inherited_from`, `via_heuristic`) for the supplied `table`. `list_tables` lists tables from `sys_db_object`.
   - `table`: Target table name (required for both actions).
   - `verbose`: If `true`, returns all platform metadata (otherwise returns a slim summary per field).
   - `fields`: Optional field projection. Empty returns an alphabetical page of 25 fields; `*` returns all fields.
@@ -132,10 +134,12 @@ Unified dispatcher for reading and downloading record attachments.
   - `list`: List metadata for all attachments on a record.
   - `get`: Fetch metadata for a specific attachment by sys_id.
   - `download`: Download attachment content as base64.
+  - `download_by_name`: Resolve the earliest matching attachment by parent table, record sys_id, and file name, then download it as base64.
+- **Limits:** `list` returns at most 100 attachment records. Upload and download content are limited to 10 MiB.
 - **Example:**
 
   ```python
-  await attachment(action="list", table_name="incident", table_sys_id="...")
+  await attachment(action="list", table="incident", table_sys_id="...")
   ```
 
 ### `attachment_write`
@@ -145,6 +149,7 @@ Dispatcher for attachment mutations. Included in `full` or available as the expl
 - **Actions:**
   - `upload`: Upload a base64-encoded file.
   - `delete`: Delete an attachment by sys_id.
+- **Limit:** Upload content is limited to 10 MiB.
 
 ### `investigate`
 
@@ -152,7 +157,7 @@ Runs pre-defined diagnostic and health check modules.
 
 - **Actions:**
   - `run`: Execute a module (e.g., `stale_automations`, `table_health`).
-  - `explain`: Interpret a specific finding from a previous run. Pass the registered investigation `name` and an `element_id` for direct dispatch. If `name` is omitted, the tool keeps legacy trial dispatch.
+  - `explain`: Interpret a specific finding from a previous run. Pass the registered investigation `name` and an `element_id` for direct dispatch. If `name` is omitted, the tool tries registered investigations until one can explain the element.
 - **Modules:** `stale_automations`, `deprecated_apis`, `table_health`, `acl_conflicts`, `error_analysis`, `slow_transactions`, `performance_bottlenecks`.
 - **Response metadata:** `run` results and findings include the registered investigation name as provenance. `explain` responses disclose the dispatch mode.
 
@@ -274,18 +279,19 @@ Optional filters `text`, `catalog`, and `category` default to null. Omitted, nul
   await service_catalog(action="items_list", text="laptop")
   ```
 
+### `code_search`
+
+Search ServiceNow script-bearing artifacts through the Code Search API.
+
+- **Actions:**
+  - `search`: Search for a required `term`, optionally restricted to `table` and `search_group`.
+  - `list_tables`: List tables covered by the selected Code Search group.
+  - `describe`: Return the action registry without platform I/O.
+- **Key Parameters:** `limit` defaults to 20 and is capped by `MAX_ROW_LIMIT`. Set `extended_matching=true` to request additional context fields.
+- **Example:**
+
+  ```python
+  await code_search(action="search", term="validate priority", table="sys_script")
+  ```
+
 ---
-
-## Migration Note
-
-The following specialized tool families from v0.9.x have been **deleted** and replaced by the unified tools above:
-
-- ATF tools (Deleted entirely)
-- Specialized domain tools (`incident_*`, `change_*`, etc. — Use `query`, `record_write`, and `resolve_choice`)
-- Change Intelligence and Debug families (`changes_*`, `debug_*` — Use `query` against system tables like `sys_update_xml` or `syslog`)
-- Documentation and Workflow families (`docs_*`, `workflow_*`, legacy `flow_*` - Use `flow` for Flow Designer inspection, or `query`/`describe` against platform tables)
-- `artifact_create`/`artifact_update` (Folded into `record_write`)
-
-The public `build_query` tool was removed. Pass encoded queries directly to `query`; the `QueryTokenStore` is also gone.
-
-For detailed mapping of old workflows to new tools, see [Agent Recipes](../../docs/agent-recipes.md).

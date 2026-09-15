@@ -64,18 +64,22 @@ Example:
 
 ```json
 {
-  "command": "uvx",
-  "args": [
-    "--from",
-    "servicenow-platform-mcp==2.0.0",
-    "servicenow-platform-mcp"
-  ],
-  "env": {
-    "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-    "SERVICENOW_OAUTH_CLIENT_ID": "your-public-client-id",
-    "SERVICENOW_OAUTH_REDIRECT_URI": "http://127.0.0.1:8765/oauth/callback",
-    "MCP_TOOL_PACKAGE": "readonly",
-    "SERVICENOW_ENV": "dev"
+  "mcpServers": {
+    "servicenow-platform": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "servicenow-platform-mcp==2.0.0",
+        "servicenow-platform-mcp"
+      ],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_OAUTH_CLIENT_ID": "your-public-client-id",
+        "SERVICENOW_OAUTH_REDIRECT_URI": "http://127.0.0.1:8765/oauth/callback",
+        "MCP_TOOL_PACKAGE": "readonly",
+        "SERVICENOW_ENV": "dev"
+      }
+    }
   }
 }
 ```

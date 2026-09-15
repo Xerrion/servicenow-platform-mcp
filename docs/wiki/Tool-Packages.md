@@ -1,66 +1,54 @@
 # Tool Packages
 
-Tool packages control which tools are loaded when the server starts. Configure the active package via the `MCP_TOOL_PACKAGE` environment variable.
+Tool packages control which MCP tools load at server startup. Set the active
+package with `MCP_TOOL_PACKAGE`.
 
-The server has 13 tool groups and 4 focused presets. The public `full` surface contains 15 tools. For a complete reference of every tool, see [[Tool-Reference]]. For security guardrails that apply across all packages, see [[Safety-and-Policy]].
+`list_tool_packages` is always available. It lists package definitions and
+groups; it does not report the active package.
 
----
+## Presets
 
-## Preset Packages
+Counts include `list_tool_packages`.
 
-| Package | Total MCP Tools | Description |
-| --- | --- | --- |
-| `full` (default) | 15 | All unified tools, including `analysis`, `audit`, `flow`, and `code_search` |
-| `readonly` | 11 | Includes `record_read`, `analysis`, `audit`, `flow`, `code_search`, and attachment reads |
-| `core_readonly` | 4 | Minimal read-only core: `query`, `describe`, `attachment`, `list_tool_packages` |
-| `none` | 1 | No tools loaded - only `list_tool_packages` is available |
+| Package | Public tools | Use |
+| --- | ---: | --- |
+| `full` | 15 | All groups, including record and attachment writes. |
+| `readonly` | 11 | Read, investigation, analysis, audit, Flow, and Code Search tools. |
+| `core_readonly` | 4 | `query`, `describe`, and read-only `attachment`. |
+| `none` | 1 | Only `list_tool_packages`. |
 
----
+## Custom packages
 
-## Package Contents
+Use comma-separated group names:
 
-The `list_tool_packages` tool is always available and returns the active registry at runtime. The detailed lists below name package tools; add `list_tool_packages` to get the total MCP tool count shown above.
-
-### `full` (14 package tools)
-
-`query`, `describe`, `record_read`, `record_write`, `record_apply`, `attachment`, `attachment_write`, `investigate`, `resolve_choice`, `service_catalog`, `analysis`, `audit`, `flow`, `code_search`.
-
-### `readonly` (10 package tools)
-
-`query`, `describe`, `record_read`, `attachment`, `investigate`, `resolve_choice`, `analysis`, `audit`, `flow`, `code_search`.
-
-### `core_readonly` (3 package tools)
-
-`query`, `describe`, `attachment`.
-
----
-
-## Custom Packages
-
-You can create a custom package by setting `MCP_TOOL_PACKAGE` to a comma-separated list of tool names:
-
-```bash
-MCP_TOOL_PACKAGE="query,describe,attachment"
+```text
+MCP_TOOL_PACKAGE=query,describe,record_read,attachment
 ```
 
-The `attachment` group registers only the read tool. Add `attachment_write` explicitly to opt in to attachment upload and delete. Runtime write gating still applies to the opt-in group.
+Valid groups:
 
-The `analysis` group is read-only and is included in `full` and `readonly`. It is excluded from `core_readonly` because it broadens the minimal surface to catalog-answer and journal composition tables.
+```text
+query
+describe
+record_write
+record_read
+attachment
+attachment_write
+investigate
+resolve_choice
+service_catalog
+analysis
+flow
+code_search
+```
 
-### Migration from v0.9.x
+`record_write` registers both `record_write` and `record_apply`. Do not add
+`record_apply` as a group. `attachment` is read-only; add
+`attachment_write` explicitly for upload and delete. `service_catalog` is a
+tool group, not a preset.
 
-The previous specialized packages (`itil`, `developer`, `incident_management`, `change_management`, `cmdb`, `problem_management`, `request_management`, `knowledge_management`, `service_catalog`, `analyst`) have been removed.
+Package selection controls tool exposure. ServiceNow OAuth scopes, REST
+policies, roles, and ACLs remain the authorization controls.
 
-- If you were using **incident_management** or **itil**, use `full` or `readonly`.
-- If you were using **developer**, use `full`.
-- If you were using **service_catalog**, note that `service_catalog` is now a single tool name. You can load it specifically: `MCP_TOOL_PACKAGE="query,describe,service_catalog"`.
-
-The unified tools (`query`, `record_write`) are more powerful than the previous domain-specific tools and can handle all ITSM and CMDB workflows when combined with `resolve_choice`.
-
----
-
-## Next Steps
-
-- [[Tool-Reference]] - Complete tool reference with descriptions and parameters
-- [[Safety-and-Policy]] - Security guardrails and write gating
-- [Agent Recipes](../../docs/agent-recipes.md) - Learn how to compose these tools for complex workflows
+For tool actions and parameters, see [[Tool-Reference]]. For local write
+blocking and query safety, see [[Safety-and-Policy]].

@@ -3,6 +3,7 @@
 import json
 from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
 
 from servicenow_mcp.errors import ForbiddenError
@@ -906,6 +907,20 @@ class TestSafeToolCall:
         assert "something broke" not in message
         assert message == "Internal error"
         assert "correlation_id" not in parsed
+
+    async def test_timeout_returns_actionable_error_envelope(self) -> None:
+        async def fn() -> str:
+            raise httpx.ReadTimeout("private request details")
+
+        result = await safe_tool_call(fn)
+        parsed = decode_response(result)
+        message = parsed["error"]["message"]
+
+        assert parsed["status"] == "error"
+        assert "timed out" in message
+        assert "narrow" in message.lower()
+        assert "Lowering limit only reduces returned rows" in message
+        assert "private request details" not in message
 
 
 # ---------------------------------------------------------------------------

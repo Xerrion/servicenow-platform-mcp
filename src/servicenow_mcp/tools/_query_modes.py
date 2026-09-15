@@ -75,6 +75,12 @@ async def run_list(
         )
 
     masked = [_project_record(mask_record(table, record), fields) for record in result["records"]]
+    if not masked and result["count"] > offset:
+        warnings.append(
+            "ServiceNow returned an empty page although X-Total-Count reports more matching rows. "
+            "The Table API applies limit before ACL evaluation, so row access or ordering can cause this; "
+            "change order_by or offset before concluding that no records match."
+        )
     selection = request.projection.selection
     if fields is None:
         selection = selection | {"returned_fields": sorted({name for record in masked for name in record})}

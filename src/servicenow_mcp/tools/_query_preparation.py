@@ -163,14 +163,17 @@ async def validate_query_fields(
     if not candidates:
         return []
     try:
-        known = await dictionary.get_all_fields(table)
+        known = await dictionary.get_fields(table, candidates)
     except Exception:
         logger.warning("field validation skipped for table=%s: dictionary lookup failed", table, exc_info=True)
-        return []
+        return [
+            (
+                f"Could not validate query fields for table '{table}'. ServiceNow may ignore unknown fields and "
+                "broaden the query; verify field names before trusting the result."
+            )
+        ]
 
     known_names = {entry.name for entry in known}
-    if not known_names:
-        return []
     unknown = [name for name in candidates if name not in known_names and name not in _UNIVERSAL_FIELDS]
     if not unknown:
         return []

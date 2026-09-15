@@ -243,6 +243,7 @@ class TestSettings:
 
         assert "syslog" in settings.large_table_names
         assert "sys_audit" in settings.large_table_names
+        assert "syslog_transaction" in settings.large_table_names
 
     def test_large_table_names_from_csv(self) -> None:
         """LARGE_TABLE_NAMES_CSV parses comma-separated string."""

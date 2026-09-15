@@ -3,6 +3,8 @@
 import logging
 from collections.abc import Awaitable, Callable
 
+import httpx
+
 from servicenow_mcp.errors import ACLError, ForbiddenError, ServiceNowMCPError
 from servicenow_mcp.response import format_response
 from servicenow_mcp.sentry import capture_exception as sentry_capture
@@ -15,6 +17,17 @@ async def safe_tool_call(fn: Callable[[], Awaitable[str]]) -> str:
     """Run an MCP tool body and translate exceptions to error envelopes."""
     try:
         return await fn()
+    except httpx.TimeoutException as e:
+        sentry_capture(e)
+        return format_response(
+            data=None,
+            status="error",
+            error=(
+                "ServiceNow HTTP request timed out. If this was a query, narrow it with indexed predicates or a "
+                "smaller date window. For sys_audit, prefer documentkey. Lowering limit only reduces returned rows "
+                "and might not reduce scan or count cost."
+            ),
+        )
     except ACLError as e:
         sentry_capture(e)
         return format_response(data=None, status="error", error=f"Access denied by ServiceNow ACL: {e}")

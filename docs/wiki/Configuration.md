@@ -16,7 +16,7 @@ The server loads settings from environment variables through
 | `MCP_TOOL_PACKAGE` | No | `full` | Preset or comma-separated tool groups. |
 | `SERVICENOW_ENV` | No | `dev` | `prod` and `production` block local writes. |
 | `MAX_ROW_LIMIT` | No | `100` | `1`-`10000`; cap for bounded paths that use it, not a global response cap. |
-| `LARGE_TABLE_NAMES_CSV` | No | `syslog,sys_audit,sys_log_transaction,sys_email_log` | Comma-separated table names that require date-bounded queries. |
+| `LARGE_TABLE_NAMES_CSV` | No | `syslog,sys_audit,syslog_transaction,sys_email_log` | Comma-separated table names that require date-bounded queries. |
 | `HTTPX_TIMEOUT_SECONDS` | No | `30.0` | Finite HTTP timeout, `1.0`-`600.0` seconds. |
 | `METADATA_CACHE_TTL_SECONDS` | No | `300` | Metadata freshness, `1`-`86400` seconds. |
 | `SENTRY_DSN` | No | Empty | Enables Sentry when non-empty. |
@@ -78,7 +78,7 @@ group names.
 
 `MAX_ROW_LIMIT` caps bounded reads that use it. Tables in
 `LARGE_TABLE_NAMES_CSV` require a structural date filter. The default list is
-`syslog`, `sys_audit`, `sys_log_transaction`, and `sys_email_log`.
+`syslog`, `sys_audit`, `syslog_transaction`, and `sys_email_log`.
 
 `METADATA_CACHE_TTL_SECONDS` controls choice, dictionary, script-field, and
 audit-configuration metadata. It does not cache records, query results, flows,

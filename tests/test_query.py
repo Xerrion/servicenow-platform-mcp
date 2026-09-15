@@ -112,6 +112,27 @@ class TestQueryMode:
 
     @pytest.mark.asyncio()
     @respx.mock
+    async def test_empty_page_with_nonzero_total_warns(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
+        respx.get(f"{BASE_URL}/api/now/table/syslog_transaction").mock(
+            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "12"})
+        )
+        tools = _register_and_get_tools(settings, auth_provider)
+
+        result = decode_response(
+            await tools["query"](
+                table="syslog_transaction",
+                encoded_query="sys_created_on>=2026-09-15",
+                fields="url",
+            )
+        )
+
+        assert result["pagination"] == {"offset": 0, "limit": 20, "total": 12}
+        assert any("empty page" in warning and "ACL" in warning for warning in result["warnings"])
+
+    @pytest.mark.asyncio()
+    @respx.mock
     async def test_omitted_fields_returns_error_without_io(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
@@ -185,12 +206,28 @@ class TestQueryMode:
     ) -> None:
         """enforce_query_safety still gates large tables in unified query mode."""
         settings.large_table_names_csv = "syslog,sys_audit"
-        tools = _register_and_get_tools(settings, auth_provider)
+        dictionary = AsyncMock()
+        tools = _register_and_get_tools(settings, auth_provider, dictionary=dictionary)
         raw = await tools["query"](table="syslog", encoded_query="level=error", fields="message")
         result = decode_response(raw)
 
         assert result["status"] == "error"
         assert "date" in result["error"]["message"].lower()
+        dictionary.get_fields.assert_not_awaited()
+        dictionary.get_all_fields.assert_not_awaited()
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_transaction_log_requires_date_filter_by_default(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
+        tools = _register_and_get_tools(settings, auth_provider)
+
+        result = decode_response(await tools["query"](table="syslog_transaction", fields="url"))
+
+        assert result["status"] == "error"
+        assert "date" in result["error"]["message"].lower()
+        assert not respx.calls
 
     @pytest.mark.asyncio()
     @respx.mock
@@ -540,7 +577,10 @@ class TestFieldValidation:
             DictionaryField(name=name, internal_type="string", attributes="", inherited_from=None)
             for name in field_names
         ]
-        dictionary.get_all_fields = AsyncMock(return_value=fields)  # type: ignore[method-assign]
+        dictionary.get_fields = AsyncMock(  # type: ignore[method-assign]
+            side_effect=lambda _table, names: [field for field in fields if field.name in names]
+        )
+        dictionary.get_all_fields = AsyncMock(side_effect=AssertionError("broad metadata lookup"))  # type: ignore[method-assign]
         return dictionary
 
     @pytest.mark.asyncio()
@@ -577,7 +617,7 @@ class TestFieldValidation:
         result = decode_response(raw)
 
         assert result["status"] == "success"
-        assert not any("not found" in w for w in result.get("warnings", []))
+        assert "warnings" not in result
 
     @pytest.mark.asyncio()
     @respx.mock
@@ -589,11 +629,11 @@ class TestFieldValidation:
         from servicenow_mcp.tools._dictionary import DictionaryRegistry
 
         dictionary = DictionaryRegistry(settings, auth_provider)
-        dictionary.get_all_fields = AsyncMock(side_effect=RuntimeError("boom"))  # type: ignore[method-assign]
+        dictionary.get_fields = AsyncMock(side_effect=RuntimeError("boom"))  # type: ignore[method-assign]
 
         tools = _register_and_get_tools(settings, auth_provider, dictionary=dictionary)
         raw = await tools["query"](table="u_custom", encoded_query="name=Vinklubben", fields="u_member")
         result = decode_response(raw)
 
         assert result["status"] == "success"
-        assert not any("not found" in w for w in result.get("warnings", []))
+        assert any("Could not validate" in warning for warning in result["warnings"])

@@ -61,10 +61,12 @@ def register_tools(
                 except `fields` and `display_values`).
             encoded_query: ServiceNow encoded query string (e.g. 'state=1^priority=2').
                 Omit or pass null for no filter; empty strings are also accepted.
+                Large tables require a narrow date bound. For sys_audit, prefer
+                tablename plus documentkey when investigating one record.
             fields: Comma-separated field projection. List mode requires this argument.
                 ``'*'`` explicitly requests all masked fields. Exact sys_id mode defaults
                 to the compact ``sys_id,sys_updated_on`` projection.
-            limit: Max rows (1-max_row_limit). Default 20.
+            limit: Max returned rows (1-max_row_limit), not a database scan or count cap. Default 20.
             offset: Pagination offset.
             order_by: Field name; prefix with '-' for descending (e.g. '-sys_created_on').
             display_values: True returns display_value form for reference and choice fields.
@@ -101,13 +103,12 @@ def register_tools(
             prepared_query, label_warnings = resolved
             warnings.extend(label_warnings)
 
-        if dictionary is not None:
-            warnings.extend(await validate_query_fields(table, prepared_query, dictionary))
-
         if aggregate:
             aggregate_request = prepare_aggregate_request(table, prepared_query, aggregate, group_by or "", settings)
             if isinstance(aggregate_request, str):
                 return aggregate_request
+            if dictionary is not None:
+                warnings.extend(await validate_query_fields(table, prepared_query, dictionary))
             return await run_aggregate(table, prepared_query, aggregate_request, client_factory, warnings)
 
         assert isinstance(list_projection, Projection)
@@ -119,6 +120,8 @@ def register_tools(
             order_by or "",
             settings,
         )
+        if dictionary is not None:
+            warnings.extend(await validate_query_fields(table, prepared_query, dictionary))
         return await run_list(
             table,
             prepared_query,

@@ -52,6 +52,21 @@
   still depends on ServiceNow ACLs. Script discovery through `record_read` and
   `describe`, preview/apply safety, and masking remain unchanged.
 
+## [2.0.1](https://github.com/Xerrion/servicenow-platform-mcp/compare/v2.0.0...v2.0.1) (2026-09-15)
+
+
+### Bug Fixes
+
+* reformatting issue ([dbec8cd](https://github.com/Xerrion/servicenow-platform-mcp/commit/dbec8cdf81f3de171ee8c44f1a6f3bf99b8abb2b))
+* restructure JSON example to include mcpServers key ([034b4b0](https://github.com/Xerrion/servicenow-platform-mcp/commit/034b4b0f98f3270784e3982195bd0041a20bd14e))
+* support configurable OAuth scopes ([#172](https://github.com/Xerrion/servicenow-platform-mcp/issues/172)) ([1b015fd](https://github.com/Xerrion/servicenow-platform-mcp/commit/1b015fdab089a007eb501f868d9dc86739b6f3b5))
+
+
+### Documentation
+
+* improve README onboarding ([98f9540](https://github.com/Xerrion/servicenow-platform-mcp/commit/98f95406623af135db073396fe1e745fc96a0121))
+* rewrite README for end users ([#171](https://github.com/Xerrion/servicenow-platform-mcp/issues/171)) ([3a49167](https://github.com/Xerrion/servicenow-platform-mcp/commit/3a49167f28107f62fcabc01da1634747cfabd926))
+
 ## [2.0.0](https://github.com/Xerrion/servicenow-platform-mcp/compare/v1.0.0...v2.0.0) (2026-09-11)
 
 

@@ -1,71 +1,90 @@
-# servicenow-platform-mcp
+# ServiceNow Platform MCP
 
-`servicenow-platform-mcp` is an MCP server for controlled access to ServiceNow
-through ServiceNow REST APIs. It uses MCP stdio transport. An MCP client starts
-the server as a local process.
+Connect an MCP client to ServiceNow with public OAuth and local stdio transport.
+Use the server to inspect records, metadata, attachments, flows, and ServiceNow
+code; investigate platform issues; and, when explicitly enabled, stage and apply
+record or attachment changes.
 
-Use it to read records and metadata, inspect attachments and platform data,
-search ServiceNow code, run analyses and investigations, and perform writes
-when the selected tool package includes write tools and permissions allow them.
+**Best for:** developers and ServiceNow administrators who want an MCP client to
+work with an existing ServiceNow instance while ServiceNow roles, REST policies,
+and ACLs remain the authorization boundary.
 
-## Prerequisites
+## Start here
 
-- Python 3.12 or newer
-- [`uv`](https://docs.astral.sh/uv/)
-- An MCP client that supports local stdio servers
-- A ServiceNow instance
-- Permission to create or use a ServiceNow **Application Registry** entry
-- A ServiceNow user with roles, REST API access, and table and field ACL access
-  for the tools and tables you select
+You need Python 3.12+, [`uv`](https://docs.astral.sh/uv/), a ServiceNow instance,
+and an MCP client that can start local stdio servers.
 
-The browser and MCP server must run on the same machine. OAuth uses an IPv4
-loopback callback.
-
-## Configure ServiceNow OAuth
-
-This server uses a public OAuth authorization-code flow with PKCE S256. The
-server does not receive Basic Auth credentials, API keys, passwords, or client
-secrets.
-
-In ServiceNow, open **System OAuth > Application Registry**. Create or select
-an application for this server, then set:
-
-1. **Public Client** to `true`.
-2. Authorization-code PKCE to **S256**.
-3. Scope to `useraccount`.
-4. Redirect URL to:
+1. In ServiceNow, create a public OAuth application that uses authorization-code
+   PKCE with S256. Register this redirect URL:
 
    ```text
    http://127.0.0.1:8765/oauth/callback
    ```
 
-Save the application. Copy its public client ID.
+2. Copy the application's public client ID.
+3. Add the server to your MCP client configuration. Replace the two placeholders:
 
-OAuth identifies and authorizes the user. It does not grant access to
-ServiceNow tables or fields. REST API access policies, user roles, table ACLs,
-field ACLs, and row visibility still control each request.
+   ```json
+   {
+     "mcpServers": {
+       "servicenow-platform": {
+         "command": "uvx",
+         "args": [
+           "--from",
+           "servicenow-platform-mcp==2.0.0",
+           "servicenow-platform-mcp"
+         ],
+         "env": {
+           "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+           "SERVICENOW_OAUTH_CLIENT_ID": "your-public-client-id",
+           "MCP_TOOL_PACKAGE": "readonly",
+           "SERVICENOW_ENV": "dev"
+         }
+       }
+     }
+   }
+   ```
 
-For a read-only setup, use a read-only ServiceNow user, GET-only REST API
-policies, and `MCP_TOOL_PACKAGE=readonly`. The selected tools can require:
+4. Restart the MCP client and call `list_tool_packages`.
+5. Make a small read request. The first request that contacts ServiceNow opens
+   your default browser for authorization.
 
-- Table API access for records, metadata, Flow data, and analysis.
-- Attachment API GET access for attachment metadata and downloads.
-- Aggregate API access for aggregate queries and audit positive-control counts.
-- Code Search or Service Catalog API access only when those tools are selected.
-- Read access to target tables and fields.
+The browser and MCP server must run on the same machine. This example pins
+version 2.0.0. Use `uvx servicenow-platform-mcp` only when you want the newest
+available release.
 
-## Configure an MCP client
+## Install in your AI client
 
-Pass settings through the client process environment. Do not rely on a client
-working directory or dotenv files. Client configuration format varies; use the
-equivalent stdio fields for `command`, `args`, and `env`.
+Use the native configuration for your client. Replace the instance URL and
+public client ID in each example. All examples use `readonly` by default.
 
-Example:
+### Claude Code
+
+Run this command to add the server to your user configuration:
+
+```bash
+claude mcp add \
+  --scope user \
+  --transport stdio \
+  servicenow-platform \
+  --env SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com \
+  --env SERVICENOW_OAUTH_CLIENT_ID=your-public-client-id \
+  --env MCP_TOOL_PACKAGE=readonly \
+  --env SERVICENOW_ENV=dev \
+  -- uvx --from servicenow-platform-mcp==2.0.0 servicenow-platform-mcp
+```
+
+Run `claude mcp list` to confirm that Claude Code added the server.
+
+### GitHub Copilot in VS Code
+
+Create or edit `.vscode/mcp.json` in your workspace:
 
 ```json
 {
-  "mcpServers": {
+  "servers": {
     "servicenow-platform": {
+      "type": "stdio",
       "command": "uvx",
       "args": [
         "--from",
@@ -75,7 +94,6 @@ Example:
       "env": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_OAUTH_CLIENT_ID": "your-public-client-id",
-        "SERVICENOW_OAUTH_REDIRECT_URI": "http://127.0.0.1:8765/oauth/callback",
         "MCP_TOOL_PACKAGE": "readonly",
         "SERVICENOW_ENV": "dev"
       }
@@ -84,62 +102,89 @@ Example:
 }
 ```
 
-The instance value must be an HTTPS origin without credentials, path, query, or
-fragment. OAuth scope defaults to `useraccount`; set `SERVICENOW_OAUTH_SCOPE`
-only to override it. The redirect value must match ServiceNow exactly. The
-server accepts the form `http://127.0.0.1:<port>/oauth/callback` with a port
-from `1024` to `65535`.
+Restart VS Code, then trust and start the server when Copilot prompts you.
 
-### Launch with `uvx`
+### OpenCode
 
-Pinned launch for this release:
+Add the server to `opencode.json` in your project root, or to
+`~/.config/opencode/opencode.json` for all projects:
 
-```bash
-uvx --from 'servicenow-platform-mcp==2.0.0' servicenow-platform-mcp
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servicenow-platform": {
+      "type": "local",
+      "command": [
+        "uvx",
+        "--from",
+        "servicenow-platform-mcp==2.0.0",
+        "servicenow-platform-mcp"
+      ],
+      "environment": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_OAUTH_CLIENT_ID": "your-public-client-id",
+        "MCP_TOOL_PACKAGE": "readonly",
+        "SERVICENOW_ENV": "dev"
+      }
+    }
+  }
+}
 ```
 
-This is normally the command configured in the MCP client. The unpinned form
+Restart OpenCode to load the server.
 
-```bash
-uvx servicenow-platform-mcp
-```
+Do not add API keys, Basic Auth credentials, passwords, client secrets, access
+tokens, authorization codes, or PKCE verifiers to any client configuration.
 
-resolves the newest available release and can change server behavior when a
-new release is published.
+## Configure ServiceNow OAuth
 
-The server starts without opening a browser. The first tool call that needs
-ServiceNow access opens the default browser. Authorize as the ServiceNow user
-whose permissions should apply. Access tokens stay in process memory. A server
-restart or token expiry requires authorization again.
+Open **System OAuth > Application Registry**, then create or select the
+application for this server. Configure it as follows:
 
-## Select tools
-
-`list_tool_packages` is always available. Set `MCP_TOOL_PACKAGE` to select
-additional tool groups:
-
-| Value | Use |
+| Setting | Value |
 | --- | --- |
-| `readonly` | Read and analysis tools, including `query`, `describe`, `record_read`, `attachment`, `investigate`, `resolve_choice`, `analysis`, `audit`, `flow`, and `code_search` |
-| `core_readonly` | `query`, `describe`, and read-only `attachment` |
-| `full` | All tool groups, including write tools |
-| `none` | Only `list_tool_packages` |
+| Public Client | `true` |
+| Authorization flow | Authorization code with PKCE |
+| PKCE method | `S256` |
+| Scope | `useraccount` |
+| Redirect URL | `http://127.0.0.1:8765/oauth/callback` |
 
-You can also provide comma-separated groups, for example:
+Save the application and use its public client ID for
+`SERVICENOW_OAUTH_CLIENT_ID`. The default OAuth scope is `useraccount`; set
+`SERVICENOW_OAUTH_SCOPE` only when your application enables a different scope.
+
+OAuth proves the user's identity. It does **not** grant table access. The
+authorized user's REST API policies, roles, table ACLs, field ACLs, and row
+visibility still apply to every request.
+
+## Choose a tool package
+
+Set `MCP_TOOL_PACKAGE` to load only the tools you need:
+
+| Package | Includes | Recommended use |
+| --- | --- | --- |
+| `readonly` | Records, metadata, attachments, investigations, analysis, audits, flows, and code search | Normal read-only work |
+| `core_readonly` | `query`, `describe`, and read-only `attachment` | Minimal inspection access |
+| `full` | Every tool group, including record and attachment writes | Controlled write workflows |
+| `none` | Only `list_tool_packages` | Test client connectivity |
+
+You can also select individual comma-separated tool groups:
 
 ```text
 MCP_TOOL_PACKAGE=query,describe,record_read,attachment
 ```
 
-Package selection controls which tools load. It is not a ServiceNow
-authorization boundary.
+Valid groups are `query`, `describe`, `record_write`, `record_read`,
+`attachment`, `attachment_write`, `investigate`, `resolve_choice`,
+`service_catalog`, `analysis`, `audit`, `flow`, and `code_search`.
 
-## Use tools
+Tool packages determine which tools the server loads. They do not replace
+ServiceNow authorization.
 
-Call `list_tool_packages` with no arguments to confirm that the MCP client can
-reach the server. It lists available package presets and groups. It does not
-contact ServiceNow or report the active package.
+## Make your first requests
 
-Use `query` for a small, explicit read:
+Use `query` for a bounded list of records:
 
 ```json
 {
@@ -151,9 +196,6 @@ Use `query` for a small, explicit read:
 }
 ```
 
-`query` list mode requires `table` and `fields`. `limit` defaults to `20` and
-`offset` defaults to `0`.
-
 Use `record_read` for one record. Provide exactly one of `sys_id` or `name`:
 
 ```json
@@ -164,7 +206,7 @@ Use `record_read` for one record. Provide exactly one of `sys_id` or `name`:
 }
 ```
 
-Use `describe` to inspect a table and its fields:
+Use `describe` before working with an unfamiliar table:
 
 ```json
 {
@@ -173,67 +215,70 @@ Use `describe` to inspect a table and its fields:
 }
 ```
 
-Use each tool's `describe` action where available. The runtime tool schema is
-the authoritative input contract.
+The `incident` examples require access to the `incident` table. Substitute a
+table the authorized user can read. Use a tool's `describe` action, when
+available, for its complete input contract.
 
-### Writes
+## Configure from a local checkout
 
-Record writes require `full` or a custom package containing `record_write`.
-They also require matching ServiceNow REST API permissions and ACLs. `record_write`
-previews by default; apply its single-use `preview_token` with
-`record_apply`. Set `SERVICENOW_ENV=prod` or `SERVICENOW_ENV=production` to
-block local writes.
+For local development or a source-based installation:
 
-## Verify setup
+```bash
+git clone https://github.com/Xerrion/servicenow-platform-mcp.git
+cd servicenow-platform-mcp
+uv sync --group dev
+```
 
-1. Restart the MCP server after changing configuration.
-2. Call `list_tool_packages`.
-3. Call `query` with one small read against a table the authorized user can
-   access:
+Create `.env.local` in the directory where the MCP client starts the server:
 
-   ```json
-   {
-     "table": "incident",
-     "fields": "sys_id,number",
-     "limit": 1
-   }
-   ```
+```dotenv
+SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com
+SERVICENOW_OAUTH_CLIENT_ID=your-public-client-id
+MCP_TOOL_PACKAGE=readonly
+SERVICENOW_ENV=dev
+```
 
-4. Complete browser authorization when prompted.
-5. Confirm a successful tool response.
+Then configure the client to run `uv run servicenow-platform-mcp` with its
+working directory set to the checkout. The server reads `.env`, then
+`.env.local`, from its working directory. Process environment variables take
+precedence over both files. Do not commit either dotenv file.
 
-The `incident` examples require access to `incident`. Use another permitted
-table when needed.
+## Write safely
+
+Write tools require `full` or a custom package that includes `record_write` or
+`attachment_write`, as well as matching ServiceNow permissions. Record writes
+are previewed first. Apply the resulting one-time `preview_token` with
+`record_apply`.
+
+Set `SERVICENOW_ENV=prod` or `SERVICENOW_ENV=production` to block local writes.
+For a read-only setup, use a read-only ServiceNow user, GET-only REST API
+policies, and `MCP_TOOL_PACKAGE=readonly`.
 
 ## Troubleshooting
 
-| Symptom | Action |
+| Problem | What to check |
 | --- | --- |
-| Invalid configuration at startup | Check variable names and values. Pass them through the MCP client's `env`. |
-| `Cannot open the local browser` | Check the browser on the machine running the MCP server. |
-| `ServiceNow authorization timed out` | Authorize on the same machine. Check the exact redirect URL and retry. |
-| `Cannot bind OAuth loopback port` | Close a known conflicting listener, or configure and register another allowed `127.0.0.1` port. |
-| ServiceNow rejects the scope | Enable `useraccount` in the Application Registry, or set `SERVICENOW_OAUTH_SCOPE` to an enabled scope. |
-| OAuth token exchange rejected | Check public client, PKCE S256, scope, client ID, and exact redirect URL. |
-| REST 401 or `User Not Authenticated` | Authorize on the next call. If it persists, ask an administrator to check scopes, REST API policies, and user access. |
-| HTTP 403 | Check REST resource permissions, roles, table ACLs, and field ACLs. |
-| Configuration changes have no effect | Restart the full MCP server process. |
+| Configuration fails at startup | Use the exact environment variable names. Make sure the client forwards them or starts in the directory with the intended dotenv file. |
+| Browser does not open | The browser must be available on the machine running the MCP server. |
+| Authorization times out | Use the same machine for the browser and server. Confirm the redirect URL exactly matches the Application Registry. |
+| OAuth token exchange is rejected | Confirm public-client mode, PKCE S256, the client ID, enabled scope, and redirect URL. |
+| HTTP 401 or `User Not Authenticated` | Authorize on the next call. If it persists, review scopes, REST API policies, and user access. |
+| HTTP 403 | Review REST resource permissions, roles, table ACLs, and field ACLs. |
+| Configuration changes do not apply | Restart the MCP server process. |
 
 ## Security
 
-- Use least-privilege ServiceNow roles, REST policies, table ACLs, and field
-  ACLs.
-- Prefer `readonly` or a smaller read-only custom package.
-- Do not configure API keys, passwords, Basic Auth, or client secrets.
-- Do not put access tokens, authorization codes, PKCE verifiers, or callback
-  query strings in configuration or logs.
-- Sensitive-value masking applies to selected record paths, not every tool
-  response. Enforce ServiceNow ACLs for sensitive data.
+- Use least-privilege ServiceNow roles, REST policies, table ACLs, and field ACLs.
+- Prefer `readonly` or a smaller custom package.
+- Do not configure API keys, Basic Auth credentials, passwords, or client secrets.
+- Do not log or commit access tokens, authorization codes, PKCE verifiers, or
+  callback URLs with query strings.
 - Treat attachments and other ServiceNow content as untrusted data.
-- Never commit configuration containing credentials or tokens.
 
-## Links
+## Reference
 
+- [Installation guide](INSTALL.md) - full configuration reference, permissions,
+  OAuth behavior, and operating guidance
 - [PyPI package](https://pypi.org/project/servicenow-platform-mcp/)
 - [MCP stdio transport](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio)
 - [`uv` tool guide](https://docs.astral.sh/uv/guides/tools/)

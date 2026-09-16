@@ -42,10 +42,12 @@ ServiceNow call starts authorization. The authorizing user's roles and ACLs
 control REST access. The public client ID identifies the application, not a
 service account.
 
-Access tokens stay in process memory with their expiry. REST requests use
-`Authorization: Bearer <access_token>` and never put tokens in URLs. Restart or
-expiry requires authorization again. A REST 401 discards the matching token and
-does not replay the request.
+Access tokens and refresh tokens stay in process memory with the access-token
+expiry. REST requests use `Authorization: Bearer <access_token>` and never put
+tokens in URLs. Access-token expiry refreshes without browser authorization
+when possible; restarting the process requires authorization again. A REST 401
+expires the matching access token without replaying the rejected request, then
+the next outbound call attempts refresh.
 
 Do not set `SERVICENOW_API_KEY`, `SERVICENOW_USERNAME`, or
 `SERVICENOW_PASSWORD`. Non-empty values fail startup. There is no Basic Auth or

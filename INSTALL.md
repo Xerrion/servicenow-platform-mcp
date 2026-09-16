@@ -105,12 +105,17 @@ verifier, not state or a client secret. See the
 [exact request fields](README.md#exact-oauth-requests).
 
 REST calls use `Authorization: Bearer <access_token>`, never tokens in URLs.
-Only the access token and its expiry stay in process memory. Restart or expiry
-requires browser authorization on the next outbound call.
+Access tokens, refresh tokens, and expiry stay in process memory. On access-token
+expiry, the server requests a replacement with the refresh token, public client
+ID, and no client secret. A rotated refresh token replaces the previous value;
+if ServiceNow omits a replacement, the previous refresh token remains in use.
+Restarting the MCP process loses both tokens and requires browser authorization.
 
-A REST 401 discards only the matching token and does not replay the request.
-The next outbound call authorizes again unless a newer concurrent grant exists.
-Successful calls reuse the valid token within that server process.
+A REST 401 expires only the matching access token and does not replay the
+request. The next outbound call attempts refresh unless a newer concurrent
+grant exists. A rejected refresh grant falls back to browser authorization;
+connectivity and malformed-response failures preserve the refresh token for a
+later retry. Successful calls reuse the valid token within that server process.
 
 ### API access policy migration
 

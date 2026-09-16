@@ -13,19 +13,29 @@ from servicenow_mcp.telemetry import current_tool_trace, request_operation, time
 
 logger = logging.getLogger(__name__)
 
+_MUTATION_METHODS = frozenset({"POST", "PATCH", "DELETE"})
+_TIMEOUT_ACTIONS = {
+    "connect": "connecting",
+    "pool": "waiting for a connection",
+    "read": "receiving the response",
+    "write": "sending the request",
+    "unknown": "performing the request",
+}
+
 
 def _timeout_error(error: httpx.TimeoutException) -> dict[str, str]:
     phase = timeout_phase(error)
     try:
         operation = request_operation(error.request)
-        is_read = error.request.method in {"GET", "HEAD"}
+        method = error.request.method.upper()
     except RuntimeError:
         operation = "unknown"
-        is_read = False
+        method = None
+    is_read = method in {"GET", "HEAD"}
 
     guidance = {
         "connect": "Check connectivity to ServiceNow; this is not evidence of a slow query or an ACL denial.",
-        "pool": "The HTTP connection pool wait expired. Check in-flight requests before issuing more calls.",
+        "pool": "The HTTP connection pool timed out while waiting for a connection. Check in-flight requests before issuing more calls.",
         "write": "Sending the request timed out. Check connectivity and the remote outcome before retrying.",
     }.get(
         phase,
@@ -39,11 +49,18 @@ def _timeout_error(error: httpx.TimeoutException) -> dict[str, str]:
         )
     if operation in {"table_metadata", "dictionary", "choices", "documentation"}:
         guidance += " The timed-out request was a metadata lookup, not a read of the target records."
-    if not is_read:
-        guidance += " A write may have completed remotely; verify its outcome before retrying."
+    if method in _MUTATION_METHODS:
+        action = _TIMEOUT_ACTIONS.get(phase, _TIMEOUT_ACTIONS["unknown"])
+        guidance = (
+            f"ServiceNow {method} request timed out while {action}; remote outcome is unknown. "
+            "A write may have completed remotely. Verify the remote outcome before retrying."
+        )
+        message = f"{guidance} The request was not replayed."
+    else:
+        message = f"ServiceNow HTTP request timed out ({phase}). {guidance} The request was not replayed."
     result = {
         "code": "UPSTREAM_TIMEOUT",
-        "message": f"ServiceNow HTTP request timed out ({phase}). {guidance} The request was not replayed.",
+        "message": message,
         "phase": phase,
         "operation": operation,
     }

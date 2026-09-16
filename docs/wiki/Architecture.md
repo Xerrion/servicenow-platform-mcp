@@ -29,10 +29,12 @@ The server-lifetime HTTP client closes in the MCP lifespan. A directly created
 - The callback binds the configured `127.0.0.1` port and validates state, path, and Host.
 - The authorization request sends `response_type`, client ID, redirect URI, S256 challenge, configured scope, and state.
 - The token request sends grant type, code, redirect URI, client ID, and PKCE verifier.
+- The refresh request sends grant type, refresh token, and public client ID.
 - It does not send a client secret, state, or HTTP Basic authentication to the token endpoint.
-- The access token and monotonic expiry stay in memory.
+- The access token, refresh token, and monotonic access-token expiry stay in memory.
+- Refresh-token rotation is supported; an omitted replacement retains the previous refresh token.
 - Concurrent calls share one valid token.
-- A REST 401 invalidates only the matching token. The request is not replayed.
+- A REST 401 expires only the matching access token. The request is not replayed.
 
 The configured OAuth scope defaults to `useraccount`. The setting accepts one or
 more printable ASCII scope-token values separated by single spaces. ServiceNow
@@ -67,7 +69,7 @@ returns its registry directly.
 
 In-memory state includes:
 
-- **OAuth provider:** access token and expiry only.
+- **OAuth provider:** access token, refresh token, and access-token expiry only.
 - **PreviewTokenStore:** single-use mutation payloads, with a five-minute TTL.
 - **Metadata caches:** choices, dictionary chains and fields, script-field discovery, and audit configuration.
 

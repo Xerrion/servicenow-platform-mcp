@@ -30,8 +30,6 @@ and an MCP client that can start local stdio servers.
        "servicenow-platform": {
          "command": "uvx",
          "args": [
-           "--from",
-           "servicenow-platform-mcp==2.0.1",
            "servicenow-platform-mcp"
          ],
          "env": {
@@ -71,7 +69,7 @@ claude mcp add \
   --env SERVICENOW_OAUTH_CLIENT_ID=your-public-client-id \
   --env MCP_TOOL_PACKAGE=readonly \
   --env SERVICENOW_ENV=dev \
-  -- uvx --from servicenow-platform-mcp==2.0.1 servicenow-platform-mcp
+  -- uvx servicenow-platform-mcp
 ```
 
 Run `claude mcp list` to confirm that Claude Code added the server.
@@ -87,8 +85,6 @@ Create or edit `.vscode/mcp.json` in your workspace:
       "type": "stdio",
       "command": "uvx",
       "args": [
-        "--from",
-        "servicenow-platform-mcp==2.0.1",
         "servicenow-platform-mcp"
       ],
       "env": {
@@ -117,8 +113,6 @@ Add the server to `opencode.json` in your project root, or to
       "type": "local",
       "command": [
         "uvx",
-        "--from",
-        "servicenow-platform-mcp==2.0.1",
         "servicenow-platform-mcp"
       ],
       "environment": {

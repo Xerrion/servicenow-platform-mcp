@@ -44,16 +44,18 @@ class TestSetupSentry:
     """Tests for setup_sentry()."""
 
     def test_disabled_when_no_dsn(self) -> None:
-        """When sentry_dsn is empty, setup completes but does not call init."""
+        """When sentry_dsn is absent, setup leaves all SDK operations disabled."""
         settings = _make_settings()
         with (
             patch.object(sentry_mod, "HAS_SENTRY", True),
             patch.object(sentry_mod, "sentry_sdk", create=True) as mock_sdk,
         ):
             setup_sentry(settings)
+            set_sentry_context("server", {"environment": "dev"})
             mock_sdk.init.assert_not_called()
+            mock_sdk.set_context.assert_not_called()
 
-        assert sentry_mod._initialized is True
+        assert sentry_mod._initialized is False
 
     def test_disabled_when_sdk_not_installed(self) -> None:
         """When sentry-sdk is not installed, setup completes as no-op."""
@@ -61,7 +63,7 @@ class TestSetupSentry:
         with patch.object(sentry_mod, "HAS_SENTRY", False):
             setup_sentry(settings)
 
-        assert sentry_mod._initialized is True
+        assert sentry_mod._initialized is False
 
     def test_calls_init_with_correct_args(self) -> None:
         """When DSN is set and SDK is available, sentry_sdk.init is called with correct args."""
@@ -129,7 +131,7 @@ class TestSetupSentry:
             setup_sentry(settings)
 
         mock_sdk.init.assert_not_called()
-        assert sentry_mod._initialized is True
+        assert sentry_mod._initialized is False
 
     def test_includes_mcp_integration_when_available(self) -> None:
         """When MCPIntegration is available, it is included in integrations list."""

@@ -153,6 +153,9 @@ application for this server. Configure it as follows:
 Save the application and use its public client ID for
 `SERVICENOW_OAUTH_CLIENT_ID`. The default OAuth scope is `useraccount`; set
 `SERVICENOW_OAUTH_SCOPE` only when your application enables a different scope.
+Access-token expiry uses the issued refresh token without a client secret.
+Tokens remain in process memory, so restarting the MCP server requires browser
+authorization again.
 
 OAuth proves the user's identity. It does **not** grant table access. The
 authorized user's REST API policies, roles, table ACLs, field ACLs, and row

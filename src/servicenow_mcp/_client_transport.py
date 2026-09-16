@@ -139,7 +139,7 @@ class ServiceNowRequestClient:
             )
             raise AuthError(
                 "ServiceNow rejected the OAuth token on a REST request (HTTP 401). "
-                "The request was not replayed. On the next tool call, authorize again in the browser. "
+                "The request was not replayed. On the next tool call, refresh the token or authorize again in the browser. "
                 "If a newly issued token is rejected again, "
                 "ask the ServiceNow administrator to check the granted scopes, REST API access policy, "
                 "and user access on the configured instance. A successful token exchange does not establish REST access. "

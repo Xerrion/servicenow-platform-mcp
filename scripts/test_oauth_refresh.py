@@ -274,7 +274,7 @@ def main() -> int:
             print("Timed out waiting for the OAuth callback.", file=sys.stderr)
             return 2
         if server.oauth_error:
-            print(f"ServiceNow returned OAuth error: {server.oauth_error}", file=sys.stderr)
+            print("ServiceNow denied OAuth authorization.", file=sys.stderr)
             return 2
         if not server.authorization_code:
             print("The callback did not contain an authorization code.", file=sys.stderr)

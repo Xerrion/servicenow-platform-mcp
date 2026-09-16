@@ -19,8 +19,8 @@ The server loads settings from environment variables through
 | `LARGE_TABLE_NAMES_CSV` | No | `syslog,sys_audit,syslog_transaction,sys_email_log` | Comma-separated table names that require date-bounded queries. |
 | `HTTPX_TIMEOUT_SECONDS` | No | `30.0` | HTTPX connection/read/write/pool timeout, `1.0`-`600.0` seconds. Not a total MCP request deadline. |
 | `METADATA_CACHE_TTL_SECONDS` | No | `300` | Metadata freshness, `1`-`86400` seconds. |
-| `SENTRY_DSN` | No | Empty | Enables Sentry when non-empty. |
-| `SENTRY_ENVIRONMENT` | No | Empty | Sentry environment label. Empty uses `SERVICENOW_ENV`. |
+| `SENTRY_DSN` | No | Unset | Enables Sentry when configured. Omit when Sentry is not used. |
+| `SENTRY_ENVIRONMENT` | No | Unset | Sentry environment label. When omitted, uses `SERVICENOW_ENV`. |
 
 `SERVICENOW_OAUTH_SCOPE` is optional. The default is `useraccount`. A custom
 value must contain valid OAuth scope-token values and those scopes must be

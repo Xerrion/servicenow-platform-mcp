@@ -52,6 +52,11 @@
   still depends on ServiceNow ACLs. Script discovery through `record_read` and
   `describe`, preview/apply safety, and masking remain unchanged.
 
+### Bug Fixes
+
+- Starting without `SENTRY_DSN` now keeps the Sentry SDK path disabled instead
+  of marking it initialized and invoking SDK context operations.
+
 ## [2.0.1](https://github.com/Xerrion/servicenow-platform-mcp/compare/v2.0.0...v2.0.1) (2026-09-15)
 
 

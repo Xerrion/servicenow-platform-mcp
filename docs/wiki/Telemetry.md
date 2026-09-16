@@ -54,8 +54,8 @@ Do not treat that response as proof that all filter fields were checked.
 
 ## Sentry
 
-`SENTRY_DSN` is the activation gate. Empty `SENTRY_DSN` disables Sentry.
-`SENTRY_ENVIRONMENT` labels events; an empty value uses `SERVICENOW_ENV`.
+`SENTRY_DSN` is the activation gate. Leave it unset when Sentry is not used.
+`SENTRY_ENVIRONMENT` labels events; when omitted, it uses `SERVICENOW_ENV`.
 
 ```dotenv
 SENTRY_DSN=https://example.invalid/project

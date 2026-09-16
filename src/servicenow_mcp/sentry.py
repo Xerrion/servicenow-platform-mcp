@@ -75,7 +75,7 @@ def setup_sentry(settings: "Settings") -> None:
     """Initialize Sentry error tracking with the configured DSN.
 
     No-ops when sentry-sdk is not installed or ``settings.sentry_dsn``
-    is empty. Safe to call multiple times; only the first call takes effect.
+    is empty. Once initialized, subsequent calls have no effect.
 
     Args:
         settings: Application settings containing Sentry configuration.
@@ -87,13 +87,11 @@ def setup_sentry(settings: "Settings") -> None:
 
     if not HAS_SENTRY:
         logger.debug("Sentry disabled (sentry-sdk not installed)")
-        _initialized = True
         return
 
     dsn = settings.sentry_dsn.strip()
     if not dsn:
         logger.debug("Sentry disabled (no DSN configured)")
-        _initialized = True
         return
 
     environment = settings.sentry_environment.strip() or settings.servicenow_env

@@ -247,10 +247,11 @@ environment variables override both.
 | `LARGE_TABLE_NAMES_CSV` | No | `syslog,sys_audit,syslog_transaction,sys_email_log` | Comma-separated names | Tables that require date-bounded queries. |
 | `HTTPX_TIMEOUT_SECONDS` | No | `30.0` | `1.0`-`600.0`, finite | ServiceNow HTTP timeout. |
 | `METADATA_CACHE_TTL_SECONDS` | No | `300` | `1`-`86400` | Freshness window for choice, dictionary, and audit-configuration metadata. |
-| `SENTRY_DSN` | No | Empty | Sentry DSN | Optional error reporting. |
-| `SENTRY_ENVIRONMENT` | No | Empty | Any string | Sentry environment; empty uses `SERVICENOW_ENV`. |
+| `SENTRY_DSN` | No | Unset | Sentry DSN | Optional error reporting. Omit when Sentry is not used. |
+| `SENTRY_ENVIRONMENT` | No | Unset | Any string | Sentry environment; when omitted, uses `SERVICENOW_ENV`. |
 
-Sentry is optional. `SERVICENOW_INSTANCE_URL` and usable authentication are
+Sentry is optional. Leave `SENTRY_DSN` and `SENTRY_ENVIRONMENT` unset when it
+is not used. `SERVICENOW_INSTANCE_URL` and usable authentication are
 validated at startup even when the selected package has no operational tools.
 
 Record writes need no script directory configuration. Put complete script and

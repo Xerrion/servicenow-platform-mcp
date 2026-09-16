@@ -57,6 +57,23 @@
 - Starting without `SENTRY_DSN` now keeps the Sentry SDK path disabled instead
   of marking it initialized and invoking SDK context operations.
 
+## [2.1.0](https://github.com/Xerrion/servicenow-platform-mcp/compare/v2.0.1...v2.1.0) (2026-09-16)
+
+
+### Features
+
+* refresh ServiceNow OAuth tokens ([#174](https://github.com/Xerrion/servicenow-platform-mcp/issues/174)) ([e24cc9b](https://github.com/Xerrion/servicenow-platform-mcp/commit/e24cc9bf6f62e2fc714ed2c246e653650d6714cc))
+
+
+### Bug Fixes
+
+* keep Sentry disabled without DSN ([#177](https://github.com/Xerrion/servicenow-platform-mcp/issues/177)) ([a87274a](https://github.com/Xerrion/servicenow-platform-mcp/commit/a87274aafe75e6dc1a50ceb9e540a282918ed12e))
+
+
+### Documentation
+
+* README to remove version specification ([#176](https://github.com/Xerrion/servicenow-platform-mcp/issues/176)) ([f464da6](https://github.com/Xerrion/servicenow-platform-mcp/commit/f464da615e41657146eb962467d5aa13698849e7))
+
 ## [2.0.1](https://github.com/Xerrion/servicenow-platform-mcp/compare/v2.0.0...v2.0.1) (2026-09-15)
 
 

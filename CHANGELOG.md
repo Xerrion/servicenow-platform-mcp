@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Breaking changes
+
+- Removed the entire `selection` object from tool response envelopes, including
+  field/section echoes, modes, probe limits, and investigation dispatch metadata.
+  Paged reads use `pagination`; compact `describe` pages now include it as well.
+  Flow continuation details appear in top-level `truncation` only when non-empty.
+  ServiceNow record fields named `selection` are preserved.
+
 ## [2.1.0](https://github.com/Xerrion/servicenow-platform-mcp/compare/v2.0.1...v2.1.0) (2026-09-16)
 
 

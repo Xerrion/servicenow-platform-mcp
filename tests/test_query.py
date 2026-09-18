@@ -83,7 +83,7 @@ class TestQueryMode:
         assert "correlation_id" not in result
         assert "warnings" not in result
         assert result["pagination"] == {"offset": 2, "limit": 5, "total": total}
-        assert result["selection"]["returned_fields"] == ["sys_id", "number"]
+        assert "selection" not in result
         assert result["data"] == [{"sys_id": "1", "number": "INC0001"}]
         assert route.calls.last.request.url.params["sysparm_limit"] == "5"
 
@@ -117,12 +117,7 @@ class TestQueryMode:
         assert result["data"][0]["password"] == "***MASKED***"
         assert route.calls.last.request.url.params["sysparm_fields"] == "sys_id,number,password"
         assert result["pagination"] == {"offset": 0, "limit": 20, "total": 2}
-        assert result["selection"] == {
-            "mode": "explicit",
-            "requested_fields": ["number", "password"],
-            "returned_fields": ["sys_id", "number", "password"],
-            "sys_id_added": True,
-        }
+        assert "selection" not in result
 
     @pytest.mark.asyncio()
     @respx.mock
@@ -185,7 +180,7 @@ class TestQueryMode:
         assert result["status"] == "success"
         assert result["data"][0]["password"] == "***MASKED***"
         assert "sysparm_fields" not in route.calls.last.request.url.params
-        assert result["selection"]["mode"] == "all"
+        assert "selection" not in result
 
     @pytest.mark.parametrize("fields", ["description,active,sys_mod_count,sys_tags", "*"])
     @respx.mock
@@ -201,7 +196,7 @@ class TestQueryMode:
 
         assert result["status"] == "success"
         assert result["data"] == [record]
-        assert set(result["selection"]["returned_fields"]) == set(record)
+        assert "selection" not in result
 
     @pytest.mark.asyncio()
     async def test_denied_table_returns_error(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
@@ -314,7 +309,7 @@ class TestSysIdMode:
         assert result["data"]["number"] == "INC0001"
         assert result["data"]["secret"] == "***MASKED***"
         assert "pagination" not in result
-        assert result["selection"]["returned_fields"] == ["sys_id", "number", "secret"]
+        assert "selection" not in result
 
     @pytest.mark.asyncio()
     @respx.mock
@@ -333,7 +328,7 @@ class TestSysIdMode:
 
         assert result["status"] == "success"
         assert route.calls.last.request.url.params["sysparm_fields"] == "sys_id,sys_updated_on"
-        assert result["selection"]["mode"] == "compact"
+        assert "selection" not in result
         assert result["data"] == {"sys_id": sys_id, "sys_updated_on": "now"}
 
     @pytest.mark.asyncio()

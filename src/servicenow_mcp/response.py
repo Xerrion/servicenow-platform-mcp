@@ -27,12 +27,13 @@ def format_response(
     error: str | dict[str, str] | None = None,
     pagination: dict[str, int] | None = None,
     warnings: list[str] | None = None,
-    selection: dict[str, Any] | None = None,
+    truncation: dict[str, Any] | None = None,
 ) -> str:
     """Build and serialize a standardized response envelope.
 
     The *error* field accepts a plain string or a structured dict. Empty
-    warning lists are omitted. Supplied data and metadata are preserved.
+    warning lists and empty truncation details are omitted. Supplied data
+    and pagination are preserved.
     """
     response: dict[str, Any] = {
         "status": status,
@@ -44,7 +45,7 @@ def format_response(
         response["pagination"] = pagination
     if warnings:
         response["warnings"] = warnings
-    if selection is not None:
-        response["selection"] = selection
+    if truncation:
+        response["truncation"] = truncation
 
     return serialize(response)

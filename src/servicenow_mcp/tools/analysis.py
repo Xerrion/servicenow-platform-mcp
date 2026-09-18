@@ -274,7 +274,6 @@ async def _ritm_variables(
         )
 
     total = int(links_result.get("count", len(links)))
-    next_offset = effective_offset + len(links)
     return format_response(
         data={
             "table": "sc_req_item",
@@ -289,11 +288,6 @@ async def _ritm_variables(
             "entries": entries,
         },
         pagination={"offset": effective_offset, "limit": effective_limit, "total": total},
-        selection={
-            "mode": "submitted_answers",
-            "truncated": next_offset < total,
-            "next_offset": next_offset if next_offset < total else None,
-        },
         warnings=list(dict.fromkeys(warnings)) or None,
     )
 
@@ -368,7 +362,6 @@ async def _journal_history(
         if is_sensitive_field(resolve_ref_value(entry.get("element"))):
             entry["value"] = MASK_VALUE
     total = int(result.get("count", len(entries)))
-    next_offset = effective_offset + len(entries)
     return format_response(
         data={
             "table": table,
@@ -379,12 +372,6 @@ async def _journal_history(
             "entries": entries,
         },
         pagination={"offset": effective_offset, "limit": effective_limit, "total": total},
-        selection={
-            "mode": "journal_fields",
-            "requested_fields": requested_fields,
-            "truncated": next_offset < total,
-            "next_offset": next_offset if next_offset < total else None,
-        },
         warnings=["ServiceNow row and field ACLs and journal retention govern completeness."],
     )
 

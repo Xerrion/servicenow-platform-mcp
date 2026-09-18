@@ -9,7 +9,6 @@ from servicenow_mcp.tools._describe_enrichment import (
     fetch_inherited_documentation,
 )
 from servicenow_mcp.tools._describe_projection import (
-    build_selection,
     filter_projected_fields,
     project_fields,
     select_dictionary_fields,
@@ -65,19 +64,11 @@ async def _describe_impl(
         projected_fields, unknown = filter_projected_fields(projected_fields, requested_fields)
         if unknown:
             warnings.append(f"Unknown field(s): {','.join(unknown)}")
-    selection = build_selection(
-        projected_fields,
-        requested_fields,
-        field_offset,
-        field_limit,
-        total_field_count,
-    )
     data: dict[str, Any] = {
         "table": table_info,
         "fields": projected_fields,
         "field_count": len(projected_fields),
         "total_field_count": total_field_count,
-        "selection": selection,
     }
     if include_docs:
         data["documentation"] = documentation

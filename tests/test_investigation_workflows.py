@@ -149,7 +149,7 @@ async def test_real_explanations_accept_their_documented_identifiers(
     response = await _invoke(settings, name, action="explain", element_id=element_id)
     assert response["status"] == "success"
     assert response["data"]["explanation"]
-    assert response["selection"]["dispatch"]["investigation"] == name
+    assert "selection" not in response
     assert "fixture-secret" not in json.dumps(response)
     assert respx.calls
 

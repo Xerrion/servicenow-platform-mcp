@@ -2,8 +2,8 @@
 
 A zero-match trigger search does not prove absence when a source read was incomplete. Check `data.is_complete` in `flow(action="list_triggers")` before drawing that conclusion.
 
-- `pagination.total`, `data.v1_count`, and `data.v2_count` count returned matches. `selection.total_kind` is `returned_matches`, not a platform-wide count.
-- `data.is_complete=false` and a warning mean the source page, a trigger batch, or the merged per-version result reached a limit. `selection.truncation` identifies the affected source and gives continuation guidance.
+- `pagination.total`, `data.v1_count`, and `data.v2_count` count returned matches, not platform-wide totals.
+- `data.is_complete=false` and a warning mean the source page, a trigger batch, or the merged per-version result reached a limit. Top-level `truncation` identifies the affected source and gives continuation guidance; it is omitted when empty.
 - The `sys_flow_record_trigger` entry includes `returned`, `total`, and `limit`. `total=null` means the total-count header was missing or unusable. A full page with an unknown total is conservatively marked incomplete.
 - Trigger-source entries contain `batches` with the encoded query, fetched count, returned count, known total, limit, and continuation. Restart an affected batch with the direct `query` tool, then advance `offset`; the merged limit can omit rows within that batch.
 

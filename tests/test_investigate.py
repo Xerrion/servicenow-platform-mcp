@@ -221,11 +221,7 @@ async def test_explain_dispatches_to_module_explain(settings: Settings, auth_pro
     assert await_args is not None
     _client_arg, element_arg = await_args.args
     assert element_arg == "sys_flow_context:fc001"
-    assert result["selection"]["dispatch"] == {
-        "mode": "trial",
-        "investigation": "my_stub",
-        "attempted": ["my_stub"],
-    }
+    assert "selection" not in result
 
 
 @pytest.mark.asyncio()
@@ -251,11 +247,7 @@ async def test_explain_direct_dispatch_invokes_only_named_module(
     assert result["data"] == {"error": "selected module declined"}
     selected.explain.assert_awaited_once()
     other.explain.assert_not_awaited()
-    assert result["selection"]["dispatch"] == {
-        "mode": "direct",
-        "investigation": "selected",
-        "attempted": ["selected"],
-    }
+    assert "selection" not in result
 
 
 @pytest.mark.asyncio()
@@ -281,7 +273,7 @@ async def test_explain_unknown_direct_name_fails_before_io(
 async def test_explain_legacy_trial_dispatch_continues_after_decline(
     settings: Settings, auth_provider: OAuthPKCEProvider
 ) -> None:
-    """Without a selector, explain keeps trial dispatch and reports all attempts."""
+    """Without a selector, explain keeps trial dispatch until a module accepts."""
     first = StubModule()
     first.explain = AsyncMock(return_value={"error": "declined"})
     second = StubModule()
@@ -295,11 +287,8 @@ async def test_explain_legacy_trial_dispatch_continues_after_decline(
 
     first.explain.assert_awaited_once()
     second.explain.assert_awaited_once()
-    assert result["selection"]["dispatch"] == {
-        "mode": "trial",
-        "investigation": "second",
-        "attempted": ["first", "second"],
-    }
+    assert result["data"] == {"explanation": "accepted"}
+    assert "selection" not in result
 
 
 # ---------------------------------------------------------------------------

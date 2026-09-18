@@ -40,10 +40,9 @@ class LabelPair:
 
 @dataclass(frozen=True)
 class Projection:
-    """A parsed ServiceNow field projection and its response metadata."""
+    """A parsed ServiceNow field projection."""
 
     fields: list[str] | None
-    selection: dict[str, object]
 
 
 def parse_aggregate(spec: str) -> AggregatePlan | str:
@@ -104,17 +103,9 @@ def parse_label_pairs(spec: str) -> list[LabelPair] | str:
 
 
 def parse_projection(fields: str, *, compact_default: bool) -> Projection | str:
-    """Parse a field projection and describe its response contract."""
+    """Parse a field projection, including sys_id for explicit field lists."""
     if fields.strip() == "*":
-        return Projection(
-            fields=None,
-            selection={
-                "mode": "all",
-                "requested_fields": "*",
-                "returned_fields": "all fields returned by ServiceNow",
-                "sys_id_added": False,
-            },
-        )
+        return Projection(fields=None)
 
     requested = [item.strip() for item in fields.split(",") if item.strip()]
     if "*" in requested:
@@ -123,24 +114,12 @@ def parse_projection(fields: str, *, compact_default: bool) -> Projection | str:
         if not compact_default:
             return "fields is required for list mode. Use a comma-separated projection or fields='*' for all fields."
         requested = list(_COMPACT_RECORD_FIELDS)
-        mode = "compact"
-    else:
-        mode = "explicit"
 
     for name in requested:
         validate_identifier(name)
 
-    sys_id_added = "sys_id" not in requested
     projected = list(dict.fromkeys(["sys_id", *requested]))
-    return Projection(
-        fields=projected,
-        selection={
-            "mode": mode,
-            "requested_fields": None if mode == "compact" else requested,
-            "returned_fields": projected,
-            "sys_id_added": sys_id_added,
-        },
-    )
+    return Projection(fields=projected)
 
 
 def parse_group_fields(group_by: str) -> list[str]:

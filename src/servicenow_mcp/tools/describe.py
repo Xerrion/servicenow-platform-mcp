@@ -1,13 +1,6 @@
-"""Unified ``describe`` tool: slim field metadata for any table.
+"""Table metadata discovery and slim or verbose field descriptions.
 
-Phase 3a relocation of ``tools/table.py:table_describe``. The behavior, return
-shape, policy gates, and warning strategy are identical; only the tool name
-(``describe``) and module location change. The legacy ``table_describe`` stays
-registered until Phase 3b flips the package registry over.
-
-Helpers for projecting sys_dictionary rows into the slim/verbose shapes live in
-``servicenow_mcp.tools._describe_helpers`` so the legacy and unified tools share
-a single source of truth.
+Projection helpers live in ``servicenow_mcp.tools._describe_helpers``.
 """
 
 import logging
@@ -32,7 +25,6 @@ from servicenow_mcp.validation import validate_identifier
 
 logger = logging.getLogger(__name__)
 
-TOOL_NAMES: list[str] = ["describe"]
 
 _VALID_DESCRIBE_ACTIONS: frozenset[str] = frozenset({"list_script_fields", "list_tables"})
 
@@ -147,16 +139,18 @@ def register_tools(
     @mcp.tool()
     @tool_handler
     async def describe(
-        table: str = "",
-        fields: str = "",
-        verbose: bool = False,
-        include_docs: bool = False,
-        action: str = "",
-        name_filter: str = "",
-        field_offset: int = 0,
-        field_limit: int = DEFAULT_DESCRIBE_FIELD_LIMIT,
+        table: str | None = None,
+        fields: str | None = None,
+        verbose: bool | None = False,
+        include_docs: bool | None = False,
+        action: str | None = None,
+        name_filter: str | None = None,
+        field_offset: int | None = 0,
+        field_limit: int | None = DEFAULT_DESCRIBE_FIELD_LIMIT,
     ) -> str:
         """Return slim field metadata for a table, or list tables / script fields.
+
+        Omit unused optional arguments; null uses their defaults.
 
         Args:
             table: ServiceNow table name. Required for the default flow and for
@@ -178,6 +172,15 @@ def register_tools(
             field_offset: Zero-based field offset for compact default pages.
             field_limit: Field count for compact default pages (1-100).
         """
+        table = "" if table is None else table
+        fields = "" if fields is None else fields
+        verbose = False if verbose is None else verbose
+        include_docs = False if include_docs is None else include_docs
+        action = "" if action is None else action
+        name_filter = "" if name_filter is None else name_filter
+        field_offset = 0 if field_offset is None else field_offset
+        field_limit = DEFAULT_DESCRIBE_FIELD_LIMIT if field_limit is None else field_limit
+
         if action:
             if action not in _VALID_DESCRIBE_ACTIONS:
                 return format_response(

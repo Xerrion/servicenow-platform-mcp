@@ -61,10 +61,6 @@ class AsyncMetadataCache[K: Hashable, V]:
             task.add_done_callback(self._load_finished_callback(key))
         return await asyncio.shield(task)
 
-    def contains(self, key: K) -> bool:
-        """Return whether ``key`` has an entry, including an expired entry not yet read."""
-        return key in self._entries
-
     def seed(self, key: K, value: V) -> None:
         """Store a value with the configured TTL without running a loader."""
         self._entries[key] = _CacheEntry(value=value, expires_at=self._clock() + self._ttl_seconds)
@@ -108,10 +104,7 @@ class AsyncMetadataCache[K: Hashable, V]:
     ) -> V:
         value = await loader()
         if self._global_version == global_version and self._key_versions.get(key, 0) == key_version:
-            self._entries[key] = _CacheEntry(value=value, expires_at=self._clock() + self._ttl_seconds)
-            self._entries.move_to_end(key)
-            if len(self._entries) > _MAX_ENTRIES:
-                self._entries.popitem(last=False)
+            self.seed(key, value)
             self._record("reload")
         return value
 

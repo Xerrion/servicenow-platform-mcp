@@ -19,12 +19,12 @@ pytestmark = pytest.mark.integration
 #   query (1), describe (1), record_write (2: record_write + record_apply),
 #   record_read (1), attachment (1), attachment_write (1),
 #   investigate (1), resolve_choice (1), service_catalog (1), analysis (1), audit (1),
-#   flow (1), code_search (1).
+#   flow (1), code_search (1), cmdb (1).
 EXPECTED_TOOL_COUNTS: dict[str, int] = {
-    # full preset: 1 always-on plus 14 package tools.
-    "full": 15,
-    # readonly preset: 1 always-on plus 10 package tools.
-    "readonly": 11,
+    # full preset: 1 always-on plus 15 package tools.
+    "full": 16,
+    # readonly preset: 1 always-on plus 11 package tools.
+    "readonly": 12,
     # core_readonly preset: 1 always-on plus query, describe, and attachment.
     "core_readonly": 4,
     # none preset: only list_tool_packages.
@@ -121,9 +121,11 @@ class TestPackageLoading:
             "investigate",
             "resolve_choice",
             "service_catalog",
+            "analysis",
             "audit",
             "flow",
             "code_search",
+            "cmdb",
         }
         assert tool_names == expected
 

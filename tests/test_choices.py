@@ -26,8 +26,7 @@ def auth_provider(settings: Settings) -> OAuthPKCEProvider:
 def _make_registry_with_defaults(settings: Settings, auth_provider: OAuthPKCEProvider) -> ChoiceRegistry:
     """Create a ChoiceRegistry pre-populated with OOTB defaults (no network)."""
     registry = ChoiceRegistry(settings, auth_provider)
-    registry._cache = {k: dict(v) for k, v in ChoiceRegistry._DEFAULTS.items()}
-    registry._metadata_cache.seed("all", registry._cache)
+    registry._metadata_cache.seed("all", {k: dict(v) for k, v in ChoiceRegistry._DEFAULTS.items()})
     return registry
 
 
@@ -160,8 +159,7 @@ class TestChoiceRegistryFetch:
         """A fresh choices hit does not call the client factory."""
         client_factory = AsyncMock(side_effect=AssertionError("client factory called"))
         registry = ChoiceRegistry(settings, auth_provider, cast("ServiceNowClientProvider", client_factory))
-        registry._cache = {("incident", "state"): {"open": "1"}}
-        registry._metadata_cache.seed("all", registry._cache)
+        registry._metadata_cache.seed("all", {("incident", "state"): {"open": "1"}})
 
         assert await registry.resolve("incident", "state", "open") == "1"
         client_factory.assert_not_called()
@@ -196,8 +194,8 @@ class TestChoiceRegistryFetch:
 
     @pytest.mark.asyncio()
     @respx.mock
-    async def test_concurrent_fetch_uses_lock(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-        """Concurrent resolve() calls should only trigger one HTTP fetch via asyncio.Lock."""
+    async def test_concurrent_fetch_shares_load(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+        """Concurrent resolve() calls should share one HTTP fetch."""
         route = respx.get(f"{BASE_URL}/api/now/table/sys_choice").mock(
             return_value=Response(
                 200,
@@ -361,10 +359,10 @@ class TestChoiceRegistryExceptionPaths:
 
         original_fetch = ChoiceRegistry._fetch_from_instance
 
-        async def slow_fetch(self_inner: ChoiceRegistry) -> None:
-            """Delay fetch so the second caller queues on the lock."""
+        async def slow_fetch(self_inner: ChoiceRegistry) -> dict[tuple[str, str], dict[str, str]]:
+            """Delay fetch so the second caller shares the pending load."""
             await gate.wait()
-            await original_fetch(self_inner)
+            return await original_fetch(self_inner)
 
         respx.get(f"{BASE_URL}/api/now/table/sys_choice").mock(
             return_value=Response(
@@ -380,7 +378,7 @@ class TestChoiceRegistryExceptionPaths:
             task1 = asyncio.create_task(registry.resolve("incident", "state", "open"))
             task2 = asyncio.create_task(registry.resolve("incident", "state", "closed"))
 
-            # Let both tasks start and queue on the lock
+            # Let both tasks start and share the pending load
             await asyncio.sleep(0.05)
 
             # Release the gate so the first fetch completes
@@ -391,8 +389,6 @@ class TestChoiceRegistryExceptionPaths:
         # Both should resolve using defaults (empty instance data merged with defaults)
         assert results[0] == "1"  # "open" from defaults
         assert results[1] == "7"  # "closed" from defaults
-
-        # Fetch should only have been called once - the second task hit the double-check
 
     @pytest.mark.asyncio()
     @respx.mock
@@ -414,10 +410,8 @@ class TestChoiceRegistryExceptionPaths:
     async def test_fetch_from_instance_empty_defaults(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
-        """When _DEFAULTS is empty, _fetch_from_instance should set cache to {} and return early."""
+        """An empty tracked set returns an empty mapping without an HTTP request."""
         registry = ChoiceRegistry(settings, auth_provider)
 
         with patch.object(ChoiceRegistry, "_DEFAULTS", {}):
-            await registry._fetch_from_instance()
-
-        assert registry._cache == {}
+            assert await registry._fetch_from_instance() == {}

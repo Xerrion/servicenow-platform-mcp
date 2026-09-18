@@ -5,6 +5,11 @@ import json
 from typing import Any
 from unittest.mock import patch
 
+import pytest
+from mcp.server import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
+from mcp.types import CallToolResult
+
 from servicenow_mcp.decorators import _REDACTED, _redact_args, tool_handler
 from servicenow_mcp.errors import ForbiddenError
 from servicenow_mcp.response import format_response
@@ -48,6 +53,53 @@ class TestToolHandler:
 
         assert inspect.unwrap(my_tool) is not my_tool
         assert not hasattr(my_tool, "__signature__")
+
+    @pytest.mark.parametrize("value", [None, "", "null", "false", "123", '"quoted"', '{"field":null}', '[false,0,""]'])
+    async def test_nullable_string_survives_mcp_validation(self, value: str | None) -> None:
+        """Nullable text must not be JSON-decoded by the MCP SDK."""
+        mcp = MCPServer("test")
+
+        @mcp.tool()
+        @tool_handler
+        async def echo(required: str, value: str | None = None) -> str:
+            return format_response(data={"required": required, "value": value})
+
+        schema = (await mcp.list_tools())[0].input_schema
+        assert schema["required"] == ["required"]
+        assert schema["properties"]["value"]["default"] is None
+        assert {choice["type"] for choice in schema["properties"]["value"]["anyOf"]} == {"string", "null"}
+        result = await mcp.call_tool("echo", {"required": "null", "value": value})
+        assert isinstance(result, CallToolResult)
+        assert isinstance(result.structured_content, dict)
+        assert json.loads(result.structured_content["result"])["data"] == {"required": "null", "value": value}
+
+    @pytest.mark.parametrize("value", [{"field": None}, [False, 0], False, 123])
+    async def test_nullable_string_rejects_non_string_values(self, value: Any) -> None:
+        """Adding null support does not make arbitrary JSON values valid text."""
+        mcp = MCPServer("test")
+
+        @mcp.tool()
+        @tool_handler
+        async def echo(value: str | None = None) -> str:
+            return format_response(data=value)
+
+        with pytest.raises(ToolError, match="Input should be a valid string"):
+            await mcp.call_tool("echo", {"value": value})
+
+    async def test_nullable_string_keeps_non_empty_default_and_wrapped_function(self) -> None:
+        mcp = MCPServer("test")
+
+        @mcp.tool()
+        @tool_handler
+        async def echo(value: str | None = "{}") -> str:
+            return format_response(data=value)
+
+        assert inspect.unwrap(echo) is not echo
+        assert inspect.signature(echo).parameters["value"].default == "{}"
+        result = await mcp.call_tool("echo", {})
+        assert isinstance(result, CallToolResult)
+        assert isinstance(result.structured_content, dict)
+        assert json.loads(result.structured_content["result"])["data"] == "{}"
 
     async def test_catches_generic_exception(self) -> None:
         """Exceptions in the tool body are caught and returned as opaque envelopes.
@@ -138,6 +190,7 @@ class TestToolHandler:
 
         # Check calling the tool works
         call_result = await mcp.call_tool("test_tool", {"table": "my_table"})
+        assert isinstance(call_result, CallToolResult)
         assert call_result.result_type == "complete"
         result = call_result.structured_content
         assert isinstance(result, dict)

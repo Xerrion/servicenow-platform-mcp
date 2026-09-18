@@ -53,42 +53,11 @@ class ServiceNowQuery:
     def __init__(self) -> None:
         self._parts: list[str] = []
 
-    # --- Comparison operators ---
-
     def equals(self, field: str, value: str) -> "ServiceNowQuery":
         """Add ``field=value`` condition."""
         validate_identifier(field)
         value = sanitize_query_value(value)
         self._parts.append(f"{field}={value}")
-        return self
-
-    def equals_if(self, field: str, value: str, condition: bool) -> "ServiceNowQuery":
-        """Conditionally add an equals filter.
-
-        Appends ``field=value`` only when *condition* is truthy,
-        allowing fluent one-liner filters without external ``if`` guards.
-
-        Args:
-            field: The field name.
-            value: The comparison value.
-            condition: When truthy the filter is added; otherwise this is a no-op.
-        """
-        if condition:
-            return self.equals(field, value)
-        return self
-
-    def not_equals(self, field: str, value: str) -> "ServiceNowQuery":
-        """Add ``field!=value`` condition."""
-        validate_identifier(field)
-        value = sanitize_query_value(value)
-        self._parts.append(f"{field}!={value}")
-        return self
-
-    def greater_than(self, field: str, value: str) -> "ServiceNowQuery":
-        """Add ``field>value`` condition."""
-        validate_identifier(field)
-        value = sanitize_query_value(value)
-        self._parts.append(f"{field}>{value}")
         return self
 
     def greater_or_equal(self, field: str, value: str) -> "ServiceNowQuery":
@@ -98,97 +67,12 @@ class ServiceNowQuery:
         self._parts.append(f"{field}>={value}")
         return self
 
-    def less_than(self, field: str, value: str) -> "ServiceNowQuery":
-        """Add ``field<value`` condition."""
-        validate_identifier(field)
-        value = sanitize_query_value(value)
-        self._parts.append(f"{field}<{value}")
-        return self
-
-    def less_or_equal(self, field: str, value: str) -> "ServiceNowQuery":
-        """Add ``field<=value`` condition."""
-        validate_identifier(field)
-        value = sanitize_query_value(value)
-        self._parts.append(f"{field}<={value}")
-        return self
-
-    # --- String operators ---
-
-    def contains(self, field: str, value: str) -> "ServiceNowQuery":
-        """Add ``fieldCONTAINSvalue`` condition."""
-        validate_identifier(field)
-        value = sanitize_query_value(value)
-        self._parts.append(f"{field}CONTAINS{value}")
-        return self
-
-    def starts_with(self, field: str, value: str) -> "ServiceNowQuery":
-        """Add ``fieldSTARTSWITHvalue`` condition."""
-        validate_identifier(field)
-        value = sanitize_query_value(value)
-        self._parts.append(f"{field}STARTSWITH{value}")
-        return self
-
     def like(self, field: str, value: str) -> "ServiceNowQuery":
         """Add ``fieldLIKEvalue`` condition."""
         validate_identifier(field)
         value = sanitize_query_value(value)
         self._parts.append(f"{field}LIKE{value}")
         return self
-
-    def ends_with(self, field: str, value: str) -> "ServiceNowQuery":
-        """Add ``fieldENDSWITHvalue`` condition."""
-        validate_identifier(field)
-        value = sanitize_query_value(value)
-        self._parts.append(f"{field}ENDSWITH{value}")
-        return self
-
-    def not_like(self, field: str, value: str) -> "ServiceNowQuery":
-        """Add ``fieldNOT LIKEvalue`` (does not contain) condition."""
-        validate_identifier(field)
-        value = sanitize_query_value(value)
-        self._parts.append(f"{field}NOT LIKE{value}")
-        return self
-
-    def does_not_contain(self, field: str, value: str) -> "ServiceNowQuery":
-        """Alias for :meth:`not_like` -- ``fieldNOT LIKEvalue``."""
-        return self.not_like(field, value)
-
-    def between(self, field: str, start: str, end: str) -> "ServiceNowQuery":
-        """Add ``fieldBETWEENstart@end`` condition.
-
-        Used for date ranges and numeric ranges in ServiceNow.
-
-        Args:
-            field: The field name.
-            start: Range start value (e.g. ``"2026-01-01"``).
-            end: Range end value (e.g. ``"2026-12-31"``).
-        """
-        validate_identifier(field)
-        start = sanitize_query_value(start)
-        end = sanitize_query_value(end)
-        self._parts.append(f"{field}BETWEEN{start}@{end}")
-        return self
-
-    def anything(self, field: str) -> "ServiceNowQuery":
-        """Add ``fieldANYTHING`` condition (matches any value).
-
-        Primarily used in notification filter conditions.
-        """
-        validate_identifier(field)
-        self._parts.append(f"{field}ANYTHING")
-        return self
-
-    def empty_string(self, field: str) -> "ServiceNowQuery":
-        """Add ``fieldEMPTYSTRING`` condition (matches empty string specifically).
-
-        Unlike :meth:`is_empty` which matches NULL/missing values,
-        this matches fields that contain an empty string ``""``.
-        """
-        validate_identifier(field)
-        self._parts.append(f"{field}EMPTYSTRING")
-        return self
-
-    # --- Null operators ---
 
     def is_empty(self, field: str) -> "ServiceNowQuery":
         """Add ``fieldISEMPTY`` condition."""
@@ -202,8 +86,6 @@ class ServiceNowQuery:
         self._parts.append(f"{field}ISNOTEMPTY")
         return self
 
-    # --- GlideSystem time filters (server-side, timezone-correct) ---
-
     def hours_ago(self, field: str, hours: int) -> "ServiceNowQuery":
         """Add ``field>=javascript:gs.hoursAgoStart(hours)`` condition.
 
@@ -216,34 +98,6 @@ class ServiceNowQuery:
         if not (1 <= hours <= 8760):
             raise ValueError(f"hours must be between 1 and 8760, got {hours}")
         self._parts.append(f"{field}>=javascript:gs.hoursAgoStart({hours})")
-        return self
-
-    def minutes_ago(self, field: str, minutes: int) -> "ServiceNowQuery":
-        """Add ``field>=javascript:gs.minutesAgoStart(minutes)`` condition.
-
-        Args:
-            field: Field name (validated as identifier).
-            minutes: Number of minutes, 1-525600 (1 year).
-        """
-        validate_identifier(field)
-        minutes = int(minutes)
-        if not (1 <= minutes <= 525600):
-            raise ValueError(f"minutes must be between 1 and 525600, got {minutes}")
-        self._parts.append(f"{field}>=javascript:gs.minutesAgoStart({minutes})")
-        return self
-
-    def days_ago(self, field: str, days: int) -> "ServiceNowQuery":
-        """Add ``field>=javascript:gs.daysAgoStart(days)`` condition.
-
-        Args:
-            field: Field name (validated as identifier).
-            days: Number of days, 1-365.
-        """
-        validate_identifier(field)
-        days = int(days)
-        if not (1 <= days <= 365):
-            raise ValueError(f"days must be between 1 and 365, got {days}")
-        self._parts.append(f"{field}>=javascript:gs.daysAgoStart({days})")
         return self
 
     def older_than_days(self, field: str, days: int) -> "ServiceNowQuery":
@@ -260,97 +114,6 @@ class ServiceNowQuery:
         self._parts.append(f"{field}<=javascript:gs.daysAgoEnd({days})")
         return self
 
-    # --- Date/time operators ---
-
-    def on(self, field: str, date_value: str) -> "ServiceNowQuery":
-        """Add ``fieldONdate_value`` condition (exact date match).
-
-        Args:
-            field: A date/datetime field name.
-            date_value: Date string (e.g. ``"2026-01-15"``).
-        """
-        validate_identifier(field)
-        date_value = sanitize_query_value(date_value)
-        self._parts.append(f"{field}ON{date_value}")
-        return self
-
-    def not_on(self, field: str, date_value: str) -> "ServiceNowQuery":
-        """Add ``fieldNOTONdate_value`` condition (not on a specific date).
-
-        Args:
-            field: A date/datetime field name.
-            date_value: Date string (e.g. ``"2026-01-15"``).
-        """
-        validate_identifier(field)
-        date_value = sanitize_query_value(date_value)
-        self._parts.append(f"{field}NOTON{date_value}")
-        return self
-
-    def relative_gt(self, field: str, value: str) -> "ServiceNowQuery":
-        """Add ``fieldRELATIVEGTvalue`` condition.
-
-        Matches records where *field* is greater than a relative date.
-        Value uses ServiceNow relative date syntax (e.g. ``"@year@ago@1"``).
-
-        Args:
-            field: A date/datetime field name.
-            value: Relative date expression.
-        """
-        validate_identifier(field)
-        value = sanitize_query_value(value)
-        self._parts.append(f"{field}RELATIVEGT{value}")
-        return self
-
-    def relative_lt(self, field: str, value: str) -> "ServiceNowQuery":
-        """Add ``fieldRELATIVELTvalue`` condition.
-
-        Matches records where *field* is less than a relative date.
-        Value uses ServiceNow relative date syntax (e.g. ``"@year@ago@1"``).
-
-        Args:
-            field: A date/datetime field name.
-            value: Relative date expression.
-        """
-        validate_identifier(field)
-        value = sanitize_query_value(value)
-        self._parts.append(f"{field}RELATIVELT{value}")
-        return self
-
-    def more_than(self, field: str, value: str) -> "ServiceNowQuery":
-        """Add ``fieldMORETHANvalue`` condition.
-
-        Used for "more than X ago" date conditions.
-        Value uses ServiceNow syntax (e.g. ``"@hour@ago@3"`` for "more than 3 hours ago").
-
-        Args:
-            field: A date/datetime field name.
-            value: Time specification string.
-        """
-        validate_identifier(field)
-        value = sanitize_query_value(value)
-        self._parts.append(f"{field}MORETHAN{value}")
-        return self
-
-    def datepart(self, field: str, part: str, operator: str, value: str) -> "ServiceNowQuery":
-        """Add a DATEPART condition to query by a component of a date field.
-
-        Generates: ``fieldDATEPARTpart@operator@value``
-
-        Args:
-            field: A date/datetime field name.
-            part: Date part (e.g. ``"dayofweek"``, ``"month"``, ``"year"``, ``"quarter"``).
-            operator: Comparison operator (e.g. ``"="``, ``">"``, ``"<"``).
-            value: The comparison value (e.g. ``"1"`` for Monday).
-        """
-        validate_identifier(field)
-        part = sanitize_query_value(part)
-        operator = sanitize_query_value(operator)
-        value = sanitize_query_value(value)
-        self._parts.append(f"{field}DATEPART{part}@{operator}@{value}")
-        return self
-
-    # --- IN / NOT IN operators ---
-
     def in_list(self, field: str, values: list[str]) -> "ServiceNowQuery":
         """Add ``fieldINvalue1,value2,...`` condition.
 
@@ -363,132 +126,6 @@ class ServiceNowQuery:
         self._parts.append(f"{field}IN{sanitized}")
         return self
 
-    def not_in_list(self, field: str, values: list[str]) -> "ServiceNowQuery":
-        """Add ``fieldNOT INvalue1,value2,...`` condition.
-
-        Args:
-            field: Field name (validated as identifier).
-            values: List of values; each is sanitized individually.
-        """
-        validate_identifier(field)
-        sanitized = ",".join(sanitize_query_value(v) for v in values)
-        self._parts.append(f"{field}NOT IN{sanitized}")
-        return self
-
-    # -- Field comparison --------------------------------------------------------
-
-    def gt_field(self, field: str, other_field: str) -> "ServiceNowQuery":
-        """Add ``fieldGT_FIELDother_field`` condition (field > other field)."""
-        validate_identifier(field)
-        validate_identifier(other_field)
-        self._parts.append(f"{field}GT_FIELD{other_field}")
-        return self
-
-    def lt_field(self, field: str, other_field: str) -> "ServiceNowQuery":
-        """Add ``fieldLT_FIELDother_field`` condition (field < other field)."""
-        validate_identifier(field)
-        validate_identifier(other_field)
-        self._parts.append(f"{field}LT_FIELD{other_field}")
-        return self
-
-    def gt_or_equals_field(self, field: str, other_field: str) -> "ServiceNowQuery":
-        """Add ``fieldGT_OR_EQUALS_FIELDother_field`` condition (field >= other field)."""
-        validate_identifier(field)
-        validate_identifier(other_field)
-        self._parts.append(f"{field}GT_OR_EQUALS_FIELD{other_field}")
-        return self
-
-    def lt_or_equals_field(self, field: str, other_field: str) -> "ServiceNowQuery":
-        """Add ``fieldLT_OR_EQUALS_FIELDother_field`` condition (field <= other field)."""
-        validate_identifier(field)
-        validate_identifier(other_field)
-        self._parts.append(f"{field}LT_OR_EQUALS_FIELD{other_field}")
-        return self
-
-    def same_as(self, field: str, other_field: str) -> "ServiceNowQuery":
-        """Add ``fieldSAMEASother_field`` condition (field equals other field)."""
-        validate_identifier(field)
-        validate_identifier(other_field)
-        self._parts.append(f"{field}SAMEAS{other_field}")
-        return self
-
-    def not_same_as(self, field: str, other_field: str) -> "ServiceNowQuery":
-        """Add ``fieldNSAMEASother_field`` condition (field != other field)."""
-        validate_identifier(field)
-        validate_identifier(other_field)
-        self._parts.append(f"{field}NSAMEAS{other_field}")
-        return self
-
-    # -- Reference / hierarchy ---------------------------------------------------
-
-    def dynamic(self, field: str, value: str) -> "ServiceNowQuery":
-        """Add ``fieldDYNAMICvalue`` condition (dynamic reference qualifier).
-
-        Args:
-            field: A reference field name.
-            value: The dynamic qualifier value (e.g. a reference qualifier script name).
-        """
-        validate_identifier(field)
-        value = sanitize_query_value(value)
-        self._parts.append(f"{field}DYNAMIC{value}")
-        return self
-
-    def in_hierarchy(self, field: str, value: str) -> "ServiceNowQuery":
-        """Add ``fieldIN_HIERARCHYvalue`` condition.
-
-        Matches records where *field* references a CI within the given hierarchy.
-
-        Args:
-            field: A reference field name pointing to a CMDB CI.
-            value: The sys_id of the parent CI in the hierarchy.
-        """
-        validate_identifier(field)
-        value = sanitize_query_value(value)
-        self._parts.append(f"{field}IN_HIERARCHY{value}")
-        return self
-
-    # -- Change detection --------------------------------------------------------
-
-    def val_changes(self, field: str) -> "ServiceNowQuery":
-        """Add ``fieldVALCHANGES`` condition (field value changed).
-
-        Used primarily in notification/business rule conditions to detect
-        when a field's value has changed.
-        """
-        validate_identifier(field)
-        self._parts.append(f"{field}VALCHANGES")
-        return self
-
-    def changes_from(self, field: str, value: str) -> "ServiceNowQuery":
-        """Add ``fieldCHANGESFROMvalue`` condition.
-
-        Matches when *field* changes from a specific value.
-
-        Args:
-            field: The field name.
-            value: The previous value to match against.
-        """
-        validate_identifier(field)
-        value = sanitize_query_value(value)
-        self._parts.append(f"{field}CHANGESFROM{value}")
-        return self
-
-    def changes_to(self, field: str, value: str) -> "ServiceNowQuery":
-        """Add ``fieldCHANGESTOvalue`` condition.
-
-        Matches when *field* changes to a specific value.
-
-        Args:
-            field: The field name.
-            value: The new value to match against.
-        """
-        validate_identifier(field)
-        value = sanitize_query_value(value)
-        self._parts.append(f"{field}CHANGESTO{value}")
-        return self
-
-    # -- Logical -----------------------------------------------------------------
-
     def new_query(self) -> "ServiceNowQuery":
         """Append ``^NQ`` to start a new OR-filter group.
 
@@ -498,33 +135,6 @@ class ServiceNowQuery:
         """
         self._parts.append("NQ")
         return self
-
-    # -- Related list query ------------------------------------------------------
-
-    def rl_query(self, related_table: str, related_field: str, operator: str, value: str) -> "ServiceNowQuery":
-        """Add a related list query (``^RLQUERY...^ENDRLQUERY``).
-
-        Filters records based on conditions on a related table.
-        For example, find incidents that have a task with state=2:
-
-            ``^RLQUERYtask.incident,state,=,2^ENDRLQUERY``
-
-        Args:
-            related_table: Dot-walk path from the related table to this table
-                           (e.g. ``"task.incident"``).
-            related_field: Field on the related table to filter on.
-            operator: The comparison operator (e.g. ``"="``, ``"!="``, ``"LIKE"``).
-            value: The comparison value.
-        """
-        related_table = sanitize_query_value(related_table)
-        validate_identifier(related_field)
-        operator = sanitize_query_value(operator)
-        value = sanitize_query_value(value)
-        self._parts.append(f"RLQUERY{related_table},{related_field},{operator},{value}")
-        self._parts.append("ENDRLQUERY")
-        return self
-
-    # -- OR conditions ---------------------------------------------------------
 
     def or_condition(self, field: str, operator: str, value: str) -> "ServiceNowQuery":
         """Append an OR condition: ``^ORfield<OPERATOR>value``.
@@ -559,8 +169,6 @@ class ServiceNowQuery:
         """
         return self.or_condition(field, "STARTSWITH", value)
 
-    # --- Ordering ---
-
     def order_by(self, field: str, descending: bool = False) -> "ServiceNowQuery":
         """Append an ``ORDERBY`` or ``ORDERBYDESC`` directive.
 
@@ -572,24 +180,6 @@ class ServiceNowQuery:
         prefix = "ORDERBYDESC" if descending else "ORDERBY"
         self._parts.append(f"{prefix}{field}")
         return self
-
-    # --- Raw fragment ---
-
-    def raw(self, fragment: str) -> "ServiceNowQuery":
-        """Append a raw encoded query fragment.
-
-        .. warning::
-
-            This method performs **no** validation or sanitization.
-            Only use it for trusted, pre-validated query fragments.
-            Prefer the typed builder methods whenever possible to
-            ensure field-name validation and value escaping.
-        """
-        if fragment:
-            self._parts.append(fragment)
-        return self
-
-    # --- Build ---
 
     def build(self) -> str:
         """Return the joined encoded query string."""

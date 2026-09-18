@@ -21,8 +21,6 @@ from servicenow_mcp.tools._attachment_common import (
 from servicenow_mcp.validation import validate_identifier, validate_sys_id
 
 
-TOOL_NAMES: list[str] = ["attachment_write"]
-
 _VALID_WRITE_ACTIONS: Final[frozenset[str]] = frozenset({"upload", "delete"})
 
 
@@ -120,14 +118,17 @@ def register_tools(
     @tool_handler
     async def attachment_write(
         action: str,
-        table: str = "",
-        table_sys_id: str = "",
-        file_name: str = "",
-        content_base64: str = "",
-        content_type: str = "application/octet-stream",
-        sys_id: str = "",
+        table: str | None = None,
+        table_sys_id: str | None = None,
+        file_name: str | None = None,
+        content_base64: str | None = None,
+        content_type: str | None = "application/octet-stream",
+        sys_id: str | None = None,
     ) -> str:
         """Write attachments. action: 'upload' | 'delete'.
+
+        Omit unused arguments; null uses defaults. Action-specific required
+        arguments are still validated.
 
         Args:
             action: 'upload' or 'delete'.
@@ -138,6 +139,13 @@ def register_tools(
             content_type: MIME type (upload, default 'application/octet-stream').
             sys_id: Attachment sys_id (delete).
         """
+        table = table or ""
+        table_sys_id = table_sys_id or ""
+        file_name = file_name or ""
+        content_base64 = content_base64 or ""
+        content_type = "application/octet-stream" if content_type is None else content_type
+        sys_id = sys_id or ""
+
         err = _validate_write_args(action, table, table_sys_id, file_name, content_base64, sys_id)
         if err:
             return err

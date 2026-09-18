@@ -2,11 +2,12 @@
 
 import functools
 from collections.abc import Callable, Coroutine
-from typing import Any
+from typing import Any, Protocol
 
 from servicenow_mcp.sentry import set_sentry_context, set_sentry_tag
 from servicenow_mcp.telemetry import trace_tool_call
 from servicenow_mcp.tool_errors import safe_tool_call
+from servicenow_mcp.tool_inputs import nullable_string_signature
 
 
 # Arg names whose values may carry credentials, PII, or large untrusted payloads.
@@ -40,6 +41,14 @@ _SENSITIVE_ARG_KEYS: frozenset[str] = frozenset(
 _REDACTED: str = "***REDACTED***"
 
 
+class _ToolFunction(Protocol):
+    """An async tool function with a name for telemetry."""
+
+    __name__: str
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Coroutine[Any, Any, str]: ...
+
+
 def _redact_args(kwargs: dict[str, Any]) -> dict[str, Any]:
     """Return a shallow copy of ``kwargs`` with sensitive values replaced.
 
@@ -62,7 +71,7 @@ def _redact_args(kwargs: dict[str, Any]) -> dict[str, Any]:
 
 
 def tool_handler(
-    fn: Callable[..., Coroutine[Any, Any, str]],
+    fn: _ToolFunction,
 ) -> Callable[..., Coroutine[Any, Any, str]]:
     """Preserve tool inputs while adding Sentry context and error envelopes.
 
@@ -93,4 +102,9 @@ def tool_handler(
         with trace_tool_call(fn.__name__):
             return await safe_tool_call(_run)
 
+    signature = nullable_string_signature(fn)
+    if signature is not None:
+        # functools.wraps preserves the runtime function object, whose dynamic
+        # signature is consumed by inspect.signature and MCP schema generation.
+        wrapper.__signature__ = signature  # ty: ignore[unresolved-attribute]
     return wrapper

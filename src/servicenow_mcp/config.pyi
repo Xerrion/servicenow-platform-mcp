@@ -1,5 +1,4 @@
 from os import PathLike
-from typing import Literal
 
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings
@@ -15,7 +14,7 @@ class Settings(BaseSettings):
     servicenow_password: SecretStr
     servicenow_api_key: SecretStr
     servicenow_oauth_client_id: str
-    servicenow_oauth_scope: Literal["useraccount"]
+    servicenow_oauth_scope: str
     servicenow_oauth_redirect_uri: str
     servicenow_oauth_timeout_seconds: int
     mcp_tool_package: str
@@ -34,7 +33,7 @@ class Settings(BaseSettings):
         servicenow_password: SecretStr = ...,
         servicenow_api_key: SecretStr = ...,
         servicenow_oauth_client_id: str = ...,
-        servicenow_oauth_scope: Literal["useraccount"] = ...,
+        servicenow_oauth_scope: str = ...,
         servicenow_oauth_redirect_uri: str = ...,
         servicenow_oauth_timeout_seconds: int = ...,
         mcp_tool_package: str = ...,
@@ -52,6 +51,8 @@ class Settings(BaseSettings):
     def validate_auth_credentials(self) -> Settings: ...
     @classmethod
     def validate_oauth_client_id(cls, v: str) -> str: ...
+    @classmethod
+    def validate_oauth_scope(cls, v: str) -> str: ...
     @classmethod
     def validate_oauth_redirect(cls, v: str) -> str: ...
     @classmethod

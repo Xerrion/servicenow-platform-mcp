@@ -33,8 +33,6 @@ from servicenow_mcp.tools._attachment_common import (
 from servicenow_mcp.validation import validate_identifier, validate_sys_id
 
 
-TOOL_NAMES: list[str] = ["attachment"]
-
 _VALID_READ_ACTIONS: Final[frozenset[str]] = frozenset({"list", "get", "download", "download_by_name"})
 
 
@@ -251,12 +249,15 @@ def register_tools(
     @tool_handler
     async def attachment(
         action: str,
-        sys_id: str = "",
-        table: str = "",
-        table_sys_id: str = "",
-        file_name: str = "",
+        sys_id: str | None = None,
+        table: str | None = None,
+        table_sys_id: str | None = None,
+        file_name: str | None = None,
     ) -> str:
         """Read attachments. action: 'list' | 'get' | 'download' | 'download_by_name'.
+
+        Omit unused arguments; null uses defaults. Action-specific required
+        arguments are still validated.
 
         Args:
             action: One of: list, get, download, download_by_name.
@@ -265,6 +266,11 @@ def register_tools(
             table_sys_id: Parent record sys_id (for list, download_by_name).
             file_name: File name (for download_by_name).
         """
+        sys_id = sys_id or ""
+        table = table or ""
+        table_sys_id = table_sys_id or ""
+        file_name = file_name or ""
+
         # --- 1. Argument validation (early exit) -------------------------
         err = _validate_read_args(action, sys_id, table, table_sys_id, file_name)
         if err:

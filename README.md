@@ -161,7 +161,7 @@ Set `MCP_TOOL_PACKAGE` to load only the tools you need:
 
 | Package         | Includes                                                                                 | Recommended use            |
 | --------------- | ---------------------------------------------------------------------------------------- | -------------------------- |
-| `readonly`      | Records, metadata, attachments, investigations, analysis, audits, flows, and code search | Normal read-only work      |
+| `readonly`      | Records, metadata, attachments, investigations, analysis, audits, flows, code search, and CMDB | Normal read-only work      |
 | `core_readonly` | `query`, `describe`, and read-only `attachment`                                          | Minimal inspection access  |
 | `full`          | Every tool group, including record and attachment writes                                 | Controlled write workflows |
 | `none`          | Only `list_tool_packages`                                                                | Test client connectivity   |
@@ -174,7 +174,7 @@ MCP_TOOL_PACKAGE=query,describe,record_read,attachment
 
 Valid groups are `query`, `describe`, `record_write`, `record_read`,
 `attachment`, `attachment_write`, `investigate`, `resolve_choice`,
-`service_catalog`, `analysis`, `audit`, `flow`, and `code_search`.
+`service_catalog`, `analysis`, `audit`, `flow`, `code_search`, and `cmdb`.
 
 Tool packages determine which tools the server loads. They do not replace
 ServiceNow authorization.

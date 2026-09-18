@@ -4,7 +4,7 @@ from collections import defaultdict
 from typing import Any, Final
 
 from servicenow_mcp.client import ServiceNowClient
-from servicenow_mcp.investigation_helpers import build_investigation_result
+from servicenow_mcp.investigation_helpers import build_investigation_result, parse_element_id
 from servicenow_mcp.policy import (
     INTERNAL_QUERY_LIMIT,
     check_table_access,
@@ -92,15 +92,16 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
 async def explain(client: ServiceNowClient, element_id: str) -> dict[str, Any]:
     """Provide rich context for an ACL conflict finding.
 
-    element_id is an ACL sys_id.
+    element_id is an ACL sys_id or "sys_security_acl:sys_id".
     """
     try:
-        validate_identifier(element_id)
+        sys_id = parse_element_id(element_id, {"sys_security_acl"})[1] if ":" in element_id else element_id
+        validate_identifier(sys_id)
     except ValueError as e:
         return {"error": str(e)}
 
     check_table_access("sys_security_acl")
-    record = mask_sensitive_fields(await client.get_record("sys_security_acl", element_id))
+    record = mask_sensitive_fields(await client.get_record("sys_security_acl", sys_id))
 
     explanation_parts = [
         f"ACL '{record.get('name', '')}' controls {record.get('operation', '')} access.",

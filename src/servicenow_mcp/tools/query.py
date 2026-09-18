@@ -24,9 +24,6 @@ from servicenow_mcp.tools._query_preparation import (
 )
 
 
-TOOL_NAMES: list[str] = ["query"]
-
-
 def register_tools(
     mcp: MCPServer,
     settings: Settings,
@@ -45,15 +42,17 @@ def register_tools(
         sys_id: str | None = None,
         encoded_query: str | None = None,
         fields: str | None = None,
-        limit: int = 20,
-        offset: int = 0,
+        limit: int | None = 20,
+        offset: int | None = 0,
         order_by: str | None = None,
-        display_values: bool = False,
+        display_values: bool | None = False,
         aggregate: str | None = None,
         group_by: str | None = None,
         resolve_labels: str | None = None,
     ) -> str:
         """Read records, aggregates, or a single record from any ServiceNow table.
+
+        Omit unused optional arguments. Explicit null uses the same defaults.
 
         Args:
             table: ServiceNow table name (e.g. 'incident').
@@ -77,6 +76,10 @@ def register_tools(
                 Each label is resolved via ChoiceRegistry to its underlying value, then ANDed
                 into encoded_query as 'field=value'.
         """
+        limit = 20 if limit is None else limit
+        offset = 0 if offset is None else offset
+        display_values = False if display_values is None else display_values
+
         conflict = check_mode_conflicts(sys_id, aggregate, group_by)
         if conflict:
             return conflict

@@ -49,11 +49,6 @@ class PreviewTokenStore:
             }
             return token
 
-    async def _sweep_expired(self) -> None:
-        """Remove all expired entries from the store (locked variant)."""
-        async with self._lock:
-            self._sweep_expired_locked()
-
     def _sweep_expired_locked(self) -> None:
         """Remove all expired entries; caller must already hold ``self._lock``."""
         now = time.monotonic()

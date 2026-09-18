@@ -14,9 +14,6 @@ from servicenow_mcp.tools._record_write_preview import RecordWritePreviewManager
 from servicenow_mcp.tools._record_write_validation import validate_write_request
 
 
-TOOL_NAMES: list[str] = ["record_write", "record_apply"]
-
-
 def register_tools(
     mcp: MCPServer,
     settings: Settings,
@@ -35,10 +32,10 @@ def register_tools(
     @tool_handler
     async def record_write(
         action: str,
-        table: str = "",
-        sys_id: str = "",
-        data: str = "",
-        preview: bool = True,
+        table: str | None = None,
+        sys_id: str | None = None,
+        data: str | None = None,
+        preview: bool | None = True,
     ) -> str:
         """Create, update, or delete a record. Defaults to preview mode.
 
@@ -48,18 +45,26 @@ def register_tools(
         malformed XML is rejected before preview creation or mutation.
         Creates also check inherited mandatory fields, with child declarations
         taking precedence. Metadata request errors block writes.
+        Omit unused arguments and arguments whose defaults are desired;
+        do not send ``sys_id`` on create or ``preview=true`` for the default
+        preview flow. Null also uses defaults. Action-specific required
+        arguments are still validated.
 
         Args:
             action: 'create' | 'update' | 'delete'.
             table: Target table. Required.
-            sys_id: Required for 'update' and 'delete'.
+            sys_id: Required for 'update' and 'delete'; omit for 'create'.
             data: JSON string mapping field names to values, including any
                 script fields. Required for 'create' and 'update'. Maximum
                 256 KiB of UTF-8 JSON, including escaping and field names.
-            preview: When True (default) returns a preview_token; caller
-                invokes record_apply to commit. When False, write commits
-                immediately.
+            preview: Omit for the default preview_token flow, then use
+                record_apply to commit. Set False only when intentionally
+                committing the write immediately.
         """
+        table = table or ""
+        sys_id = sys_id or ""
+        data = data or ""
+        preview = True if preview is None else preview
         request = validate_write_request(action, table, sys_id, data, preview, settings)
         if isinstance(request, str):
             return request

@@ -120,9 +120,6 @@ class ChoiceRegistry:
         },
     }
 
-    _settings: Settings
-    _auth_provider: OAuthPKCEProvider
-
     def __init__(
         self,
         settings: Settings,
@@ -130,10 +127,7 @@ class ChoiceRegistry:
         client_factory: ServiceNowClientProvider | None = None,
         telemetry: HttpTelemetry | None = None,
     ) -> None:
-        self._settings = settings
-        self._auth_provider = auth_provider
         self._client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
-        self._cache: dict[tuple[str, str], dict[str, str]] = {}
         self._metadata_cache = AsyncMetadataCache[str, dict[tuple[str, str], dict[str, str]]](
             name=CacheName.CHOICES,
             ttl_seconds=settings.metadata_cache_ttl_seconds,
@@ -168,12 +162,8 @@ class ChoiceRegistry:
     async def _ensure_fetched(self) -> dict[tuple[str, str], dict[str, str]]:
         """Return fresh choices, with one shared instance load at a time."""
 
-        async def load() -> dict[tuple[str, str], dict[str, str]]:
-            loaded = await self._fetch_from_instance()
-            return self._cache if loaded is None else loaded
-
         try:
-            self._cache = await self._metadata_cache.get_or_load("all", load)
+            return await self._metadata_cache.get_or_load("all", self._fetch_from_instance)
         except Exception as e:
             logger.warning(
                 "Failed to fetch choice lists from instance; using OOTB defaults",
@@ -181,16 +171,14 @@ class ChoiceRegistry:
             )
             sentry_capture(e)
             return {key: dict(value) for key, value in self._DEFAULTS.items()}
-        return self._cache
 
-    async def _fetch_from_instance(self) -> dict[tuple[str, str], dict[str, str]] | None:
+    async def _fetch_from_instance(self) -> dict[tuple[str, str], dict[str, str]]:
         """Query sys_choice for all tracked table/field combinations."""
         from servicenow_mcp.query_builder import ServiceNowQuery
 
         tracked = list(self._DEFAULTS.keys())
         if not tracked:
-            self._cache = {}
-            return self._cache
+            return {}
 
         query = ServiceNowQuery()
         first_table, first_field = tracked[0]
@@ -207,5 +195,4 @@ class ChoiceRegistry:
             )
 
         grouped = _group_choice_records(result.get("records", []))
-        self._cache = _merge_with_defaults(grouped, self._DEFAULTS)
-        return self._cache
+        return _merge_with_defaults(grouped, self._DEFAULTS)

@@ -22,8 +22,6 @@ from servicenow_mcp.response import format_response
 from servicenow_mcp.validation import validate_identifier
 
 
-TOOL_NAMES: list[str] = ["code_search"]
-
 _VALID_ACTIONS: Final[frozenset[str]] = frozenset({"search", "list_tables", "describe"})
 
 _ACTION_REGISTRY: Final[dict[str, dict[str, Any]]] = {
@@ -81,15 +79,17 @@ def register_tools(
     @mcp.tool()
     @tool_handler
     async def code_search(
-        action: str = "search",
-        term: str = "",
-        table: str = "",
-        search_group: str = "",
-        limit: int = 20,
+        action: str | None = "search",
+        term: str | None = None,
+        table: str | None = None,
+        search_group: str | None = None,
+        limit: int | None = 20,
         *,
-        extended_matching: bool = False,
+        extended_matching: bool | None = False,
     ) -> str:
         """Search ServiceNow code or inspect Code Search table coverage.
+
+        Omit unused optional arguments; null uses their defaults.
 
         Args:
             action: One of 'search', 'list_tables', or 'describe'.
@@ -100,6 +100,13 @@ def register_tools(
             extended_matching: Include additional Code Search context fields. Default false.
                 Set true when the extra context is needed.
         """
+        action = "search" if action is None else action
+        term = "" if term is None else term
+        table = "" if table is None else table
+        search_group = "" if search_group is None else search_group
+        limit = 20 if limit is None else limit
+        extended_matching = False if extended_matching is None else extended_matching
+
         normalized_action = action.strip().lower()
         if normalized_action not in _VALID_ACTIONS:
             return _error(

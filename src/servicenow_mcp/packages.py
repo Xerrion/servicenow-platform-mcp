@@ -1,11 +1,11 @@
 """Tool package registry and loader for the ServiceNow MCP server.
 
-The unified tool surface exposes 13 tool groups across 4 preset packages:
+The unified tool surface exposes 14 tool groups across 4 preset packages:
 
 Groups (registered modules under ``servicenow_mcp.tools``):
     ``query``, ``describe``, ``record_write``, ``record_read``,
     ``attachment``, ``attachment_write``, ``investigate``, ``resolve_choice``,
-    ``service_catalog``, ``analysis``, ``audit``, ``flow``, ``code_search``.
+    ``service_catalog``, ``analysis``, ``audit``, ``flow``, ``code_search``, ``cmdb``.
 
 Note: the ``record_write`` group registers both ``record_write`` and
 ``record_apply`` tools. Attachment reads and writes use separate groups;
@@ -15,7 +15,7 @@ Presets:
     ``full``           - every group (full surface, including attachment writes).
     ``readonly``       - query + describe + record_read + attachment +
                        investigate + resolve_choice + analysis + audit + flow +
-                       code_search.
+                       code_search + cmdb.
     ``core_readonly``  - query + describe + attachment only.
     ``none``           - no tool groups loaded; only ``list_tool_packages``
                        is registered by the server bootstrap.
@@ -42,6 +42,7 @@ _TOOL_GROUP_MODULES: dict[str, str] = {
     "audit": "servicenow_mcp.tools.audit",
     "flow": "servicenow_mcp.tools.flow",
     "code_search": "servicenow_mcp.tools.code_search",
+    "cmdb": "servicenow_mcp.tools.cmdb",
 }
 
 # Registry mapping package names to lists of tool group names.
@@ -61,6 +62,7 @@ PACKAGE_REGISTRY: dict[str, list[str]] = {
         "audit",
         "flow",
         "code_search",
+        "cmdb",
     ],
     "readonly": [
         "query",
@@ -73,6 +75,7 @@ PACKAGE_REGISTRY: dict[str, list[str]] = {
         "audit",
         "flow",
         "code_search",
+        "cmdb",
     ],
     "core_readonly": [
         "query",
@@ -104,17 +107,12 @@ def get_package(name: str) -> list[str]:
     if "" in stripped_groups:
         raise ValueError("No empty groups allowed")
 
-    groups = [g for g in stripped_groups if g]
-
-    if not groups:  # pragma: no cover - defensive guard; line above catches all empty strings first
-        raise ValueError("No empty groups allowed")
-
     seen: set[str] = set()
     collisions: set[str] = set()
     unknown: set[str] = set()
     result: list[str] = []
 
-    for group in groups:
+    for group in stripped_groups:
         if group in collisions or group in unknown:
             continue
         if group in PACKAGE_REGISTRY:

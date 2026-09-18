@@ -20,8 +20,6 @@ from servicenow_mcp.tools._record_helpers import _resolve_record_sys_id
 from servicenow_mcp.validation import validate_identifier, validate_sys_id
 
 
-TOOL_NAMES: list[str] = ["record_read"]
-
 _COMPACT_IDENTITY_FIELDS: tuple[str, ...] = (
     "sys_id",
     "name",
@@ -82,9 +80,9 @@ def register_tools(
     @tool_handler
     async def record_read(
         table: str,
-        sys_id: str = "",
-        name: str = "",
-        fields: str = "",
+        sys_id: str | None = None,
+        name: str | None = None,
+        fields: str | None = None,
     ) -> str:
         """Fetch a record by sys_id or name from any table.
 
@@ -93,6 +91,8 @@ def register_tools(
         dynamically via ``sys_dictionary`` plus the table's super_class chain)
         so callers can discover which script-bearing fields are writable on a
         subsequent ``record_write``.
+        Omit unused arguments; null uses defaults. Exactly one record selector
+        is still required.
 
         Args:
             table: ServiceNow table name (e.g. ``sys_script``,
@@ -105,6 +105,10 @@ def register_tools(
                 identity/update metadata plus all discovered script-bearing fields.
                 ``'*'`` returns the full masked record.
         """
+        sys_id = sys_id or ""
+        name = name or ""
+        fields = fields or ""
+
         # --- 1. Validate table identifier ----------------------------------
         if not table:
             return _err("table is required.")

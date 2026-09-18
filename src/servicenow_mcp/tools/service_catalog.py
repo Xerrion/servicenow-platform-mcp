@@ -1,8 +1,6 @@
 """Unified ``service_catalog`` action-dispatching tool.
 
-Folds the twelve legacy ``sc_*`` tools (catalog/category/item read endpoints,
-order/cart write endpoints) into a single action-dispatching surface. Old
-tools remain registered alongside until Phase 3b retires them.
+Provides catalog/category/item reads and policy-gated order/cart writes.
 
 Actions: ``catalogs_list``, ``catalog_get``, ``categories_list``,
 ``category_get``, ``items_list``, ``item_get``, ``item_variables``,
@@ -25,8 +23,6 @@ from servicenow_mcp.response import format_response
 from servicenow_mcp.tools._payload import parse_payload_json
 from servicenow_mcp.validation import validate_sys_id
 
-
-TOOL_NAMES: list[str] = ["service_catalog"]
 
 _VALID_ACTIONS: Final[frozenset[str]] = frozenset(
     {
@@ -106,18 +102,21 @@ def register_tools(
     @tool_handler
     async def service_catalog(
         action: str,
-        sys_id: str = "",
-        item_sys_id: str = "",
-        catalog_sys_id: str = "",
+        sys_id: str | None = None,
+        item_sys_id: str | None = None,
+        catalog_sys_id: str | None = None,
         catalog: str | None = None,
         category: str | None = None,
         text: str | None = None,
-        variables: str = "",
-        limit: int = 20,
-        offset: int = 0,
-        top_level_only: bool = False,
+        variables: str | None = None,
+        limit: int | None = 20,
+        offset: int | None = 0,
+        top_level_only: bool | None = False,
     ) -> str:
         """Service Catalog operations. Dispatch on ``action``.
+
+        Omit unused arguments; null uses defaults. Action-specific required
+        arguments are still validated.
 
         Args:
             action: One of: catalogs_list, catalog_get, categories_list, category_get,
@@ -134,6 +133,14 @@ def register_tools(
             offset: Pagination offset (categories_list, items_list). Default 0.
             top_level_only: Return only top-level categories (categories_list).
         """
+        sys_id = sys_id or ""
+        item_sys_id = item_sys_id or ""
+        catalog_sys_id = catalog_sys_id or ""
+        variables = variables or ""
+        limit = 20 if limit is None else limit
+        offset = 0 if offset is None else offset
+        top_level_only = False if top_level_only is None else top_level_only
+
         # --- 1. Argument validation (early exit) -------------------------
         err = _validate_args(action, sys_id, item_sys_id, catalog_sys_id)
         if err:
@@ -147,24 +154,10 @@ def register_tools(
         # --- 3. Per-action policy gating + payload parsing ---------------
         parsed_vars: dict[str, Any] | None = None
 
-        if action == "order_now":
+        if action in {"order_now", "add_to_cart"}:
             validate_sys_id(item_sys_id)
-            blocked = gate_write("sc_req_item", settings)
-            if blocked:
-                return blocked
-            if variables:
-                parsed = parse_payload_json(
-                    variables,
-                    field_name="variables",
-                    validate_keys=False,
-                )
-                if isinstance(parsed, str):
-                    return parsed
-                parsed_vars = parsed
-
-        elif action == "add_to_cart":
-            validate_sys_id(item_sys_id)
-            blocked = gate_write("sc_cart_item", settings)
+            target_table = "sc_req_item" if action == "order_now" else "sc_cart_item"
+            blocked = gate_write(target_table, settings)
             if blocked:
                 return blocked
             if variables:

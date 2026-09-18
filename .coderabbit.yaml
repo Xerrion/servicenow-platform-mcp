@@ -49,7 +49,6 @@ reviews:
     - "!coverage.xml"
     - "!.coverage"
     - "!openapi-specs/**"
-    - "!.mypy_cache/**"
     - "!.ruff_cache/**"
     - "!.pytest_cache/**"
     - "!assets/**"
@@ -186,7 +185,7 @@ reviews:
         2. Use uv for dependency management - not pip or poetry.
 
         3. Verify that lint (ruff check + ruff format --check), type check
-        (mypy src/), and test (pytest) steps are all present.
+        (ty check src/), and test (pytest) steps are all present.
 
         4. Check for pinned action versions (use SHA or major version tags).
 
@@ -222,7 +221,7 @@ reviews:
         name: "Local CI verification"
         instructions: >-
           Remind the author to run the full local CI check before merging:
-          uv run ruff check . && uv run ruff format --check . && uv run mypy src/ && uv run pytest
+          uv run ruff check . && uv run ruff format --check . && uv run ty check src/ && uv run pytest
 
   pre_merge_checks:
     title:

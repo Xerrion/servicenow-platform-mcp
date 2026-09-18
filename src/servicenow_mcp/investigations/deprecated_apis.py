@@ -10,13 +10,11 @@ from servicenow_mcp.investigation_helpers import (
 )
 
 
-# Deprecated patterns to scan for
+# Legacy Java Packages calls have documented supported replacements.
+# GlideRecordSecure, setWorkflow, gs.include, and g_form.flash are supported
+# APIs; their presence alone is not evidence of deprecation.
 DEPRECATED_PATTERNS = [
     "Packages.",
-    "gs.include(",
-    "current.setWorkflow(false)",
-    "GlideRecordSecure(",
-    "g_form.flash(",
 ]
 
 _ALLOWED_TABLES = {
@@ -46,22 +44,18 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
     findings: list[dict[str, Any]] = []
 
     for pattern in DEPRECATED_PATTERNS:
-        try:
-            result = await client.code_search(term=pattern, limit=limit)
-            search_results = result.get("search_results", [])
-            findings.extend(
-                {
-                    "pattern": pattern,
-                    "element_id": f"{match.get('className', 'unknown')}:{match.get('sys_id', '')}",
-                    "name": match.get("name", ""),
-                    "table": match.get("className", ""),
-                    "detail": f"Uses deprecated pattern '{pattern}'",
-                }
-                for match in search_results
-            )
-        except Exception:
-            # Code Search API may not be available; skip pattern
-            continue
+        result = await client.code_search(term=pattern, limit=limit)
+        search_results = result.get("search_results", [])
+        findings.extend(
+            {
+                "pattern": pattern,
+                "element_id": f"{match.get('className', 'unknown')}:{match.get('sys_id', '')}",
+                "name": match.get("name", ""),
+                "table": match.get("className", ""),
+                "detail": f"Uses deprecated pattern '{pattern}'",
+            }
+            for match in search_results
+        )
 
     return build_investigation_result(
         "deprecated_apis",

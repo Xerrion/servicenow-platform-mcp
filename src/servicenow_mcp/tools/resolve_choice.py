@@ -17,9 +17,6 @@ from servicenow_mcp.response import format_response
 from servicenow_mcp.validation import validate_identifier
 
 
-TOOL_NAMES: list[str] = ["resolve_choice"]
-
-
 def _error(message: str) -> str:
     """Serialize a standard error envelope."""
     return format_response(data=None, status="error", error=message)
@@ -36,9 +33,11 @@ def register_tools(
     async def resolve_choice(
         table: str,
         field: str,
-        label: str = "",
+        label: str | None = None,
     ) -> str:
         """Resolve a choice label to its underlying value via ChoiceRegistry.
+
+        Omit unused arguments; null uses defaults.
 
         Args:
             table: ServiceNow table name.
@@ -46,6 +45,7 @@ def register_tools(
             label: Choice label to resolve. When empty, returns the full {label: value}
                 mapping for the field.
         """
+        label = label or ""
         validate_identifier(table)
         validate_identifier(field)
         check_table_access(table)

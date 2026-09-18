@@ -3,6 +3,7 @@
 from typing import Any, Final
 
 from servicenow_mcp.client import ServiceNowClient
+from servicenow_mcp.errors import ForbiddenError, NotFoundError
 from servicenow_mcp.investigation_helpers import (
     build_investigation_result,
     fetch_and_explain,
@@ -52,6 +53,8 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
         allowed_categories = {c.strip() for c in categories_filter.split(",")}
 
     findings: list[dict[str, Any]] = []
+    tables_queried: list[str] = []
+    warnings: list[str] = []
 
     for table_name, category in PERFORMANCE_TABLES:
         if allowed_categories and category not in allowed_categories:
@@ -70,6 +73,7 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
                 .build()
             )
 
+        tables_queried.append(table_name)
         try:
             result = await client.query_records(
                 table_name,
@@ -89,9 +93,8 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
                         "sys_created_on": masked_rec.get("sys_created_on", ""),
                     }
                 )
-        except Exception:
-            # Table may not exist or be inaccessible; skip
-            continue
+        except (NotFoundError, ForbiddenError):
+            warnings.append(f"Table {table_name} is unavailable or inaccessible; findings are incomplete.")
 
     return build_investigation_result(
         "slow_transactions",
@@ -101,7 +104,9 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
             "limit": limit,
             "categories": categories_filter,
         },
-        tables_queried=[t[0] for t in PERFORMANCE_TABLES],
+        tables_queried=tables_queried,
+        complete=not warnings,
+        warnings=warnings,
     )
 
 

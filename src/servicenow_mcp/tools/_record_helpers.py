@@ -1,8 +1,7 @@
 """Shared helpers for record-level write operations.
 
-Single source of truth for the mandatory-field validation routine and the
-update-diff builder. Imported by both the legacy ``record_write`` tool module
-and the unified ``record_write`` / ``record_apply`` tools.
+Mandatory-field validation and update diffs for ``record_write`` and
+``record_apply``.
 """
 
 from __future__ import annotations

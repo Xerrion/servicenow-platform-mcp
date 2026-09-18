@@ -20,7 +20,7 @@ def decode_response(raw: str) -> dict[str, Any]:
 
     All MCP tool responses in this project are JSON-encoded dicts. This helper
     narrows the return type from json.loads's broad union to dict[str, Any],
-    which eliminates mypy index errors throughout the test suite.
+    which eliminates type-checker index errors throughout the test suite.
 
     Args:
         raw: JSON-encoded string from a tool call.

@@ -12,7 +12,7 @@ The previous specialized helper tools (e.g., `incident_list`, `debug_trace`, `ch
 | `describe` | Retrieve slim field metadata (8 keys) for a table to understand its structure. Empty fields return an alphabetical page of 25 fields; use `field_offset` and `field_limit` to continue. |
 | `record_read` | Read a record by `sys_id` or `name`. Returns the masked record plus the `script_fields` list resolved from `sys_dictionary` for the table. |
 | `record_write` | Create, update, or delete records. Supply all field values, including complete scripts, in the JSON string `data`. |
-| `record_apply` | Commits a write operation previously staged with `preview=True`. |
+| `record_apply` | Commits a write operation staged through the default preview flow. |
 | `attachment` | Dispatcher for reading, listing, and downloading record attachments. |
 | `attachment_write` | Dispatcher for uploading or deleting record attachments. |
 | `investigate` | Runs pre-defined diagnostic investigations (e.g., health checks, bottleneck analysis). |
@@ -237,7 +237,6 @@ preview = json.loads(
                 "script": "(function executeRule(current, previous) {\n    current.setValue('short_description', (current.getValue('short_description') || '').trim());\n})(current, previous);\n"
             }
         ),
-        preview=True,
     )
 )
 

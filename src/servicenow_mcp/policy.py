@@ -1,14 +1,11 @@
 """Policy engine for query safety, deny lists, field masking and write gating."""
 
-import logging
 import re
 from typing import Any
 
 from servicenow_mcp.config import Settings
 from servicenow_mcp.errors import PolicyError, QuerySafetyError
 
-
-logger = logging.getLogger(__name__)
 
 # Tables that must never be accessed via the MCP server
 DENIED_TABLES: set[str] = {
@@ -205,21 +202,6 @@ def production_write_blocked(settings: Settings) -> str | None:
         status="error",
         error="Write operations are blocked in production environments",
     )
-
-
-def can_write(
-    table: str,
-    settings: Settings,
-    override: bool = False,
-) -> bool:
-    """Check if write operations are allowed for the given table and environment."""
-    if override:
-        return True
-    reason = write_blocked_reason(table, settings)
-    if reason is not None:
-        logger.warning("Write blocked: %s", reason)
-        return False
-    return True
 
 
 def write_blocked_reason(table: str, settings: Settings) -> str | None:

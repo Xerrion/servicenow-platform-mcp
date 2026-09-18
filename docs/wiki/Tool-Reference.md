@@ -1,8 +1,20 @@
 # Tool Reference
 
-Complete reference for all 15 public tools in 13 tool groups. Use this page when
+Complete reference for all 16 public tools in 14 tool groups. Use this page when
 you need an action, input, limit, or response detail. Tools use dispatcher
 patterns and ServiceNow encoded queries.
+
+Omit unused optional arguments, including arguments whose defaults are desired.
+For example, omit `preview` for the normal `record_write` preview flow; send
+`preview=false` only to request an immediate write. All optional tool inputs also
+accept JSON `null`, which uses the same behavior as omission. Absence-only inputs default to `null`
+in the tool schema; no empty strings or zero placeholders are needed. Meaningful
+defaults such as `preview=true`, `limit=20`, and `offset=0` remain documented in
+the schema. Explicit `false`, `0`, and empty strings retain their existing
+meaning and validation. Requirements for the selected action still apply:
+`record_write(create)` needs `table` and `data`, while `audit(history)` needs
+`table` and `sys_id`. This applies to top-level tool arguments only; `null`
+inside a JSON field map such as `data` is preserved as a field value.
 
 Operational tools return responses as JSON strings with `status`, `data`, and optional `error`, `pagination`, `selection`, and non-empty `warnings`. The always-on `list_tool_packages` tool returns the preset-to-group registry directly. Selection metadata describes selected fields or sections, effective limits, and truncation. Use the supplied continuation metadata to complete bounded reads.
 
@@ -111,7 +123,7 @@ Read-only counterpart to `record_write` for any table.
 
 ### `record_apply`
 
-Commits a write operation previously staged with `record_write(preview=true)`.
+Commits a write operation staged through the default `record_write` preview flow.
 
 - **Purpose:** Finalize a mutation after inspecting the preview.
 - **Key Parameters:**
@@ -159,7 +171,8 @@ Runs pre-defined diagnostic and health check modules.
   - `run`: Execute a module (e.g., `stale_automations`, `table_health`).
   - `explain`: Interpret a specific finding from a previous run. Pass the registered investigation `name` and an `element_id` for direct dispatch. If `name` is omitted, the tool tries registered investigations until one can explain the element.
 - **Modules:** `stale_automations`, `deprecated_apis`, `table_health`, `acl_conflicts`, `error_analysis`, `slow_transactions`, `performance_bottlenecks`.
-- **Response metadata:** `run` results and findings include the registered investigation name as provenance. `explain` responses disclose the dispatch mode.
+- **Explanation identifiers:** Usually `table:sys_id`. With an explicit investigation name, `table_health` and heavy-automation findings from `performance_bottlenecks` accept a table name; `acl_conflicts` accepts either an ACL sys_id or `sys_security_acl:sys_id`.
+- **Response metadata:** `run` results and findings include the registered investigation name as provenance. `explain` responses disclose the dispatch mode. `slow_transactions` reports only attempted tables; missing or inaccessible optional tables produce warnings and `complete=false`. Timeouts and unexpected failures return errors instead of empty success results.
 
 ### `audit`
 
@@ -169,7 +182,7 @@ Inspect ServiceNow field-level auditing posture and masked history.
 - **Availability:** Included in the `full` and `readonly` packages.
 - **Actions:**
   - `check_field`: Resolve the combined audit verdict for one `(table, field)` pair. Returns the chain-walked dictionary flag, the `no_audit` attribute veto, the table-level flag, and a positive-control count from `sys_audit` within `window_days`.
-  - `check_fields`: Batch variant of `check_field`. Accepts `fields_csv` (max 50) and returns one verdict per field plus a single shared `table_change_count`.
+  - `check_fields`: Batch variant of `check_field`. Accepts `fields_csv` (max 50) and returns one verdict per field plus a single shared `table_change_count`. Uses one table count and one count grouped by the requested fields, rather than a separate scan for each field. Counts are live and are not cached. Large audit tables can still exceed the MCP client's deadline; use a narrow `window_days`.
   - `check_table`: Table-level posture - the table default plus the list of fields whose resolved audit flag differs from that default.
   - `history`: Masked, date-bounded audit trail for one record. Queries `sys_audit` by `tablename` + `documentkey` and masks sensitive fields via `mask_audit_entry`.
   - `describe`: Return the action registry without platform I/O.
@@ -295,3 +308,26 @@ Search ServiceNow script-bearing artifacts through the Code Search API.
   ```
 
 ---
+
+### `cmdb`
+
+Read configuration items through the dedicated CMDB Instance and Meta APIs.
+Available in `full`, `readonly`, or a custom `MCP_TOOL_PACKAGE=cmdb` package.
+
+- `query`: Requires `class_name`. Lists CI names and sys_ids with optional `encoded_query`, `limit` (default 20), and `offset` (default 0). Limits are capped by `MAX_ROW_LIMIT`; configured large classes require a date filter. `data.count` is the returned page size, not a global total. Advance offset by the effective limit to continue; ACL filtering can produce short pages.
+- `get`: Requires `class_name` and `sys_id`. Returns CI attributes and inbound/outbound relationships.
+- `meta`: Requires `class_name`. Returns class metadata; ServiceNow documents the ITIL role as required.
+- `describe`: Returns action contracts without platform calls.
+
+All actions are read-only and apply identifier validation, denied-table policy,
+and nested sensitive-field masking. Omit unused optional inputs. CMDB table
+queries through `query` and dictionary discovery through `describe` remain available.
+
+```python
+await cmdb(action="query", class_name="cmdb_ci_server", limit=20)
+await cmdb(action="get", class_name="cmdb_ci_server", sys_id="<32-character CI sys_id>")
+await cmdb(action="meta", class_name="cmdb_ci_server")
+```
+
+Restart the MCP server and reconnect the client after updating so the new tool
+appears in the refreshed tool list.

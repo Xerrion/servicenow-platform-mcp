@@ -77,7 +77,7 @@ authorization.
 
 Record mutations use a preview/apply flow by default:
 
-1. Call `record_write` with `preview=true`.
+1. Call `record_write`, omitting `preview` to use the default preview mode.
 2. Inspect the returned single-use `preview_token`.
 3. Call `record_apply` with that token.
 

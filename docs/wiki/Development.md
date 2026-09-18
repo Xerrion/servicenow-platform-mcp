@@ -3,6 +3,8 @@
 Contributor guide for local setup, checks, tests, and CI.
 
 See [[Architecture]] for runtime structure and [[Telemetry]] for observability.
+See [refactoring opportunities](../refactoring-opportunities.md) for the reviewed
+follow-up work and its validation boundaries.
 
 ## Prerequisites
 
@@ -44,12 +46,13 @@ callback query strings in fixtures, logs, or committed configuration.
 | `uv run ruff check .` | Run lint checks. |
 | `uv run ruff format --check .` | Check formatting. |
 | `uv run ruff format .` | Format files. |
-| `uv run mypy src/` | Run type checks. |
+| `uv run ty check src/` | Run type checks. |
 | `uv run pytest` | Run default offline tests. |
 | `uv run pytest tests/test_client.py` | Run one test file. |
 | `uv run pytest tests/test_client.py::TestClass::test_method` | Run one test. |
 | `uv run pytest -k "keyword"` | Run tests matching a keyword. |
 | `uv run pytest --no-cov` | Skip coverage collection. |
+| `uv run pytest -m ''` | Run the full suite, including live integration tests. |
 | `uv run pytest -m integration` | Run live integration tests. |
 | `uv build` | Build the distribution. |
 
@@ -79,7 +82,22 @@ tools = await mcp.list_tools()
 
 Tests can construct `MCPServer`, call `register_tools`, and inject the same
 named dependencies used by bootstrap: `settings`, `auth_provider`, `choices`,
-`dictionary`, and `client_factory`.
+`dictionary`, `client_factory`, and `telemetry`.
+
+## Coverage and test value
+
+Coverage measures executed source statements, not the number of test cases.
+Many parameterized tests can exercise the same few lines, while replacing a
+workflow with an `AsyncMock` skips its implementation. For investigation
+workflows, exercise the registered tool and real client with mocked HTTP,
+then assert findings, query bounds, masking, and failure behavior.
+
+Remove tests only when their production API is removed or their assertions
+are redundant. Do not exclude live code from coverage to improve the percentage.
+Use `uv run coverage report -m` after pytest to find missed statements.
+
+The supported type check is `uv run ty check src/`; ty targets Python 3.12,
+the minimum supported runtime. The dev dependency and lockfile pin its version.
 
 ## Code conventions
 
@@ -101,7 +119,7 @@ CI runs on pushes to `main` and pull requests targeting `main`. It runs three
 parallel jobs:
 
 - **Lint:** `uv run ruff check .` and `uv run ruff format --check .`.
-- **Type check:** `uv run mypy src/`.
+- **Type check:** `uv run ty check src/`.
 - **Test:** `uv run pytest` on Python 3.12, 3.13, and 3.14.
 
 The Python 3.12 test job uploads coverage to Codecov. New pushes cancel an

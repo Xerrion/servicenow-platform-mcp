@@ -7,8 +7,8 @@ import httpx
 from servicenow_mcp._client_attachments import AttachmentApiClient
 from servicenow_mcp._client_catalog import ServiceCatalogApiClient
 from servicenow_mcp._client_cmdb import CmdbApiClient
+from servicenow_mcp._client_code_search import CodeSearchApiClient
 from servicenow_mcp._client_flow import FlowDesignerApiClient
-from servicenow_mcp._client_metadata import MetadataApiClient
 from servicenow_mcp._client_table import TableApiClient
 from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.config import Settings
@@ -17,8 +17,8 @@ from servicenow_mcp.config import Settings
 class ServiceNowClient(
     TableApiClient,
     AttachmentApiClient,
-    MetadataApiClient,
     CmdbApiClient,
+    CodeSearchApiClient,
     ServiceCatalogApiClient,
     FlowDesignerApiClient,
 ):

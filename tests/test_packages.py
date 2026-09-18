@@ -34,6 +34,7 @@ EXPECTED_GROUPS = {
     "flow",
     "audit",
     "code_search",
+    "cmdb",
 }
 
 
@@ -45,16 +46,16 @@ class TestPackageRegistry:
 
     def test_full_contains_all_unified_groups(self) -> None:
         assert set(PACKAGE_REGISTRY["full"]) == EXPECTED_GROUPS
-        assert len(PACKAGE_REGISTRY["full"]) == 13
+        assert len(PACKAGE_REGISTRY["full"]) == 14
 
-    async def test_full_public_surface_stays_at_fifteen_tools(self, settings: Settings) -> None:
-        """Optimization changes do not add or remove public tools."""
+    async def test_full_public_surface_has_sixteen_tools(self, settings: Settings) -> None:
+        """The full preset includes CMDB and package discovery."""
         from servicenow_mcp.server import create_mcp_server
 
         with patch("servicenow_mcp.server.Settings", return_value=settings):
             mcp = create_mcp_server()
         async with mcp._lowlevel_server.lifespan(mcp._lowlevel_server):
-            assert len(await mcp.list_tools()) == 15
+            assert len(await mcp.list_tools()) == 16
 
     def test_readonly_is_strict_subset_of_full(self) -> None:
         readonly = set(PACKAGE_REGISTRY["readonly"])

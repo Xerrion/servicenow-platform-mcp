@@ -12,8 +12,8 @@ Counts include `list_tool_packages`.
 
 | Package | Public tools | Use |
 | --- | ---: | --- |
-| `full` | 15 | All groups, including record and attachment writes. |
-| `readonly` | 11 | Read, investigation, analysis, audit, Flow, and Code Search tools. |
+| `full` | 16 | All groups, including record and attachment writes. |
+| `readonly` | 12 | Read, investigation, analysis, audit, Flow, Code Search, and CMDB tools. |
 | `core_readonly` | 4 | `query`, `describe`, and read-only `attachment`. |
 | `none` | 1 | Only `list_tool_packages`. |
 
@@ -38,8 +38,10 @@ investigate
 resolve_choice
 service_catalog
 analysis
+audit
 flow
 code_search
+cmdb
 ```
 
 `record_write` registers both `record_write` and `record_apply`. Do not add

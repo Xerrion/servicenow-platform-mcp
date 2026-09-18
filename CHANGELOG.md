@@ -2,7 +2,34 @@
 
 ## Unreleased
 
+### Features
+
+- Added the read-only `cmdb` tool with `query`, `get`, `meta`, and `describe`
+  actions. It is included in `full` and `readonly`, and can be loaded on its own.
+  Code Search now has its own HTTP client module as well as its own MCP tool.
+
+### Development
+
+- Removed unused internal handler parameters, registry fields, dictionary
+  re-exports, and the duplicate choice-cache fallback. Cache insertion and
+  catalog order/cart validation now share their existing implementations.
+- Corrected the `Settings` type stub to accept configurable OAuth scopes.
+  Retained its environment-constructor contract for basedpyright compatibility.
+  Public MCP contracts are unchanged.
+- Documented focused follow-up refactors in `docs/refactoring-opportunities.md`.
+- Replaced mypy with Astral ty in development dependencies, CI, and contributor
+  commands. Run `uv run ty check src/`; the minimum Python target remains 3.12.
+- Removed unused tool-name constants, hidden server-state attachment, cache
+  convenience wrappers, and tests that only exercised deleted code. Audit
+  telemetry is injected explicitly through registration.
+
 ### Breaking changes
+
+- Removed unused Python metadata/email/import/report wrappers and encoded-query
+  translation from `ServiceNowClient`, and unused `ServiceNowQuery` convenience
+  methods. The query builder now contains only operators consumed internally.
+  Python consumers must use the remaining client methods or REST endpoints;
+  MCP encoded-query inputs continue to accept native ServiceNow query syntax.
 
 - Removed the unused Python compatibility method `ServiceNowClient.download_attachment_by_name`.
   Python callers must resolve attachment metadata, then use `download_attachment(sys_id)`.
@@ -54,6 +81,22 @@
 
 ### Bug Fixes
 
+- The deprecated-API scan no longer labels supported `GlideRecordSecure`,
+  `setWorkflow`, `gs.include`, or `g_form.flash` calls as deprecated.
+- Investigation explanations now accept documented table names and ACL IDs
+  when the investigation is selected by name.
+- Investigation timeouts and unexpected failures propagate instead of producing
+  successful empty findings. Missing/inaccessible optional performance tables
+  produce explicit warnings and `complete=false`; `tables_queried` now respects
+  the selected categories.
+
+- Batch audit checks now retrieve requested field counts in one grouped Stats API
+  request, avoiding one slow `sys_audit` scan per field. The shared table count,
+  per-field verdicts, date bounds, and uncached activity counts are preserved.
+- All optional MCP tool arguments now accept omission or explicit null. Empty
+  string and zero sentinels for absent inputs now default to null in schemas;
+  meaningful defaults, explicit false/zero values, action-specific requirements,
+  and record field values are preserved. Refresh cached MCP tool schemas.
 - Starting without `SENTRY_DSN` now keeps the Sentry SDK path disabled instead
   of marking it initialized and invoking SDK context operations.
 

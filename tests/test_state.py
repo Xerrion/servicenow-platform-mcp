@@ -152,24 +152,6 @@ class TestPreviewTokenStore:
         assert result is not None
         assert result["table"] == "change_request"
 
-    @pytest.mark.asyncio()
-    async def test_sweep_expired_frees_space(self) -> None:
-        """_sweep_expired() removes expired entries, reducing store size."""
-        fake_time = 1000.0
-        with patch("servicenow_mcp.state.time.monotonic", return_value=fake_time):
-            store = PreviewTokenStore(ttl_seconds=60, max_size=10)
-            await store.create({"table": "incident"})
-            await store.create({"table": "problem"})
-            await store.create({"table": "change_request"})
-
-        assert len(store) == 3
-
-        # Advance time past TTL and sweep
-        with patch("servicenow_mcp.state.time.monotonic", return_value=fake_time + 61):
-            await store._sweep_expired()
-
-        assert len(store) == 0
-
     async def test_concurrent_consumers_get_payload_once(self) -> None:
         """A preview token can be applied by only one concurrent consumer."""
         store = PreviewTokenStore()

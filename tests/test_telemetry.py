@@ -11,7 +11,7 @@ import pytest
 from mcp.server import MCPServer
 
 from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.client import ServiceNowClient, ServiceNowClientFactory, ServiceNowClientProvider
+from servicenow_mcp.client import ServiceNowClient, ServiceNowClientFactory
 from servicenow_mcp.config import Settings
 from servicenow_mcp.telemetry import HttpTelemetry, TelemetryAsyncClient
 from tests.helpers import decode_response, get_tool_functions
@@ -40,7 +40,6 @@ class _McpServerWithRuntime(Protocol):
     """MCPServer runtime attributes used by lifecycle tests."""
 
     _lowlevel_server: _McpProtocolServer
-    _sn_client_factory: ServiceNowClientProvider
 
 
 @pytest.fixture()
@@ -215,12 +214,14 @@ async def test_mcp_server_lifespan_closes_shared_transport_once_on_exception() -
         "SERVICENOW_OAUTH_SCOPE": "useraccount",
         "MCP_TOOL_PACKAGE": "none",
     }
-    with patch.dict("os.environ", env, clear=True):
+    transport = TelemetryAsyncClient(telemetry=HttpTelemetry(), is_shared_pool=True)
+    with (
+        patch.dict("os.environ", env, clear=True),
+        patch("servicenow_mcp.server.TelemetryAsyncClient", return_value=transport),
+    ):
         mcp = create_mcp_server()
 
     runtime = cast("_McpServerWithRuntime", cast("object", mcp))
-    service_client = runtime._sn_client_factory()
-    transport = service_client._ensure_client()
 
     with (
         patch.object(transport, "aclose", new=AsyncMock(wraps=transport.aclose)) as close,

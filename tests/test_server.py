@@ -29,27 +29,22 @@ class TestCreateMcpServer:
         self, group: str, dependency_names: set[str], settings: Settings
     ) -> None:
         """Different registration signatures receive the same server-owned dependencies."""
-        from servicenow_mcp.server import attach_servicenow_state, create_mcp_server
+        from servicenow_mcp.server import create_mcp_server
 
         settings.mcp_tool_package = group
         module = importlib.import_module(f"servicenow_mcp.tools.{group}")
         with (
             patch("servicenow_mcp.server.Settings", return_value=settings),
             patch.object(module, "register_tools", autospec=True, side_effect=module.register_tools) as register,
-            patch("servicenow_mcp.server.attach_servicenow_state", wraps=attach_servicenow_state) as attach_state,
         ):
             mcp = create_mcp_server()
 
         async with mcp._lowlevel_server.lifespan(mcp._lowlevel_server):
-            _, shared_settings, auth_provider, choices, dictionary, client_factory, _ = attach_state.call_args.args
-            dependencies = {
-                "settings": shared_settings,
-                "auth_provider": auth_provider,
-                "choices": choices,
-                "dictionary": dictionary,
-                "client_factory": client_factory,
-            }
-            register.assert_called_once_with(mcp=mcp, **{name: dependencies[name] for name in dependency_names})
+            register.assert_called_once()
+            assert set(register.call_args.kwargs) == {"mcp", *dependency_names}
+            assert register.call_args.kwargs["mcp"] is mcp
+            if "settings" in dependency_names:
+                assert register.call_args.kwargs["settings"] is settings
             assert group in await get_tool_names(mcp)
 
     async def test_creates_server_with_name(self) -> None:
@@ -142,7 +137,7 @@ class TestCreateMcpServer:
         assert "attachment_write" in tool_names
         assert "analysis" in tool_names
         assert "code_search" in tool_names
-        assert len(tool_names) == 15
+        assert len(tool_names) == 16
 
     @pytest.mark.parametrize(
         ("package_name", "expected_tools"),
@@ -166,21 +161,22 @@ class TestCreateMcpServer:
 
         assert set(await get_tool_names(mcp_server)) == expected_tools
 
-    async def test_custom_package_can_load_code_search_tool(self) -> None:
-        """The ``code_search`` group is directly loadable via MCP_TOOL_PACKAGE."""
+    @pytest.mark.parametrize("group", ["code_search", "cmdb"])
+    async def test_custom_package_can_load_independent_inspection_tool(self, group: str) -> None:
+        """Code Search and CMDB groups can each be loaded independently."""
         from servicenow_mcp.server import create_mcp_server
 
         env = {
             "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
             "SERVICENOW_OAUTH_CLIENT_ID": "test-client",
             "SERVICENOW_OAUTH_SCOPE": "useraccount",
-            "MCP_TOOL_PACKAGE": "code_search",
+            "MCP_TOOL_PACKAGE": group,
         }
         with patch.dict("os.environ", env, clear=True):
             mcp_server = create_mcp_server()
 
         tool_names = await get_tool_names(mcp_server)
-        assert tool_names == ["list_tool_packages", "code_search"]
+        assert tool_names == ["list_tool_packages", group]
 
     async def test_none_package_has_only_list_packages(self) -> None:
         """'none' package only has the list_tool_packages tool."""

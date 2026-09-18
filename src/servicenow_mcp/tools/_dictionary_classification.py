@@ -1,6 +1,5 @@
 """Classify ServiceNow dictionary fields that can hold executable content."""
 
-import re
 from typing import Final
 
 from servicenow_mcp.tools._dictionary_models import DictionaryField, ScriptField
@@ -37,7 +36,6 @@ _HEURISTIC_ATTR_FLAGS: Final[tuple[tuple[str, str], ...]] = (
     ("tinymce_allow_all", "true"),
     ("html_sanitize", "false"),
 )
-_TEMPLATE_RE: Final[re.Pattern[str]] = re.compile(r"\$\{[^}]+\}")
 
 
 def classify_script_field(field: DictionaryField) -> ScriptField | None:
@@ -61,13 +59,3 @@ def attributes_admit_heuristic(attributes: str) -> bool:
         key, _, value = token.partition("=")
         parsed[key.strip().lower()] = value.strip().lower()
     return any(parsed.get(key) == value for key, value in _HEURISTIC_ATTR_FLAGS)
-
-
-def looks_like_template(content: str) -> bool:
-    """Return whether content contains ``${...}`` template syntax."""
-    if not content:
-        return False
-    try:
-        return bool(_TEMPLATE_RE.search(content))
-    except (TypeError, re.error):
-        return False

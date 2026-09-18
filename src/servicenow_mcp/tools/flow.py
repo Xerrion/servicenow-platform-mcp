@@ -34,8 +34,6 @@ from servicenow_mcp.tools._flow_values import decode_values, looks_compressed
 from servicenow_mcp.validation import validate_identifier, validate_sys_id
 
 
-TOOL_NAMES: list[str] = ["flow"]
-
 _VALID_ACTIONS: Final[frozenset[str]] = frozenset(
     {
         "contract",
@@ -829,7 +827,6 @@ async def _action_inspect(
     sys_id: str,
     name: str,
     settings: Settings,
-    auth_provider: OAuthPKCEProvider,
     client_factory: ServiceNowClientProvider,
     sections: str,
     section_limit: int,
@@ -1265,8 +1262,6 @@ def _index_flow_headers(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]
 async def _action_find_by_table(
     *,
     table: str,
-    settings: Settings,
-    auth_provider: OAuthPKCEProvider,
     client_factory: ServiceNowClientProvider,
 ) -> str:
     if not table:
@@ -1385,7 +1380,6 @@ async def _action_list_triggers(
     active: str,
     limit: int,
     settings: Settings,
-    auth_provider: OAuthPKCEProvider,
     client_factory: ServiceNowClientProvider,
 ) -> str:
     if active and active not in {"true", "false"}:
@@ -1501,17 +1495,19 @@ def register_tools(
     @tool_handler
     async def flow(
         action: str,
-        sys_id: str = "",
-        name: str = "",
-        value: str = "",
-        table: str = "",
-        trigger_type: str = "",
-        active: str = "",
-        limit: int = 0,
-        sections: str = "",
-        section_limit: int = 0,
+        sys_id: str | None = None,
+        name: str | None = None,
+        value: str | None = None,
+        table: str | None = None,
+        trigger_type: str | None = None,
+        active: str | None = None,
+        limit: int | None = None,
+        sections: str | None = None,
+        section_limit: int | None = None,
     ) -> str:
         """Inspect Flow Designer flows, triggers, and value blobs (read-only).
+
+        Omit unused optional arguments; null uses their defaults.
 
         Args:
             action: 'contract' | 'inspect' | 'find_by_table' | 'decode_values' | 'list_triggers' | 'describe'.
@@ -1525,6 +1521,16 @@ def register_tools(
             sections: Comma-separated inspect/contract sections. Empty uses the compact default; '*' returns all.
             section_limit: Shared cap for selected flow rows/nodes (default 100, max MAX_ROW_LIMIT).
         """
+        sys_id = "" if sys_id is None else sys_id
+        name = "" if name is None else name
+        value = "" if value is None else value
+        table = "" if table is None else table
+        trigger_type = "" if trigger_type is None else trigger_type
+        active = "" if active is None else active
+        limit = 0 if limit is None else limit
+        sections = "" if sections is None else sections
+        section_limit = 0 if section_limit is None else section_limit
+
         if action not in _VALID_ACTIONS:
             return _error(
                 f"Unknown action {action!r}. Expected one of: {sorted(_VALID_ACTIONS)}.",
@@ -1541,7 +1547,6 @@ def register_tools(
                 sys_id=sys_id,
                 name=name,
                 settings=settings,
-                auth_provider=auth_provider,
                 client_factory=client_factory,
                 sections=sections,
                 section_limit=section_limit,
@@ -1551,8 +1556,6 @@ def register_tools(
         if action == "find_by_table":
             return await _action_find_by_table(
                 table=table,
-                settings=settings,
-                auth_provider=auth_provider,
                 client_factory=client_factory,
             )
 
@@ -1562,6 +1565,5 @@ def register_tools(
             active=active,
             limit=limit,
             settings=settings,
-            auth_provider=auth_provider,
             client_factory=client_factory,
         )

@@ -1,7 +1,6 @@
 """Tests for policy engine."""
 
 import json
-import logging
 
 import pytest
 
@@ -287,62 +286,6 @@ class TestQuerySafety:
 
         result = enforce_query_safety("incident", "active=true", limit=-5, settings=settings)
         assert result["limit"] == 1
-
-
-class TestWriteGating:
-    """Test write operation gating."""
-
-    def test_write_allowed_in_dev(self, settings: Settings) -> None:
-        """Writes are allowed in dev environment."""
-        from servicenow_mcp.policy import can_write
-
-        assert can_write("incident", settings) is True
-
-    def test_write_blocked_in_prod(self, prod_settings: Settings) -> None:
-        """Writes are blocked in production by default."""
-        from servicenow_mcp.policy import can_write
-
-        assert can_write("incident", prod_settings) is False
-
-    def test_write_allowed_in_prod_with_override(self, prod_settings: Settings) -> None:
-        """Writes can be overridden in production."""
-        from servicenow_mcp.policy import can_write
-
-        assert can_write("incident", prod_settings, override=True) is True
-
-    def test_write_to_denied_table_blocked(self, settings: Settings) -> None:
-        """Writes to denied tables are always blocked."""
-        from servicenow_mcp.policy import can_write
-
-        assert can_write("sys_user_has_password", settings) is False
-
-    def test_write_to_denied_table_case_insensitive(self, settings: Settings) -> None:
-        """Write deny-list check is case-insensitive."""
-        from servicenow_mcp.policy import can_write
-
-        assert can_write("SYS_USER_HAS_PASSWORD", settings) is False
-
-    def test_write_blocked_denied_table_logs_warning(
-        self, settings: Settings, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """Write blocked by deny list logs a warning."""
-        from servicenow_mcp.policy import can_write
-
-        with caplog.at_level(logging.WARNING, logger="servicenow_mcp.policy"):
-            can_write("sys_user_has_password", settings)
-
-        assert any("restricted table" in record.message for record in caplog.records)
-
-    def test_write_blocked_in_prod_logs_warning(
-        self, prod_settings: Settings, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """Write blocked in production logs a warning."""
-        from servicenow_mcp.policy import can_write
-
-        with caplog.at_level(logging.WARNING, logger="servicenow_mcp.policy"):
-            can_write("incident", prod_settings)
-
-        assert any("production environment" in record.message for record in caplog.records)
 
 
 class TestGateWrite:

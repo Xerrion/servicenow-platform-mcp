@@ -14,7 +14,6 @@ from servicenow_mcp.auth import create_auth
 from servicenow_mcp.choices import ChoiceRegistry
 from servicenow_mcp.client import ServiceNowClientFactory
 from servicenow_mcp.config import Settings
-from servicenow_mcp.mcp_state import attach_servicenow_state
 from servicenow_mcp.packages import _TOOL_GROUP_MODULES, get_package, list_packages
 from servicenow_mcp.response import serialize
 from servicenow_mcp.sentry import capture_exception as sentry_capture
@@ -66,8 +65,7 @@ def create_mcp_server() -> MCPServer:
     client_factory = ServiceNowClientFactory(settings, auth_provider, http_client)
 
     @asynccontextmanager
-    async def lifespan(mcp_server: MCPServer) -> AsyncIterator[None]:
-        del mcp_server
+    async def lifespan(_mcp_server: MCPServer) -> AsyncIterator[None]:
         try:
             yield
         finally:
@@ -78,7 +76,6 @@ def create_mcp_server() -> MCPServer:
 
     choices = ChoiceRegistry(settings, auth_provider, client_factory, telemetry)
     dictionary = DictionaryRegistry(settings, auth_provider, client_factory, telemetry)
-    attach_servicenow_state(mcp, settings, auth_provider, choices, dictionary, client_factory, telemetry)
 
     # Always register the list_tool_packages tool
     @mcp.tool()
@@ -96,6 +93,7 @@ def create_mcp_server() -> MCPServer:
         "choices": choices,
         "dictionary": dictionary,
         "client_factory": client_factory,
+        "telemetry": telemetry,
     }
 
     for group_name in tool_groups:

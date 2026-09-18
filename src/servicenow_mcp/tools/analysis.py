@@ -24,8 +24,6 @@ from servicenow_mcp.validation import (
 )
 
 
-TOOL_NAMES: list[str] = ["analysis"]
-
 _VALID_ACTIONS: Final[frozenset[str]] = frozenset({"ritm_variables", "journal_history", "describe"})
 _DEFAULT_WINDOW_DAYS: Final[int] = 90
 _JOURNAL_FIELDS: Final[frozenset[str]] = frozenset({"comments", "work_notes", "close_notes"})
@@ -406,15 +404,17 @@ def register_tools(
     @tool_handler
     async def analysis(
         action: str,
-        table: str = "",
-        sys_id: str = "",
-        fields_csv: str = "",
-        since: str = "",
-        window_days: int = 0,
-        limit: int = 0,
-        offset: int = 0,
+        table: str | None = None,
+        sys_id: str | None = None,
+        fields_csv: str | None = None,
+        since: str | None = None,
+        window_days: int | None = None,
+        limit: int | None = None,
+        offset: int | None = 0,
     ) -> str:
         """Run bounded, read-only analysis over catalog answers or journals.
+
+        Omit unused optional arguments; null uses their defaults.
 
         Args:
             action: 'ritm_variables' | 'journal_history' | 'describe'.
@@ -426,6 +426,14 @@ def register_tools(
             limit: Row cap; defaults to MAX_ROW_LIMIT and is capped by it.
             offset: Zero-based row offset.
         """
+        table = "" if table is None else table
+        sys_id = "" if sys_id is None else sys_id
+        fields_csv = "" if fields_csv is None else fields_csv
+        since = "" if since is None else since
+        window_days = 0 if window_days is None else window_days
+        limit = 0 if limit is None else limit
+        offset = 0 if offset is None else offset
+
         if action not in _VALID_ACTIONS:
             return _error(f"Unknown action {action!r}. Expected one of: {sorted(_VALID_ACTIONS)}.")
         if action == "describe":

@@ -1,12 +1,9 @@
 """Unified ``investigate`` tool: run investigations or explain findings.
 
-This module collapses ``investigate_run`` and ``investigate_explain`` into one
-action-dispatching tool. Two mutually exclusive actions:
+Actions:
 
 1. ``run``     -> dispatches to ``module.run(client, params_dict)`` for a named investigation.
 2. ``explain`` -> dispatches to a registered module's ``explain(client, element_id)``.
-
-Old tools stay registered alongside this one until Phase 3b retires them.
 """
 
 from __future__ import annotations
@@ -27,8 +24,6 @@ from servicenow_mcp.tools._payload import parse_payload_json
 from servicenow_mcp.validation import validate_identifier
 
 
-TOOL_NAMES: list[str] = ["investigate"]
-
 _VALID_ACTIONS: Final[frozenset[str]] = frozenset({"run", "explain", "describe"})
 
 _ACTION_REGISTRY: Final[dict[str, dict[str, Any]]] = {
@@ -39,7 +34,7 @@ _ACTION_REGISTRY: Final[dict[str, dict[str, Any]]] = {
     "explain": {
         "description": "Explain a finding directly when name is supplied, or use legacy trial dispatch otherwise.",
         "params": {
-            "element_id": "table:sys_id (required)",
+            "element_id": "table:sys_id; with name, table_health and heavy automation accept a table name, acl_conflicts also accepts an ACL sys_id",
             "name": "registered investigation name (optional direct-dispatch selector)",
         },
     },
@@ -63,8 +58,6 @@ def _unknown_investigation_error(name: str) -> str:
 async def _run_action(
     name: str,
     params: str,
-    settings: Settings,
-    auth_provider: OAuthPKCEProvider,
     client_factory: ServiceNowClientProvider,
 ) -> str:
     if not name:
@@ -97,7 +90,7 @@ async def _run_action(
             if isinstance(finding, dict):
                 finding["provenance"] = {"investigation": name}
 
-    return format_response(data=result)
+    return format_response(data=result, warnings=result.get("warnings"))
 
 
 def _describe_action(name: str) -> str:
@@ -121,8 +114,6 @@ def _describe_action(name: str) -> str:
 async def _explain_action(
     element_id: str,
     name: str,
-    settings: Settings,
-    auth_provider: OAuthPKCEProvider,
     client_factory: ServiceNowClientProvider,
 ) -> str:
     if not element_id:
@@ -131,14 +122,17 @@ async def _explain_action(
     if name and selected_module is None:
         return _unknown_investigation_error(name)
 
-    # Format guard before any I/O. ``parse_element_id`` enforces the 'table:sys_id'
-    # shape; the table-allowlist check happens inside each module's explain.
+    # Direct dispatch supports module-specific identifiers. Validate their shape
+    # before I/O; each module applies its table restrictions.
     try:
-        table, sys_id = parse_element_id(element_id)
+        if selected_module is not None and ":" not in element_id:
+            validate_identifier(element_id)
+        else:
+            table, sys_id = parse_element_id(element_id)
+            validate_identifier(table)
+            validate_identifier(sys_id)
     except ValueError as exc:
         return _error(str(exc))
-    validate_identifier(table)
-    validate_identifier(sys_id)
 
     # Without a caller-supplied ``name``, dispatch by trial: each module's explain
     # returns ``{"error": ...}`` (single-key) when ``element_id``'s table is outside
@@ -195,11 +189,13 @@ def register_tools(
     @tool_handler
     async def investigate(
         action: str,
-        name: str = "",
-        params: str = "{}",
-        element_id: str = "",
+        name: str | None = None,
+        params: str | None = "{}",
+        element_id: str | None = None,
     ) -> str:
         """Run an investigation or explain a finding.
+
+        Omit unused optional arguments; null uses their defaults.
 
         Args:
             action: 'run' | 'explain' | 'describe'.
@@ -208,8 +204,14 @@ def register_tools(
                 Available: stale_automations, deprecated_apis, table_health,
                 acl_conflicts, error_analysis, slow_transactions, performance_bottlenecks.
             params: JSON string of run parameters (run only).
-            element_id: 'table:sys_id' identifier of a finding (explain only).
+            element_id: Finding identifier (explain only). Usually 'table:sys_id'.
+                With name='table_health' or heavy automation, use the table name.
+                With name='acl_conflicts', an ACL sys_id is also accepted.
         """
+        name = "" if name is None else name
+        params = "{}" if params is None else params
+        element_id = "" if element_id is None else element_id
+
         if action not in _VALID_ACTIONS:
             return _error(
                 f"Unknown action {action!r}. Expected one of: {sorted(_VALID_ACTIONS)}.",
@@ -219,8 +221,6 @@ def register_tools(
             return await _run_action(
                 name=name,
                 params=params,
-                settings=settings,
-                auth_provider=auth_provider,
                 client_factory=client_factory,
             )
 
@@ -230,7 +230,5 @@ def register_tools(
         return await _explain_action(
             element_id=element_id,
             name=name,
-            settings=settings,
-            auth_provider=auth_provider,
             client_factory=client_factory,
         )

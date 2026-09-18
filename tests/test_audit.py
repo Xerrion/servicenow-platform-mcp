@@ -150,6 +150,20 @@ def _make_stats_handler(
                 table = part.split("=", 1)[1]
             elif part.startswith("fieldname="):
                 field = part.split("=", 1)[1]
+        if params.get("sysparm_group_by") == "fieldname":
+            return httpx.Response(
+                200,
+                json={
+                    "result": [
+                        {
+                            "groupby_fields": [{"field": "fieldname", "value": name}],
+                            "stats": {"count": str(counts[(table, name)])},
+                        }
+                        for name in _parse_in_list_clause(query, "fieldname")
+                        if counts.get((table, name), 0) > 0
+                    ]
+                },
+            )
         return _stats_response(counts.get((table, field), 0))
 
     return handler
@@ -471,6 +485,18 @@ async def test_check_fields_returns_per_field_verdicts(settings: Settings, auth_
     assert data["positive_control_passed"] is True
     verdicts = {entry["field"]: entry["verdict"] for entry in data["results"]}
     assert verdicts == {"business_service": "audited", "description": "not_audited_field_flag"}
+    assert {entry["field"]: entry["field_change_count"] for entry in data["results"]} == {
+        "business_service": 3,
+        "description": 0,
+    }
+    stats_calls = [call for call in respx.calls if call.request.url.path == "/api/now/stats/sys_audit"]
+    assert len(stats_calls) == 2
+    grouped_params = stats_calls[1].request.url.params
+    assert grouped_params["sysparm_group_by"] == "fieldname"
+    assert _parse_in_list_clause(grouped_params["sysparm_query"], "fieldname") == [
+        "business_service",
+        "description",
+    ]
 
 
 @pytest.mark.asyncio()

@@ -34,7 +34,6 @@ ENV/
 .coverage
 coverage.xml
 htmlcov/
-.mypy_cache/
 
 # OS
 .DS_Store

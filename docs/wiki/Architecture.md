@@ -52,6 +52,7 @@ auth_provider
 choices
 dictionary
 client_factory
+telemetry
 ```
 
 `record_write.py` registers both `record_write` and `record_apply`.
@@ -101,6 +102,8 @@ src/servicenow_mcp/
     auth.py                # public OAuth PKCE provider
     oauth_callback.py      # one-shot loopback receiver
     client.py              # ServiceNow client factory and facade
+    _client_cmdb.py         # CMDB Instance and Meta APIs
+    _client_code_search.py  # Code Search API
     config.py              # environment settings and validation
     policy.py              # safety guardrails and write gating
     state.py               # preview token store

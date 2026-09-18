@@ -8,15 +8,7 @@ from servicenow_mcp.config import Settings
 from servicenow_mcp.metadata_cache import AsyncMetadataCache
 from servicenow_mcp.query_builder import ServiceNowQuery
 from servicenow_mcp.telemetry import CacheName, HttpTelemetry
-from servicenow_mcp.tools._dictionary_classification import (
-    EXCLUDED_ELEMENTS,
-    UNAMBIGUOUS_SCRIPT_TYPES,
-    classify_script_field,
-    looks_like_template,
-)
-from servicenow_mcp.tools._dictionary_classification import (
-    attributes_admit_heuristic as _attributes_admit_heuristic,
-)
+from servicenow_mcp.tools._dictionary_classification import classify_script_field
 from servicenow_mcp.tools._dictionary_inheritance import resolve_chain
 from servicenow_mcp.tools._dictionary_models import DictionaryField, ScriptField
 from servicenow_mcp.validation import validate_identifier
@@ -185,11 +177,7 @@ def _dictionary_value(value: Any) -> str:
 
 
 __all__ = [
-    "EXCLUDED_ELEMENTS",
-    "UNAMBIGUOUS_SCRIPT_TYPES",
     "DictionaryField",
     "DictionaryRegistry",
     "ScriptField",
-    "_attributes_admit_heuristic",
-    "looks_like_template",
 ]

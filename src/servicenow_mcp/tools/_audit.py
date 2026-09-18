@@ -155,8 +155,6 @@ class AuditRegistry:
     _DICT_FIELDS: ClassVar[list[str]] = ["name", "element", "audit", "attributes"]
     _TABLE_FIELDS: ClassVar[list[str]] = ["name", "sys_audit"]
 
-    _settings: Settings
-    _auth_provider: OAuthPKCEProvider
     _dictionary: DictionaryRegistry
 
     def __init__(
@@ -167,8 +165,6 @@ class AuditRegistry:
         client_factory: ServiceNowClientProvider | None = None,
         telemetry: HttpTelemetry | None = None,
     ) -> None:
-        self._settings = settings
-        self._auth_provider = auth_provider
         self._dictionary = dictionary
         self._client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
         ttl = settings.metadata_cache_ttl_seconds

@@ -31,12 +31,12 @@ from servicenow_mcp.errors import ServiceNowMCPError
 from servicenow_mcp.policy import check_table_access, mask_audit_entry
 from servicenow_mcp.query_builder import ServiceNowQuery
 from servicenow_mcp.response import format_response
+from servicenow_mcp.telemetry import HttpTelemetry
 from servicenow_mcp.tools._audit import AuditRegistry, FieldAudit
+from servicenow_mcp.tools._audit_counts import fetch_field_counts
 from servicenow_mcp.tools._dictionary import DictionaryRegistry
 from servicenow_mcp.validation import validate_identifier, validate_sys_id
 
-
-TOOL_NAMES: list[str] = ["audit"]
 
 _VALID_ACTIONS: Final[frozenset[str]] = frozenset({"check_field", "check_fields", "check_table", "history", "describe"})
 
@@ -248,8 +248,6 @@ async def _action_check_field(
     table: str,
     field: str,
     window_days: int,
-    settings: Settings,
-    auth_provider: OAuthPKCEProvider,
     client_factory: ServiceNowClientProvider,
     registry: AuditRegistry,
 ) -> str:
@@ -293,8 +291,6 @@ async def _action_check_fields(
     table: str,
     fields_csv: str,
     window_days: int,
-    settings: Settings,
-    auth_provider: OAuthPKCEProvider,
     client_factory: ServiceNowClientProvider,
     registry: AuditRegistry,
 ) -> str:
@@ -327,9 +323,14 @@ async def _action_check_fields(
     if table_audit is not False:
         async with client_factory() as client:
             table_count = await _stats_count(client, table=table, field=None, since=since)
-            for name, fa in field_audits.items():
-                if fa.has_row:
-                    field_counts[name] = await _stats_count(client, table=table, field=name, since=since)
+            field_counts.update(
+                await fetch_field_counts(
+                    client,
+                    table=table,
+                    fields=[name for name, fa in field_audits.items() if fa.has_row],
+                    since=since,
+                )
+            )
 
     results: list[dict[str, Any]] = []
     for name in fields:
@@ -427,7 +428,6 @@ async def _action_history(
     window_days: int,
     limit: int,
     settings: Settings,
-    auth_provider: OAuthPKCEProvider,
     client_factory: ServiceNowClientProvider,
 ) -> str:
     validate_identifier(table)
@@ -502,6 +502,7 @@ def register_tools(
     auth_provider: OAuthPKCEProvider,
     dictionary: DictionaryRegistry | None = None,
     client_factory: ServiceNowClientProvider | None = None,
+    telemetry: HttpTelemetry | None = None,
 ) -> None:
     """Register the unified ``audit`` tool on the MCP server.
 
@@ -517,20 +518,20 @@ def register_tools(
         auth_provider,
         dictionary_registry,
         client_factory,
-        getattr(mcp, "_sn_http_telemetry", None),
+        telemetry,
     )
 
     @mcp.tool()
     @tool_handler
     async def audit(
         action: str,
-        table: str = "",
-        field: str = "",
-        fields_csv: str = "",
-        sys_id: str = "",
-        since: str = "",
-        window_days: int = 0,
-        limit: int = 0,
+        table: str | None = None,
+        field: str | None = None,
+        fields_csv: str | None = None,
+        sys_id: str | None = None,
+        since: str | None = None,
+        window_days: int | None = None,
+        limit: int | None = None,
     ) -> str:
         """Inspect ServiceNow audit posture (table/field config) and audit trail.
 
@@ -538,6 +539,8 @@ def register_tools(
         Every action keeps a default 90-day window for that reason. Override
         ``window_days`` (or ``since`` on ``history``) only when you genuinely
         need older rows - wider windows cause slow queries and can time out.
+
+        Omit unused optional arguments; null uses their defaults.
 
         Args:
             action: 'check_field' | 'check_fields' | 'check_table' | 'history' | 'describe'.
@@ -549,6 +552,14 @@ def register_tools(
             window_days: Audit-trail/positive-control window (defaults to 90).
             limit: Row cap for 'history' (defaults to settings.max_row_limit).
         """
+        table = "" if table is None else table
+        field = "" if field is None else field
+        fields_csv = "" if fields_csv is None else fields_csv
+        sys_id = "" if sys_id is None else sys_id
+        since = "" if since is None else since
+        window_days = 0 if window_days is None else window_days
+        limit = 0 if limit is None else limit
+
         if action not in _VALID_ACTIONS:
             return _error(
                 f"Unknown action {action!r}. Expected one of: {sorted(_VALID_ACTIONS)}.",
@@ -562,8 +573,6 @@ def register_tools(
                 table=table,
                 field=field,
                 window_days=window_days,
-                settings=settings,
-                auth_provider=auth_provider,
                 client_factory=client_factory,
                 registry=audit_registry,
             )
@@ -573,8 +582,6 @@ def register_tools(
                 table=table,
                 fields_csv=fields_csv,
                 window_days=window_days,
-                settings=settings,
-                auth_provider=auth_provider,
                 client_factory=client_factory,
                 registry=audit_registry,
             )
@@ -592,6 +599,5 @@ def register_tools(
             window_days=window_days,
             limit=limit,
             settings=settings,
-            auth_provider=auth_provider,
             client_factory=client_factory,
         )

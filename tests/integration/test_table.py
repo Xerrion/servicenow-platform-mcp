@@ -16,14 +16,16 @@ class TestTableIntegration:
     async def test_table_describe_returns_fields(self, live_settings: Settings, live_auth: OAuthPKCEProvider) -> None:
         """table_describe: fetch field metadata for the incident table."""
         async with ServiceNowClient(live_settings, live_auth) as client:
-            metadata = await client.get_metadata("incident")
+            metadata = await client.query_records(
+                "sys_dictionary", "name=incident", fields=["element", "internal_type"], limit=1000
+            )
 
         fields = [
             {
                 "element": e.get("element", ""),
                 "internal_type": e.get("internal_type", ""),
             }
-            for e in metadata
+            for e in metadata["records"]
         ]
         assert len(fields) > 0, "No fields returned for incident table"
 

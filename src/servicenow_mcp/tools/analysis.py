@@ -214,7 +214,6 @@ async def _ritm_variables(
                     "answer_sys_id": option_id,
                     "definition_sys_id": definition_id or None,
                     "raw_value": MASK_VALUE,
-                    "display_value": MASK_VALUE,
                     "status": "inaccessible_definition",
                 }
             )
@@ -249,9 +248,6 @@ async def _ritm_variables(
                 "label": resolve_ref_value(definition.get("question_text")),
                 "type": variable_type,
                 "raw_value": MASK_VALUE if is_masked else raw_value,
-                "display_value": MASK_VALUE
-                if is_masked
-                else (None if reference_target or is_list_collector else raw_value),
                 "reference_target": reference_target or None,
                 "variable_set": resolve_ref_value(definition.get("variable_set")) or None,
                 "multi_value": _is_multi_value(

@@ -108,10 +108,10 @@ class TestBuildInvestigationResult:
         result = build_investigation_result("stale_automations", findings)
 
         assert result["investigation"] == "stale_automations"
-        assert result["provenance"] == {"investigation": "stale_automations"}
+        assert "provenance" not in result
         assert result["finding_count"] == 1
         assert result["findings"] is findings
-        assert result["findings"][0]["provenance"] == {"investigation": "stale_automations"}
+        assert findings == [{"category": "stuck_flow", "element_id": "sys_flow_context:fc001"}]
 
     def test_sets_finding_count_from_list_length(self) -> None:
         """finding_count reflects the actual length of the findings list."""

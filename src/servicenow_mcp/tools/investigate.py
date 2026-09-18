@@ -83,14 +83,9 @@ async def _run_action(
     async with client_factory() as client:
         result = await module.run(client, params_dict)
 
-    result["provenance"] = {"investigation": name}
-    findings = result.get("findings")
-    if isinstance(findings, list):
-        for finding in findings:
-            if isinstance(finding, dict):
-                finding["provenance"] = {"investigation": name}
-
-    return format_response(data=result, warnings=result.get("warnings"))
+    result["investigation"] = name
+    warnings = result.pop("warnings", None)
+    return format_response(data=result, warnings=warnings)
 
 
 def _describe_action(name: str) -> str:

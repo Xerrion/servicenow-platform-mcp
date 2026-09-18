@@ -9,6 +9,12 @@
   Paged reads use `pagination`; compact `describe` pages now include it as well.
   Flow continuation details appear in top-level `truncation` only when non-empty.
   ServiceNow record fields named `selection` are preserved.
+- Investigation results identify their source once in `data.investigation`;
+  removed duplicate response-level and per-finding `provenance` objects.
+  Investigation warnings now appear only in top-level `warnings` when non-empty.
+- Catalog variable answers retain `raw_value` and omit `display_value`, which
+  previously repeated the same value or was null for unresolved references.
+  Masking, raw reference IDs, pagination, and completeness indicators are preserved.
 
 ## [2.1.0](https://github.com/Xerrion/servicenow-platform-mcp/compare/v2.0.1...v2.1.0) (2026-09-16)
 

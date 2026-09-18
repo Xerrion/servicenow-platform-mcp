@@ -98,10 +98,13 @@ async def test_run_unknown_investigation_returns_error_with_valid_names(
 
 
 @pytest.mark.asyncio()
-async def test_run_dispatches_to_module_run(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+@pytest.mark.parametrize("warnings", [[], ["Source unavailable"]])
+async def test_run_dispatches_to_module_run(
+    settings: Settings, auth_provider: OAuthPKCEProvider, warnings: list[str]
+) -> None:
     """The parsed params dict reaches ``module.run`` verbatim, and its result flows back."""
     stub_module = StubModule()
-    stub_module.run = AsyncMock(return_value={"finding_count": 0, "findings": [], "marker": "ok"})
+    stub_module.run = AsyncMock(return_value={"finding_count": 0, "findings": [], "marker": "ok", "warnings": warnings})
     stub_module.explain = AsyncMock()
 
     fake_registry = {"my_stub": stub_module}
@@ -116,7 +119,13 @@ async def test_run_dispatches_to_module_run(settings: Settings, auth_provider: O
 
     assert result["status"] == "success"
     assert result["data"]["marker"] == "ok"
-    assert result["data"]["provenance"] == {"investigation": "my_stub"}
+    assert result["data"]["investigation"] == "my_stub"
+    assert "provenance" not in result["data"]
+    assert "warnings" not in result["data"]
+    if warnings:
+        assert result["warnings"] == warnings
+    else:
+        assert "warnings" not in result
 
     stub_module.run.assert_awaited_once()
     await_args = stub_module.run.await_args
@@ -126,8 +135,8 @@ async def test_run_dispatches_to_module_run(settings: Settings, auth_provider: O
 
 
 @pytest.mark.asyncio()
-async def test_run_findings_contain_registered_provenance(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-    """A real investigation result identifies its registered source on each finding."""
+async def test_run_identifies_registered_source_once(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    """A real investigation result identifies its source once for all findings."""
     tools = _register_and_get_tools(settings, auth_provider)
     client = AsyncMock()
     client.query_records.side_effect = [
@@ -144,7 +153,10 @@ async def test_run_findings_contain_registered_provenance(settings: Settings, au
         raw = await tools["investigate"](action="run", name="stale_automations")
     result = decode_response(raw)
 
-    assert result["data"]["findings"][0]["provenance"] == {"investigation": "stale_automations"}
+    assert result["data"]["investigation"] == "stale_automations"
+    assert result["data"]["findings"]
+    assert "provenance" not in result["data"]
+    assert all("provenance" not in finding for finding in result["data"]["findings"])
 
 
 @pytest.mark.asyncio()

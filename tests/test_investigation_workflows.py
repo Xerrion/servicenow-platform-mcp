@@ -73,7 +73,9 @@ async def test_registered_investigations_compute_real_findings(settings: Setting
     assert response["status"] == "success"
     data = response["data"]
     assert data["investigation"] == name
-    assert all(finding["provenance"] == {"investigation": name} for finding in data["findings"])
+    assert "provenance" not in data
+    assert all("provenance" not in finding for finding in data["findings"])
+    assert "warnings" not in data
     assert "fixture-secret" not in json.dumps(response)
 
     if name == "stale_automations":
@@ -181,3 +183,4 @@ async def test_missing_optional_performance_table_marks_result_incomplete(settin
     assert response["data"]["finding_count"] == 1
     assert response["data"]["complete"] is False
     assert response["warnings"]
+    assert "warnings" not in response["data"]

@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.1](https://github.com/Xerrion/servicenow-platform-mcp/compare/v2.1.0...v2.1.1) (2026-09-18)
+
+
+### Documentation
+
+* revise README for clarity and instruction updates ([95bfefa](https://github.com/Xerrion/servicenow-platform-mcp/commit/95bfefaf08ba7df62ccbb9293d907552c08fa123))
+* update CHANGELOG for version 2.1.0 ([37d5c5b](https://github.com/Xerrion/servicenow-platform-mcp/commit/37d5c5bbda8a7642207cf9c96a062fbf8e9f3886))
+
 ## [2.1.0](https://github.com/Xerrion/servicenow-platform-mcp/compare/v2.0.1...v2.1.0) (2026-09-16)
 
 

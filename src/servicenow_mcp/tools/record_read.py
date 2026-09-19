@@ -160,15 +160,6 @@ def register_tools(
             record = await client.get_record(table, resolved_sys_id, fields=projection)
 
         masked_record = mask_record(table, record)
-        returned_fields = list(masked_record)
-        selection: dict[str, object] = {
-            "mode": selection_mode,
-            "requested_fields": "*" if selection_mode == "all" else (requested_fields or None),
-            "returned_fields": returned_fields,
-            "sys_id_added": selection_mode == "explicit"
-            and requested_fields is not None
-            and "sys_id" not in requested_fields,
-        }
 
         return format_response(
             data={
@@ -177,5 +168,4 @@ def register_tools(
                 "record": masked_record,
                 "script_fields": _script_field_summary(script_fields),
             },
-            selection=selection,
         )

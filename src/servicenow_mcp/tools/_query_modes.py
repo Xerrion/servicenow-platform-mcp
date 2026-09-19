@@ -25,10 +25,7 @@ async def run_single_record(
         record = await client.get_record(table, sys_id, fields=projection.fields, display_values=display_values)
 
     masked = mask_record(table, record)
-    selection = projection.selection
-    if projection.fields is None:
-        selection = selection | {"returned_fields": list(masked)}
-    return format_response(data=_project_record(masked, projection.fields), selection=selection)
+    return format_response(data=_project_record(masked, projection.fields))
 
 
 async def run_aggregate(
@@ -81,12 +78,8 @@ async def run_list(
             "The Table API applies limit before ACL evaluation, so row access or ordering can cause this; "
             "change order_by or offset before concluding that no records match."
         )
-    selection = request.projection.selection
-    if fields is None:
-        selection = selection | {"returned_fields": sorted({name for record in masked for name in record})}
     return format_response(
         data=masked,
         pagination={"offset": offset, "limit": request.limit, "total": result["count"]},
         warnings=warnings or None,
-        selection=selection,
     )

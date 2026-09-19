@@ -83,14 +83,9 @@ async def _run_action(
     async with client_factory() as client:
         result = await module.run(client, params_dict)
 
-    result["provenance"] = {"investigation": name}
-    findings = result.get("findings")
-    if isinstance(findings, list):
-        for finding in findings:
-            if isinstance(finding, dict):
-                finding["provenance"] = {"investigation": name}
-
-    return format_response(data=result, warnings=result.get("warnings"))
+    result["investigation"] = name
+    warnings = result.pop("warnings", None)
+    return format_response(data=result, warnings=warnings)
 
 
 def _describe_action(name: str) -> str:
@@ -141,39 +136,22 @@ async def _explain_action(
     if selected_module is not None:
         async with client_factory() as client:
             result = await selected_module.explain(client, element_id)
-        return format_response(
-            data=result,
-            selection={"dispatch": {"mode": "direct", "investigation": name, "attempted": [name]}},
-        )
+        return format_response(data=result)
 
     first_decline: dict[str, Any] | None = None
-    attempted: list[str] = []
     async with client_factory() as client:
-        for investigation_name, module in INVESTIGATION_REGISTRY.items():
-            attempted.append(investigation_name)
+        for module in INVESTIGATION_REGISTRY.values():
             result = await module.explain(client, element_id)
             if isinstance(result, dict) and set(result.keys()) == {"error"}:
                 if first_decline is None:
                     first_decline = result
                 continue
-            return format_response(
-                data=result,
-                selection={
-                    "dispatch": {
-                        "mode": "trial",
-                        "investigation": investigation_name,
-                        "attempted": attempted,
-                    }
-                },
-            )
+            return format_response(data=result)
 
     fallback: dict[str, Any] = first_decline or {
         "error": f"No registered investigation can explain element_id '{element_id}'.",
     }
-    return format_response(
-        data=fallback,
-        selection={"dispatch": {"mode": "trial", "investigation": None, "attempted": attempted}},
-    )
+    return format_response(data=fallback)
 
 
 def register_tools(

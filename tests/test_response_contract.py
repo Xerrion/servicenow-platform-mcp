@@ -83,7 +83,7 @@ async def test_query_mcp_calls_omit_empty_parameters(
     response = json.loads(result.structured_content["result"])
     assert response["status"] == "success"
     assert "correlation_id" not in response
-    assert "omitted" not in response.get("selection", {})
+    assert "selection" not in response
     params = route.calls.last.request.url.params
     assert "sysparm_query" not in params
     assert "sysparm_orderby" not in params
@@ -112,16 +112,19 @@ async def test_client_omits_empty_query_parameters(settings: Settings, empty: st
     assert dict(stats.calls.last.request.url.params) == {"sysparm_count": "true", "sysparm_display_value": "false"}
 
 
-@pytest.mark.parametrize("fields", ["correlation_id", "*"])
+@pytest.mark.parametrize("fields", ["explicit", "*"])
+@pytest.mark.parametrize("field_name", ["correlation_id", "selection"])
 @pytest.mark.parametrize("is_single", [False, True])
 @respx.mock
-async def test_query_preserves_record_correlation_id(settings: Settings, fields: str, is_single: bool) -> None:
-    record = {"sys_id": "a" * 32, "correlation_id": "external-record-id"}
+async def test_query_preserves_record_metadata_fields(
+    settings: Settings, fields: str, field_name: str, is_single: bool
+) -> None:
+    record = {"sys_id": "a" * 32, field_name: "record-value"}
     path = "table/incident" + ("/" + record["sys_id"] if is_single else "")
     respx.get(f"{BASE_URL}/api/now/{path}").respond(200, json={"result": record if is_single else [record]})
     mcp = MCPServer("test")
     register_tools(mcp, settings, OAuthPKCEProvider(settings))
-    arguments = {"table": "incident", "fields": fields}
+    arguments = {"table": "incident", "fields": field_name if fields == "explicit" else fields}
     if is_single:
         arguments["sys_id"] = record["sys_id"]
     result = await mcp.call_tool("query", arguments)
@@ -130,6 +133,7 @@ async def test_query_preserves_record_correlation_id(settings: Settings, fields:
     response = json.loads(result.structured_content["result"])
     assert response["status"] == "success"
     assert "correlation_id" not in response
+    assert "selection" not in response
     assert response["data"] == (record if is_single else [record])
 
 

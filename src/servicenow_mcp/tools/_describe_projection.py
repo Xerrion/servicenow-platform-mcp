@@ -97,36 +97,6 @@ def filter_projected_fields(
     return [field for field in fields if _field_name(field) in wanted], unknown
 
 
-def build_selection(
-    fields: list[dict[str, Any]],
-    requested_fields: list[str],
-    field_offset: int,
-    field_limit: int,
-    total_field_count: int,
-) -> dict[str, Any]:
-    """Build describe selection metadata without changing its response contract."""
-    returned_fields = [_field_name(field) for field in fields]
-    if requested_fields:
-        return {
-            "mode": "explicit",
-            "requested_fields": requested_fields,
-            "returned_fields": returned_fields,
-            "omitted_count": len(requested_fields) - len(fields),
-            "truncated": False,
-        }
-
-    is_all_fields = field_limit >= 1_000_000
-    end = field_offset + len(fields)
-    return {
-        "mode": "all" if is_all_fields else "compact",
-        "requested_fields": None,
-        "returned_fields": returned_fields,
-        "omitted_count": max(total_field_count - len(fields), 0),
-        "truncated": not is_all_fields and end < total_field_count,
-        "next_offset": end if not is_all_fields and end < total_field_count else None,
-    }
-
-
 def _metadata_row(field: DictionaryField, *, verbose: bool) -> dict[str, Any]:
     row = dict(field.metadata)
     row["element"] = field.name

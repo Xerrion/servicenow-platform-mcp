@@ -40,9 +40,19 @@ async def test_describe_has_no_io(settings: Settings, auth_provider: OAuthPKCEPr
 
 
 @pytest.mark.asyncio()
+@pytest.mark.parametrize(
+    ("label", "value", "masked"),
+    [
+        ("API Key", "synthetic", True),
+        ("Request", "synthetic", False),
+        ("Request", "", False),
+        ("Request", "0", False),
+        ("Request", "false", False),
+    ],
+)
 @respx.mock
-async def test_ritm_variables_masks_sensitive_answer_and_paginates(
-    settings: Settings, auth_provider: OAuthPKCEProvider
+async def test_ritm_variables_returns_one_value_per_answer_and_paginates(
+    settings: Settings, auth_provider: OAuthPKCEProvider, label: str, value: str, masked: bool
 ) -> None:
     option_id = "b" * 32
     definition_id = "c" * 32
@@ -62,7 +72,7 @@ async def test_ritm_variables_masks_sensitive_answer_and_paginates(
     respx.get(f"{BASE_URL}/api/now/table/sc_item_option").mock(
         return_value=httpx.Response(
             200,
-            json={"result": [{"sys_id": option_id, "item_option_new": definition_id, "value": "synthetic"}]},
+            json={"result": [{"sys_id": option_id, "item_option_new": definition_id, "value": value}]},
         )
     )
     respx.get(f"{BASE_URL}/api/now/table/item_option_new").mock(
@@ -73,7 +83,7 @@ async def test_ritm_variables_masks_sensitive_answer_and_paginates(
                     {
                         "sys_id": definition_id,
                         "name": "requested_value",
-                        "question_text": "API Key",
+                        "question_text": label,
                         "type": "string",
                         "reference": "",
                         "variable_set": "",
@@ -86,10 +96,10 @@ async def test_ritm_variables_masks_sensitive_answer_and_paginates(
         await _tools(settings, auth_provider)["analysis"](action="ritm_variables", sys_id=SYS_ID, limit=1)
     )
     entry = result["data"]["entries"][0]
-    assert entry["raw_value"] == "***MASKED***"
-    assert entry["display_value"] == "***MASKED***"
+    assert entry["raw_value"] == ("***MASKED***" if masked else value)
+    assert entry["masked"] is masked
+    assert "display_value" not in entry
     assert result["pagination"] == {"offset": 0, "limit": 1, "total": 2}
-    assert result["selection"]["next_offset"] == 1
     assert result["data"]["unsupported_features"] == {
         "multi_row_variable_sets": {"present": False, "payload_fields_retrieved": False}
     }
@@ -201,7 +211,7 @@ async def test_ritm_variables_handles_list_collector_and_duplicate_answers(
     assert [entry["status"] for entry in result["data"]["entries"]] == ["resolved", "resolved"]
     assert all(entry["multi_value"] is True for entry in result["data"]["entries"])
     assert all(entry["raw_value"] == raw_value for entry in result["data"]["entries"])
-    assert all(entry["display_value"] is None for entry in result["data"]["entries"])
+    assert all("display_value" not in entry for entry in result["data"]["entries"])
     assert sum("raw sys_ids" in warning for warning in result["warnings"]) == 1
     assert not any("not decoded" in warning for warning in result["warnings"])
     assert any("Duplicate" in warning for warning in result["warnings"])
@@ -243,15 +253,15 @@ async def test_ritm_variables_discloses_mrvs_presence_without_payload(
     assert len(result["warnings"]) == 1
     assert "payload" in result["warnings"][0]
     assert result["pagination"] == {"offset": 4, "limit": 2, "total": 0}
-    assert result["selection"] == {"mode": "submitted_answers", "truncated": False, "next_offset": None}
+    assert "selection" not in result
 
 
 @pytest.mark.asyncio()
 @pytest.mark.parametrize(
-    ("offset", "option_id", "expected_next_offset"),
+    ("offset", "option_id"),
     [
-        pytest.param(0, "b" * 32, 1, id="full-answer-page"),
-        pytest.param(1, "c" * 32, None, id="later-offset"),
+        pytest.param(0, "b" * 32, id="full-answer-page"),
+        pytest.param(1, "c" * 32, id="later-offset"),
     ],
 )
 @respx.mock
@@ -260,7 +270,6 @@ async def test_ritm_variables_mrvs_metadata_does_not_distort_answer_pagination(
     auth_provider: OAuthPKCEProvider,
     offset: int,
     option_id: str,
-    expected_next_offset: int | None,
 ) -> None:
     definition_id = "d" * 32
     respx.get(f"{BASE_URL}/api/now/table/sc_req_item/{SYS_ID}").mock(
@@ -320,11 +329,7 @@ async def test_ritm_variables_mrvs_metadata_does_not_distort_answer_pagination(
         "multi_row_variable_sets": {"present": True, "payload_fields_retrieved": False}
     }
     assert result["pagination"] == {"offset": offset, "limit": 1, "total": 2}
-    assert result["selection"] == {
-        "mode": "submitted_answers",
-        "truncated": expected_next_offset is not None,
-        "next_offset": expected_next_offset,
-    }
+    assert "selection" not in result
     assert len(result["warnings"]) == 1
 
 
@@ -433,7 +438,7 @@ async def test_ritm_variables_masks_incomplete_definition_metadata(
     entry = result["data"]["entries"][0]
     assert entry["status"] == "inaccessible_definition_metadata"
     assert entry["raw_value"] == "***MASKED***"
-    assert entry["display_value"] == "***MASKED***"
+    assert "display_value" not in entry
     assert entry["masked"] is True
     assert secret not in str(result)
     assert result["warnings"] == [
@@ -547,7 +552,6 @@ async def test_journal_history_is_bounded_and_deterministic(
     )
     assert result["status"] == "success"
     assert result["pagination"] == {"offset": 0, "limit": 1, "total": 2}
-    assert result["selection"]["next_offset"] == 1
     assert "ACLs" in result["warnings"][0]
 
 

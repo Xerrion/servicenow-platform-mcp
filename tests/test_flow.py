@@ -236,7 +236,8 @@ async def test_inspect_compact_default_omits_optional_detail_requests(
         "structural_summary",
         "warnings",
     ]
-    assert result["selection"]["mode"] == "compact"
+    assert "selection" not in result
+    assert "truncation" not in result
     for method_name in (
         "list_flow_inputs",
         "list_flow_outputs",
@@ -291,7 +292,7 @@ async def test_selected_warnings_disclose_spoke_beyond_probe(
     action: str,
     sections: str,
 ) -> None:
-    """Warning selection discloses when a later spoke action is outside its bounded probe."""
+    """Warning truncation discloses when a later spoke action is outside its bounded probe."""
     actions = [
         {
             "sys_id": _ref(f"a{index}"),
@@ -315,9 +316,9 @@ async def test_selected_warnings_disclose_spoke_beyond_probe(
     result = decode_response(raw)
 
     assert not any("spoke action type" in warning for warning in result["data"]["warnings"])
-    assert result["selection"]["truncated"] is True
-    assert result["selection"]["truncation"]["warnings"]["datasets"] == ["actions_v2"]
-    assert result["selection"]["truncation"]["warnings"]["continuation"] == (
+    assert result["truncation"]
+    assert result["truncation"]["warnings"]["datasets"] == ["actions_v2"]
+    assert result["truncation"]["warnings"]["continuation"] == (
         "The configured MAX_ROW_LIMIT of 100 has been reached; no further continuation is available through flow. "
         "To complete warning analysis, use query with pagination and these explicit projections: "
         f"sys_hub_action_instance_v2 (encoded_query=flow={SYS_ID_FLOW}, fields=sys_id,action_type); "
@@ -353,7 +354,7 @@ async def test_warning_dependency_below_cap_recommends_larger_section_limit(
         )
     result = decode_response(raw)
 
-    truncation = result["selection"]["truncation"]["warnings"]
+    truncation = result["truncation"]["warnings"]
     assert truncation["datasets"] == ["logic_v1"]
     assert truncation["continuation"] == "Re-run with section_limit greater than 2."
 
@@ -386,7 +387,7 @@ async def test_warning_truncation_identifies_every_saturated_dependency(
         )
     result = decode_response(raw)
 
-    assert result["selection"]["truncation"]["warnings"]["datasets"] == [
+    assert result["truncation"]["warnings"]["datasets"] == [
         "actions_v1",
         "actions_v2",
         "logic_v1",
@@ -414,7 +415,7 @@ async def test_warning_truncation_discloses_missing_action_type_metadata(
         raw = await tools["flow"](action="inspect", sys_id=SYS_ID_FLOW, sections="warnings")
     result = decode_response(raw)
 
-    truncation = result["selection"]["truncation"]["warnings"]
+    truncation = result["truncation"]["warnings"]
     assert truncation["datasets"] == []
     assert truncation["missing_action_type_metadata"] == 1
     assert "returned action-type metadata" in truncation["limitation"]
@@ -439,7 +440,7 @@ async def test_node_section_discloses_missing_action_type_metadata(
         raw = await tools["flow"](action=action, sys_id=SYS_ID_FLOW, sections=section)
     result = decode_response(raw)
 
-    truncation = result["selection"]["truncation"][section]
+    truncation = result["truncation"][section]
     assert truncation["missing_action_type_metadata"] == 1
     assert "fields=sys_id,name,internal_name,sys_scope,category" in truncation["continuation"]
 
@@ -466,7 +467,7 @@ async def test_trigger_section_discloses_record_condition_dependency_cap(
         )
     result = decode_response(raw)
 
-    truncation = result["selection"]["truncation"]["triggers"]
+    truncation = result["truncation"]["triggers"]
     assert truncation["dependency_datasets"] == ["sys_flow_record_trigger"]
     assert "only 1000 remote trigger ids" in truncation["limitation"]
     assert "sys_flow_record_trigger (encoded_query=sys_idIN<remote_trigger_ids>" in truncation["continuation"]
@@ -551,8 +552,8 @@ async def test_inspect_section_limit_discloses_truncation_and_continuation(
     result = decode_response(raw)
 
     assert len(result["data"]["canvas"]) == 2
-    assert result["selection"]["truncated"] is True
-    assert result["selection"]["truncation"]["canvas"] == {
+    assert result["truncation"]
+    assert result["truncation"]["canvas"] == {
         "returned": 2,
         "observed_at_least": 3,
         "omitted_at_least": 1,
@@ -636,8 +637,8 @@ async def test_node_section_bound_does_not_truncate_warning_analysis(
 
     assert len(result["data"][node_section]) == 100
     assert any("spoke action type" in warning for warning in result["data"]["warnings"])
-    assert result["selection"]["truncation"][node_section]["returned"] == 100
-    assert "warnings" not in result["selection"]["truncation"]
+    assert result["truncation"][node_section]["returned"] == 100
+    assert "warnings" not in result["truncation"]
     client.get_action_type_definitions.assert_awaited_once_with(["atype_core", "atype_spoke"])
 
 
@@ -676,8 +677,8 @@ async def test_node_truncation_at_max_names_direct_query_paths(
         )
     result = decode_response(raw)
 
-    truncation = result["selection"]["truncation"][section]
-    assert result["selection"]["section_limit"] == settings.max_row_limit
+    truncation = result["truncation"][section]
+    assert len(result["data"][section]) == settings.max_row_limit
     assert "no further continuation is available through flow" in truncation["continuation"]
     assert f"sys_hub_action_instance_v2 (encoded_query=flow={SYS_ID_FLOW})" in truncation["continuation"]
     assert f"sys_hub_flow_logic_instance_v2 (encoded_query=flow={SYS_ID_FLOW})" in truncation["continuation"]
@@ -707,7 +708,7 @@ async def test_structural_summary_truncation_at_max_names_all_truncated_sources(
         )
     result = decode_response(raw)
 
-    truncation = result["selection"]["truncation"]["structural_summary"]
+    truncation = result["truncation"]["structural_summary"]
     assert truncation["datasets"] == ["triggers_v1"]
     assert "no further continuation is available through flow" in truncation["continuation"]
     assert f"sys_hub_trigger_instance (encoded_query=flow={SYS_ID_FLOW})" in truncation["continuation"]
@@ -734,7 +735,7 @@ async def test_warning_truncation_at_max_names_complete_direct_query_sequence(
         )
     result = decode_response(raw)
 
-    truncation = result["selection"]["truncation"]["warnings"]
+    truncation = result["truncation"]["warnings"]
     continuation = truncation["continuation"]
     assert truncation["datasets"] == ["actions_v2"]
     assert "no further continuation is available through flow" in continuation
@@ -788,7 +789,7 @@ async def test_row_section_truncation_at_max_names_direct_query_path(
         )
     result = decode_response(raw)
 
-    continuation = result["selection"]["truncation"][section]["continuation"]
+    continuation = result["truncation"][section]["continuation"]
     assert "no further continuation is available through flow" in continuation
     assert f"{source_path}{SYS_ID_FLOW})" in continuation
 
@@ -826,7 +827,7 @@ async def test_v1_section_truncation_names_direct_query_sequence(
         )
     result = decode_response(raw)
 
-    continuation = result["selection"]["truncation"][section]["continuation"]
+    continuation = result["truncation"][section]["continuation"]
     assert expected_source in continuation
     assert "explicit fields projection" in continuation
     assert "Query safety and row limits still apply" in continuation
@@ -861,7 +862,7 @@ async def test_v1_variable_values_disclose_saturated_action_dependency(
     result = decode_response(raw)
 
     assert result["data"]["v1_variable_values"] == []
-    truncation = result["selection"]["truncation"]["v1_variable_values"]
+    truncation = result["truncation"]["v1_variable_values"]
     assert truncation["dependency_datasets"] == ["actions_v1"]
     assert truncation["returned"] == 0
     assert truncation["possible_more"] is True
@@ -1070,9 +1071,8 @@ async def test_inspect_happy_path_assembles_canvas(settings: Settings, auth_prov
 
     # No V1 + V2 mix, no drift, no v1 logic, no spoke -> empty warnings
     assert data["warnings"] == []
-    assert result["selection"]["mode"] == "all"
-    assert result["selection"]["omitted_sections"] == []
-    assert set(result["selection"]["returned_sections"]) == {
+    assert "selection" not in result
+    assert set(result["data"]) == {
         "flow",
         "published_state",
         "structural_summary",
@@ -1183,7 +1183,7 @@ async def test_flow_stages_include_root_and_snapshot_provenance(
         "ancestral_if_else_logic": "",
         "always_show": True,
     }
-    assert result["selection"]["dataset_probe_limits"]["stages_per_source"] == 26
+    assert all(call.args[1] == 26 for call in client.list_flow_stages.await_args_list)
     assert client.list_flow_stages.await_count == 2
 
 

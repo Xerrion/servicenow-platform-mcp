@@ -34,7 +34,7 @@ def decode_response(raw: str) -> dict[str, Any]:
     result = json.loads(raw)
     assert isinstance(result, dict), f"Expected dict from json.loads, got {type(result).__name__}"
     assert "correlation_id" not in result
-    assert "omitted" not in result.get("selection", {})
+    assert "selection" not in result
     return result
 
 

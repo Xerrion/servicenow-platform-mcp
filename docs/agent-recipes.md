@@ -307,14 +307,14 @@ await flow(
 )
 ```
 
-**Notes:** Use `flow(action="contract", ...)` when documenting or implementing an integration. Start with compact sections and use the response's selection and truncation metadata to request continuation. Each V2 action step includes configured `inputs` bindings plus a `definition` containing the action type's declared inputs and outputs. Definition-table access or release variance is reported as a warning instead of discarding the contract. V1 action or logic nodes are reported as warnings because their bindings cannot be reconstructed as contract steps.
+**Notes:** Use `flow(action="contract", ...)` when documenting or implementing an integration. Start with compact sections and use the response's top-level `truncation` details, when present, to request continuation. Each V2 action step includes configured `inputs` bindings plus a `definition` containing the action type's declared inputs and outputs. Definition-table access or release variance is reported as a warning instead of discarding the contract. V1 action or logic nodes are reported as warnings because their bindings cannot be reconstructed as contract steps.
 
 ### Migration: compact reads and direct investigation explanations
 
 - List-mode `query` calls must include `fields`. Choose a small projection such as `fields="number,short_description,priority"`; use `fields="*"` only when all fields are intentional.
 - `record_read` defaults to compact identity/update fields plus discovered script-bearing fields. Pass `fields="*"` for the full masked record.
-- Use `selection` metadata and truncation metadata to continue paged field, record, or flow reads.
-- Investigation findings include a provenance name. For a direct explanation, pass the registered name and element identifier: `investigate(action="explain", name="table_health", element_id="table:sys_id")`. Omitting `name` keeps legacy trial dispatch.
+- Use `pagination` to continue paged field, record, or analysis reads. Advance `offset` (or `field_offset` for `describe`) by the page limit until reaching `total`. For flows, follow top-level `truncation` details when present.
+- Investigation results identify their source once in `data.investigation`. For a direct explanation, pass that name and the finding's element identifier: `investigate(action="explain", name="table_health", element_id="table:sys_id")`. Omitting `name` keeps legacy trial dispatch.
 
 ## 💡 Tips and Patterns
 

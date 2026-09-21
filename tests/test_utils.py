@@ -54,9 +54,9 @@ class TestFormatResponse:
 
         assert "Limit capped at 100" in resp["warnings"]
 
-    def test_empty_warnings_omitted_without_pruning_data(self) -> None:
-        data = {"empty": "", "missing": None, "zero": 0, "disabled": False, "items": []}
-        resp = decode_response(format_response(data=data, warnings=[]))
+    def test_empty_metadata_omitted_without_pruning_data(self) -> None:
+        data = {"empty": "", "missing": None, "zero": 0, "disabled": False, "items": [], "selection": {}}
+        resp = decode_response(format_response(data=data, warnings=[], truncation={}))
 
         assert resp == {"status": "success", "data": data}
 
@@ -66,7 +66,7 @@ class TestFormatResponse:
             "status": "error",
             "error": {"message": "Access denied"},
             "pagination": {"offset": 0, "limit": 5, "total": 20},
-            "selection": {"mode": "explicit", "returned_fields": [], "truncated": True},
+            "truncation": {"canvas": {"continuation": "Re-run with section_limit greater than 5."}},
             "warnings": ["Results truncated", "ACLs limit completeness", "Narrow the filter"],
         }
         resp = decode_response(
@@ -75,7 +75,7 @@ class TestFormatResponse:
                 status="error",
                 error={"message": "Access denied"},
                 pagination={"offset": 0, "limit": 5, "total": 20},
-                selection={"mode": "explicit", "returned_fields": [], "truncated": True},
+                truncation={"canvas": {"continuation": "Re-run with section_limit greater than 5."}},
                 warnings=["Results truncated", "ACLs limit completeness", "Narrow the filter"],
             )
         )

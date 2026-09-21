@@ -99,8 +99,8 @@ Depends on Phase 3.
 
 Depends on Phase 4. Work in small vertical slices with passing tests.
 
-- [ ] 5.1 Query and record tools: mode/action inputs, projection metadata, write previews/results, and diff entries.
-- [ ] 5.2 Describe, choices, and audit: curated field metadata, selection, choice results, audit verdicts, evidence and counts.
+- [ ] 5.1 Query and record tools: mode/action inputs, field projections, pagination, write previews/results, and diff entries.
+- [ ] 5.2 Describe, choices, and audit: curated field metadata, pagination, choice results, audit verdicts, evidence and counts.
 - [ ] 5.3 Attachments and catalog: known request/result metadata; dynamic catalog variables and platform-owned records remain typed JSON maps.
 - [ ] 5.4 Flow: stages, nodes, triggers, bindings, contracts, ordering, truncation and provenance; preserve decoded dynamic values.
 - [ ] 5.5 Analysis and all seven investigations: parameter models, curated findings/results, windows, pagination, provenance and completeness warnings.

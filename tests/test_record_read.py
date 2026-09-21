@@ -99,7 +99,7 @@ class TestSysIdLookup:
 
     @pytest.mark.parametrize("fields", ["", "correlation_id", "*"])
     @respx.mock
-    async def test_selection_omits_redundant_metadata(
+    async def test_envelope_omits_selection_metadata(
         self, settings: Settings, auth_provider: OAuthPKCEProvider, fields: str
     ) -> None:
         dictionary = _stub_dictionary(settings, auth_provider, ["sys_id", "name", "correlation_id"])
@@ -108,7 +108,7 @@ class TestSysIdLookup:
         tools = _register_and_get_tools(settings, auth_provider, dictionary=dictionary)
         result = decode_response(await tools["record_read"](table="incident", sys_id=SYS_ID_BR, fields=fields))
         assert result["status"] == "success"
-        assert "omitted" not in result["selection"]
+        assert "selection" not in result
         assert result["data"]["record"]["correlation_id"] == "external-record-id"
 
     @pytest.mark.asyncio()
@@ -148,7 +148,7 @@ class TestSysIdLookup:
         assert data["script_fields"][0]["via_heuristic"] is False
         assert route.calls.last.request.url.params["sysparm_fields"] == "sys_id,name,sys_updated_on,script"
         assert data["record"] == {"sys_id": SYS_ID_BR, "name": "BR1", "script": "gs.info('hi');"}
-        assert result["selection"]["mode"] == "compact"
+        assert "selection" not in result
 
     @pytest.mark.asyncio()
     @respx.mock
@@ -177,7 +177,7 @@ class TestSysIdLookup:
         result = decode_response(raw)
         assert result["status"] == "success"
         assert result["data"]["record"]["password"] == "***MASKED***"  # NOSONAR
-        assert result["selection"]["sys_id_added"] is True
+        assert "selection" not in result
 
     @pytest.mark.asyncio()
     @respx.mock
@@ -195,7 +195,7 @@ class TestSysIdLookup:
         assert result["status"] == "success"
         assert result["data"]["record"]["password"] == "***MASKED***"
         assert "sysparm_fields" not in route.calls.last.request.url.params
-        assert result["selection"]["mode"] == "all"
+        assert "selection" not in result
 
     @pytest.mark.asyncio()
     @respx.mock

@@ -1214,20 +1214,7 @@ async def _action_inspect(
         )
     assembled["structural_summary"] = _structural_summary(datasets, effective_limit)
     data = {section: assembled[section] for section in selected_sections}
-    available_sections = _CONTRACT_SECTIONS if is_contract else _INSPECT_SECTIONS
-    mode = "all" if sections.strip() == "*" else "explicit" if sections.strip() else "compact"
-    selection = {
-        "mode": mode,
-        "requested_sections": (["*"] if mode == "all" else selected_sections if mode == "explicit" else None),
-        "default_sections": list(_DEFAULT_FLOW_SECTIONS),
-        "returned_sections": selected_sections,
-        "omitted_sections": [section for section in available_sections if section not in selected_sections],
-        "section_limit": effective_limit,
-        "truncated": bool(truncation),
-        "truncation": truncation,
-        "dataset_probe_limits": requested_limits,
-    }
-    return format_response(data=data, selection=selection)
+    return format_response(data=data, truncation=truncation)
 
 
 def _safe_int(value: str) -> int:
@@ -1426,16 +1413,13 @@ async def _action_list_triggers(
             [
                 (
                     "Trigger search is incomplete. Counts describe returned matches only; zero does not prove absence. "
-                    "Follow selection.truncation for source queries and continuation."
+                    "Follow truncation for source queries and continuation."
                 )
             ]
             if filtered.get("truncation")
             else None
         ),
-        selection={
-            "total_kind": "returned_matches",
-            "truncation": filtered.get("truncation", {}),
-        },
+        truncation=filtered.get("truncation"),
     )
 
 

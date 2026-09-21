@@ -106,7 +106,7 @@ async def test_empty_join_reports_incomplete_source(settings: Settings, total: s
     assert result["data"]["triggers"] == []
     assert result["data"]["is_complete"] is False
     assert result["warnings"]
-    source = result["selection"]["truncation"]["sys_flow_record_trigger"]
+    source = result["truncation"]["sys_flow_record_trigger"]
     assert source["returned"] == 1000
     assert source["total"] == (1001 if total == "1001" else None)
     assert "offset=1000" in source["continuation"]

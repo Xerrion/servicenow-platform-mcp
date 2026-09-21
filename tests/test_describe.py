@@ -128,14 +128,8 @@ class TestDescribe:
         assert data["field_count"] == 2
         assert data["total_field_count"] == 2
         assert "documentation" not in data
-        assert result["selection"] == {
-            "mode": "compact",
-            "requested_fields": None,
-            "returned_fields": ["number", "state"],
-            "omitted_count": 0,
-            "truncated": False,
-            "next_offset": None,
-        }
+        assert "selection" not in data
+        assert result["pagination"] == {"offset": 0, "limit": 25, "total": 2}
 
         first, second = data["fields"]
         assert first == {
@@ -179,7 +173,7 @@ class TestDescribe:
         assert "sys_scope" not in first
         assert "attributes" not in first
         assert "default_value" not in first
-        assert result["selection"]["mode"] == "all"
+        assert "pagination" not in result
 
     @pytest.mark.asyncio()
     @respx.mock
@@ -197,7 +191,7 @@ class TestDescribe:
         names = [f["name"] for f in result["data"]["fields"]]
         assert names == ["state"]
         assert any("priority" in w for w in result.get("warnings", []))
-        assert result["selection"]["mode"] == "explicit"
+        assert "pagination" not in result
         dictionary_call = next(call for call in respx.calls if call.request.url.path.endswith("/sys_dictionary"))
         assert "name%3Dincident" in str(dictionary_call.request.url)
 
@@ -235,10 +229,8 @@ class TestDescribe:
         result = decode_response(await tools["describe"](table="incident", field_limit=2, field_offset=10))
 
         assert result["status"] == "success"
-        assert result["selection"]["truncated"] is True
-        assert result["selection"]["next_offset"] == 12
-        assert result["selection"]["omitted_count"] == 38
-        assert result["selection"]["returned_fields"] == ["field_10", "field_11"]
+        assert result["pagination"] == {"offset": 10, "limit": 2, "total": 40}
+        assert [field["name"] for field in result["data"]["fields"]] == ["field_10", "field_11"]
 
     @pytest.mark.asyncio()
     @respx.mock

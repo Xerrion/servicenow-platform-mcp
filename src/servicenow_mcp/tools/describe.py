@@ -237,18 +237,12 @@ def register_tools(
             dictionary=dict_registry,
         )
 
-        if is_all_fields:
-            data["selection"] = {
-                "mode": "all",
-                "requested_fields": "*",
-                "returned_fields": [str(field.get("name") or field.get("element") or "") for field in data["fields"]],
-                "omitted_count": max(data["total_field_count"] - data["field_count"], 0),
-                "truncated": data["field_count"] < data["total_field_count"],
-            }
-
-        selection = data.pop("selection")
         return format_response(
             data=data,
             warnings=warnings or None,
-            selection=selection,
+            pagination=(
+                {"offset": field_offset, "limit": field_limit, "total": data["total_field_count"]}
+                if not is_all_fields and not requested_fields
+                else None
+            ),
         )

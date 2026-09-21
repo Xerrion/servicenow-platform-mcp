@@ -65,7 +65,7 @@ context and converts tool exceptions into JSON error envelopes.
 ## Data and state
 
 Operational tools serialize standard JSON envelopes with `status`, `data`, and
-optional pagination, selection, and warnings metadata. `list_tool_packages`
+optional pagination and non-empty truncation and warnings metadata. `list_tool_packages`
 returns its registry directly.
 
 In-memory state includes:

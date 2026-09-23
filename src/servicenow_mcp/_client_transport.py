@@ -91,12 +91,24 @@ class ServiceNowRequestClient:
         try:
             payload = response.json()
         except (json.JSONDecodeError, UnicodeDecodeError):
+            if response.request.method in {"POST", "PATCH"}:
+                raise ServerError(
+                    f"Invalid JSON response from {response.request.method} {response.request.url.path} "
+                    f"(HTTP {response.status_code}). Remote outcome unknown; the write may have completed. "
+                    "Verify remote outcome before retrying. The request was not replayed."
+                ) from None
             raise ServerError(
                 f"Invalid JSON response from {response.request.method} {response.request.url.path} "
                 f"(HTTP {response.status_code}). Check the endpoint response and authentication; "
                 "this does not establish an ACL denial."
             ) from None
         if not isinstance(payload, dict):
+            if response.request.method in {"POST", "PATCH"}:
+                raise ServerError(
+                    f"Unexpected JSON response from {response.request.method} {response.request.url.path} "
+                    f"(HTTP {response.status_code}). Remote outcome unknown; the write may have completed. "
+                    "Verify remote outcome before retrying. The request was not replayed."
+                ) from None
             raise ServerError(
                 f"Unexpected JSON response from {response.request.url.path}: expected an object with 'result'."
             )

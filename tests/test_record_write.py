@@ -161,7 +161,124 @@ class TestActionDispatch:
 
 
 class TestStandardRecordWrite:
-    """Plain record writes against a non-script-bearing table."""
+    """Plain record writes against non-script-bearing table."""
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_create_preview_non_json_metadata_returns_context(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
+        metadata = respx.get(METADATA_URL).respond(200, content=b"", headers={"Content-Type": "text/html"})
+        tools = _register_and_get_tools(settings, auth_provider)
+        with patch.object(PreviewTokenStore, "create", new_callable=AsyncMock) as create_token:
+            raw = await tools["record_write"](
+                action="create",
+                table="clone_profile_preservers",
+                data=json.dumps(
+                    {
+                        "profile": "daf3eaf4c3a707105cf89fcd2b01311c",
+                        "preserver": "bdbe6ad30f0133002a56657eef767e07",
+                        "source_table": "clone_profile",
+                    }
+                ),
+            )
+
+        result = decode_response(raw)
+        assert result["status"] == "error"
+        assert result["error"]["message"].startswith("Invalid JSON response from GET /api/now/table/sys_dictionary")
+        assert "HTTP 200" in result["error"]["message"]
+        assert "Remote outcome unknown" not in result["error"]["message"]
+        create_token.assert_not_awaited()
+        assert metadata.called
+        assert all(call.request.method == "GET" for call in respx.calls)
+
+    @pytest.mark.asyncio()
+    @pytest.mark.parametrize("body", [b"", b"<html>private response</html>"], ids=["empty", "malformed"])
+    @respx.mock
+    async def test_create_direct_non_json_response_returns_context(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider, body: bytes
+    ) -> None:
+        respx.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
+        mutation = respx.post(f"{BASE_URL}/api/now/table/incident").respond(
+            201, content=body, headers={"Content-Type": "text/html"}
+        )
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["record_write"](
+            action="create", table="incident", data=json.dumps({"short_description": "Test"}), preview=False
+        )
+
+        result = decode_response(raw)
+        assert result["status"] == "error"
+        assert result["error"]["message"].startswith("Invalid JSON response from POST /api/now/table/incident")
+        assert "HTTP 201" in result["error"]["message"]
+        assert "Remote outcome unknown" in result["error"]["message"]
+        assert "Verify remote outcome before retrying" in result["error"]["message"]
+        assert "request was not replayed" in result["error"]["message"]
+        assert "private response" not in result["error"]["message"]
+        assert mutation.call_count == 1
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_update_direct_empty_response_warns_before_retry(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
+        respx.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
+        mutation = respx.patch(f"{BASE_URL}/api/now/table/incident/{SYS_ID_INC001}").respond(200, content=b"")
+        tools = _register_and_get_tools(settings, auth_provider)
+
+        result = decode_response(
+            await tools["record_write"](
+                action="update", table="incident", sys_id=SYS_ID_INC001, data='{"state":"2"}', preview=False
+            )
+        )
+
+        assert result["status"] == "error"
+        assert "Invalid JSON response from PATCH /api/now/table/incident/" in result["error"]["message"]
+        assert "Remote outcome unknown" in result["error"]["message"]
+        assert "Verify remote outcome before retrying" in result["error"]["message"]
+        assert mutation.call_count == 1
+
+    @pytest.mark.asyncio()
+    @pytest.mark.parametrize("status_code", [200, 201])
+    @respx.mock
+    async def test_create_direct_non_object_json_response_warns_before_retry(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider, status_code: int
+    ) -> None:
+        respx.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
+        mutation = respx.post(f"{BASE_URL}/api/now/table/incident").respond(status_code, json=[])
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["record_write"](
+            action="create", table="incident", data=json.dumps({"short_description": "Test"}), preview=False
+        )
+
+        result = decode_response(raw)
+        assert result["status"] == "error"
+        assert result["error"]["message"].startswith("Unexpected JSON response from POST /api/now/table/incident")
+        assert f"HTTP {status_code}" in result["error"]["message"]
+        assert "Remote outcome unknown" in result["error"]["message"]
+        assert "Verify remote outcome before retrying" in result["error"]["message"]
+        assert mutation.call_count == 1
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_update_direct_non_object_json_response_warns_before_retry(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
+        respx.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
+        mutation = respx.patch(f"{BASE_URL}/api/now/table/incident/{SYS_ID_INC001}").respond(200, json=[])
+        tools = _register_and_get_tools(settings, auth_provider)
+
+        result = decode_response(
+            await tools["record_write"](
+                action="update", table="incident", sys_id=SYS_ID_INC001, data='{"state":"2"}', preview=False
+            )
+        )
+
+        assert result["status"] == "error"
+        assert result["error"]["message"].startswith("Unexpected JSON response from PATCH /api/now/table/incident/")
+        assert "Remote outcome unknown" in result["error"]["message"]
+        assert "Verify remote outcome before retrying" in result["error"]["message"]
+        assert mutation.call_count == 1
 
     @pytest.mark.asyncio()
     @respx.mock
@@ -274,6 +391,30 @@ class TestStandardRecordWrite:
         # Token is single-use - second call must fail.
         raw2 = await tools["record_apply"](preview_token=token)
         assert decode_response(raw2)["status"] == "error"
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_record_apply_invalid_response_does_not_replay_write(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
+        respx.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
+        mutation = respx.post(f"{BASE_URL}/api/now/table/incident").respond(201, content=b"")
+        tools = _register_and_get_tools(settings, auth_provider)
+        preview = decode_response(
+            await tools["record_write"](action="create", table="incident", data='{"short_description":"Test"}')
+        )
+        token = preview["data"]["preview_token"]
+
+        result = decode_response(await tools["record_apply"](preview_token=token))
+        assert result["status"] == "error"
+        assert "Remote outcome unknown" in result["error"]["message"]
+        assert "Verify remote outcome before retrying" in result["error"]["message"]
+        assert mutation.call_count == 1
+
+        second = decode_response(await tools["record_apply"](preview_token=token))
+        assert second["status"] == "error"
+        assert "Invalid or expired preview token" in second["error"]["message"]
+        assert mutation.call_count == 1
 
     @pytest.mark.asyncio()
     async def test_record_apply_unknown_token_returns_error(

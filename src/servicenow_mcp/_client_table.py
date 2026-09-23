@@ -32,7 +32,7 @@ class TableApiClient(ServiceNowRequestClient):
             },
         )
         self._raise_for_status(response)
-        return self._extract_result(response.json())
+        return self._extract_json_result(response)
 
     async def query_records(
         self,
@@ -68,7 +68,7 @@ class TableApiClient(ServiceNowRequestClient):
         )
         self._raise_for_status(response)
         return {
-            "records": self._extract_result(response.json()),
+            "records": self._extract_json_result(response),
             "count": self._parse_total_count(response),
         }
 
@@ -107,7 +107,7 @@ class TableApiClient(ServiceNowRequestClient):
             params=params,
         )
         self._raise_for_status(response)
-        return self._extract_result(response.json())
+        return self._extract_json_result(response)
 
     async def create_record(self, table: str, data: dict[str, Any]) -> dict[str, Any]:
         """Create a record with the Table API."""
@@ -117,7 +117,7 @@ class TableApiClient(ServiceNowRequestClient):
             json=data,
         )
         self._raise_for_status(response)
-        return self._extract_result(response.json())
+        return self._extract_json_result(response)
 
     async def update_record(self, table: str, sys_id: str, data: dict[str, Any]) -> dict[str, Any]:
         """Update a record with the Table API."""
@@ -127,7 +127,7 @@ class TableApiClient(ServiceNowRequestClient):
             json=data,
         )
         self._raise_for_status(response)
-        return self._extract_result(response.json())
+        return self._extract_json_result(response)
 
     async def delete_record(self, table: str, sys_id: str) -> bool:
         """Delete a record with the Table API."""

@@ -161,6 +161,57 @@ class TestActionDispatch:
 
 
 class TestStandardRecordWrite:
+    """Plain record writes against non-script-bearing table."""
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_create_preview_non_json_metadata_returns_context(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
+        metadata = respx.get(METADATA_URL).respond(200, content=b"", headers={"Content-Type": "text/html"})
+        tools = _register_and_get_tools(settings, auth_provider)
+        with patch.object(PreviewTokenStore, "create", new_callable=AsyncMock) as create_token:
+            raw = await tools["record_write"](
+                action="create",
+                table="clone_profile_preservers",
+                data=json.dumps(
+                    {
+                        "profile": "daf3eaf4c3a707105cf89fcd2b01311c",
+                        "preserver": "bdbe6ad30f0133002a56657eef767e07",
+                        "source_table": "clone_profile",
+                    }
+                ),
+            )
+
+        result = decode_response(raw)
+        assert result["status"] == "error"
+        assert result["error"]["message"].startswith("Invalid JSON response from GET /api/now/table/sys_dictionary")
+        assert "HTTP 200" in result["error"]["message"]
+        create_token.assert_not_awaited()
+        assert metadata.called
+        assert all(call.request.method == "GET" for call in respx.calls)
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_create_direct_non_json_response_returns_context(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
+        respx.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
+        mutation = respx.post(f"{BASE_URL}/api/now/table/incident").respond(
+            201, content=b"<html>private response</html>", headers={"Content-Type": "text/html"}
+        )
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["record_write"](
+            action="create", table="incident", data=json.dumps({"short_description": "Test"}), preview=False
+        )
+
+        result = decode_response(raw)
+        assert result["status"] == "error"
+        assert result["error"]["message"].startswith("Invalid JSON response from POST /api/now/table/incident")
+        assert "HTTP 201" in result["error"]["message"]
+        assert "private response" not in result["error"]["message"]
+        assert mutation.call_count == 1
+
     """Plain record writes against a non-script-bearing table."""
 
     @pytest.mark.asyncio()

@@ -239,6 +239,48 @@ class TestStandardRecordWrite:
         assert mutation.call_count == 1
 
     @pytest.mark.asyncio()
+    @pytest.mark.parametrize("status_code", [200, 201])
+    @respx.mock
+    async def test_create_direct_non_object_json_response_warns_before_retry(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider, status_code: int
+    ) -> None:
+        respx.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
+        mutation = respx.post(f"{BASE_URL}/api/now/table/incident").respond(status_code, json=[])
+        tools = _register_and_get_tools(settings, auth_provider)
+        raw = await tools["record_write"](
+            action="create", table="incident", data=json.dumps({"short_description": "Test"}), preview=False
+        )
+
+        result = decode_response(raw)
+        assert result["status"] == "error"
+        assert result["error"]["message"].startswith("Unexpected JSON response from POST /api/now/table/incident")
+        assert f"HTTP {status_code}" in result["error"]["message"]
+        assert "Remote outcome unknown" in result["error"]["message"]
+        assert "Verify remote outcome before retrying" in result["error"]["message"]
+        assert mutation.call_count == 1
+
+    @pytest.mark.asyncio()
+    @respx.mock
+    async def test_update_direct_non_object_json_response_warns_before_retry(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
+        respx.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
+        mutation = respx.patch(f"{BASE_URL}/api/now/table/incident/{SYS_ID_INC001}").respond(200, json=[])
+        tools = _register_and_get_tools(settings, auth_provider)
+
+        result = decode_response(
+            await tools["record_write"](
+                action="update", table="incident", sys_id=SYS_ID_INC001, data='{"state":"2"}', preview=False
+            )
+        )
+
+        assert result["status"] == "error"
+        assert result["error"]["message"].startswith("Unexpected JSON response from PATCH /api/now/table/incident/")
+        assert "Remote outcome unknown" in result["error"]["message"]
+        assert "Verify remote outcome before retrying" in result["error"]["message"]
+        assert mutation.call_count == 1
+
+    @pytest.mark.asyncio()
     @respx.mock
     async def test_create_preview_returns_token(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         respx.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)

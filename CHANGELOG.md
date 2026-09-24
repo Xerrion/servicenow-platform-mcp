@@ -16,6 +16,20 @@
   previously repeated the same value or was null for unresolved references.
   Masking, raw reference IDs, pagination, and completeness indicators are preserved.
 
+## [2.1.1](https://github.com/Xerrion/servicenow-platform-mcp/compare/v2.1.0...v2.1.1) (2026-09-24)
+
+
+### Bug Fixes
+
+* remove selection metadata from tool responses ([#185](https://github.com/Xerrion/servicenow-platform-mcp/issues/185)) ([5ba541e](https://github.com/Xerrion/servicenow-platform-mcp/commit/5ba541e6c6af5b2d5fd86c2df8b85d4d3a3a60a1))
+* report uncertain Table API write outcomes ([#186](https://github.com/Xerrion/servicenow-platform-mcp/issues/186)) ([48f6c25](https://github.com/Xerrion/servicenow-platform-mcp/commit/48f6c251cbb3499cc306b084bdf2f638e35c8393))
+
+
+### Documentation
+
+* revise README for clarity and instruction updates ([95bfefa](https://github.com/Xerrion/servicenow-platform-mcp/commit/95bfefaf08ba7df62ccbb9293d907552c08fa123))
+* update CHANGELOG for version 2.1.0 ([37d5c5b](https://github.com/Xerrion/servicenow-platform-mcp/commit/37d5c5bbda8a7642207cf9c96a062fbf8e9f3886))
+
 ## [2.1.0](https://github.com/Xerrion/servicenow-platform-mcp/compare/v2.0.1...v2.1.0) (2026-09-16)
 
 

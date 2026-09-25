@@ -6,13 +6,13 @@ import sys
 from collections.abc import Generator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
 from enum import StrEnum
 from time import perf_counter
 from typing import Any, Literal
 from uuid import uuid4
 
 import httpx2
+from pydantic import BaseModel, ConfigDict
 
 from servicenow_mcp.sentry import set_sentry_context
 
@@ -20,8 +20,7 @@ from servicenow_mcp.sentry import set_sentry_context
 logger = logging.getLogger(__name__)
 
 
-@dataclass(slots=True)
-class ToolTrace:
+class ToolTrace(BaseModel):
     """Local identity and HTTP count for one tool invocation, including child tasks."""
 
     trace_id: str
@@ -148,9 +147,10 @@ class CacheName(StrEnum):
 CacheEvent = Literal["hit", "miss", "expiration", "reload", "invalidation"]
 
 
-@dataclass(frozen=True, slots=True)
-class CacheTelemetrySnapshot:
+class CacheTelemetrySnapshot(BaseModel):
     """Immutable measurements for one fixed metadata cache domain."""
+
+    model_config = ConfigDict(frozen=True)
 
     hits: int = 0
     misses: int = 0
@@ -159,9 +159,10 @@ class CacheTelemetrySnapshot:
     invalidations: int = 0
 
 
-@dataclass(frozen=True, slots=True)
-class HttpTelemetrySnapshot:
+class HttpTelemetrySnapshot(BaseModel):
     """Immutable aggregate ServiceNow HTTP measurements."""
+
+    model_config = ConfigDict(frozen=True)
 
     request_count: int
     completed_request_count: int

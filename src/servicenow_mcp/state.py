@@ -5,8 +5,18 @@ import time
 import uuid
 from typing import Any
 
+from pydantic import BaseModel, ConfigDict
+
 
 __all__ = ["PreviewTokenStore"]
+
+
+class _PreviewEntry(BaseModel):
+    # The payload is returned by identity to the one consumer that wins the pop.
+    model_config = ConfigDict(frozen=True, revalidate_instances="never")
+
+    payload: dict[str, Any]
+    created_at: float
 
 
 class PreviewTokenStore:
@@ -26,7 +36,7 @@ class PreviewTokenStore:
     def __init__(self, ttl_seconds: int = 300, max_size: int = 1000) -> None:
         self._ttl = ttl_seconds
         self._max_size = max_size
-        self._store: dict[str, dict[str, Any]] = {}
+        self._store: dict[str, _PreviewEntry] = {}
         self._lock = asyncio.Lock()
 
     def __len__(self) -> int:
@@ -43,22 +53,19 @@ class PreviewTokenStore:
             if len(self._store) >= self._max_size:
                 raise RuntimeError("Preview token store is full")
             token = str(uuid.uuid4())
-            self._store[token] = {
-                "payload": payload,
-                "created_at": time.monotonic(),
-            }
+            self._store[token] = _PreviewEntry.model_construct(payload=payload, created_at=time.monotonic())
             return token
 
     def _sweep_expired_locked(self) -> None:
         """Remove all expired entries; caller must already hold ``self._lock``."""
         now = time.monotonic()
-        expired_keys = [k for k, entry in self._store.items() if (now - entry["created_at"]) > self._ttl]
+        expired_keys = [k for k, entry in self._store.items() if (now - entry.created_at) > self._ttl]
         for k in expired_keys:
             self._store.pop(k, None)
 
-    def _is_expired(self, entry: dict[str, Any]) -> bool:
+    def _is_expired(self, entry: _PreviewEntry) -> bool:
         """Check if a store entry has exceeded its TTL."""
-        return (time.monotonic() - entry["created_at"]) > self._ttl
+        return (time.monotonic() - entry.created_at) > self._ttl
 
     async def get(self, token: str) -> dict[str, Any] | None:
         """Return the payload for a valid, non-expired token, or None."""
@@ -69,7 +76,7 @@ class PreviewTokenStore:
             if self._is_expired(entry):
                 self._store.pop(token, None)
                 return None
-            return entry["payload"]
+            return entry.payload
 
     async def consume(self, token: str) -> dict[str, Any] | None:
         """Return the payload and remove the token. Returns None if expired/missing.
@@ -86,4 +93,4 @@ class PreviewTokenStore:
                 return None
             # Atomic pop under the lock; no other coroutine can race us.
             self._store.pop(token, None)
-            return entry["payload"]
+            return entry.payload

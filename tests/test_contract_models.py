@@ -44,3 +44,28 @@ def test_write_models_match_legacy_bytes() -> None:
     ]
     for model, legacy in cases:
         assert format_response(data=model.to_payload()) == format_response(data=legacy)
+
+
+def test_flow_node_and_trigger_omit_absent_optional_keys() -> None:
+    from servicenow_mcp.tools._flow_models import ActionTypeRef, FlowNode, V2Trigger
+
+    base = dict(
+        kind="logic",
+        version="v2",
+        sys_id="s",
+        ui_uuid="u",
+        parent_ui_id="",
+        order="1",
+        label="l",
+        name="n",
+        comment="",
+        values_decoded=None,
+        children=[],
+    )
+    assert list(FlowNode(**base).to_payload()) == [*base]
+    node = FlowNode(**{**base, "kind": "action"}, action_type=ActionTypeRef(sys_id="a", name="b"))
+    assert node.to_payload()["action_type"] == {"sys_id": "a", "name": "b"}
+    trig = V2Trigger(
+        sys_id="s", type="t", active=True, table="x", remote_trigger_id="", condition="", values_decoded=None
+    )
+    assert "decode_error" not in trig.to_payload()

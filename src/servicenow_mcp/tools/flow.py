@@ -30,6 +30,16 @@ from servicenow_mcp.config import Settings
 from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.policy import INTERNAL_QUERY_LIMIT
 from servicenow_mcp.response import format_response
+from servicenow_mcp.tools._flow_models import (
+    ActionTypeRef,
+    ContractBinding,
+    ContractTrigger,
+    FlowNode,
+    LogicDefinitionRef,
+    StageDefinition,
+    V1Trigger,
+    V2Trigger,
+)
 from servicenow_mcp.tools._flow_values import decode_values, looks_compressed
 from servicenow_mcp.validation import validate_identifier, validate_sys_id
 
@@ -217,20 +227,19 @@ def _index_by_sys_id(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
 
 def _stage_definition(row: dict[str, Any]) -> dict[str, Any]:
     """Project a stored Flow Designer stage into its configured lifecycle fields."""
-    definition: dict[str, Any] = {
-        "stage_id": _v(row.get("stage_id")),
-        "label": _v(row.get("label")),
-        "value": _v(row.get("value")),
-        "states": _v(row.get("states")),
-        "type": _v(row.get("type")),
-        "order": _v(row.get("order")),
-        "component_indexes": _v(row.get("component_indexes")),
-        "ancestor_component_id": _v(row.get("ancestor_component_id")),
-        "ancestor_stage_id": _v(row.get("ancestor_stage_id")),
-        "ancestral_if_else_logic": _v(row.get("ancestral_if_else_logic")),
-        "always_show": _v(row.get("always_show")).lower() == "true",
-    }
-    return definition
+    return StageDefinition(
+        stage_id=_v(row.get("stage_id")),
+        label=_v(row.get("label")),
+        value=_v(row.get("value")),
+        states=_v(row.get("states")),
+        type=_v(row.get("type")),
+        order=_v(row.get("order")),
+        component_indexes=_v(row.get("component_indexes")),
+        ancestor_component_id=_v(row.get("ancestor_component_id")),
+        ancestor_stage_id=_v(row.get("ancestor_stage_id")),
+        ancestral_if_else_logic=_v(row.get("ancestral_if_else_logic")),
+        always_show=_v(row.get("always_show")).lower() == "true",
+    ).to_payload()
 
 
 async def _flow_stages(
@@ -295,42 +304,37 @@ def _build_v2_node(
 ) -> dict[str, Any]:
     """Build a canvas node for a V2 action or logic instance."""
     decoded, decode_error = _maybe_decode(row.get("values"))
-    node: dict[str, Any] = {
-        "kind": kind,
-        "version": "v2",
-        "sys_id": _v(row.get("sys_id")),
-        "ui_uuid": _v(row.get("ui_uuid")),
-        "parent_ui_id": _v(row.get("parent_ui_uuid")),
-        "order": _v(row.get("order")),
-        "label": _d(row.get("label")),
-        "name": _v(row.get("name")),
-        "comment": _v(row.get("comment")),
-        "values_decoded": decoded,
-        "children": [],
-    }
+    action_type: ActionTypeRef | None = None
     if kind == "action":
         action_type_id = _v(row.get("action_type"))
-        node["action_type"] = {
-            "sys_id": action_type_id,
-            "name": _d(row.get("action_type")),
-        }
+        action_type = ActionTypeRef(sys_id=action_type_id, name=_d(row.get("action_type")))
         if action_type_lookup and action_type_id in action_type_lookup:
             meta = action_type_lookup[action_type_id]
-            node["action_type"].update(
-                {
-                    "internal_name": _v(meta.get("internal_name")),
-                    "sys_scope": _d(meta.get("sys_scope")),
-                    "category": _d(meta.get("category")),
-                }
-            )
+            action_type.internal_name = _v(meta.get("internal_name"))
+            action_type.sys_scope = _d(meta.get("sys_scope"))
+            action_type.category = _d(meta.get("category"))
+    logic_definition = None
     if kind == "logic":
-        node["logic_definition"] = {
-            "sys_id": _v(row.get("logic_definition")),
-            "name": _d(row.get("logic_definition")),
-        }
-    if decode_error is not None:
-        node["decode_error"] = decode_error
-    return node
+        logic_definition = LogicDefinitionRef(
+            sys_id=_v(row.get("logic_definition")),
+            name=_d(row.get("logic_definition")),
+        )
+    return FlowNode(
+        kind=kind,
+        version="v2",
+        sys_id=_v(row.get("sys_id")),
+        ui_uuid=_v(row.get("ui_uuid")),
+        parent_ui_id=_v(row.get("parent_ui_uuid")),
+        order=_v(row.get("order")),
+        label=_d(row.get("label")),
+        name=_v(row.get("name")),
+        comment=_v(row.get("comment")),
+        values_decoded=decoded,
+        children=[],
+        action_type=action_type,
+        logic_definition=logic_definition,
+        decode_error=decode_error,
+    ).to_payload()
 
 
 def _assemble_canvas(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -364,31 +368,27 @@ def _v2_trigger_entry(
     """Build a trigger entry from a V2 ``sys_hub_trigger_instance_v2`` row."""
     remote_id = _v(row.get("remote_trigger_id"))
     decoded, decode_error = _maybe_decode(row.get("values"))
-    entry: dict[str, Any] = {
-        "version": "v2",
-        "sys_id": _v(row.get("sys_id")),
-        "type": _v(row.get("type")),
-        "active": _v(row.get("active")) == "true",
-        "table": _v(row.get("table")),
-        "remote_trigger_id": remote_id,
-        "condition": condition_lookup.get(remote_id, ""),
-        "values_decoded": decoded,
-    }
-    if decode_error is not None:
-        entry["decode_error"] = decode_error
-    return entry
+    return V2Trigger(
+        sys_id=_v(row.get("sys_id")),
+        type=_v(row.get("type")),
+        active=_v(row.get("active")) == "true",
+        table=_v(row.get("table")),
+        remote_trigger_id=remote_id,
+        condition=condition_lookup.get(remote_id, ""),
+        values_decoded=decoded,
+        decode_error=decode_error,
+    ).to_payload()
 
 
 def _v1_trigger_entry(row: dict[str, Any]) -> dict[str, Any]:
     """Build a trigger entry from a V1 ``sys_hub_trigger_instance`` row."""
-    return {
-        "version": "v1",
-        "sys_id": _v(row.get("sys_id")),
-        "type": _v(row.get("type")),
-        "active": _v(row.get("active")) == "true",
-        "table": _v(row.get("table")),
-        "condition": _v(row.get("condition")),
-    }
+    return V1Trigger(
+        sys_id=_v(row.get("sys_id")),
+        type=_v(row.get("type")),
+        active=_v(row.get("active")) == "true",
+        table=_v(row.get("table")),
+        condition=_v(row.get("condition")),
+    ).to_payload()
 
 
 async def _resolve_inspect_sys_id(
@@ -523,18 +523,15 @@ def _contract_binding(value: dict[str, Any]) -> dict[str, Any]:
     parameter = value.get("parameter")
     parameter_data = parameter if isinstance(parameter, dict) else {}
     raw_value = value.get("value", "")
-    binding: dict[str, Any] = {
-        "name": str(value.get("name", "")),
-        "label": str(parameter_data.get("label", "") or value.get("name", "")),
-        "type": str(parameter_data.get("type", "")),
-        "required": bool(parameter_data.get("mandatory", False)),
-        "value": raw_value,
-    }
-    if isinstance(raw_value, str):
-        data_pills = _DATA_PILL_PATTERN.findall(raw_value)
-        if data_pills:
-            binding["data_pills"] = data_pills
-    return binding
+    data_pills = _DATA_PILL_PATTERN.findall(raw_value) if isinstance(raw_value, str) else []
+    return ContractBinding(
+        name=str(value.get("name", "")),
+        label=str(parameter_data.get("label", "") or value.get("name", "")),
+        type=str(parameter_data.get("type", "")),
+        required=bool(parameter_data.get("mandatory", False)),
+        value=raw_value,
+        data_pills=data_pills or None,
+    ).to_payload()
 
 
 def _contract_node_bindings(
@@ -610,19 +607,17 @@ def _contract_steps(
 
 def _contract_trigger(trigger: dict[str, Any]) -> dict[str, Any]:
     """Project a trigger into contract fields without raw decoded metadata."""
-    result: dict[str, Any] = {
-        "version": trigger["version"],
-        "type": trigger["type"],
-        "active": trigger["active"],
-        "table": trigger["table"],
-        "condition": trigger["condition"],
-    }
     configuration, _ = _contract_node_bindings(trigger.get("values_decoded"))
-    if configuration:
-        result["configuration"] = [_contract_binding(value) for value in configuration]
-    if "decode_error" in trigger:
-        result["decode_error"] = trigger["decode_error"]
-    return result
+    result = ContractTrigger(
+        version=trigger["version"],
+        type=trigger["type"],
+        active=trigger["active"],
+        table=trigger["table"],
+        condition=trigger["condition"],
+        configuration=[_contract_binding(value) for value in configuration] or None,
+        decode_error=trigger.get("decode_error"),
+    )
+    return result.to_payload()
 
 
 def _build_flow_contract(

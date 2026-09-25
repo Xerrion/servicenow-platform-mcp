@@ -9,6 +9,7 @@ from servicenow_mcp.policy import mask_sensitive_fields
 from servicenow_mcp.response import format_response
 from servicenow_mcp.tools._dictionary import DictionaryRegistry
 from servicenow_mcp.tools._record_helpers import _build_update_diff, _check_mandatory_or_error
+from servicenow_mcp.tools._record_write_models import WritePreview, WritePreviewResult, WriteResult
 from servicenow_mcp.tools._record_write_preview import RecordWritePreviewManager
 from servicenow_mcp.tools._record_write_validation import WriteRequest
 
@@ -27,22 +28,22 @@ async def _run_create(
     if request.preview:
         token = await previews.create({"action": "create", "table": request.table, "data": data})
         return format_response(
-            data={
-                "action": "create",
-                "table": request.table,
-                "preview_token": token,
-                "preview": {"data": mask_sensitive_fields(data)},
-            },
+            data=WritePreviewResult(
+                action="create",
+                table=request.table,
+                preview_token=token,
+                preview=WritePreview(data=mask_sensitive_fields(data)),
+            ).to_payload(),
         )
 
     created = await client.create_record(request.table, data)
     return format_response(
-        data={
-            "action": "create",
-            "table": request.table,
-            "sys_id": created["sys_id"],
-            "record": mask_sensitive_fields(created),
-        },
+        data=WriteResult(
+            action="create",
+            table=request.table,
+            sys_id=created["sys_id"],
+            record=mask_sensitive_fields(created),
+        ).to_payload(),
     )
 
 
@@ -59,23 +60,23 @@ async def _run_update(
             {"action": "update", "table": request.table, "sys_id": request.sys_id, "changes": data},
         )
         return format_response(
-            data={
-                "action": "update",
-                "table": request.table,
-                "sys_id": request.sys_id,
-                "preview_token": token,
-                "preview": {"diff": diff},
-            },
+            data=WritePreviewResult(
+                action="update",
+                table=request.table,
+                sys_id=request.sys_id,
+                preview_token=token,
+                preview=WritePreview(diff=diff),
+            ).to_payload(),
         )
 
     updated = await client.update_record(request.table, request.sys_id, data)
     return format_response(
-        data={
-            "action": "update",
-            "table": request.table,
-            "sys_id": request.sys_id,
-            "record": mask_sensitive_fields(updated),
-        },
+        data=WriteResult(
+            action="update",
+            table=request.table,
+            sys_id=request.sys_id,
+            record=mask_sensitive_fields(updated),
+        ).to_payload(),
     )
 
 
@@ -95,18 +96,18 @@ async def _run_delete(
             },
         )
         return format_response(
-            data={
-                "action": "delete",
-                "table": request.table,
-                "sys_id": request.sys_id,
-                "preview_token": token,
-                "preview": {"record_snapshot": mask_sensitive_fields(snapshot)},
-            },
+            data=WritePreviewResult(
+                action="delete",
+                table=request.table,
+                sys_id=request.sys_id,
+                preview_token=token,
+                preview=WritePreview(record_snapshot=mask_sensitive_fields(snapshot)),
+            ).to_payload(),
         )
 
     await client.delete_record(request.table, request.sys_id)
     return format_response(
-        data={"action": "delete", "table": request.table, "sys_id": request.sys_id, "deleted": True},
+        data=WriteResult(action="delete", table=request.table, sys_id=request.sys_id, deleted=True).to_payload(),
     )
 
 
@@ -140,29 +141,31 @@ async def apply_preview_payload(
             return error
         result = await client.create_record(table, payload["data"])
         return format_response(
-            data={
-                "action": "create",
-                "table": table,
-                "sys_id": result["sys_id"],
-                "record": mask_sensitive_fields(result),
-            },
+            data=WriteResult(
+                action="create",
+                table=table,
+                sys_id=result["sys_id"],
+                record=mask_sensitive_fields(result),
+            ).to_payload(),
         )
 
     if action == "update":
         sys_id = payload["sys_id"]
         result = await client.update_record(table, sys_id, payload["changes"])
         return format_response(
-            data={
-                "action": "update",
-                "table": table,
-                "sys_id": sys_id,
-                "record": mask_sensitive_fields(result),
-            },
+            data=WriteResult(
+                action="update",
+                table=table,
+                sys_id=sys_id,
+                record=mask_sensitive_fields(result),
+            ).to_payload(),
         )
 
     if action == "delete":
         sys_id = payload["sys_id"]
         await client.delete_record(table, sys_id)
-        return format_response(data={"action": "delete", "table": table, "sys_id": sys_id, "deleted": True})
+        return format_response(
+            data=WriteResult(action="delete", table=table, sys_id=sys_id, deleted=True).to_payload(),
+        )
 
     return format_response(data=None, status="error", error=f"Unknown preview action: {action!r}")

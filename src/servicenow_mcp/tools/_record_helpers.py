@@ -13,6 +13,7 @@ from servicenow_mcp.policy import MASK_VALUE, is_sensitive_field
 from servicenow_mcp.query_builder import ServiceNowQuery
 from servicenow_mcp.response import format_response
 from servicenow_mcp.tools._dictionary import DictionaryRegistry
+from servicenow_mcp.tools._record_write_models import DiffEntry
 from servicenow_mcp.validation import validate_sys_id
 
 
@@ -108,13 +109,12 @@ async def _resolve_record_sys_id(
 def _build_update_diff(
     changes_dict: dict[str, Any],
     current: dict[str, Any],
-) -> dict[str, dict[str, str]]:
+) -> dict[str, DiffEntry]:
     """Build a field-level diff for a preview update."""
-    diff: dict[str, dict[str, str]] = {}
+    diff: dict[str, DiffEntry] = {}
     for field, new_value in changes_dict.items():
-        old_value = current.get(field, "")
         if is_sensitive_field(field):
-            diff[field] = {"old": MASK_VALUE, "new": MASK_VALUE}
+            diff[field] = DiffEntry(old=MASK_VALUE, new=MASK_VALUE)
         else:
-            diff[field] = {"old": old_value, "new": new_value}
+            diff[field] = DiffEntry(old=current.get(field, ""), new=new_value)
     return diff

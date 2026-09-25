@@ -8,10 +8,12 @@ from collections.abc import Generator
 from typing import Any
 from unittest.mock import patch
 
+import httpx2
 import pytest
 
 from servicenow_mcp.auth import AccessToken, OAuthPKCEProvider
 from servicenow_mcp.config import Settings
+from tests._mock_transport import http_mock
 
 
 @pytest.fixture(autouse=True)
@@ -148,3 +150,26 @@ def _fail_closed_network(request: pytest.FixtureRequest, monkeypatch: pytest.Mon
         raise RuntimeError("Unit tests must not initialize remote Sentry telemetry")
 
     monkeypatch.setattr(sentry_sdk, "init", blocked_sentry_init)
+
+
+@pytest.fixture(autouse=True)
+def _mock_http(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
+    """Route every default httpx2 transport through ``http_mock``; unmatched requests fail the test.
+
+    Tests marked ``real_http`` keep the real transport for loopback TLS and proxy fixtures.
+    """
+    if "integration" in request.node.path.parts or request.node.get_closest_marker("real_http"):
+        yield
+        return
+    http_mock.reset()
+
+    async def handle_async_request(_self: httpx2.AsyncHTTPTransport, req: httpx2.Request) -> httpx2.Response:
+        await req.aread()
+        return await http_mock.handle(req)
+
+    monkeypatch.setattr(httpx2.AsyncHTTPTransport, "handle_async_request", handle_async_request)
+    yield
+    unexpected = [f"{req.method} {req.url}" for req in http_mock.unexpected]
+    http_mock.reset()
+    if unexpected:
+        pytest.fail(f"Unexpected HTTP requests: {unexpected}")

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Final, Literal
+
+from pydantic import BaseModel, ConfigDict
 
 from servicenow_mcp.config import Settings
 from servicenow_mcp.policy import gate_write
@@ -15,9 +16,10 @@ WriteAction = Literal["create", "update", "delete"]
 _VALID_ACTIONS: Final[frozenset[str]] = frozenset({"create", "update", "delete"})
 
 
-@dataclass(frozen=True)
-class WriteRequest:
+class WriteRequest(BaseModel):
     """Validated record-write arguments."""
+
+    model_config = ConfigDict(frozen=True)
 
     action: WriteAction
     table: str

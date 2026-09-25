@@ -650,3 +650,30 @@ class TestValidateSysId:
     def test_empty_string(self) -> None:
         with pytest.raises(ValueError, match="Invalid sys_id"):
             validate_sys_id("")
+
+
+class TestValidationErrorTranslation:
+    """Pydantic validation failures never expose inputs or locations."""
+
+    async def test_validation_error_is_translated_without_inputs(self) -> None:
+        from unittest.mock import patch
+
+        from pydantic import BaseModel
+
+        class Probe(BaseModel):
+            secret_field: int
+
+        async def fn() -> str:
+            Probe.model_validate({"secret_field": "private-input-value"})
+            return ""
+
+        with patch("servicenow_mcp.tool_errors.sentry_capture") as capture:
+            result = await safe_tool_call(fn)
+        parsed = decode_response(result)
+        message = parsed["error"]["message"]
+        assert message == "Invalid Probe data (1 validation error)."
+        captured = capture.call_args.args[0]
+        assert type(captured) is ValueError
+        for leaked in ("private-input-value", "secret_field", "pydantic.dev"):
+            assert leaked not in result
+            assert leaked not in str(captured)

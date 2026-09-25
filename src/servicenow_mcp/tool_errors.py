@@ -4,11 +4,13 @@ import logging
 from collections.abc import Awaitable, Callable
 
 import httpx2
+from pydantic import ValidationError
 
 from servicenow_mcp.errors import ACLError, ForbiddenError, ServiceNowMCPError
 from servicenow_mcp.response import format_response
 from servicenow_mcp.sentry import capture_exception as sentry_capture
 from servicenow_mcp.telemetry import current_tool_trace, request_operation, timeout_phase
+from servicenow_mcp.validation_errors import safe_validation_error
 
 
 logger = logging.getLogger(__name__)
@@ -91,6 +93,11 @@ async def safe_tool_call(fn: Callable[[], Awaitable[str]]) -> str:
         # Domain errors carry curated, caller-actionable messages.
         sentry_capture(e)
         return format_response(data=None, status="error", error=str(e))
+    except ValidationError as e:
+        # ValidationError subclasses ValueError but its text carries inputs.
+        safe_error = safe_validation_error(e)
+        sentry_capture(safe_error)
+        return format_response(data=None, status="error", error=str(safe_error))
     except ValueError as e:
         # Validators use ValueError for curated user-input errors.
         sentry_capture(e)

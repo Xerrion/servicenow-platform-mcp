@@ -34,6 +34,18 @@ from servicenow_mcp.response import format_response
 from servicenow_mcp.telemetry import HttpTelemetry
 from servicenow_mcp.tools._audit import AuditRegistry, FieldAudit
 from servicenow_mcp.tools._audit_counts import fetch_field_counts
+from servicenow_mcp.tools._audit_models import (
+    AuditHistory,
+    BatchFieldVerdict,
+    BatchVerdicts,
+    BatchWindow,
+    FieldActivity,
+    FieldAttributes,
+    FieldOverride,
+    FieldVerdict,
+    HistoryWindow,
+    TableAudit,
+)
 from servicenow_mcp.tools._dictionary import DictionaryRegistry
 from servicenow_mcp.validation import validate_identifier, validate_sys_id
 
@@ -188,9 +200,9 @@ def _resolve_verdict(
     )
 
 
-def _build_field_attributes(fa: FieldAudit) -> dict[str, Any]:
+def _build_field_attributes(fa: FieldAudit) -> FieldAttributes:
     """Surface the resolved row's ``attributes`` blob in a stable shape."""
-    return {"no_audit": fa.no_audit_attribute, "raw": fa.attributes_raw}
+    return FieldAttributes(no_audit=fa.no_audit_attribute, raw=fa.attributes_raw)
 
 
 def _check_field_payload(
@@ -205,7 +217,7 @@ def _check_field_payload(
     since: str,
     window_note: str,
     chain: list[str],
-) -> dict[str, Any]:
+) -> FieldVerdict:
     """Assemble the ``check_field`` response payload."""
     verdict, reason, explanation = _resolve_verdict(
         table_audit=table_audit,
@@ -213,29 +225,27 @@ def _check_field_payload(
         field_count=field_count,
         table_count=table_count,
     )
-    payload: dict[str, Any] = {
-        "table": table,
-        "field": field,
-        "super_class_chain": chain,
-        "verdict": verdict,
-        "table_audit": table_audit,
-        "field_audit": fa.field_audit,
-        "raw_field_audit": fa.raw_field_audit,
-        "inherited_from": fa.inherited_from,
-        "field_attributes": _build_field_attributes(fa),
-        "explanation": explanation,
-        "window_note": window_note,
-        "recent_activity": {
-            "window_days": window_days,
-            "since": since,
-            "field_change_count": field_count,
-            "table_change_count": table_count,
-            "positive_control_passed": table_count > 0,
-        },
-    }
-    if reason is not None:
-        payload["reason"] = reason
-    return payload
+    return FieldVerdict(
+        table=table,
+        field=field,
+        super_class_chain=chain,
+        verdict=verdict,
+        table_audit=table_audit,
+        field_audit=fa.field_audit,
+        raw_field_audit=fa.raw_field_audit,
+        inherited_from=fa.inherited_from,
+        field_attributes=_build_field_attributes(fa),
+        explanation=explanation,
+        window_note=window_note,
+        recent_activity=FieldActivity(
+            window_days=window_days,
+            since=since,
+            field_change_count=field_count,
+            table_change_count=table_count,
+            positive_control_passed=table_count > 0,
+        ),
+        reason=reason,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -283,7 +293,7 @@ async def _action_check_field(
         window_note=note,
         chain=chain,
     )
-    return format_response(data=payload)
+    return format_response(data=payload.to_payload())
 
 
 async def _action_check_fields(
@@ -332,7 +342,7 @@ async def _action_check_fields(
                 )
             )
 
-    results: list[dict[str, Any]] = []
+    results: list[BatchFieldVerdict] = []
     for name in fields:
         fa = field_audits[name]
         verdict, reason, explanation = _resolve_verdict(
@@ -341,34 +351,31 @@ async def _action_check_fields(
             field_count=field_counts[name],
             table_count=table_count,
         )
-        entry: dict[str, Any] = {
-            "field": name,
-            "verdict": verdict,
-            "field_audit": fa.field_audit,
-            "raw_field_audit": fa.raw_field_audit,
-            "inherited_from": fa.inherited_from,
-            "field_attributes": _build_field_attributes(fa),
-            "field_change_count": field_counts[name],
-            "explanation": explanation,
-        }
-        if reason is not None:
-            entry["reason"] = reason
-        results.append(entry)
+        results.append(
+            BatchFieldVerdict(
+                field=name,
+                verdict=verdict,
+                field_audit=fa.field_audit,
+                raw_field_audit=fa.raw_field_audit,
+                inherited_from=fa.inherited_from,
+                field_attributes=_build_field_attributes(fa),
+                field_change_count=field_counts[name],
+                explanation=explanation,
+                reason=reason,
+            )
+        )
 
-    payload: dict[str, Any] = {
-        "table": table,
-        "super_class_chain": chain,
-        "table_audit": table_audit,
-        "table_change_count": table_count,
-        "positive_control_passed": table_count > 0,
-        "window_note": note,
-        "recent_activity": {
-            "window_days": effective_window,
-            "since": since,
-        },
-        "results": results,
-    }
-    return format_response(data=payload)
+    payload = BatchVerdicts(
+        table=table,
+        super_class_chain=chain,
+        table_audit=table_audit,
+        table_change_count=table_count,
+        positive_control_passed=table_count > 0,
+        window_note=note,
+        recent_activity=BatchWindow(window_days=effective_window, since=since),
+        results=results,
+    )
+    return format_response(data=payload.to_payload())
 
 
 async def _action_check_table(
@@ -392,7 +399,7 @@ async def _action_check_table(
         seen.add(element)
         unique_fields.append(element)
 
-    overrides: list[dict[str, Any]] = []
+    overrides: list[FieldOverride] = []
     for name in unique_fields:
         fa = await registry.get_field_audit(table, name)
         if not fa.has_row:
@@ -401,23 +408,18 @@ async def _action_check_table(
             continue
         reason = "no_audit_attribute" if fa.no_audit_attribute else "audit_flag"
         overrides.append(
-            {
-                "field": name,
-                "field_audit": fa.field_audit,
-                "raw_field_audit": fa.raw_field_audit,
-                "inherited_from": fa.inherited_from,
-                "reason": reason,
-                "field_attributes": _build_field_attributes(fa),
-            }
+            FieldOverride(
+                field=name,
+                field_audit=fa.field_audit,
+                raw_field_audit=fa.raw_field_audit,
+                inherited_from=fa.inherited_from,
+                reason=reason,
+                field_attributes=_build_field_attributes(fa),
+            )
         )
 
-    payload: dict[str, Any] = {
-        "table": table,
-        "super_class_chain": chain,
-        "table_audit": table_audit,
-        "field_overrides": overrides,
-    }
-    return format_response(data=payload)
+    payload = TableAudit(table=table, super_class_chain=chain, table_audit=table_audit, field_overrides=overrides)
+    return format_response(data=payload.to_payload())
 
 
 async def _action_history(
@@ -469,19 +471,15 @@ async def _action_history(
     rows: list[dict[str, Any]] = list(records) if isinstance(records, list) else []
     masked = [mask_audit_entry(entry) for entry in rows]
 
-    payload: dict[str, Any] = {
-        "table": table,
-        "sys_id": sys_id,
-        "window": {
-            "since": cutoff,
-            "window_days": effective_window,
-            "explicit_since": bool(explicit_since),
-        },
-        "window_note": note,
-        "entry_count": len(masked),
-        "entries": masked,
-    }
-    return format_response(data=payload)
+    payload = AuditHistory(
+        table=table,
+        sys_id=sys_id,
+        window=HistoryWindow(since=cutoff, window_days=effective_window, explicit_since=bool(explicit_since)),
+        window_note=note,
+        entry_count=len(masked),
+        entries=masked,
+    )
+    return format_response(data=payload.to_payload())
 
 
 def _action_describe() -> str:

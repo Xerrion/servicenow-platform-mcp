@@ -1,6 +1,7 @@
 """Owned contract models dump to the exact legacy dict shapes."""
 
 from servicenow_mcp.response import format_response
+from servicenow_mcp.tools._flow_models import ActionTypeRef, FlowNode, V2Trigger
 from servicenow_mcp.tools._record_write_models import DiffEntry, WritePreview, WritePreviewResult, WriteResult
 
 
@@ -47,21 +48,19 @@ def test_write_models_match_legacy_bytes() -> None:
 
 
 def test_flow_node_and_trigger_omit_absent_optional_keys() -> None:
-    from servicenow_mcp.tools._flow_models import ActionTypeRef, FlowNode, V2Trigger
-
-    base = dict(
-        kind="logic",
-        version="v2",
-        sys_id="s",
-        ui_uuid="u",
-        parent_ui_id="",
-        order="1",
-        label="l",
-        name="n",
-        comment="",
-        values_decoded=None,
-        children=[],
-    )
+    base: dict[str, object] = {
+        "kind": "logic",
+        "version": "v2",
+        "sys_id": "s",
+        "ui_uuid": "u",
+        "parent_ui_id": "",
+        "order": "1",
+        "label": "l",
+        "name": "n",
+        "comment": "",
+        "values_decoded": None,
+        "children": [],
+    }
     assert list(FlowNode(**base).to_payload()) == [*base]
     node = FlowNode(**{**base, "kind": "action"}, action_type=ActionTypeRef(sys_id="a", name="b"))
     assert node.to_payload()["action_type"] == {"sys_id": "a", "name": "b"}

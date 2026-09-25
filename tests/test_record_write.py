@@ -6,9 +6,8 @@ import json
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
-import httpx
+import httpx2
 import pytest
-import respx
 
 from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.config import Settings
@@ -17,12 +16,13 @@ from servicenow_mcp.state import PreviewTokenStore
 from servicenow_mcp.tools._artifact import validate_ui_macro_xml
 from servicenow_mcp.tools._dictionary import DictionaryRegistry
 from servicenow_mcp.tools._payload import MAX_JSON_PAYLOAD_BYTES
+from tests._mock_transport import http_mock
 from tests.helpers import decode_response, get_tool_functions
 
 
 BASE_URL = "https://test.service-now.com"
 METADATA_URL = f"{BASE_URL}/api/now/table/sys_dictionary"
-NO_MANDATORY_RESPONSE = httpx.Response(200, json={"result": []})
+NO_MANDATORY_RESPONSE = httpx2.Response(200, json={"result": []})
 
 SYS_ID_INC001 = "a" * 32
 
@@ -121,7 +121,6 @@ class TestActionDispatch:
         assert "table is required" in result["error"]["message"]
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_oversized_data_payload_rejected_before_token_creation(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
@@ -164,11 +163,10 @@ class TestStandardRecordWrite:
     """Plain record writes against non-script-bearing table."""
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_create_preview_non_json_metadata_returns_context(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
-        metadata = respx.get(METADATA_URL).respond(200, content=b"", headers={"Content-Type": "text/html"})
+        metadata = http_mock.get(METADATA_URL).respond(200, content=b"", headers={"Content-Type": "text/html"})
         tools = _register_and_get_tools(settings, auth_provider)
         with patch.object(PreviewTokenStore, "create", new_callable=AsyncMock) as create_token:
             raw = await tools["record_write"](
@@ -190,16 +188,15 @@ class TestStandardRecordWrite:
         assert "Remote outcome unknown" not in result["error"]["message"]
         create_token.assert_not_awaited()
         assert metadata.called
-        assert all(call.request.method == "GET" for call in respx.calls)
+        assert all(call.request.method == "GET" for call in http_mock.calls)
 
     @pytest.mark.asyncio()
     @pytest.mark.parametrize("body", [b"", b"<html>private response</html>"], ids=["empty", "malformed"])
-    @respx.mock
     async def test_create_direct_non_json_response_returns_context(
         self, settings: Settings, auth_provider: OAuthPKCEProvider, body: bytes
     ) -> None:
-        respx.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
-        mutation = respx.post(f"{BASE_URL}/api/now/table/incident").respond(
+        http_mock.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
+        mutation = http_mock.post(f"{BASE_URL}/api/now/table/incident").respond(
             201, content=body, headers={"Content-Type": "text/html"}
         )
         tools = _register_and_get_tools(settings, auth_provider)
@@ -218,12 +215,11 @@ class TestStandardRecordWrite:
         assert mutation.call_count == 1
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_update_direct_empty_response_warns_before_retry(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
-        respx.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
-        mutation = respx.patch(f"{BASE_URL}/api/now/table/incident/{SYS_ID_INC001}").respond(200, content=b"")
+        http_mock.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
+        mutation = http_mock.patch(f"{BASE_URL}/api/now/table/incident/{SYS_ID_INC001}").respond(200, content=b"")
         tools = _register_and_get_tools(settings, auth_provider)
 
         result = decode_response(
@@ -240,12 +236,11 @@ class TestStandardRecordWrite:
 
     @pytest.mark.asyncio()
     @pytest.mark.parametrize("status_code", [200, 201])
-    @respx.mock
     async def test_create_direct_non_object_json_response_warns_before_retry(
         self, settings: Settings, auth_provider: OAuthPKCEProvider, status_code: int
     ) -> None:
-        respx.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
-        mutation = respx.post(f"{BASE_URL}/api/now/table/incident").respond(status_code, json=[])
+        http_mock.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
+        mutation = http_mock.post(f"{BASE_URL}/api/now/table/incident").respond(status_code, json=[])
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["record_write"](
             action="create", table="incident", data=json.dumps({"short_description": "Test"}), preview=False
@@ -260,12 +255,11 @@ class TestStandardRecordWrite:
         assert mutation.call_count == 1
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_update_direct_non_object_json_response_warns_before_retry(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
-        respx.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
-        mutation = respx.patch(f"{BASE_URL}/api/now/table/incident/{SYS_ID_INC001}").respond(200, json=[])
+        http_mock.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
+        mutation = http_mock.patch(f"{BASE_URL}/api/now/table/incident/{SYS_ID_INC001}").respond(200, json=[])
         tools = _register_and_get_tools(settings, auth_provider)
 
         result = decode_response(
@@ -281,9 +275,8 @@ class TestStandardRecordWrite:
         assert mutation.call_count == 1
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_create_preview_returns_token(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-        respx.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
+        http_mock.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["record_write"](
             action="create",
@@ -298,13 +291,12 @@ class TestStandardRecordWrite:
         assert result["data"]["preview"]["data"]["short_description"] == "Test"
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_create_direct_commits_immediately(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
-        respx.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
-        respx.post(f"{BASE_URL}/api/now/table/incident").mock(
-            return_value=httpx.Response(
+        http_mock.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
+        http_mock.post(f"{BASE_URL}/api/now/table/incident").mock(
+            return_value=httpx2.Response(
                 201,
                 json={"result": {"sys_id": "new001", "short_description": "Test"}},
             )
@@ -322,10 +314,9 @@ class TestStandardRecordWrite:
         assert "preview_token" not in result["data"]
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_update_preview_includes_diff(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-        respx.get(f"{BASE_URL}/api/now/table/incident/{SYS_ID_INC001}").mock(
-            return_value=httpx.Response(200, json={"result": {"sys_id": SYS_ID_INC001, "state": "1"}}),
+        http_mock.get(f"{BASE_URL}/api/now/table/incident/{SYS_ID_INC001}").mock(
+            return_value=httpx2.Response(200, json={"result": {"sys_id": SYS_ID_INC001, "state": "1"}}),
         )
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["record_write"](
@@ -341,10 +332,9 @@ class TestStandardRecordWrite:
         assert "preview_token" in result["data"]
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_delete_preview_stores_snapshot(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-        respx.get(f"{BASE_URL}/api/now/table/incident/{SYS_ID_INC001}").mock(
-            return_value=httpx.Response(
+        http_mock.get(f"{BASE_URL}/api/now/table/incident/{SYS_ID_INC001}").mock(
+            return_value=httpx2.Response(
                 200,
                 json={
                     "result": {
@@ -364,10 +354,9 @@ class TestStandardRecordWrite:
         assert snap["password"] == "***MASKED***"  # NOSONAR
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_record_apply_consumes_token(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         # Phase 1: preview create
-        respx.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
+        http_mock.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
         tools = _register_and_get_tools(settings, auth_provider)
         preview_raw = await tools["record_write"](
             action="create",
@@ -377,8 +366,8 @@ class TestStandardRecordWrite:
         token = decode_response(preview_raw)["data"]["preview_token"]
 
         # Phase 2: apply
-        respx.post(f"{BASE_URL}/api/now/table/incident").mock(
-            return_value=httpx.Response(
+        http_mock.post(f"{BASE_URL}/api/now/table/incident").mock(
+            return_value=httpx2.Response(
                 201,
                 json={"result": {"sys_id": "new042", "short_description": "Apply me"}},
             ),
@@ -393,12 +382,11 @@ class TestStandardRecordWrite:
         assert decode_response(raw2)["status"] == "error"
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_record_apply_invalid_response_does_not_replay_write(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
-        respx.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
-        mutation = respx.post(f"{BASE_URL}/api/now/table/incident").respond(201, content=b"")
+        http_mock.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
+        mutation = http_mock.post(f"{BASE_URL}/api/now/table/incident").respond(201, content=b"")
         tools = _register_and_get_tools(settings, auth_provider)
         preview = decode_response(
             await tools["record_write"](action="create", table="incident", data='{"short_description":"Test"}')
@@ -431,15 +419,14 @@ class TestMandatoryFieldValues:
     """Mandatory checks distinguish missing values from supplied false and zero."""
 
     @pytest.mark.parametrize("preview", [True, False])
-    @respx.mock
     async def test_false_and_zero_are_supplied(
         self, settings: Settings, auth_provider: OAuthPKCEProvider, preview: bool
     ) -> None:
         payload = {"active": False, "order": 0}
-        respx.get(METADATA_URL).respond(
+        http_mock.get(METADATA_URL).respond(
             200, json={"result": [{"element": name, "mandatory": "true"} for name in payload]}
         )
-        mutation = respx.post(f"{BASE_URL}/api/now/table/incident").respond(
+        mutation = http_mock.post(f"{BASE_URL}/api/now/table/incident").respond(
             201, json={"result": {"sys_id": SYS_ID_INC001, **payload}}
         )
         tools = _register_and_get_tools(settings, auth_provider)
@@ -461,11 +448,10 @@ class TestMandatoryFieldValues:
 
     @pytest.mark.parametrize("preview", [True, False])
     @pytest.mark.parametrize("payload", [{}, {"name": None}, {"name": ""}], ids=["absent", "null", "empty"])
-    @respx.mock
     async def test_missing_values_block_create(
         self, settings: Settings, auth_provider: OAuthPKCEProvider, preview: bool, payload: dict[str, Any]
     ) -> None:
-        respx.get(METADATA_URL).respond(200, json={"result": [{"element": "name", "mandatory": "true"}]})
+        http_mock.get(METADATA_URL).respond(200, json={"result": [{"element": "name", "mandatory": "true"}]})
         tools = _register_and_get_tools(settings, auth_provider)
         with patch.object(PreviewTokenStore, "create", new_callable=AsyncMock) as create_token:
             result = decode_response(
@@ -476,7 +462,7 @@ class TestMandatoryFieldValues:
         assert result["status"] == "error"
         assert result["data"]["missing_fields"] == ["name"]
         create_token.assert_not_awaited()
-        assert all(call.request.method == "GET" for call in respx.calls)
+        assert all(call.request.method == "GET" for call in http_mock.calls)
 
 
 class TestInheritedMandatoryFields:
@@ -484,7 +470,6 @@ class TestInheritedMandatoryFields:
 
     @pytest.mark.parametrize("preview", [True, False])
     @pytest.mark.parametrize("child_mandatory", [None, "false", "true"])
-    @respx.mock
     async def test_inherited_mandatory_and_child_overrides(
         self, settings: Settings, auth_provider: OAuthPKCEProvider, preview: bool, child_mandatory: str | None
     ) -> None:
@@ -492,24 +477,24 @@ class TestInheritedMandatoryFields:
 
         from servicenow_mcp.tools.record_write import register_tools
 
-        def objects(request: httpx.Request) -> httpx.Response:
+        def objects(request: httpx2.Request) -> httpx2.Response:
             parent = "u_parent" if request.url.params["sysparm_query"] == "name=u_child" else ""
-            return httpx.Response(200, json={"result": [{"super_class.name": parent}]})
+            return httpx2.Response(200, json={"result": [{"super_class.name": parent}]})
 
-        def fields(request: httpx.Request) -> httpx.Response:
+        def fields(request: httpx2.Request) -> httpx2.Response:
             if request.url.params.get("sysparm_fields") == "element,internal_type.name":
-                return httpx.Response(200, json={"result": [{"element": "script", "internal_type.name": "script"}]})
+                return httpx2.Response(200, json={"result": [{"element": "script", "internal_type.name": "script"}]})
             is_child = request.url.params["sysparm_query"].startswith("name=u_child^")
             rows = (
                 []
                 if is_child and child_mandatory is None
                 else [{"element": "name", "mandatory": child_mandatory if is_child else "true"}]
             )
-            return httpx.Response(200, json={"result": rows})
+            return httpx2.Response(200, json={"result": rows})
 
-        respx.get(f"{BASE_URL}/api/now/table/sys_db_object").mock(side_effect=objects)
-        respx.get(METADATA_URL).mock(side_effect=fields)
-        mutation = respx.post(f"{BASE_URL}/api/now/table/u_child").respond(
+        http_mock.get(f"{BASE_URL}/api/now/table/sys_db_object").mock(side_effect=objects)
+        http_mock.get(METADATA_URL).mock(side_effect=fields)
+        mutation = http_mock.post(f"{BASE_URL}/api/now/table/u_child").respond(
             201, json={"result": {"sys_id": SYS_ID_INC001}}
         )
         mcp = MCPServer("test")
@@ -532,7 +517,6 @@ class TestInheritedMandatoryFields:
 
     @pytest.mark.parametrize("preview", [True, False])
     @pytest.mark.parametrize("status_code", [401, 403, 404, 500])
-    @respx.mock
     async def test_parent_metadata_error_blocks_create(
         self, settings: Settings, auth_provider: OAuthPKCEProvider, preview: bool, status_code: int
     ) -> None:
@@ -540,17 +524,17 @@ class TestInheritedMandatoryFields:
 
         from servicenow_mcp.tools.record_write import register_tools
 
-        def objects(request: httpx.Request) -> httpx.Response:
+        def objects(request: httpx2.Request) -> httpx2.Response:
             parent = "u_parent" if request.url.params["sysparm_query"] == "name=u_child" else ""
-            return httpx.Response(200, json={"result": [{"super_class.name": parent}]})
+            return httpx2.Response(200, json={"result": [{"super_class.name": parent}]})
 
-        def fields(request: httpx.Request) -> httpx.Response:
+        def fields(request: httpx2.Request) -> httpx2.Response:
             if request.url.params["sysparm_query"].startswith("name=u_parent^"):
-                return httpx.Response(status_code, json={"error": {"message": "Unavailable"}})
-            return httpx.Response(200, json={"result": [{"element": "script", "internal_type.name": "script"}]})
+                return httpx2.Response(status_code, json={"error": {"message": "Unavailable"}})
+            return httpx2.Response(200, json={"result": [{"element": "script", "internal_type.name": "script"}]})
 
-        respx.get(f"{BASE_URL}/api/now/table/sys_db_object").mock(side_effect=objects)
-        respx.get(METADATA_URL).mock(side_effect=fields)
+        http_mock.get(f"{BASE_URL}/api/now/table/sys_db_object").mock(side_effect=objects)
+        http_mock.get(METADATA_URL).mock(side_effect=fields)
         mcp = MCPServer("test")
         register_tools(mcp, settings, auth_provider)
         with patch.object(PreviewTokenStore, "create", new_callable=AsyncMock) as create_token:
@@ -561,9 +545,8 @@ class TestInheritedMandatoryFields:
             )
         assert result["status"] == "error"
         create_token.assert_not_awaited()
-        assert all(call.request.method == "GET" for call in respx.calls)
+        assert all(call.request.method == "GET" for call in http_mock.calls)
 
-    @respx.mock
     async def test_apply_rechecks_inherited_mandatory_fields(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
@@ -571,30 +554,30 @@ class TestInheritedMandatoryFields:
 
         from servicenow_mcp.tools.record_write import register_tools
 
-        def objects(request: httpx.Request) -> httpx.Response:
+        def objects(request: httpx2.Request) -> httpx2.Response:
             parent = "u_parent" if request.url.params["sysparm_query"] == "name=u_child" else ""
-            return httpx.Response(200, json={"result": [{"super_class.name": parent}]})
+            return httpx2.Response(200, json={"result": [{"super_class.name": parent}]})
 
-        respx.get(f"{BASE_URL}/api/now/table/sys_db_object").mock(side_effect=objects)
-        metadata = respx.get(METADATA_URL).respond(200, json={"result": []})
+        http_mock.get(f"{BASE_URL}/api/now/table/sys_db_object").mock(side_effect=objects)
+        metadata = http_mock.get(METADATA_URL).respond(200, json={"result": []})
         mcp = MCPServer("test")
         register_tools(mcp, settings, auth_provider)
         tools = get_tool_functions(mcp)
         preview = decode_response(await tools["record_write"](action="create", table="u_child", data="{}"))
 
-        def fields(request: httpx.Request) -> httpx.Response:
+        def fields(request: httpx2.Request) -> httpx2.Response:
             rows = (
                 [{"element": "name", "mandatory": "true"}]
                 if request.url.params["sysparm_query"].startswith("name=u_parent^")
                 else []
             )
-            return httpx.Response(200, json={"result": rows})
+            return httpx2.Response(200, json={"result": rows})
 
         metadata.mock(side_effect=fields)
         result = decode_response(await tools["record_apply"](preview_token=preview["data"]["preview_token"]))
         assert result["status"] == "error"
         assert result["data"]["missing_fields"] == ["name"]
-        assert all(call.request.method == "GET" for call in respx.calls)
+        assert all(call.request.method == "GET" for call in http_mock.calls)
 
 
 # ---------------------------------------------------------------------------

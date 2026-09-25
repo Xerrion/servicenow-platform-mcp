@@ -10,15 +10,15 @@ from typing import Any
 from unittest.mock import AsyncMock, patch
 from urllib.parse import parse_qs, urlencode, urlsplit
 
-import httpx
+import httpx2
 import pytest
-import respx
 
 from servicenow_mcp.auth import AccessToken, OAuthPKCEProvider, _parse_token, create_auth
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
 from servicenow_mcp.errors import AuthError
 from servicenow_mcp.oauth_callback import _callback_result, receive_authorization_code
+from tests._mock_transport import http_mock
 
 
 pytestmark = pytest.mark.loopback()
@@ -60,7 +60,6 @@ async def _assert_closed(redirect_uri: str) -> None:
     await server.wait_closed()
 
 
-@respx.mock
 async def test_query_401_then_reauthorize_on_same_loopback_port(settings: Settings, redirect_uri: str) -> None:
     """A rejected token requires new browser authorization on the next tool call."""
     from mcp.server import MCPServer
@@ -80,9 +79,9 @@ async def test_query_401_then_reauthorize_on_same_loopback_port(settings: Settin
         assert b"200 OK" in response
         return True
 
-    token_route = respx.post(f"{BASE_URL}/oauth_token.do").mock(
+    token_route = http_mock.post(f"{BASE_URL}/oauth_token.do").mock(
         side_effect=[
-            httpx.Response(
+            httpx2.Response(
                 200,
                 json={
                     "access_token": token,
@@ -93,8 +92,8 @@ async def test_query_401_then_reauthorize_on_same_loopback_port(settings: Settin
             for token in ("rejected-token", "fresh-token")
         ]
     )
-    api_route = respx.get(f"{BASE_URL}/api/now/table/incident").mock(
-        side_effect=[httpx.Response(401, text="private"), httpx.Response(200, json={"result": []})]
+    api_route = http_mock.get(f"{BASE_URL}/api/now/table/incident").mock(
+        side_effect=[httpx2.Response(401, text="private"), httpx2.Response(200, json={"result": []})]
     )
     provider = OAuthPKCEProvider(settings)
     server = MCPServer("test")
@@ -125,7 +124,6 @@ async def test_query_401_then_reauthorize_on_same_loopback_port(settings: Settin
     await _assert_closed(redirect_uri)
 
 
-@respx.mock
 @pytest.mark.parametrize("configured_scope", [None, "custom"])
 async def test_public_pkce_loopback_exchange_and_bearer_request(
     settings: Settings,
@@ -157,7 +155,7 @@ async def test_public_pkce_loopback_exchange_and_bearer_request(
         assert b"test-code" not in response
         return True
 
-    def exchange(request: httpx.Request) -> httpx.Response:
+    def exchange(request: httpx2.Request) -> httpx2.Response:
         form = parse_qs(request.content.decode(), keep_blank_values=True)
         verifier = form["code_verifier"][0]
         assert 43 <= len(verifier) <= 128
@@ -185,7 +183,7 @@ async def test_public_pkce_loopback_exchange_and_bearer_request(
         assert "authorization" not in request.headers
         assert len(authorization["state"]) == 1
         assert len(authorization["state"][0]) >= 43
-        return httpx.Response(
+        return httpx2.Response(
             200,
             json={
                 "access_token": "test+opaque/token==",
@@ -194,8 +192,8 @@ async def test_public_pkce_loopback_exchange_and_bearer_request(
             },
         )
 
-    token_route = respx.post(f"{BASE_URL}/oauth_token.do").mock(side_effect=exchange)
-    api_route = respx.get(f"{BASE_URL}/api/now/table/incident/test-id").respond(
+    token_route = http_mock.post(f"{BASE_URL}/oauth_token.do").mock(side_effect=exchange)
+    api_route = http_mock.get(f"{BASE_URL}/api/now/table/incident/test-id").respond(
         200, json={"result": {"sys_id": "test-id"}}
     )
     provider = create_auth(settings)
@@ -296,14 +294,13 @@ def test_token_expiry_and_repr() -> None:
     assert vars(token) == {"value": "test-token", "expires_at": 190, "refresh_token": "test-refresh"}
 
 
-@respx.mock
 async def test_expiry_refreshes_once_and_rotates_refresh_token(
     settings: Settings,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     provider = OAuthPKCEProvider(settings)
     provider._token = AccessToken("expired-access", time.monotonic() - 1, "old-refresh")
-    route = respx.post(f"{BASE_URL}/oauth_token.do").respond(
+    route = http_mock.post(f"{BASE_URL}/oauth_token.do").respond(
         200,
         json={
             "access_token": "fresh-access",
@@ -333,11 +330,10 @@ async def test_expiry_refreshes_once_and_rotates_refresh_token(
         assert sensitive not in caplog.text
 
 
-@respx.mock
 async def test_refresh_response_without_rotation_keeps_existing_refresh_token(settings: Settings) -> None:
     provider = OAuthPKCEProvider(settings)
     provider._token = AccessToken("expired", 0, "existing-refresh")
-    respx.post(f"{BASE_URL}/oauth_token.do").respond(
+    http_mock.post(f"{BASE_URL}/oauth_token.do").respond(
         200,
         json={"access_token": "fresh", "token_type": "Bearer", "expires_in": 1800},
     )
@@ -347,14 +343,13 @@ async def test_refresh_response_without_rotation_keeps_existing_refresh_token(se
     assert provider._token.refresh_token == "existing-refresh"
 
 
-@respx.mock
 async def test_rejected_refresh_falls_back_to_browser_authorization(settings: Settings) -> None:
     provider = OAuthPKCEProvider(settings)
     provider._token = AccessToken("expired", 0, "rejected-refresh")
-    route = respx.post(f"{BASE_URL}/oauth_token.do").mock(
+    route = http_mock.post(f"{BASE_URL}/oauth_token.do").mock(
         side_effect=[
-            httpx.Response(400, text="private rejected-refresh"),
-            httpx.Response(
+            httpx2.Response(400, text="private rejected-refresh"),
+            httpx2.Response(
                 200,
                 json={
                     "access_token": "authorized-access",
@@ -378,12 +373,11 @@ async def test_rejected_refresh_falls_back_to_browser_authorization(settings: Se
     assert authorization_form["grant_type"] == ["authorization_code"]
 
 
-@respx.mock
 async def test_refresh_network_failure_preserves_token_without_opening_browser(settings: Settings) -> None:
     provider = OAuthPKCEProvider(settings)
     expired = AccessToken("expired", 0, "retryable-refresh")
     provider._token = expired
-    respx.post(f"{BASE_URL}/oauth_token.do").mock(side_effect=httpx.ConnectError("private"))
+    http_mock.post(f"{BASE_URL}/oauth_token.do").mock(side_effect=httpx2.ConnectError("private"))
     authorize = AsyncMock()
 
     with (
@@ -396,12 +390,11 @@ async def test_refresh_network_failure_preserves_token_without_opening_browser(s
     assert provider._token is expired
 
 
-@respx.mock
 async def test_refresh_server_failure_preserves_token_without_opening_browser(settings: Settings) -> None:
     provider = OAuthPKCEProvider(settings)
     expired = AccessToken("expired", 0, "retryable-refresh")
     provider._token = expired
-    respx.post(f"{BASE_URL}/oauth_token.do").respond(500, text="private retryable-refresh")
+    http_mock.post(f"{BASE_URL}/oauth_token.do").respond(500, text="private retryable-refresh")
     authorize = AsyncMock()
 
     with (
@@ -414,12 +407,11 @@ async def test_refresh_server_failure_preserves_token_without_opening_browser(se
     assert provider._token is expired
 
 
-@respx.mock
 async def test_refresh_invalid_json_preserves_token_without_opening_browser(settings: Settings) -> None:
     provider = OAuthPKCEProvider(settings)
     expired = AccessToken("expired", 0, "retryable-refresh")
     provider._token = expired
-    respx.post(f"{BASE_URL}/oauth_token.do").respond(200, text="private retryable-refresh")
+    http_mock.post(f"{BASE_URL}/oauth_token.do").respond(200, text="private retryable-refresh")
     authorize = AsyncMock()
 
     with (
@@ -432,12 +424,11 @@ async def test_refresh_invalid_json_preserves_token_without_opening_browser(sett
     assert provider._token is expired
 
 
-@respx.mock
 async def test_token_expired_during_refresh_is_not_stored(settings: Settings) -> None:
     provider = OAuthPKCEProvider(settings)
     expired = AccessToken("expired", 0, "retryable-refresh")
     provider._token = expired
-    respx.post(f"{BASE_URL}/oauth_token.do").respond(
+    http_mock.post(f"{BASE_URL}/oauth_token.do").respond(
         200,
         json={
             "access_token": "too-late",
@@ -466,10 +457,9 @@ async def test_expiry_requires_new_flow_and_concurrent_calls_share_it(settings: 
     assert all(headers["Authorization"] == "Bearer fresh" for headers in results)
 
 
-@respx.mock
 async def test_token_expired_during_exchange_is_not_stored(settings: Settings) -> None:
     provider = OAuthPKCEProvider(settings)
-    respx.post(f"{BASE_URL}/oauth_token.do").respond(
+    http_mock.post(f"{BASE_URL}/oauth_token.do").respond(
         200, json={"access_token": "too-late", "token_type": "Bearer", "expires_in": 1}
     )
     with (
@@ -493,11 +483,10 @@ async def test_failed_authorization_cannot_reuse_expired_token(settings: Setting
     assert provider._token is None
 
 
-@respx.mock
 async def test_401_invalidates_without_replaying_request(settings: Settings) -> None:
     provider = OAuthPKCEProvider(settings)
     provider._token = AccessToken("test-token", time.monotonic() + 3600)
-    route = respx.get(f"{BASE_URL}/api/now/table/incident/test-id").respond(401, json={"error": "private"})
+    route = http_mock.get(f"{BASE_URL}/api/now/table/incident/test-id").respond(401, json={"error": "private"})
     async with ServiceNowClient(settings, provider) as client:
         with pytest.raises(AuthError, match="authorize again"):
             await client.get_record("incident", "test-id")
@@ -505,17 +494,16 @@ async def test_401_invalidates_without_replaying_request(settings: Settings) -> 
     assert route.call_count == 1
 
 
-@respx.mock
 async def test_401_preserves_refresh_token_for_next_request(settings: Settings) -> None:
     provider = OAuthPKCEProvider(settings)
     provider._token = AccessToken("rejected-access", time.monotonic() + 3600, "usable-refresh")
-    api_route = respx.get(f"{BASE_URL}/api/now/table/incident/test-id").mock(
+    api_route = http_mock.get(f"{BASE_URL}/api/now/table/incident/test-id").mock(
         side_effect=[
-            httpx.Response(401, json={"error": "private"}),
-            httpx.Response(200, json={"result": {"sys_id": "test-id"}}),
+            httpx2.Response(401, json={"error": "private"}),
+            httpx2.Response(200, json={"result": {"sys_id": "test-id"}}),
         ]
     )
-    token_route = respx.post(f"{BASE_URL}/oauth_token.do").respond(
+    token_route = http_mock.post(f"{BASE_URL}/oauth_token.do").respond(
         200,
         json={
             "access_token": "refreshed-access",
@@ -550,9 +538,8 @@ def test_stale_401_does_not_invalidate_new_token(settings: Settings) -> None:
 
 
 @pytest.mark.parametrize("status", [302, 400, 401, 500])
-@respx.mock
 async def test_exchange_failure_is_sanitized(settings: Settings, status: int, caplog: pytest.LogCaptureFixture) -> None:
-    route = respx.post(f"{BASE_URL}/oauth_token.do").respond(
+    route = http_mock.post(f"{BASE_URL}/oauth_token.do").respond(
         status,
         text="private test-code test-access",
         headers={"Location": "https://evil.invalid"},
@@ -569,12 +556,11 @@ async def test_exchange_failure_is_sanitized(settings: Settings, status: int, ca
     assert route.call_count == 1
 
 
-@respx.mock
 async def test_exchange_failure_names_configured_scope(settings: Settings) -> None:
     settings_data = settings.model_dump()
     settings_data["servicenow_oauth_scope"] = "custom"
     settings = Settings(_env_file=None, **settings_data)
-    respx.post(f"{BASE_URL}/oauth_token.do").respond(400)
+    http_mock.post(f"{BASE_URL}/oauth_token.do").respond(400)
     with (
         patch("servicenow_mcp.auth.receive_authorization_code", return_value="test-code"),
         pytest.raises(AuthError, match="configured OAuth scope") as exc,
@@ -583,9 +569,8 @@ async def test_exchange_failure_names_configured_scope(settings: Settings) -> No
     assert "useraccount" not in str(exc.value)
 
 
-@respx.mock
 async def test_exchange_network_and_json_errors(settings: Settings) -> None:
-    route = respx.post(f"{BASE_URL}/oauth_token.do").mock(side_effect=httpx.ConnectError("private"))
+    route = http_mock.post(f"{BASE_URL}/oauth_token.do").mock(side_effect=httpx2.ConnectError("private"))
     with patch("servicenow_mcp.auth.receive_authorization_code", return_value="test-code"):
         with pytest.raises(AuthError, match="connectivity") as exc:
             await OAuthPKCEProvider(settings).get_headers()
@@ -717,7 +702,6 @@ async def test_cancellation_during_listener_start_releases_port(redirect_uri: st
 
 
 @pytest.mark.parametrize("failure", ["http", "network", "json", "token", "cancel"])
-@respx.mock
 async def test_exchange_failure_leaves_loopback_port_reusable(
     settings: Settings, redirect_uri: str, failure: str
 ) -> None:
@@ -730,19 +714,19 @@ async def test_exchange_failure_leaves_loopback_port_reusable(
         await _send(redirect_uri, urlencode({"state": state, "code": "test-code"}))
         return True
 
-    async def exchange(_request: httpx.Request) -> httpx.Response:
+    async def exchange(_request: httpx2.Request) -> httpx2.Response:
         await _assert_closed(redirect_uri)
         if failure == "network":
-            raise httpx.ConnectError("private")
+            raise httpx2.ConnectError("private")
         if failure == "cancel":
             raise asyncio.CancelledError
         if failure == "http":
-            return httpx.Response(400, text="private")
+            return httpx2.Response(400, text="private")
         if failure == "json":
-            return httpx.Response(200, text="private")
-        return httpx.Response(200, json={"access_token": "private"})
+            return httpx2.Response(200, text="private")
+        return httpx2.Response(200, json={"access_token": "private"})
 
-    route = respx.post(f"{BASE_URL}/oauth_token.do").mock(side_effect=exchange)
+    route = http_mock.post(f"{BASE_URL}/oauth_token.do").mock(side_effect=exchange)
     with patch("servicenow_mcp.oauth_callback.asyncio.to_thread", side_effect=browser):
         with pytest.raises(asyncio.CancelledError if failure == "cancel" else AuthError):
             await provider.get_headers()
@@ -752,7 +736,6 @@ async def test_exchange_failure_leaves_loopback_port_reusable(
     await _assert_closed(redirect_uri)
 
 
-@respx.mock
 async def test_concurrent_authorization_and_cancelled_waiter_use_one_listener(
     settings: Settings, redirect_uri: str
 ) -> None:
@@ -766,7 +749,7 @@ async def test_concurrent_authorization_and_cancelled_waiter_use_one_listener(
         opened.set()
         return True
 
-    route = respx.post(f"{BASE_URL}/oauth_token.do").respond(
+    route = http_mock.post(f"{BASE_URL}/oauth_token.do").respond(
         200, json={"access_token": "fresh", "token_type": "Bearer", "expires_in": 3600}
     )
     provider = OAuthPKCEProvider(settings)
@@ -786,7 +769,6 @@ async def test_concurrent_authorization_and_cancelled_waiter_use_one_listener(
     await _assert_closed(redirect_uri)
 
 
-@respx.mock
 async def test_cancelled_owner_allows_waiting_call_to_reauthorize(settings: Settings, redirect_uri: str) -> None:
     settings.servicenow_oauth_redirect_uri = redirect_uri
     opened = asyncio.Event()
@@ -798,7 +780,7 @@ async def test_cancelled_owner_allows_waiting_call_to_reauthorize(settings: Sett
         opened.set()
         return True
 
-    route = respx.post(f"{BASE_URL}/oauth_token.do").respond(
+    route = http_mock.post(f"{BASE_URL}/oauth_token.do").respond(
         200, json={"access_token": "fresh", "token_type": "Bearer", "expires_in": 3600}
     )
     provider = OAuthPKCEProvider(settings)
@@ -861,7 +843,6 @@ async def test_expired_exchange_result_is_never_sent(settings: Settings) -> None
     assert provider._token is None
 
 
-@respx.mock
 @pytest.mark.parametrize("reason", ["expiry", "new_provider"])
 async def test_reauthorization_uses_new_state_and_verifier(settings: Settings, reason: str) -> None:
     urls: list[str] = []
@@ -870,7 +851,7 @@ async def test_reauthorization_uses_new_state_and_verifier(settings: Settings, r
         urls.append(url)
         return "test-code"
 
-    route = respx.post(f"{BASE_URL}/oauth_token.do").respond(
+    route = http_mock.post(f"{BASE_URL}/oauth_token.do").respond(
         200,
         json={
             "access_token": "test-token",
@@ -922,7 +903,6 @@ async def test_oversized_and_replayed_callbacks_do_not_replace_code(redirect_uri
     await _assert_closed(redirect_uri)
 
 
-@respx.mock
 async def test_auth_failure_keeps_tool_error_envelope(settings: Settings) -> None:
     from mcp.server import MCPServer
 
@@ -938,4 +918,4 @@ async def test_auth_failure_keeps_tool_error_envelope(settings: Settings) -> Non
     assert result["data"] is None
     assert "correlation_id" not in result
     assert "Authorization denied" in str(result["error"])
-    assert not respx.calls
+    assert not http_mock.calls

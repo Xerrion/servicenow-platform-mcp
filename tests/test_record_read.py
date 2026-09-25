@@ -5,13 +5,13 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import AsyncMock
 
-import httpx
+import httpx2
 import pytest
-import respx
 
 from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.tools._dictionary import DictionaryField, DictionaryRegistry, ScriptField
+from tests._mock_transport import http_mock
 from tests.helpers import decode_response, get_tool_functions
 
 
@@ -98,13 +98,12 @@ class TestSysIdLookup:
     """Happy/error paths when ``sys_id`` is supplied."""
 
     @pytest.mark.parametrize("fields", ["", "correlation_id", "*"])
-    @respx.mock
     async def test_envelope_omits_selection_metadata(
         self, settings: Settings, auth_provider: OAuthPKCEProvider, fields: str
     ) -> None:
         dictionary = _stub_dictionary(settings, auth_provider, ["sys_id", "name", "correlation_id"])
         record = {"sys_id": SYS_ID_BR, "correlation_id": "external-record-id"}
-        respx.get(f"{BASE_URL}/api/now/table/incident/{SYS_ID_BR}").respond(200, json={"result": record})
+        http_mock.get(f"{BASE_URL}/api/now/table/incident/{SYS_ID_BR}").respond(200, json={"result": record})
         tools = _register_and_get_tools(settings, auth_provider, dictionary=dictionary)
         result = decode_response(await tools["record_read"](table="incident", sys_id=SYS_ID_BR, fields=fields))
         assert result["status"] == "success"
@@ -112,7 +111,6 @@ class TestSysIdLookup:
         assert result["data"]["record"]["correlation_id"] == "external-record-id"
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_sys_id_happy_path(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         dictionary = _stub_dictionary(
             settings,
@@ -120,8 +118,8 @@ class TestSysIdLookup:
             ["sys_id", "name", "sys_updated_on", "script"],
             ["script"],
         )
-        route = respx.get(f"{BASE_URL}/api/now/table/sys_script/{SYS_ID_BR}").mock(
-            return_value=httpx.Response(
+        route = http_mock.get(f"{BASE_URL}/api/now/table/sys_script/{SYS_ID_BR}").mock(
+            return_value=httpx2.Response(
                 200,
                 json={
                     "result": {
@@ -151,7 +149,6 @@ class TestSysIdLookup:
         assert "selection" not in result
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_sensitive_field_masked(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         dictionary = _stub_dictionary(
             settings,
@@ -159,8 +156,8 @@ class TestSysIdLookup:
             ["sys_id", "password", "script"],
             ["script"],
         )
-        respx.get(f"{BASE_URL}/api/now/table/sys_script/{SYS_ID_BR}").mock(
-            return_value=httpx.Response(
+        http_mock.get(f"{BASE_URL}/api/now/table/sys_script/{SYS_ID_BR}").mock(
+            return_value=httpx2.Response(
                 200,
                 json={
                     "result": {
@@ -180,11 +177,10 @@ class TestSysIdLookup:
         assert "selection" not in result
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_star_returns_full_masked_record(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         dictionary = _stub_dictionary(settings, auth_provider, ["sys_id", "name", "password"])
-        route = respx.get(f"{BASE_URL}/api/now/table/sys_script/{SYS_ID_BR}").mock(
-            return_value=httpx.Response(
+        route = http_mock.get(f"{BASE_URL}/api/now/table/sys_script/{SYS_ID_BR}").mock(
+            return_value=httpx2.Response(
                 200,
                 json={"result": {"sys_id": SYS_ID_BR, "name": "BR1", "password": "secret"}},
             )
@@ -198,7 +194,6 @@ class TestSysIdLookup:
         assert "selection" not in result
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_unknown_field_returns_error_before_record_io(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
@@ -208,10 +203,9 @@ class TestSysIdLookup:
 
         assert result["status"] == "error"
         assert "Unknown field" in result["error"]["message"]
-        assert not respx.calls
+        assert not http_mock.calls
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_invalid_field_returns_error_before_dictionary_io(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
@@ -220,7 +214,7 @@ class TestSysIdLookup:
 
         assert result["status"] == "error"
         assert "Invalid field projection" in result["error"]["message"]
-        assert not respx.calls
+        assert not http_mock.calls
 
     @pytest.mark.asyncio()
     async def test_invalid_sys_id_format_returns_error(
@@ -237,7 +231,6 @@ class TestNameLookup:
     """Happy/error paths when ``name`` is supplied."""
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_name_happy_path(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         dictionary = _stub_dictionary(
             settings,
@@ -246,15 +239,15 @@ class TestNameLookup:
             ["script"],
         )
         # name=BR1 query returns exactly one record
-        respx.get(f"{BASE_URL}/api/now/table/sys_script").mock(
-            return_value=httpx.Response(
+        http_mock.get(f"{BASE_URL}/api/now/table/sys_script").mock(
+            return_value=httpx2.Response(
                 200,
                 json={"result": [{"sys_id": SYS_ID_BR, "name": "BR1"}]},
                 headers={"X-Total-Count": "1"},
             ),
         )
-        respx.get(f"{BASE_URL}/api/now/table/sys_script/{SYS_ID_BR}").mock(
-            return_value=httpx.Response(
+        http_mock.get(f"{BASE_URL}/api/now/table/sys_script/{SYS_ID_BR}").mock(
+            return_value=httpx2.Response(
                 200,
                 json={"result": {"sys_id": SYS_ID_BR, "name": "BR1", "script": "// x"}},
             ),
@@ -266,15 +259,14 @@ class TestNameLookup:
         assert result["status"] == "success"
         assert result["data"]["sys_id"] == SYS_ID_BR
         assert result["data"]["record"]["name"] == "BR1"
-        list_call = next(call for call in respx.calls if call.request.url.path.endswith("/sys_script"))
+        list_call = next(call for call in http_mock.calls if call.request.url.path.endswith("/sys_script"))
         assert list_call.request.url.params["sysparm_fields"] == "sys_id"
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_name_no_match_returns_error(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         dictionary = _stub_dictionary(settings, auth_provider, ["sys_id", "name"])
-        respx.get(f"{BASE_URL}/api/now/table/sys_script").mock(
-            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"}),
+        http_mock.get(f"{BASE_URL}/api/now/table/sys_script").mock(
+            return_value=httpx2.Response(200, json={"result": []}, headers={"X-Total-Count": "0"}),
         )
         tools = _register_and_get_tools(settings, auth_provider, dictionary=dictionary)
         raw = await tools["record_read"](table="sys_script", name="missing")
@@ -283,11 +275,10 @@ class TestNameLookup:
         assert "No record found" in result["error"]["message"]
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_name_ambiguous_returns_error(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         dictionary = _stub_dictionary(settings, auth_provider, ["sys_id", "name"])
-        respx.get(f"{BASE_URL}/api/now/table/sys_script").mock(
-            return_value=httpx.Response(
+        http_mock.get(f"{BASE_URL}/api/now/table/sys_script").mock(
+            return_value=httpx2.Response(
                 200,
                 json={
                     "result": [

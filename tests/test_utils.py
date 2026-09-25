@@ -3,7 +3,7 @@
 import json
 from unittest.mock import AsyncMock, patch
 
-import httpx
+import httpx2
 import pytest
 
 from servicenow_mcp.errors import ForbiddenError
@@ -454,9 +454,9 @@ class TestSafeToolCall:
 
     async def test_get_timeout_returns_query_narrowing_advice(self) -> None:
         async def fn() -> str:
-            raise httpx.ReadTimeout(
+            raise httpx2.ReadTimeout(
                 "private request details",
-                request=httpx.Request("GET", "https://test.service-now.com/api/now/table/incident"),
+                request=httpx2.Request("GET", "https://test.service-now.com/api/now/table/incident"),
             )
 
         result = await safe_tool_call(fn)
@@ -472,21 +472,21 @@ class TestSafeToolCall:
     @pytest.mark.parametrize(
         ("method", "timeout_type", "phase"),
         [
-            ("POST", httpx.ReadTimeout, "receiving the response"),
-            ("PATCH", httpx.WriteTimeout, "sending the request"),
-            ("DELETE", httpx.ConnectTimeout, "connecting"),
+            ("POST", httpx2.ReadTimeout, "receiving the response"),
+            ("PATCH", httpx2.WriteTimeout, "sending the request"),
+            ("DELETE", httpx2.ConnectTimeout, "connecting"),
         ],
     )
     async def test_mutation_timeout_requires_verification_before_retry(
         self,
         method: str,
-        timeout_type: type[httpx.TimeoutException],
+        timeout_type: type[httpx2.TimeoutException],
         phase: str,
     ) -> None:
         async def fn() -> str:
             raise timeout_type(
                 "private request details",
-                request=httpx.Request(method, "https://test.service-now.com/api/now/table/incident"),
+                request=httpx2.Request(method, "https://test.service-now.com/api/now/table/incident"),
             )
 
         result = await safe_tool_call(fn)
@@ -501,7 +501,7 @@ class TestSafeToolCall:
 
     async def test_timeout_without_request_has_no_query_advice(self) -> None:
         async def fn() -> str:
-            raise httpx.PoolTimeout("private request details")
+            raise httpx2.PoolTimeout("private request details")
 
         message = decode_response(await safe_tool_call(fn))["error"]["message"]
 

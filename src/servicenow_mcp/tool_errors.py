@@ -3,7 +3,7 @@
 import logging
 from collections.abc import Awaitable, Callable
 
-import httpx
+import httpx2
 
 from servicenow_mcp.errors import ACLError, ForbiddenError, ServiceNowMCPError
 from servicenow_mcp.response import format_response
@@ -23,7 +23,7 @@ _TIMEOUT_ACTIONS = {
 }
 
 
-def _timeout_error(error: httpx.TimeoutException) -> dict[str, str]:
+def _timeout_error(error: httpx2.TimeoutException) -> dict[str, str]:
     phase = timeout_phase(error)
     try:
         operation = request_operation(error.request)
@@ -74,7 +74,7 @@ async def safe_tool_call(fn: Callable[[], Awaitable[str]]) -> str:
     """Run an MCP tool body and translate exceptions to error envelopes."""
     try:
         return await fn()
-    except httpx.TimeoutException as e:
+    except httpx2.TimeoutException as e:
         sentry_capture(e)
         return format_response(
             data=None,

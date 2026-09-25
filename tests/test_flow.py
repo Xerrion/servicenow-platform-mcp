@@ -8,7 +8,7 @@ import json
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import httpx
+import httpx2
 import pytest
 from mcp.server import MCPServer
 
@@ -1479,7 +1479,7 @@ async def test_contract_returns_concise_configured_bindings(
         (
             "list_action_input_definitions",
             "input",
-            httpx.ConnectError("definition table connection failed"),
+            httpx2.ConnectError("definition table connection failed"),
         ),
         (
             "list_action_input_definitions",
@@ -1489,7 +1489,7 @@ async def test_contract_returns_concise_configured_bindings(
         (
             "list_action_output_definitions",
             "output",
-            httpx.ConnectError("definition table connection failed"),
+            httpx2.ConnectError("definition table connection failed"),
         ),
         (
             "list_action_output_definitions",

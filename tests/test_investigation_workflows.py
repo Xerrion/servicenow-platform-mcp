@@ -4,9 +4,8 @@ import json
 import re
 from typing import Any
 
-import httpx
+import httpx2
 import pytest
-import respx
 from mcp.server import MCPServer
 
 from servicenow_mcp.auth import OAuthPKCEProvider
@@ -14,6 +13,7 @@ from servicenow_mcp.config import Settings
 from servicenow_mcp.investigations import INVESTIGATION_REGISTRY
 from servicenow_mcp.investigations.slow_transactions import PERFORMANCE_TABLES
 from servicenow_mcp.tools.investigate import register_tools
+from tests._mock_transport import http_mock
 from tests.helpers import decode_response, get_tool_functions
 
 
@@ -48,23 +48,22 @@ def _mock_platform(*, missing_tables: tuple[str, ...] = ()) -> None:
     }
     records.update({table: [{"sys_id": RECORD_ID, "name": "Pattern", "count": "5"}] for table, _ in PERFORMANCE_TABLES})
 
-    def query(request: httpx.Request) -> httpx.Response:
+    def query(request: httpx2.Request) -> httpx2.Response:
         table = request.url.path.rsplit("/", 1)[-1]
         if table in missing_tables:
-            return httpx.Response(404, json={"error": {"message": "missing"}})
+            return httpx2.Response(404, json={"error": {"message": "missing"}})
         rows = records[table]
-        return httpx.Response(200, json={"result": rows}, headers={"X-Total-Count": str(len(rows))})
+        return httpx2.Response(200, json={"result": rows}, headers={"X-Total-Count": str(len(rows))})
 
-    respx.get(re.compile(re.escape(BASE) + r"/api/now/table/[^/?]+(?:\?.*)?$")).mock(side_effect=query)
-    respx.get(f"{BASE}/api/now/stats/incident").respond(200, json={"result": {"stats": {"count": "99"}}})
-    respx.get(f"{BASE}/api/sn_codesearch/code_search/search").respond(
+    http_mock.get(re.compile(re.escape(BASE) + r"/api/now/table/[^/?]+(?:\?.*)?$")).mock(side_effect=query)
+    http_mock.get(f"{BASE}/api/now/stats/incident").respond(200, json={"result": {"stats": {"count": "99"}}})
+    http_mock.get(f"{BASE}/api/sn_codesearch/code_search/search").respond(
         200,
         json={"result": {"search_results": [{"sys_id": RECORD_ID, "className": "sys_script", "name": "Rule"}]}},
     )
 
 
 @pytest.mark.parametrize("name", list(INVESTIGATION_REGISTRY))
-@respx.mock
 async def test_registered_investigations_compute_real_findings(settings: Settings, name: str) -> None:
     _mock_platform()
     response = await _invoke(
@@ -115,7 +114,7 @@ async def test_registered_investigations_compute_real_findings(settings: Setting
         assert data["findings"][0]["category"] == "heavy_automation"
         assert data["findings"][0]["br_count"] == 11
 
-    for call in respx.calls:
+    for call in http_mock.calls:
         if "/table/" in call.request.url.path:
             assert 0 < int(call.request.url.params["sysparm_limit"]) <= 1000
         if call.request.url.path.endswith("/syslog"):
@@ -139,12 +138,11 @@ async def test_registered_investigations_compute_real_findings(settings: Setting
         ("acl_conflicts", f"sys_security_acl:{RECORD_ID}"),
     ],
 )
-@respx.mock
 async def test_real_explanations_accept_their_documented_identifiers(
     settings: Settings, name: str, element_id: str
 ) -> None:
     _mock_platform()
-    respx.get(re.compile(re.escape(BASE) + r"/api/now/table/[^/]+/" + RECORD_ID + r"(?:\?.*)?$")).respond(
+    http_mock.get(re.compile(re.escape(BASE) + r"/api/now/table/[^/]+/" + RECORD_ID + r"(?:\?.*)?$")).respond(
         200,
         json={"result": {"sys_id": RECORD_ID, "name": "Example", "count": "2", "password": "fixture-secret"}},
     )
@@ -153,10 +151,9 @@ async def test_real_explanations_accept_their_documented_identifiers(
     assert response["data"]["explanation"]
     assert "selection" not in response
     assert "fixture-secret" not in json.dumps(response)
-    assert respx.calls
+    assert http_mock.calls
 
 
-@respx.mock
 async def test_filtered_slow_transaction_search_reports_only_attempted_tables(settings: Settings) -> None:
     _mock_platform()
     response = await _invoke(settings, "slow_transactions", params='{"categories":"slow_query","hours":2}')
@@ -165,17 +162,15 @@ async def test_filtered_slow_transaction_search_reports_only_attempted_tables(se
 
 
 @pytest.mark.parametrize("name", ["slow_transactions", "deprecated_apis"])
-@respx.mock
 async def test_investigation_timeout_is_reported_instead_of_hidden(settings: Settings, name: str) -> None:
-    respx.get(re.compile(re.escape(BASE) + r"/api/.*")).mock(side_effect=httpx.ReadTimeout("private detail"))
+    http_mock.get(re.compile(re.escape(BASE) + r"/api/.*")).mock(side_effect=httpx2.ReadTimeout("private detail"))
     response = await _invoke(settings, name)
     assert response["status"] == "error"
     assert response["error"]["code"] == "UPSTREAM_TIMEOUT"
-    assert respx.calls.call_count == 1
+    assert http_mock.calls.call_count == 1
     assert "private detail" not in json.dumps(response)
 
 
-@respx.mock
 async def test_missing_optional_performance_table_marks_result_incomplete(settings: Settings) -> None:
     _mock_platform(missing_tables=("sys_query_pattern",))
     response = await _invoke(settings, "slow_transactions", params='{"categories":"slow_query,slow_script"}')

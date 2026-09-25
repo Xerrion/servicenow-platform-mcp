@@ -5,9 +5,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-import httpx
+import httpx2
 import pytest
-import respx
 from mcp.server import MCPServer
 
 from servicenow_mcp.auth import OAuthPKCEProvider
@@ -15,6 +14,7 @@ from servicenow_mcp.config import Settings
 from servicenow_mcp.tools._audit import attribute_has_no_audit
 from servicenow_mcp.tools._dictionary import DictionaryRegistry
 from servicenow_mcp.tools.audit import register_tools
+from tests._mock_transport import http_mock
 from tests.helpers import decode_response, get_tool_functions
 
 
@@ -52,7 +52,7 @@ def _register_and_get_tools(
 def _make_sys_db_handler(
     chain_parents: dict[str, str],
     table_audit: dict[str, str],
-) -> Callable[[httpx.Request], httpx.Response]:
+) -> Callable[[httpx2.Request], httpx2.Response]:
     """Build a side-effect handler for ``sys_db_object`` queries.
 
     ``chain_parents`` maps a table to its parent (``""`` for root). Used for
@@ -62,7 +62,7 @@ def _make_sys_db_handler(
     table-level audit row in one call.
     """
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         params = dict(request.url.params)
         query = params.get("sysparm_query", "")
         fields = params.get("sysparm_fields", "")
@@ -70,13 +70,13 @@ def _make_sys_db_handler(
             # Chain-walk: extract table name from ``name=<table>`` clause.
             target = query.split("name=", 1)[1].split("^", 1)[0]
             parent = chain_parents.get(target, "")
-            return httpx.Response(
+            return httpx2.Response(
                 200,
                 json={"result": [{"super_class.name": parent}] if target in chain_parents else []},
             )
         # Table-audit chain-IN lookup.
         result = [{"name": t, "sys_audit": table_audit.get(t, "")} for t in table_audit]
-        return httpx.Response(200, json={"result": result})
+        return httpx2.Response(200, json={"result": result})
 
     return handler
 
@@ -102,14 +102,14 @@ def _parse_eq_clause(query: str, key: str) -> str | None:
 
 def _make_sys_dict_handler(
     rows_by_table: dict[str, list[dict[str, Any]]],
-) -> Callable[[httpx.Request], httpx.Response]:
+) -> Callable[[httpx2.Request], httpx2.Response]:
     """Build a side-effect handler for ``sys_dictionary`` queries.
 
     Returns rows matching the ``nameIN<csv>`` clause; honours ``element=``
     when present so per-field queries collapse to the right subset.
     """
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         params = dict(request.url.params)
         query = params.get("sysparm_query", "")
         names = _parse_in_list_clause(query, "name")
@@ -122,25 +122,25 @@ def _make_sys_dict_handler(
                     continue
                 merged = {"name": table, **row}
                 result.append(merged)
-        return httpx.Response(200, json={"result": result})
+        return httpx2.Response(200, json={"result": result})
 
     return handler
 
 
-def _stats_response(count: int) -> httpx.Response:
+def _stats_response(count: int) -> httpx2.Response:
     """Build a sys_audit aggregate response with a single count value."""
-    return httpx.Response(200, json={"result": {"stats": {"count": str(count)}}})
+    return httpx2.Response(200, json={"result": {"stats": {"count": str(count)}}})
 
 
 def _make_stats_handler(
     counts: dict[tuple[str, str | None], int],
-) -> Callable[[httpx.Request], httpx.Response]:
+) -> Callable[[httpx2.Request], httpx2.Response]:
     """Side-effect handler for the sys_audit aggregate endpoint.
 
     Keys are ``(table, field_or_None)``. Returns 0 when the lookup misses.
     """
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         params = dict(request.url.params)
         query = params.get("sysparm_query", "")
         table = ""
@@ -151,7 +151,7 @@ def _make_stats_handler(
             elif part.startswith("fieldname="):
                 field = part.split("=", 1)[1]
         if params.get("sysparm_group_by") == "fieldname":
-            return httpx.Response(
+            return httpx2.Response(
                 200,
                 json={
                     "result": [
@@ -175,7 +175,6 @@ def _make_stats_handler(
 
 
 @pytest.mark.asyncio()
-@respx.mock
 async def test_describe_returns_action_registry_with_no_io(
     settings: Settings,
     auth_provider: OAuthPKCEProvider,
@@ -189,7 +188,7 @@ async def test_describe_returns_action_registry_with_no_io(
     actions = result["data"]["actions"]
     assert set(actions.keys()) == {"check_field", "check_fields", "check_table", "history", "describe"}
     # No platform calls were issued.
-    assert not respx.routes
+    assert not http_mock.routes
 
 
 # ---------------------------------------------------------------------------
@@ -251,16 +250,15 @@ def _wire_check_field_mocks(
     table: str = "incident",
     field: str = "business_service",
 ) -> None:
-    """Install respx handlers for one ``check_field`` scenario."""
-    respx.get(SYS_DB_URL).mock(side_effect=_make_sys_db_handler(chain_parents, table_audit))
-    respx.get(SYS_DICT_URL).mock(side_effect=_make_sys_dict_handler(field_rows))
-    respx.get(SYS_AUDIT_STATS_URL).mock(
+    """Install mock handlers for one ``check_field`` scenario."""
+    http_mock.get(SYS_DB_URL).mock(side_effect=_make_sys_db_handler(chain_parents, table_audit))
+    http_mock.get(SYS_DICT_URL).mock(side_effect=_make_sys_dict_handler(field_rows))
+    http_mock.get(SYS_AUDIT_STATS_URL).mock(
         side_effect=_make_stats_handler({(table, field): field_count, (table, None): table_count})
     )
 
 
 @pytest.mark.asyncio()
-@respx.mock
 async def test_verdict_audited(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     """Field is audited at parent table, activity confirms it."""
     _wire_check_field_mocks(
@@ -281,7 +279,6 @@ async def test_verdict_audited(settings: Settings, auth_provider: OAuthPKCEProvi
 
 
 @pytest.mark.asyncio()
-@respx.mock
 async def test_verdict_not_audited_field_flag(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     """Field audit=false (inherited from parent) wins over table audit=true."""
     _wire_check_field_mocks(
@@ -300,7 +297,6 @@ async def test_verdict_not_audited_field_flag(settings: Settings, auth_provider:
 
 
 @pytest.mark.asyncio()
-@respx.mock
 async def test_verdict_not_audited_table_flag(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     """Table audit off short-circuits the verdict regardless of field config."""
     _wire_check_field_mocks(
@@ -318,7 +314,6 @@ async def test_verdict_not_audited_table_flag(settings: Settings, auth_provider:
 
 
 @pytest.mark.asyncio()
-@respx.mock
 async def test_verdict_audited_but_inactive(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     """Configured for audit, table has activity, field has none in window."""
     _wire_check_field_mocks(
@@ -336,7 +331,6 @@ async def test_verdict_audited_but_inactive(settings: Settings, auth_provider: O
 
 
 @pytest.mark.asyncio()
-@respx.mock
 async def test_verdict_inconclusive_zero_table(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     """Zero field rows AND zero table rows -> inconclusive (window uninformative)."""
     _wire_check_field_mocks(
@@ -355,7 +349,6 @@ async def test_verdict_inconclusive_zero_table(settings: Settings, auth_provider
 
 
 @pytest.mark.asyncio()
-@respx.mock
 async def test_verdict_inconclusive_field_not_in_chain(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     """Field row absent everywhere -> inconclusive with the dedicated explanation."""
     _wire_check_field_mocks(
@@ -398,7 +391,6 @@ def test_attribute_has_no_audit_tolerates_trailing_whitespace() -> None:
 
 
 @pytest.mark.asyncio()
-@respx.mock
 async def test_no_audit_attribute_vetoes_audit_true(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     """A row with audit=true AND no_audit=true resolves to not_audited_field_flag."""
     _wire_check_field_mocks(
@@ -427,7 +419,6 @@ async def test_no_audit_attribute_vetoes_audit_true(settings: Settings, auth_pro
 
 
 @pytest.mark.asyncio()
-@respx.mock
 async def test_window_days_override_surfaces_in_response(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     """A non-default window_days value is echoed back and triggers the warning note."""
     _wire_check_field_mocks(
@@ -450,16 +441,15 @@ async def test_window_days_override_surfaces_in_response(settings: Settings, aut
 
 
 @pytest.mark.asyncio()
-@respx.mock
 async def test_check_fields_returns_per_field_verdicts(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     """``check_fields`` returns one verdict per field and a single shared table_change_count."""
-    respx.get(SYS_DB_URL).mock(
+    http_mock.get(SYS_DB_URL).mock(
         side_effect=_make_sys_db_handler(
             chain_parents={"incident": "task", "task": ""},
             table_audit={"incident": "true", "task": "true"},
         )
     )
-    respx.get(SYS_DICT_URL).mock(
+    http_mock.get(SYS_DICT_URL).mock(
         side_effect=_make_sys_dict_handler(
             {
                 "task": [{"element": "business_service", "audit": "true", "attributes": ""}],
@@ -467,7 +457,7 @@ async def test_check_fields_returns_per_field_verdicts(settings: Settings, auth_
             }
         )
     )
-    respx.get(SYS_AUDIT_STATS_URL).mock(
+    http_mock.get(SYS_AUDIT_STATS_URL).mock(
         side_effect=_make_stats_handler(
             {
                 ("incident", "business_service"): 3,
@@ -489,7 +479,7 @@ async def test_check_fields_returns_per_field_verdicts(settings: Settings, auth_
         "business_service": 3,
         "description": 0,
     }
-    stats_calls = [call for call in respx.calls if call.request.url.path == "/api/now/stats/sys_audit"]
+    stats_calls = [call for call in http_mock.calls if call.request.url.path == "/api/now/stats/sys_audit"]
     assert len(stats_calls) == 2
     grouped_params = stats_calls[1].request.url.params
     assert grouped_params["sysparm_group_by"] == "fieldname"
@@ -526,16 +516,15 @@ async def test_check_fields_rejects_over_max(settings: Settings, auth_provider: 
 
 
 @pytest.mark.asyncio()
-@respx.mock
 async def test_check_table_lists_field_overrides(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     """``check_table`` returns only fields whose flag differs from the table default."""
-    respx.get(SYS_DB_URL).mock(
+    http_mock.get(SYS_DB_URL).mock(
         side_effect=_make_sys_db_handler(
             chain_parents={"incident": "task", "task": ""},
             table_audit={"incident": "true", "task": "true"},
         )
     )
-    respx.get(SYS_DICT_URL).mock(
+    http_mock.get(SYS_DICT_URL).mock(
         side_effect=_make_sys_dict_handler(
             {
                 "task": [
@@ -568,18 +557,17 @@ async def test_check_table_lists_field_overrides(settings: Settings, auth_provid
 
 
 @pytest.mark.asyncio()
-@respx.mock
 async def test_history_masks_sensitive_field_values(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     """sys_audit rows for sensitive fields have old/new values masked."""
 
-    def _audit_handler(request: httpx.Request) -> httpx.Response:
+    def _audit_handler(request: httpx2.Request) -> httpx2.Response:
         # Confirm the real sys_audit column name (`tablename`) is used; if the
         # tool ever regressed to `table=` the query string would not contain it.
         params = dict(request.url.params)
         query = params.get("sysparm_query", "")
         assert "tablename=incident" in query
         assert f"documentkey={SYS_ID_RECORD}" in query
-        return httpx.Response(
+        return httpx2.Response(
             200,
             json={
                 "result": [
@@ -602,7 +590,7 @@ async def test_history_masks_sensitive_field_values(settings: Settings, auth_pro
             headers={"X-Total-Count": "2"},
         )
 
-    respx.get(SYS_AUDIT_URL).mock(side_effect=_audit_handler)
+    http_mock.get(SYS_AUDIT_URL).mock(side_effect=_audit_handler)
     tools = _register_and_get_tools(settings, auth_provider)
     raw = await tools["audit"](action="history", table="incident", sys_id=SYS_ID_RECORD)
     result = decode_response(raw)
@@ -625,16 +613,15 @@ async def test_history_requires_sys_id(settings: Settings, auth_provider: OAuthP
 
 
 @pytest.mark.asyncio()
-@respx.mock
 async def test_history_explicit_since_overrides_window(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     """An explicit ``since`` value is honoured and surfaced via window_note."""
 
-    def _audit_handler(request: httpx.Request) -> httpx.Response:
+    def _audit_handler(request: httpx2.Request) -> httpx2.Response:
         params = dict(request.url.params)
         assert "sys_created_on>=2024-01-01" in params.get("sysparm_query", "")
-        return httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        return httpx2.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
 
-    respx.get(SYS_AUDIT_URL).mock(side_effect=_audit_handler)
+    http_mock.get(SYS_AUDIT_URL).mock(side_effect=_audit_handler)
     tools = _register_and_get_tools(settings, auth_provider)
     raw = await tools["audit"](action="history", table="incident", sys_id=SYS_ID_RECORD, since="2024-01-01")
     result = decode_response(raw)
@@ -649,12 +636,11 @@ async def test_history_explicit_since_overrides_window(settings: Settings, auth_
 
 
 @pytest.mark.asyncio()
-@respx.mock
 async def test_flush_table_clears_field_config_cache(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     """``flush('incident')`` makes a changed field configuration visible immediately."""
     from servicenow_mcp.tools._audit import AuditRegistry
 
-    respx.get(SYS_DB_URL).mock(
+    http_mock.get(SYS_DB_URL).mock(
         side_effect=_make_sys_db_handler(
             chain_parents={"incident": "task", "task": ""},
             table_audit={"incident": "true", "task": "true"},
@@ -663,9 +649,9 @@ async def test_flush_table_clears_field_config_cache(settings: Settings, auth_pr
 
     audit_values = ["true", "false"]  # consumed in order across the two fetches
 
-    def _dict_handler(request: httpx.Request) -> httpx.Response:
+    def _dict_handler(request: httpx2.Request) -> httpx2.Response:
         current = audit_values.pop(0) if audit_values else "false"
-        return httpx.Response(
+        return httpx2.Response(
             200,
             json={
                 "result": [
@@ -674,7 +660,7 @@ async def test_flush_table_clears_field_config_cache(settings: Settings, auth_pr
             },
         )
 
-    respx.get(SYS_DICT_URL).mock(side_effect=_dict_handler)
+    http_mock.get(SYS_DICT_URL).mock(side_effect=_dict_handler)
 
     dictionary = DictionaryRegistry(settings, auth_provider)
     registry = AuditRegistry(settings, auth_provider, dictionary)
@@ -719,7 +705,6 @@ async def test_field_config_hit_precedes_client_creation(settings: Settings, aut
 
 
 @pytest.mark.asyncio()
-@respx.mock
 async def test_no_audit_veto_field_audit_false_and_check_table_agrees(
     settings: Settings,
     auth_provider: OAuthPKCEProvider,
@@ -735,13 +720,13 @@ async def test_no_audit_veto_field_audit_false_and_check_table_agrees(
         same post-veto ``field_audit=false`` and reason
         ``no_audit_attribute``.
     """
-    respx.get(SYS_DB_URL).mock(
+    http_mock.get(SYS_DB_URL).mock(
         side_effect=_make_sys_db_handler(
             chain_parents={"incident": "task", "task": ""},
             table_audit={"incident": "true", "task": "true"},
         )
     )
-    respx.get(SYS_DICT_URL).mock(
+    http_mock.get(SYS_DICT_URL).mock(
         side_effect=_make_sys_dict_handler(
             {
                 "incident": [
@@ -750,7 +735,7 @@ async def test_no_audit_veto_field_audit_false_and_check_table_agrees(
             }
         )
     )
-    respx.get(SYS_AUDIT_STATS_URL).mock(
+    http_mock.get(SYS_AUDIT_STATS_URL).mock(
         side_effect=_make_stats_handler({("incident", "comments"): 0, ("incident", None): 100})
     )
 
@@ -777,7 +762,6 @@ async def test_no_audit_veto_field_audit_false_and_check_table_agrees(
 
 
 @pytest.mark.asyncio()
-@respx.mock
 async def test_history_rejects_invalid_sys_id_without_io(
     settings: Settings,
     auth_provider: OAuthPKCEProvider,
@@ -789,30 +773,31 @@ async def test_history_rejects_invalid_sys_id_without_io(
 
     assert result["status"] == "error"
     assert "Invalid sys_id" in result["error"]["message"]
-    # No respx routes were registered; if the tool reached httpx, respx would raise.
-    assert respx.calls.call_count == 0, "history must validate sys_id BEFORE opening the HTTP client"
+    # No mock routes were registered; any HTTP request would fail the test.
+    assert http_mock.calls.call_count == 0, "history must validate sys_id BEFORE opening the HTTP client"
 
 
 @pytest.mark.asyncio()
-@respx.mock
 async def test_check_field_malformed_stats_count_returns_error(
     settings: Settings,
     auth_provider: OAuthPKCEProvider,
 ) -> None:
     """A non-integer stats.count must surface as an error envelope, not be silently coerced to 0."""
-    respx.get(SYS_DB_URL).mock(
+    http_mock.get(SYS_DB_URL).mock(
         side_effect=_make_sys_db_handler(
             {"incident": "task", "task": ""},
             {"incident": "true", "task": "true"},
         )
     )
-    respx.get(SYS_DICT_URL).mock(
+    http_mock.get(SYS_DICT_URL).mock(
         side_effect=_make_sys_dict_handler(
             {"task": [{"element": "business_service", "audit": "true", "attributes": ""}]}
         )
     )
     # Malformed: stats.count is a non-numeric string.
-    respx.get(SYS_AUDIT_STATS_URL).mock(return_value=httpx.Response(200, json={"result": {"stats": {"count": "abc"}}}))
+    http_mock.get(SYS_AUDIT_STATS_URL).mock(
+        return_value=httpx2.Response(200, json={"result": {"stats": {"count": "abc"}}})
+    )
 
     tools = _register_and_get_tools(settings, auth_provider)
     raw = await tools["audit"](action="check_field", table="incident", field="business_service")

@@ -6,7 +6,7 @@ import sys
 from unittest.mock import AsyncMock, patch
 from uuid import UUID
 
-import httpx
+import httpx2
 import pytest
 from mcp.server import MCPServer
 
@@ -29,7 +29,7 @@ from tests.helpers import decode_response, get_tool_functions
 
 @pytest.fixture(autouse=True)
 def _diagnostic_logging(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in ("servicenow_mcp.telemetry", "httpx", "httpcore"):
+    for name in ("servicenow_mcp.telemetry", "httpx2", "httpcore2"):
         logger = logging.getLogger(name)
         monkeypatch.setattr(logger, "level", logger.level)
     configure_diagnostic_logging()
@@ -38,17 +38,17 @@ def _diagnostic_logging(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.mark.parametrize(
     ("error_type", "phase"),
     [
-        (httpx.ConnectTimeout, "connect"),
-        (httpx.ReadTimeout, "read"),
-        (httpx.WriteTimeout, "write"),
-        (httpx.PoolTimeout, "pool"),
-        (httpx.TimeoutException, "unknown"),
+        (httpx2.ConnectTimeout, "connect"),
+        (httpx2.ReadTimeout, "read"),
+        (httpx2.WriteTimeout, "write"),
+        (httpx2.PoolTimeout, "pool"),
+        (httpx2.TimeoutException, "unknown"),
     ],
 )
 async def test_timeout_error_is_correlated_and_redacted(
-    error_type: type[httpx.TimeoutException], phase: str, caplog: pytest.LogCaptureFixture
+    error_type: type[httpx2.TimeoutException], phase: str, caplog: pytest.LogCaptureFixture
 ) -> None:
-    request = httpx.Request(
+    request = httpx2.Request(
         "GET",
         "https://private.example/api/now/table/private_table?sysparm_query=private_filter",
         headers={"Authorization": "private_header"},
@@ -88,7 +88,7 @@ async def test_timeout_error_is_correlated_and_redacted(
 async def test_metadata_timeout_does_not_blame_target_query(path: str, operation: str) -> None:
     @tool_handler
     async def describe() -> str:
-        raise httpx.ReadTimeout("private", request=httpx.Request("GET", f"https://test.service-now.com{path}"))
+        raise httpx2.ReadTimeout("private", request=httpx2.Request("GET", f"https://test.service-now.com{path}"))
 
     error = decode_response(await describe())["error"]
     assert error["operation"] == operation
@@ -104,8 +104,8 @@ async def test_write_timeout_warns_about_unknown_remote_outcome(method: str) -> 
     async def record_write() -> str:
         nonlocal attempts
         attempts += 1
-        raise httpx.ReadTimeout(
-            "private", request=httpx.Request(method, "https://test.service-now.com/api/now/table/incident")
+        raise httpx2.ReadTimeout(
+            "private", request=httpx2.Request(method, "https://test.service-now.com/api/now/table/incident")
         )
 
     error = decode_response(await record_write())["error"]
@@ -115,16 +115,16 @@ async def test_write_timeout_warns_about_unknown_remote_outcome(method: str) -> 
 
 
 async def test_parallel_tools_keep_separate_traces(settings: Settings, caplog: pytest.LogCaptureFixture) -> None:
-    requests: list[httpx.Request] = []
+    requests: list[httpx2.Request] = []
 
-    async def respond(request: httpx.Request) -> httpx.Response:
+    async def respond(request: httpx2.Request) -> httpx2.Response:
         requests.append(request)
         await asyncio.sleep(0)
-        return httpx.Response(200, json={"result": {"sys_id": "synthetic"}})
+        return httpx2.Response(200, json={"result": {"sys_id": "synthetic"}})
 
     telemetry = HttpTelemetry()
     async with TelemetryAsyncClient(
-        telemetry=telemetry, is_shared_pool=True, transport=httpx.MockTransport(respond)
+        telemetry=telemetry, is_shared_pool=True, transport=httpx2.MockTransport(respond)
     ) as transport:
         factory = ServiceNowClientFactory(settings, OAuthPKCEProvider(settings), transport)
 
@@ -156,12 +156,12 @@ async def test_parallel_tools_keep_separate_traces(settings: Settings, caplog: p
 
 
 async def test_upstream_timeout_matches_http_failure_log(settings: Settings, caplog: pytest.LogCaptureFixture) -> None:
-    def fail(request: httpx.Request) -> httpx.Response:
-        raise httpx.ReadTimeout("private_exception", request=request)
+    def fail(request: httpx2.Request) -> httpx2.Response:
+        raise httpx2.ReadTimeout("private_exception", request=request)
 
     telemetry = HttpTelemetry()
     async with TelemetryAsyncClient(
-        telemetry=telemetry, is_shared_pool=True, transport=httpx.MockTransport(fail)
+        telemetry=telemetry, is_shared_pool=True, transport=httpx2.MockTransport(fail)
     ) as transport:
         factory = ServiceNowClientFactory(settings, OAuthPKCEProvider(settings), transport)
 
@@ -186,14 +186,14 @@ async def test_cancellation_is_not_reported_as_upstream_timeout(
     started = asyncio.Event()
     never = asyncio.Event()
 
-    async def respond(_request: httpx.Request) -> httpx.Response:
+    async def respond(_request: httpx2.Request) -> httpx2.Response:
         started.set()
         await never.wait()
-        return httpx.Response(200, json={"result": []})
+        return httpx2.Response(200, json={"result": []})
 
     telemetry = HttpTelemetry()
     async with TelemetryAsyncClient(
-        telemetry=telemetry, is_shared_pool=True, transport=httpx.MockTransport(respond)
+        telemetry=telemetry, is_shared_pool=True, transport=httpx2.MockTransport(respond)
     ) as transport:
         factory = ServiceNowClientFactory(settings, OAuthPKCEProvider(settings), transport)
 
@@ -224,14 +224,14 @@ async def test_skipped_metadata_timeout_warns_with_trace(settings: Settings, cap
     async with TelemetryAsyncClient(
         telemetry=telemetry,
         is_shared_pool=True,
-        transport=httpx.MockTransport(lambda request: httpx.Response(200, json={"result": []})),
+        transport=httpx2.MockTransport(lambda request: httpx2.Response(200, json={"result": []})),
     ) as transport:
         auth = OAuthPKCEProvider(settings)
         factory = ServiceNowClientFactory(settings, auth, transport)
         dictionary = DictionaryRegistry(settings, auth, factory)
         mcp = MCPServer("test")
         register_tools(mcp, settings, auth, dictionary=dictionary, client_factory=factory)
-        with patch.object(dictionary, "get_fields", new=AsyncMock(side_effect=httpx.ReadTimeout("private_exception"))):
+        with patch.object(dictionary, "get_fields", new=AsyncMock(side_effect=httpx2.ReadTimeout("private_exception"))):
             result = decode_response(
                 await get_tool_functions(mcp)["query"](
                     table="incident", encoded_query="number=synthetic", fields="number"
@@ -269,5 +269,5 @@ def test_logging_setup_targets_stderr_and_suppresses_raw_http_logs() -> None:
     with patch("servicenow_mcp.telemetry.logging.basicConfig") as configure:
         configure_diagnostic_logging()
     assert configure.call_args.kwargs["stream"] is sys.stderr
-    assert logging.getLogger("httpx").getEffectiveLevel() == logging.WARNING
-    assert logging.getLogger("httpcore").getEffectiveLevel() == logging.WARNING
+    assert logging.getLogger("httpx2").getEffectiveLevel() == logging.WARNING
+    assert logging.getLogger("httpcore2").getEffectiveLevel() == logging.WARNING

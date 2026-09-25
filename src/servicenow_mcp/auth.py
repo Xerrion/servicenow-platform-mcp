@@ -9,7 +9,7 @@ import time
 from dataclasses import dataclass, field
 from urllib.parse import urlencode
 
-import httpx
+import httpx2
 
 from servicenow_mcp.config import Settings
 from servicenow_mcp.errors import AuthError
@@ -133,13 +133,13 @@ class OAuthPKCEProvider:
         }
         issued_at = time.monotonic()
         try:
-            async with httpx.AsyncClient(timeout=settings.httpx_timeout_seconds, follow_redirects=False) as client:
+            async with httpx2.AsyncClient(timeout=settings.httpx_timeout_seconds, follow_redirects=False) as client:
                 response = await client.post(
                     f"{settings.servicenow_instance_url}/oauth_token.do",
                     data=data,
                     headers={"Accept": "application/json"},
                 )
-        except httpx.HTTPError:
+        except httpx2.HTTPError:
             raise AuthError("OAuth token exchange failed. Check connectivity before calling the tool again.") from None
         if response.status_code != 200:
             raise AuthError(
@@ -165,13 +165,13 @@ class OAuthPKCEProvider:
         }
         issued_at = time.monotonic()
         try:
-            async with httpx.AsyncClient(timeout=settings.httpx_timeout_seconds, follow_redirects=False) as client:
+            async with httpx2.AsyncClient(timeout=settings.httpx_timeout_seconds, follow_redirects=False) as client:
                 response = await client.post(
                     f"{settings.servicenow_instance_url}/oauth_token.do",
                     data=data,
                     headers={"Accept": "application/json"},
                 )
-        except httpx.HTTPError:
+        except httpx2.HTTPError:
             raise AuthError("OAuth token refresh failed. Check connectivity before calling the tool again.") from None
         if response.status_code in {400, 401}:
             raise _RefreshRejected(

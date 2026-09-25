@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 
-import httpx
+import httpx2
 
 from servicenow_mcp._client_attachments import AttachmentApiClient
 from servicenow_mcp._client_catalog import ServiceCatalogApiClient
@@ -30,13 +30,13 @@ class ServiceNowClientFactory:
 
     _settings: Settings
     _auth_provider: OAuthPKCEProvider
-    _http_client: httpx.AsyncClient | None
+    _http_client: httpx2.AsyncClient | None
 
     def __init__(
         self,
         settings: Settings,
         auth_provider: OAuthPKCEProvider,
-        http_client: httpx.AsyncClient | None = None,
+        http_client: httpx2.AsyncClient | None = None,
     ) -> None:
         self._settings = settings
         self._auth_provider = auth_provider

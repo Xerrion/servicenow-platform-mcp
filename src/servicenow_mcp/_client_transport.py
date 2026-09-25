@@ -6,7 +6,7 @@ import re
 import uuid
 from typing import Any, Self
 
-import httpx
+import httpx2
 
 from servicenow_mcp._rest_auth_evidence import rest_auth_evidence
 from servicenow_mcp.auth import OAuthPKCEProvider
@@ -34,14 +34,14 @@ class ServiceNowRequestClient:
 
     _settings: Settings
     _auth_provider: OAuthPKCEProvider
-    _http_client: httpx.AsyncClient | None
+    _http_client: httpx2.AsyncClient | None
     _owns_http_client: bool
 
     def __init__(
         self,
         settings: Settings,
         auth_provider: OAuthPKCEProvider,
-        http_client: httpx.AsyncClient | None = None,
+        http_client: httpx2.AsyncClient | None = None,
     ) -> None:
         self._settings = settings
         self._auth_provider = auth_provider
@@ -50,7 +50,7 @@ class ServiceNowRequestClient:
 
     async def __aenter__(self) -> Self:
         if self._http_client is None:
-            self._http_client = httpx.AsyncClient(timeout=self._settings.httpx_timeout_seconds)
+            self._http_client = httpx2.AsyncClient(timeout=self._settings.httpx_timeout_seconds)
         return self
 
     async def __aexit__(self, *exc: object) -> None:
@@ -58,7 +58,7 @@ class ServiceNowRequestClient:
             await self._http_client.aclose()
             self._http_client = None
 
-    def _ensure_client(self) -> httpx.AsyncClient:
+    def _ensure_client(self) -> httpx2.AsyncClient:
         """Return the initialized HTTP client."""
         if self._http_client is None:
             raise RuntimeError("Client not initialized. Use 'async with ServiceNowClient(...)' as context manager.")
@@ -86,7 +86,7 @@ class ServiceNowRequestClient:
         except KeyError:
             raise ServerError("Unexpected API response format: missing 'result' key") from None
 
-    def _extract_json_result(self, response: httpx.Response) -> Any:
+    def _extract_json_result(self, response: httpx2.Response) -> Any:
         """Parse a result without disclosing response bodies or query values in errors."""
         try:
             payload = response.json()
@@ -115,14 +115,14 @@ class ServiceNowRequestClient:
         return self._extract_result(payload)
 
     @staticmethod
-    def _parse_total_count(response: httpx.Response) -> int:
+    def _parse_total_count(response: httpx2.Response) -> int:
         """Parse X-Total-Count, defaulting to zero when absent or invalid."""
         try:
             return int(response.headers.get("X-Total-Count", "0"))
         except (TypeError, ValueError):
             return 0
 
-    def _raise_for_status(self, response: httpx.Response) -> None:
+    def _raise_for_status(self, response: httpx2.Response) -> None:
         """Map ServiceNow HTTP failures to caller-facing exceptions."""
         if response.status_code < 400:
             return
@@ -175,7 +175,7 @@ class ServiceNowRequestClient:
         )
 
     @staticmethod
-    def _is_acl_error_response(response: httpx.Response) -> bool:
+    def _is_acl_error_response(response: httpx2.Response) -> bool:
         """Return whether a ServiceNow 403 response explicitly reports an ACL denial."""
         try:
             payload = response.json()
@@ -199,7 +199,7 @@ class ServiceNowRequestClient:
         return bool(_ACL_INDICATOR_RE.search("\n".join(values).lower()))
 
     @staticmethod
-    def _extract_error_message(response: httpx.Response, default: str) -> str:
+    def _extract_error_message(response: httpx2.Response, default: str) -> str:
         """Extract a ServiceNow error message when the response shape permits it."""
         try:
             body = response.json()

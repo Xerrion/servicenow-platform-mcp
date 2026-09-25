@@ -112,6 +112,12 @@ class HTTPMock:
         self.calls: CallList = CallList()
         self.unexpected: list[httpx2.Request] = []
 
+    def __enter__(self) -> "HTTPMock":
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        return None
+
     def reset(self) -> None:
         self.routes.clear()
         self.calls.clear()

@@ -404,14 +404,14 @@ class TestSetSentryContextIntegration:
 
     def test_raise_for_status_sets_http_context(self) -> None:
         """_raise_for_status sets HTTP context before raising."""
-        import httpx
+        import httpx2
 
         from servicenow_mcp.auth import OAuthPKCEProvider
         from servicenow_mcp.client import ServiceNowClient
         from servicenow_mcp.errors import ServerError
 
-        mock_request = httpx.Request("GET", "https://test.service-now.com/api/now/table/incident?limit=10")
-        mock_response = httpx.Response(500, request=mock_request, json={"error": {"message": "Server error"}})
+        mock_request = httpx2.Request("GET", "https://test.service-now.com/api/now/table/incident?limit=10")
+        mock_response = httpx2.Response(500, request=mock_request, json={"error": {"message": "Server error"}})
 
         settings = _make_settings()
         auth = OAuthPKCEProvider(settings)

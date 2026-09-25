@@ -12,7 +12,7 @@ from time import perf_counter
 from typing import Any, Literal
 from uuid import uuid4
 
-import httpx
+import httpx2
 
 from servicenow_mcp.sentry import set_sentry_context
 
@@ -40,7 +40,7 @@ def configure_diagnostic_logging() -> None:
         stream=sys.stderr,
     )
     logger.setLevel(logging.INFO)
-    for name in ("httpx", "httpcore"):
+    for name in ("httpx2", "httpcore2"):
         logging.getLogger(name).setLevel(logging.WARNING)
 
 
@@ -100,7 +100,7 @@ def trace_authorization_wait() -> Generator[None, None, None]:
         )
 
 
-def request_operation(request: httpx.Request) -> str:
+def request_operation(request: httpx2.Request) -> str:
     """Classify a request into fixed operation labels without exposing URL values."""
     path = request.url.path
     if path.startswith("/api/now/table/"):
@@ -121,13 +121,13 @@ def request_operation(request: httpx.Request) -> str:
     return "other"
 
 
-def timeout_phase(error: httpx.TimeoutException) -> str:
+def timeout_phase(error: httpx2.TimeoutException) -> str:
     """Classify HTTPX timeouts without including exception text or request data."""
     for error_type, phase in (
-        (httpx.ConnectTimeout, "connect"),
-        (httpx.ReadTimeout, "read"),
-        (httpx.WriteTimeout, "write"),
-        (httpx.PoolTimeout, "pool"),
+        (httpx2.ConnectTimeout, "connect"),
+        (httpx2.ReadTimeout, "read"),
+        (httpx2.WriteTimeout, "write"),
+        (httpx2.PoolTimeout, "pool"),
     ):
         if isinstance(error, error_type):
             return phase
@@ -261,7 +261,7 @@ class HttpTelemetry:
         }
 
 
-class TelemetryAsyncClient(httpx.AsyncClient):
+class TelemetryAsyncClient(httpx2.AsyncClient):
     """HTTPX client that records bounded request aggregates."""
 
     def __init__(self, *, telemetry: HttpTelemetry, is_shared_pool: bool, **kwargs: Any) -> None:
@@ -269,7 +269,7 @@ class TelemetryAsyncClient(httpx.AsyncClient):
         self._telemetry = telemetry
         self._is_shared_pool = is_shared_pool
 
-    async def send(self, request: httpx.Request, **kwargs: Any) -> httpx.Response:
+    async def send(self, request: httpx2.Request, **kwargs: Any) -> httpx2.Response:
         """Send one request and record safe operational measurements."""
         trace = current_tool_trace()
         trace_id = trace.trace_id if trace else "-"
@@ -295,7 +295,7 @@ class TelemetryAsyncClient(httpx.AsyncClient):
             self._telemetry.record_failed(duration_ms=duration_ms)
             set_sentry_context("http_telemetry", self._telemetry.sentry_context())
             outcome = "cancelled" if isinstance(exc, asyncio.CancelledError) else "failed"
-            phase = timeout_phase(exc) if isinstance(exc, httpx.TimeoutException) else "none"
+            phase = timeout_phase(exc) if isinstance(exc, httpx2.TimeoutException) else "none"
             logger.info(
                 "ServiceNow HTTP request %s trace_id=%s request=%d operation=%s method=%s "
                 "timeout_phase=%s duration_ms=%.3f shared_pool=%s",

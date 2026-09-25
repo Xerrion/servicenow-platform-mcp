@@ -3,7 +3,7 @@
 Covers the registry's super_class walk, type filter, attribute heuristic,
 exclusion list, cycle/depth guards, and per-table cache. The registry talks to
 ``sys_db_object`` (super_class chain) and ``sys_dictionary`` (field rows); both
-are mocked with respx routed by URL.
+are mocked with the httpx2 mock transport routed by URL.
 """
 
 from __future__ import annotations
@@ -12,9 +12,8 @@ import asyncio
 from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
-import httpx
+import httpx2
 import pytest
-import respx
 
 from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.client import ServiceNowClientProvider
@@ -25,6 +24,7 @@ from servicenow_mcp.tools._dictionary import (
     DictionaryRegistry,
 )
 from servicenow_mcp.tools._dictionary_classification import attributes_admit_heuristic
+from tests._mock_transport import http_mock
 
 
 BASE_URL = "https://test.service-now.com"
@@ -45,8 +45,8 @@ def _row(element: str, internal_type: str, attributes: str = "") -> dict[str, st
 
 def _mock_root_table(dictionary_rows: list[dict[str, Any]]) -> None:
     """Mock a root table (empty super_class) returning ``dictionary_rows``."""
-    respx.get(DB_OBJECT_URL).mock(return_value=httpx.Response(200, json={"result": [{"super_class.name": ""}]}))
-    respx.get(DICTIONARY_URL).mock(return_value=httpx.Response(200, json={"result": dictionary_rows}))
+    http_mock.get(DB_OBJECT_URL).mock(return_value=httpx2.Response(200, json={"result": [{"super_class.name": ""}]}))
+    http_mock.get(DICTIONARY_URL).mock(return_value=httpx2.Response(200, json={"result": dictionary_rows}))
 
 
 # ---------------------------------------------------------------------------
@@ -57,20 +57,18 @@ def _mock_root_table(dictionary_rows: list[dict[str, Any]]) -> None:
 class TestSelectedFields:
     """Write validation fetches only supplied columns, without a broad field load."""
 
-    @respx.mock
     async def test_empty_selection_does_not_query(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         assert await DictionaryRegistry(settings, auth_provider).get_fields("u_child", []) == []
-        assert not respx.calls
+        assert not http_mock.calls
 
-    @respx.mock
     async def test_child_override_and_inherited_types(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
-        def objects(request: httpx.Request) -> httpx.Response:
+        def objects(request: httpx2.Request) -> httpx2.Response:
             parent = "u_parent" if request.url.params["sysparm_query"] == "name=u_child" else ""
-            return httpx.Response(200, json={"result": [{"super_class.name": parent}]})
+            return httpx2.Response(200, json={"result": [{"super_class.name": parent}]})
 
-        def dictionary(request: httpx.Request) -> httpx.Response:
+        def dictionary(request: httpx2.Request) -> httpx2.Response:
             query = request.url.params["sysparm_query"]
             assert request.url.params["sysparm_fields"] == "element,internal_type.name"
             if "name=u_child^" in query:
@@ -79,10 +77,10 @@ class TestSelectedFields:
             else:
                 assert query == "name=u_parent^elementINu_markup^active=true"
                 rows = [{"element": "u_markup", "internal_type.name": "xml"}]
-            return httpx.Response(200, json={"result": rows})
+            return httpx2.Response(200, json={"result": rows})
 
-        respx.get(DB_OBJECT_URL).mock(side_effect=objects)
-        metadata = respx.get(DICTIONARY_URL).mock(side_effect=dictionary)
+        http_mock.get(DB_OBJECT_URL).mock(side_effect=objects)
+        metadata = http_mock.get(DICTIONARY_URL).mock(side_effect=dictionary)
         fields = await DictionaryRegistry(settings, auth_provider).get_fields("u_child", ["overridden", "u_markup"])
         assert [(field.name, field.internal_type, field.inherited_from) for field in fields] == [
             ("overridden", "string", None),
@@ -90,7 +88,6 @@ class TestSelectedFields:
         ]
         assert metadata.call_count == 2
 
-    @respx.mock
     async def test_repeated_selection_uses_cache(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         _mock_root_table([_row("active", "boolean")])
         registry = DictionaryRegistry(settings, auth_provider)
@@ -100,9 +97,8 @@ class TestSelectedFields:
 
         assert [field.name for field in first] == ["active"]
         assert second == first
-        assert len(respx.calls) == 2
+        assert len(http_mock.calls) == 2
 
-    @respx.mock
     async def test_selection_is_batched_and_stops_after_resolution(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
@@ -110,17 +106,17 @@ class TestSelectedFields:
         registry.get_chain = AsyncMock(return_value=["u_child", "u_parent"])
         names = [f"field_{index}" for index in range(205)]
 
-        def dictionary(request: httpx.Request) -> httpx.Response:
+        def dictionary(request: httpx2.Request) -> httpx2.Response:
             query = request.url.params["sysparm_query"]
             assert query.startswith("name=u_child^")
             selected = query.split("elementIN", 1)[1].split("^", 1)[0].split(",")
             assert 1 <= len(selected) <= 100
             assert request.url.params["sysparm_limit"] == str(len(selected))
-            return httpx.Response(
+            return httpx2.Response(
                 200, json={"result": [{"element": name, "internal_type.name": "string"} for name in selected]}
             )
 
-        metadata = respx.get(DICTIONARY_URL).mock(side_effect=dictionary)
+        metadata = http_mock.get(DICTIONARY_URL).mock(side_effect=dictionary)
         fields = await registry.get_fields("u_child", names)
         assert {field.name for field in fields} == set(names)
         assert metadata.call_count == 3
@@ -129,7 +125,6 @@ class TestSelectedFields:
 class TestTypeFilter:
     """The unambiguous-type list admits fields regardless of attributes."""
 
-    @respx.mock
     @pytest.mark.asyncio()
     async def test_unambiguous_script_types_admitted(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
@@ -151,7 +146,6 @@ class TestTypeFilter:
         assert all(f.via_heuristic is False for f in fields)
         assert all(f.inherited_from is None for f in fields)
 
-    @respx.mock
     @pytest.mark.asyncio()
     async def test_excluded_elements_dropped(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         _mock_root_table(
@@ -170,7 +164,6 @@ class TestTypeFilter:
 class TestHeuristicAdmission:
     """``html`` and ``xml`` require a heuristic flag in attributes to admit."""
 
-    @respx.mock
     @pytest.mark.asyncio()
     async def test_html_with_tinymce_flag_admitted(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         _mock_root_table([_row("layout", "html", "tinymce_allow_all=true,html_sanitize=false")])
@@ -181,7 +174,6 @@ class TestHeuristicAdmission:
         assert fields[0].name == "layout"
         assert fields[0].via_heuristic is True
 
-    @respx.mock
     @pytest.mark.asyncio()
     async def test_html_without_flag_rejected(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         _mock_root_table([_row("description", "html", "edge_encryption_enabled=true")])
@@ -190,7 +182,6 @@ class TestHeuristicAdmission:
 
         assert fields == []
 
-    @respx.mock
     @pytest.mark.asyncio()
     async def test_internal_type_uses_dot_walk_name_not_reference_sys_id(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
@@ -208,7 +199,6 @@ class TestHeuristicAdmission:
         fields = await DictionaryRegistry(settings, auth_provider).get_all_fields("task")
         assert fields[0].internal_type == "journal_input"
 
-    @respx.mock
     @pytest.mark.asyncio()
     async def test_html_sanitize_false_alone_admits(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         _mock_root_table([_row("body", "html", "html_sanitize=false")])
@@ -262,27 +252,26 @@ class TestAttributesAdmitHeuristic:
 class TestSuperClassChain:
     """Inherited fields from parent tables are walked and attributed correctly."""
 
-    @respx.mock
     @pytest.mark.asyncio()
     async def test_inherited_fields_merge_with_parent_attribution(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
         # Child returns parent="sys_script_client"; parent returns "" (root).
-        respx.get(DB_OBJECT_URL).mock(
+        http_mock.get(DB_OBJECT_URL).mock(
             side_effect=[
-                httpx.Response(200, json={"result": [{"super_class.name": "sys_script_client"}]}),
-                httpx.Response(200, json={"result": [{"super_class.name": ""}]}),
+                httpx2.Response(200, json={"result": [{"super_class.name": "sys_script_client"}]}),
+                httpx2.Response(200, json={"result": [{"super_class.name": ""}]}),
             ]
         )
-        respx.get(DICTIONARY_URL).mock(
+        http_mock.get(DICTIONARY_URL).mock(
             side_effect=[
                 # child sys_dictionary rows
-                httpx.Response(
+                httpx2.Response(
                     200,
                     json={"result": [_row("ui_type", "integer")]},
                 ),
                 # parent sys_dictionary rows
-                httpx.Response(
+                httpx2.Response(
                     200,
                     json={"result": [_row("script", "script")]},
                 ),
@@ -298,19 +287,18 @@ class TestSuperClassChain:
         chain = await registry.get_chain("catalog_script_client")
         assert chain == ["catalog_script_client", "sys_script_client"]
 
-    @respx.mock
     @pytest.mark.asyncio()
     async def test_child_wins_on_field_collision(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-        respx.get(DB_OBJECT_URL).mock(
+        http_mock.get(DB_OBJECT_URL).mock(
             side_effect=[
-                httpx.Response(200, json={"result": [{"super_class.name": "parent_table"}]}),
-                httpx.Response(200, json={"result": [{"super_class.name": ""}]}),
+                httpx2.Response(200, json={"result": [{"super_class.name": "parent_table"}]}),
+                httpx2.Response(200, json={"result": [{"super_class.name": ""}]}),
             ]
         )
-        respx.get(DICTIONARY_URL).mock(
+        http_mock.get(DICTIONARY_URL).mock(
             side_effect=[
-                httpx.Response(200, json={"result": [_row("script", "script")]}),
-                httpx.Response(200, json={"result": [_row("script", "script_plain")]}),
+                httpx2.Response(200, json={"result": [_row("script", "script")]}),
+                httpx2.Response(200, json={"result": [_row("script", "script_plain")]}),
             ]
         )
 
@@ -322,14 +310,13 @@ class TestSuperClassChain:
         assert fields[0].internal_type == "script"
         assert fields[0].inherited_from is None
 
-    @respx.mock
     @pytest.mark.asyncio()
     async def test_missing_super_class_yields_single_table_chain(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
         # sys_db_object returns no rows for an unknown table.
-        respx.get(DB_OBJECT_URL).mock(return_value=httpx.Response(200, json={"result": []}))
-        respx.get(DICTIONARY_URL).mock(return_value=httpx.Response(200, json={"result": []}))
+        http_mock.get(DB_OBJECT_URL).mock(return_value=httpx2.Response(200, json={"result": []}))
+        http_mock.get(DICTIONARY_URL).mock(return_value=httpx2.Response(200, json={"result": []}))
 
         registry = DictionaryRegistry(settings, auth_provider)
         chain = await registry.get_chain("unknown_table")
@@ -340,25 +327,24 @@ class TestSuperClassChain:
 class TestCycleAndDepthGuards:
     """The chain walker bails out on cycles and at the depth ceiling."""
 
-    @respx.mock
     @pytest.mark.asyncio()
     async def test_cycle_detected_and_truncated(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         # a -> b -> a (cycle). Each call returns the cyclic parent.
         responses = {
-            "a": httpx.Response(200, json={"result": [{"super_class.name": "b"}]}),
-            "b": httpx.Response(200, json={"result": [{"super_class.name": "a"}]}),
+            "a": httpx2.Response(200, json={"result": [{"super_class.name": "b"}]}),
+            "b": httpx2.Response(200, json={"result": [{"super_class.name": "a"}]}),
         }
 
-        def _route(request: httpx.Request) -> httpx.Response:
+        def _route(request: httpx2.Request) -> httpx2.Response:
             query = request.url.params.get("sysparm_query", "")
             if "name=a" in query:
                 return responses["a"]
             if "name=b" in query:
                 return responses["b"]
-            return httpx.Response(200, json={"result": []})
+            return httpx2.Response(200, json={"result": []})
 
-        respx.get(DB_OBJECT_URL).mock(side_effect=_route)
-        respx.get(DICTIONARY_URL).mock(return_value=httpx.Response(200, json={"result": []}))
+        http_mock.get(DB_OBJECT_URL).mock(side_effect=_route)
+        http_mock.get(DICTIONARY_URL).mock(return_value=httpx2.Response(200, json={"result": []}))
 
         registry = DictionaryRegistry(settings, auth_provider)
         chain = await registry.get_chain("a")
@@ -374,14 +360,13 @@ class TestCycleAndDepthGuards:
 class TestCache:
     """The registry caches per-table results to avoid re-querying."""
 
-    @respx.mock
     @pytest.mark.asyncio()
     async def test_second_call_does_not_refetch(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-        db_route = respx.get(DB_OBJECT_URL).mock(
-            return_value=httpx.Response(200, json={"result": [{"super_class.name": ""}]})
+        db_route = http_mock.get(DB_OBJECT_URL).mock(
+            return_value=httpx2.Response(200, json={"result": [{"super_class.name": ""}]})
         )
-        dict_route = respx.get(DICTIONARY_URL).mock(
-            return_value=httpx.Response(200, json={"result": [_row("script", "script")]})
+        dict_route = http_mock.get(DICTIONARY_URL).mock(
+            return_value=httpx2.Response(200, json={"result": [_row("script", "script")]})
         )
 
         registry = DictionaryRegistry(settings, auth_provider)
@@ -392,14 +377,13 @@ class TestCache:
         assert db_route.call_count == 1
         assert dict_route.call_count == 1
 
-    @respx.mock
     @pytest.mark.asyncio()
     async def test_flush_invalidates_cache(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-        db_route = respx.get(DB_OBJECT_URL).mock(
-            return_value=httpx.Response(200, json={"result": [{"super_class.name": ""}]})
+        db_route = http_mock.get(DB_OBJECT_URL).mock(
+            return_value=httpx2.Response(200, json={"result": [{"super_class.name": ""}]})
         )
-        dict_route = respx.get(DICTIONARY_URL).mock(
-            return_value=httpx.Response(200, json={"result": [_row("script", "script")]})
+        dict_route = http_mock.get(DICTIONARY_URL).mock(
+            return_value=httpx2.Response(200, json={"result": [_row("script", "script")]})
         )
 
         registry = DictionaryRegistry(settings, auth_provider)
@@ -460,13 +444,14 @@ class TestCache:
         assert await asyncio.gather(first, second) == [[], []]
         assert calls == 1
 
-    @respx.mock
     @pytest.mark.asyncio()
     async def test_cache_telemetry_uses_fixed_dictionary_names(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
         """Dictionary cache counters omit the requested table name."""
-        respx.get(DB_OBJECT_URL).mock(return_value=httpx.Response(200, json={"result": [{"super_class.name": ""}]}))
+        http_mock.get(DB_OBJECT_URL).mock(
+            return_value=httpx2.Response(200, json={"result": [{"super_class.name": ""}]})
+        )
         telemetry = HttpTelemetry()
         registry = DictionaryRegistry(settings, auth_provider, telemetry=telemetry)
 

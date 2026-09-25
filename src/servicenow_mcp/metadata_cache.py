@@ -3,8 +3,9 @@
 import asyncio
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Hashable
-from dataclasses import dataclass
 from time import monotonic
+
+from pydantic import BaseModel, ConfigDict
 
 from servicenow_mcp.telemetry import CacheEvent, CacheName, HttpTelemetry
 
@@ -12,8 +13,10 @@ from servicenow_mcp.telemetry import CacheEvent, CacheName, HttpTelemetry
 _MAX_ENTRIES = 1000
 
 
-@dataclass(frozen=True, slots=True)
-class _CacheEntry[V]:
+class _CacheEntry[V](BaseModel):
+    # Cached values are trusted loader output; revalidation would copy them and break identity.
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True, revalidate_instances="never")
+
     value: V
     expires_at: float
 
@@ -63,7 +66,7 @@ class AsyncMetadataCache[K: Hashable, V]:
 
     def seed(self, key: K, value: V) -> None:
         """Store a value with the configured TTL without running a loader."""
-        self._entries[key] = _CacheEntry(value=value, expires_at=self._clock() + self._ttl_seconds)
+        self._entries[key] = _CacheEntry[V].model_construct(value=value, expires_at=self._clock() + self._ttl_seconds)
         self._entries.move_to_end(key)
         if len(self._entries) > _MAX_ENTRIES:
             self._entries.popitem(last=False)

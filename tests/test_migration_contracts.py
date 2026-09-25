@@ -204,5 +204,6 @@ async def test_malformed_or_non_object_responses_raise_curated_server_error(
     assert path in message
     for text in (message, envelope):
         assert "secret-body" not in text
-        assert "0xff" not in text and "\\xff" not in text
+        assert "0xff" not in text
+        assert "\\xff" not in text
     assert json.loads(envelope)["error"] == {"message": message}

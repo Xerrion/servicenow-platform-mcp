@@ -692,7 +692,14 @@ async def test_field_config_hit_precedes_client_creation(settings: Settings, aut
         dictionary,
         cast("ServiceNowClientProvider", client_factory),
     )
-    expected = FieldAudit(True, True, None, True, False, "")
+    expected = FieldAudit(
+        field_audit=True,
+        raw_field_audit=True,
+        inherited_from=None,
+        has_row=True,
+        no_audit_attribute=False,
+        attributes_raw="",
+    )
     registry._field_audit_cache.seed(("incident", "state"), expected)
 
     assert await registry.get_field_audit("incident", "state") == expected

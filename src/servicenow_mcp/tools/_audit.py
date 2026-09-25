@@ -17,8 +17,9 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass
 from typing import Any, ClassVar, Final
+
+from pydantic import BaseModel, ConfigDict
 
 from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.client import ServiceNowClient, ServiceNowClientProvider
@@ -113,8 +114,7 @@ def _build_field_audit(match_row: dict[str, Any], match_table: str, queried_tabl
     )
 
 
-@dataclass(frozen=True, slots=True)
-class FieldAudit:
+class FieldAudit(BaseModel):
     """Resolved audit posture for a single ``(table, field)`` pair.
 
     Attributes:
@@ -135,6 +135,8 @@ class FieldAudit:
         attributes_raw: The raw ``attributes`` string from the resolved
             row (empty when no row exists).
     """
+
+    model_config = ConfigDict(frozen=True)
 
     field_audit: bool | None
     raw_field_audit: bool | None

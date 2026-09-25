@@ -44,11 +44,11 @@ async def test_safe_evidence_reaches_tool_error_without_replay(settings: Setting
 
     assert result["status"] == "error"
     message = result["error"]["message"]
-    assert '"message": "User Not Authenticated"' in message
-    assert '"scheme": "Bearer"' in message
-    assert '"error": "invalid_token"' in message
-    assert '"error_description": "The access token expired"' in message
-    assert f'"x-transaction-id": "{TRANSACTION_ID}"' in message
+    assert '"message":"User Not Authenticated"' in message
+    assert '"scheme":"Bearer"' in message
+    assert '"error":"invalid_token"' in message
+    assert '"error_description":"The access token expired"' in message
+    assert f'"x-transaction-id":"{TRANSACTION_ID}"' in message
     assert "private" not in message
     assert "test-access" not in message
     assert "not replayed" in message
@@ -73,7 +73,7 @@ def _error(settings: Settings, response: httpx2.Response) -> str:
 @pytest.mark.parametrize("body", [b"", b"<html>private customer data</html>", b"\xff", b'{"error":'])
 def test_non_json_body_is_never_echoed(settings: Settings, body: bytes) -> None:
     message = _error(settings, httpx2.Response(401, content=body, headers={"WWW-Authenticate": "Basic"}))
-    assert '"scheme": "Basic"' in message
+    assert '"scheme":"Basic"' in message
     assert "private" not in message
     assert "<html>" not in message
     assert "HTTP 401" in message
@@ -131,10 +131,10 @@ def test_hostile_message_and_description_are_omitted(settings: Settings, value: 
 )
 def test_challenge_grammar(settings: Settings, header: str) -> None:
     message = _error(settings, httpx2.Response(401, headers={"WWW-Authenticate": header}))
-    assert '"scheme": "Bearer"' in message
+    assert '"scheme":"Bearer"' in message
     if "invalid_token" in header:
-        assert '"error": "invalid_token"' in message
-        assert '"error_description": "The access token expired"' in message
+        assert '"error":"invalid_token"' in message
+        assert '"error_description":"The access token expired"' in message
     assert "private" not in message
     assert "cHJpdmF0ZQ" not in message
 
@@ -150,9 +150,9 @@ def test_repeated_challenge_headers_and_escaped_value(settings: Settings) -> Non
             ],
         ),
     )
-    assert '"scheme": "Basic"' in message
-    assert '"scheme": "Bearer"' in message
-    assert '"error_description": "The access token expired"' in message
+    assert '"scheme":"Basic"' in message
+    assert '"scheme":"Bearer"' in message
+    assert '"error_description":"The access token expired"' in message
 
 
 @pytest.mark.parametrize(
@@ -174,7 +174,7 @@ def test_repeated_challenge_headers_and_escaped_value(settings: Settings) -> Non
 def test_malformed_or_oversized_challenge_is_not_partly_trusted(settings: Settings, header: str) -> None:
     message = _error(settings, httpx2.Response(401, headers={"WWW-Authenticate": header}))
     assert '"scheme"' not in message
-    assert '"error": "invalid_token"' not in message
+    assert '"error":"invalid_token"' not in message
     assert "private" not in message
     assert all(" " <= char <= "~" for char in message)
     assert len(message) < 2048
@@ -190,7 +190,7 @@ def test_scheme_token68_and_unknown_error_cannot_leak(settings: Settings, header
 @pytest.mark.parametrize("value", [TRANSACTION_ID, "550e8400-e29b-41d4-a716-446655440000"])
 def test_explicit_trace_header_allowlist(settings: Settings, name: str, value: str) -> None:
     message = _error(settings, httpx2.Response(401, headers={name: value, "X-Arbitrary": "private"}))
-    assert f'"{name.lower()}": "{value}"' in message
+    assert f'"{name.lower()}":"{value}"' in message
     assert "private" not in message
     assert "x-arbitrary" not in message
 
@@ -218,8 +218,8 @@ def test_duplicate_trace_header_is_omitted(settings: Settings) -> None:
 )
 def test_body_budget_and_depth_fail_closed(settings: Settings, body: bytes) -> None:
     message = _error(settings, httpx2.Response(401, content=body, headers={"WWW-Authenticate": "Bearer"}))
-    assert '"scheme": "Bearer"' in message
-    assert '"message": "Unauthorized"' not in message
+    assert '"scheme":"Bearer"' in message
+    assert '"message":"Unauthorized"' not in message
     assert len(message) < 2048
 
 
@@ -256,7 +256,7 @@ def test_trace_shaped_secret_is_not_echoed(settings: Settings, source: str) -> N
         ServiceNowClient(settings, provider)._raise_for_status(response)
     assert TRANSACTION_ID not in str(exc.value).lower()
     assert '"x-transaction-id"' not in str(exc.value)
-    assert '"message": "User Not Authenticated"' in str(exc.value)
+    assert '"message":"User Not Authenticated"' in str(exc.value)
     if source == "rejected":
         assert provider._token is not None
         assert provider._token.expires_at > 0
@@ -326,7 +326,7 @@ def test_largest_allowed_evidence_remains_bounded(settings: Settings) -> None:
             headers={"WWW-Authenticate": ",".join([challenge] * 4), "X-Transaction-ID": "f" * 64},
         ),
     )
-    assert message.count('"scheme": "Bearer"') == 4
+    assert message.count('"scheme":"Bearer"') == 4
     assert message.count('"error_description"') == 4
     assert all(" " <= char <= "~" for char in message)
     assert len(message) < 2048

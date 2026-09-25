@@ -10,8 +10,9 @@ from typing import ClassVar
 from urllib.parse import urlencode
 
 import httpx2
-from pydantic import BaseModel, ConfigDict, Field, SecretStr
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
 
+from servicenow_mcp._json import JSON
 from servicenow_mcp.config import Settings
 from servicenow_mcp.errors import AuthError
 from servicenow_mcp.oauth_callback import receive_authorization_code
@@ -168,8 +169,8 @@ class OAuthPKCEProvider:
                 "Check the public application client ID, PKCE S256, configured OAuth scope and registered redirect URI."
             )
         try:
-            payload = response.json()
-        except (ValueError, UnicodeDecodeError):
+            payload = JSON.validate_json(response.content)
+        except ValidationError:
             raise AuthError("OAuth token endpoint returned invalid JSON.") from None
         token = _parse_token(payload, issued_at)
         if time.monotonic() >= token.expires_at:
@@ -201,8 +202,8 @@ class OAuthPKCEProvider:
         if response.status_code != 200:
             raise AuthError(f"OAuth token refresh failed (HTTP {response.status_code}). Call the tool again to retry.")
         try:
-            payload = response.json()
-        except (ValueError, UnicodeDecodeError):
+            payload = JSON.validate_json(response.content)
+        except ValidationError:
             raise AuthError("OAuth refresh endpoint returned invalid JSON.") from None
         token = _parse_token(payload, issued_at, fallback_refresh_token=refresh_token)
         if time.monotonic() >= token.expires_at:

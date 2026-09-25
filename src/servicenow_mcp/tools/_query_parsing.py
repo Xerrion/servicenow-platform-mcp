@@ -1,7 +1,7 @@
 """Parse raw unified-query arguments into trusted request values."""
 
 import re
-from typing import Final
+from typing import ClassVar, Final
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -18,7 +18,7 @@ _COMPACT_RECORD_FIELDS: Final[tuple[str, ...]] = ("sys_id", "sys_updated_on")
 class AggregatePlan(BaseModel):
     """Parsed aggregation request for the ServiceNow Stats API."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
 
     count: bool = False
     avg_fields: list[str] = Field(default_factory=list)
@@ -35,7 +35,7 @@ class AggregatePlan(BaseModel):
 class LabelPair(BaseModel):
     """One parsed ``field=label`` choice-resolution directive."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
 
     field: str
     label: str
@@ -44,7 +44,7 @@ class LabelPair(BaseModel):
 class Projection(BaseModel):
     """A parsed ServiceNow field projection."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
 
     fields: list[str] | None
 

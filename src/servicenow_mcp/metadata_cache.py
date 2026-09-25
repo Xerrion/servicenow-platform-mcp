@@ -4,6 +4,7 @@ import asyncio
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Hashable
 from time import monotonic
+from typing import ClassVar
 
 from pydantic import BaseModel, ConfigDict
 
@@ -15,7 +16,9 @@ _MAX_ENTRIES = 1000
 
 class _CacheEntry[V](BaseModel):
     # Cached values are trusted loader output; revalidation would copy them and break identity.
-    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True, revalidate_instances="never")
+    model_config: ClassVar[ConfigDict] = ConfigDict(
+        frozen=True, arbitrary_types_allowed=True, revalidate_instances="never"
+    )
 
     value: V
     expires_at: float

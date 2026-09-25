@@ -136,7 +136,7 @@ class FieldAudit(BaseModel):
             row (empty when no row exists).
     """
 
-    model_config = ConfigDict(frozen=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
 
     field_audit: bool | None
     raw_field_audit: bool | None

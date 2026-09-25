@@ -6,6 +6,7 @@ import hashlib
 import re
 import secrets
 import time
+from typing import ClassVar
 from urllib.parse import urlencode
 
 import httpx2
@@ -19,7 +20,7 @@ from servicenow_mcp.oauth_callback import receive_authorization_code
 class AccessToken(BaseModel):
     """A bearer token, conservative monotonic expiry, and optional refresh token."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
 
     value: SecretStr = Field(repr=False)
     expires_at: float
@@ -29,7 +30,7 @@ class AccessToken(BaseModel):
 class _TokenResponse(BaseModel):
     """Raw OAuth token response fields; value checks stay in ``_parse_token`` for curated errors."""
 
-    model_config = ConfigDict(frozen=True, extra="ignore")
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True, extra="ignore")
 
     access_token: object = None
     token_type: object = None
@@ -66,7 +67,7 @@ def _parse_token(payload: object, issued_at: float, fallback_refresh_token: str 
     return AccessToken(
         value=SecretStr(value),
         expires_at=issued_at + expires_in - min(30, expires_in / 10),
-        refresh_token=None if refresh_token is None else SecretStr(refresh_token),
+        refresh_token=SecretStr(refresh_token) if isinstance(refresh_token, str) else None,
     )
 
 

@@ -1,7 +1,7 @@
 """Prepare unified-query requests and apply read-side policy."""
 
 import logging
-from typing import Final
+from typing import ClassVar, Final
 
 import httpx2
 from pydantic import BaseModel, ConfigDict
@@ -44,7 +44,7 @@ _UNIVERSAL_FIELDS: Final[frozenset[str]] = frozenset(
 class AggregateRequest(BaseModel):
     """Validated aggregate request values."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
 
     plan: AggregatePlan
     group_fields: list[str]
@@ -53,7 +53,7 @@ class AggregateRequest(BaseModel):
 class ListRequest(BaseModel):
     """Validated list request values."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
 
     projection: Projection
     limit: int

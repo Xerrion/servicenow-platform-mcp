@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from enum import StrEnum
 from time import perf_counter
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 from uuid import uuid4
 
 import httpx2
@@ -150,7 +150,7 @@ CacheEvent = Literal["hit", "miss", "expiration", "reload", "invalidation"]
 class CacheTelemetrySnapshot(BaseModel):
     """Immutable measurements for one fixed metadata cache domain."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
 
     hits: int = 0
     misses: int = 0
@@ -162,7 +162,7 @@ class CacheTelemetrySnapshot(BaseModel):
 class HttpTelemetrySnapshot(BaseModel):
     """Immutable aggregate ServiceNow HTTP measurements."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
 
     request_count: int
     completed_request_count: int

@@ -3,6 +3,7 @@
 import asyncio
 import secrets
 import webbrowser
+from typing import ClassVar
 from urllib.parse import parse_qs, urlsplit
 
 from pydantic import BaseModel, ConfigDict
@@ -13,7 +14,7 @@ from servicenow_mcp.errors import AuthError
 class _CallbackParams(BaseModel):
     """Single-valued authorization callback query parameters."""
 
-    model_config = ConfigDict(frozen=True, extra="ignore")
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True, extra="ignore")
 
     state: str = ""
     code: str = ""

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Final, Literal
+from typing import ClassVar, Final, Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -19,7 +19,7 @@ _VALID_ACTIONS: Final[frozenset[str]] = frozenset({"create", "update", "delete"}
 class WriteRequest(BaseModel):
     """Validated record-write arguments."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
 
     action: WriteAction
     table: str

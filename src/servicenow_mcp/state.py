@@ -3,7 +3,7 @@
 import asyncio
 import time
 import uuid
-from typing import Any
+from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict
 
@@ -13,7 +13,7 @@ __all__ = ["PreviewTokenStore"]
 
 class _PreviewEntry(BaseModel):
     # The payload is returned by identity to the one consumer that wins the pop.
-    model_config = ConfigDict(frozen=True, revalidate_instances="never")
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True, revalidate_instances="never")
 
     payload: dict[str, Any]
     created_at: float

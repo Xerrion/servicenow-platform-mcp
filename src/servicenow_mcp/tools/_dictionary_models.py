@@ -1,6 +1,6 @@
 """Value objects returned by ServiceNow dictionary discovery."""
 
-from typing import Any
+from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class ScriptField(BaseModel):
     """A field that carries executable script or markup content."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
 
     name: str
     internal_type: str
@@ -19,7 +19,7 @@ class ScriptField(BaseModel):
 class DictionaryField(BaseModel):
     """A normalized field from ``sys_dictionary``."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
 
     name: str
     internal_type: str

@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 import httpx2
 import pytest
+from pydantic import SecretStr
 
 from servicenow_mcp.auth import AccessToken, OAuthPKCEProvider
 from servicenow_mcp.config import Settings
@@ -76,7 +77,9 @@ def _stub_user_authorization(request: pytest.FixtureRequest) -> Generator[None, 
         yield
         return
     with patch.object(
-        OAuthPKCEProvider, "_authorize", return_value=AccessToken("test-only-token", time.monotonic() + 3600)
+        OAuthPKCEProvider,
+        "_authorize",
+        return_value=AccessToken(value=SecretStr("test-only-token"), expires_at=time.monotonic() + 3600),
     ):
         yield
 

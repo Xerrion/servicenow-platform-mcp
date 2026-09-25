@@ -6,23 +6,24 @@ import hashlib
 import re
 import secrets
 import time
-from dataclasses import dataclass, field
 from urllib.parse import urlencode
 
 import httpx2
+from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from servicenow_mcp.config import Settings
 from servicenow_mcp.errors import AuthError
 from servicenow_mcp.oauth_callback import receive_authorization_code
 
 
-@dataclass(frozen=True)
-class AccessToken:
+class AccessToken(BaseModel):
     """A bearer token, conservative monotonic expiry, and optional refresh token."""
 
-    value: str = field(repr=False)
+    model_config = ConfigDict(frozen=True)
+
+    value: SecretStr = Field(repr=False)
     expires_at: float
-    refresh_token: str | None = field(default=None, repr=False)
+    refresh_token: SecretStr | None = Field(default=None, repr=False)
 
 
 class _RefreshRejected(AuthError):
@@ -49,7 +50,11 @@ def _parse_token(payload: object, issued_at: float, fallback_refresh_token: str 
         expires_in = int(expires_in)
     if type(expires_in) is not int or not 0 < expires_in <= 2**31:
         raise AuthError("OAuth response must specify a positive expires_in lifetime in seconds.")
-    return AccessToken(value, issued_at + expires_in - min(30, expires_in / 10), refresh_token)
+    return AccessToken(
+        value=SecretStr(value),
+        expires_at=issued_at + expires_in - min(30, expires_in / 10),
+        refresh_token=None if refresh_token is None else SecretStr(refresh_token),
+    )
 
 
 class OAuthPKCEProvider:
@@ -79,7 +84,7 @@ class OAuthPKCEProvider:
                     self._token = await self._authorize()
                 else:
                     try:
-                        self._token = await self._refresh(refresh_token)
+                        self._token = await self._refresh(refresh_token.get_secret_value())
                     except _RefreshRejected:
                         self._token = None
                         self._token = await self._authorize()
@@ -87,18 +92,20 @@ class OAuthPKCEProvider:
                 self._token = None
                 raise AuthError("OAuth token expired during authorization. Call the tool again to authorize.")
             return {
-                "Authorization": f"Bearer {self._token.value}",
+                "Authorization": f"Bearer {self._token.value.get_secret_value()}",
                 "Content-Type": "application/json",
                 "Accept": "application/json",
             }
 
     def invalidate(self, authorization: str) -> None:
         """Expire a rejected token without invalidating a newer concurrent grant."""
-        if self._token is not None and secrets.compare_digest(authorization, f"Bearer {self._token.value}"):
+        if self._token is not None and secrets.compare_digest(
+            authorization, f"Bearer {self._token.value.get_secret_value()}"
+        ):
             if self._token.refresh_token is None:
                 self._token = None
             else:
-                self._token = AccessToken("", 0, self._token.refresh_token)
+                self._token = AccessToken(value=SecretStr(""), expires_at=0, refresh_token=self._token.refresh_token)
 
     async def _authorize(self) -> AccessToken:
         settings = self._settings

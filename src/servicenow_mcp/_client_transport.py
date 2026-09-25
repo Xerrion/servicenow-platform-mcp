@@ -145,7 +145,7 @@ class ServiceNowRequestClient:
                 response,
                 (
                     authorization.removeprefix("Bearer "),
-                    token.value if token else "",
+                    token.value.get_secret_value() if token else "",
                     self._settings.servicenow_oauth_client_id,
                 ),
             )

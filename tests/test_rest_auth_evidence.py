@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import httpx2
 import pytest
+from pydantic import SecretStr
 
 from servicenow_mcp.auth import AccessToken, OAuthPKCEProvider
 from servicenow_mcp.client import ServiceNowClient
@@ -22,7 +23,7 @@ TRANSACTION_ID = "0123456789abcdef0123456789abcdef"
 async def test_safe_evidence_reaches_tool_error_without_replay(settings: Settings) -> None:
     """Only selected diagnostics reach the error envelope; rejected tokens are discarded."""
     provider = OAuthPKCEProvider(settings)
-    provider._token = AccessToken("test-access", time.monotonic() + 3600)
+    provider._token = AccessToken(value=SecretStr("test-access"), expires_at=time.monotonic() + 3600)
     route = http_mock.get(f"{BASE_URL}/api/now/table/incident").respond(
         401,
         json={"error": {"message": "User Not Authenticated", "detail": "private customer data"}},
@@ -62,7 +63,7 @@ def _error(settings: Settings, response: httpx2.Response) -> str:
         headers={"Authorization": "Bearer test-access", "Cookie": "session=private-cookie"},
     )
     provider = OAuthPKCEProvider(settings)
-    provider._token = AccessToken("test-access", time.monotonic() + 3600)
+    provider._token = AccessToken(value=SecretStr("test-access"), expires_at=time.monotonic() + 3600)
     with pytest.raises(AuthError) as exc:
         ServiceNowClient(settings, provider)._raise_for_status(response)
     assert provider._token is None
@@ -227,12 +228,12 @@ def test_trace_shaped_secret_is_not_echoed(settings: Settings, source: str) -> N
     """A hex credential is still a credential when reflected into an allowed header."""
     provider = OAuthPKCEProvider(settings)
     provider._token = AccessToken(
-        TRANSACTION_ID if source == "access" else "test-access",
-        time.monotonic() + 3600,
+        value=SecretStr(TRANSACTION_ID if source == "access" else "test-access"),
+        expires_at=time.monotonic() + 3600,
     )
     if source == "client_id":
         settings.servicenow_oauth_client_id = TRANSACTION_ID
-    authorization = TRANSACTION_ID if source == "rejected" else provider._token.value
+    authorization = TRANSACTION_ID if source == "rejected" else provider._token.value.get_secret_value()
     request = httpx2.Request(
         "GET",
         f"{BASE_URL}/api/now/table/incident",
@@ -265,7 +266,7 @@ def test_trace_shaped_secret_is_not_echoed(settings: Settings, source: str) -> N
 
 def test_phrase_shaped_access_token_is_not_echoed(settings: Settings) -> None:
     provider = OAuthPKCEProvider(settings)
-    provider._token = AccessToken("Unauthorized", time.monotonic() + 3600)
+    provider._token = AccessToken(value=SecretStr("Unauthorized"), expires_at=time.monotonic() + 3600)
     response = httpx2.Response(
         401,
         request=httpx2.Request("GET", BASE_URL, headers={"Authorization": "Bearer Unauthorized"}),

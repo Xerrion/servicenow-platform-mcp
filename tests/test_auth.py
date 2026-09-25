@@ -12,6 +12,7 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 
 import httpx2
 import pytest
+from pydantic import SecretStr
 
 from servicenow_mcp.auth import AccessToken, OAuthPKCEProvider, _parse_token, create_auth
 from servicenow_mcp.client import ServiceNowClient
@@ -291,7 +292,10 @@ def test_token_expiry_and_repr() -> None:
     assert token.expires_at == 190
     assert "test-token" not in repr(token)
     assert "test-refresh" not in repr(token)
-    assert vars(token) == {"value": "test-token", "expires_at": 190, "refresh_token": "test-refresh"}
+    assert token.value.get_secret_value() == "test-token"
+    assert token.refresh_token is not None
+    assert token.refresh_token.get_secret_value() == "test-refresh"
+    assert "test-token" not in str(token.model_dump())
 
 
 async def test_expiry_refreshes_once_and_rotates_refresh_token(
@@ -299,7 +303,9 @@ async def test_expiry_refreshes_once_and_rotates_refresh_token(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     provider = OAuthPKCEProvider(settings)
-    provider._token = AccessToken("expired-access", time.monotonic() - 1, "old-refresh")
+    provider._token = AccessToken(
+        value=SecretStr("expired-access"), expires_at=time.monotonic() - 1, refresh_token=SecretStr("old-refresh")
+    )
     route = http_mock.post(f"{BASE_URL}/oauth_token.do").respond(
         200,
         json={
@@ -318,7 +324,7 @@ async def test_expiry_refreshes_once_and_rotates_refresh_token(
     assert route.call_count == 1
     assert all(headers["Authorization"] == "Bearer fresh-access" for headers in results)
     assert provider._token is not None
-    assert provider._token.refresh_token == "rotated-refresh"
+    assert provider._token.refresh_token == SecretStr("rotated-refresh")
     form = parse_qs(route.calls.last.request.content.decode())
     assert form == {
         "grant_type": ["refresh_token"],
@@ -332,7 +338,7 @@ async def test_expiry_refreshes_once_and_rotates_refresh_token(
 
 async def test_refresh_response_without_rotation_keeps_existing_refresh_token(settings: Settings) -> None:
     provider = OAuthPKCEProvider(settings)
-    provider._token = AccessToken("expired", 0, "existing-refresh")
+    provider._token = AccessToken(value=SecretStr("expired"), expires_at=0, refresh_token=SecretStr("existing-refresh"))
     http_mock.post(f"{BASE_URL}/oauth_token.do").respond(
         200,
         json={"access_token": "fresh", "token_type": "Bearer", "expires_in": 1800},
@@ -340,12 +346,12 @@ async def test_refresh_response_without_rotation_keeps_existing_refresh_token(se
 
     assert (await provider.get_headers())["Authorization"] == "Bearer fresh"
     assert provider._token is not None
-    assert provider._token.refresh_token == "existing-refresh"
+    assert provider._token.refresh_token == SecretStr("existing-refresh")
 
 
 async def test_rejected_refresh_falls_back_to_browser_authorization(settings: Settings) -> None:
     provider = OAuthPKCEProvider(settings)
-    provider._token = AccessToken("expired", 0, "rejected-refresh")
+    provider._token = AccessToken(value=SecretStr("expired"), expires_at=0, refresh_token=SecretStr("rejected-refresh"))
     route = http_mock.post(f"{BASE_URL}/oauth_token.do").mock(
         side_effect=[
             httpx2.Response(400, text="private rejected-refresh"),
@@ -375,7 +381,7 @@ async def test_rejected_refresh_falls_back_to_browser_authorization(settings: Se
 
 async def test_refresh_network_failure_preserves_token_without_opening_browser(settings: Settings) -> None:
     provider = OAuthPKCEProvider(settings)
-    expired = AccessToken("expired", 0, "retryable-refresh")
+    expired = AccessToken(value=SecretStr("expired"), expires_at=0, refresh_token=SecretStr("retryable-refresh"))
     provider._token = expired
     http_mock.post(f"{BASE_URL}/oauth_token.do").mock(side_effect=httpx2.ConnectError("private"))
     authorize = AsyncMock()
@@ -392,7 +398,7 @@ async def test_refresh_network_failure_preserves_token_without_opening_browser(s
 
 async def test_refresh_server_failure_preserves_token_without_opening_browser(settings: Settings) -> None:
     provider = OAuthPKCEProvider(settings)
-    expired = AccessToken("expired", 0, "retryable-refresh")
+    expired = AccessToken(value=SecretStr("expired"), expires_at=0, refresh_token=SecretStr("retryable-refresh"))
     provider._token = expired
     http_mock.post(f"{BASE_URL}/oauth_token.do").respond(500, text="private retryable-refresh")
     authorize = AsyncMock()
@@ -409,7 +415,7 @@ async def test_refresh_server_failure_preserves_token_without_opening_browser(se
 
 async def test_refresh_invalid_json_preserves_token_without_opening_browser(settings: Settings) -> None:
     provider = OAuthPKCEProvider(settings)
-    expired = AccessToken("expired", 0, "retryable-refresh")
+    expired = AccessToken(value=SecretStr("expired"), expires_at=0, refresh_token=SecretStr("retryable-refresh"))
     provider._token = expired
     http_mock.post(f"{BASE_URL}/oauth_token.do").respond(200, text="private retryable-refresh")
     authorize = AsyncMock()
@@ -426,7 +432,7 @@ async def test_refresh_invalid_json_preserves_token_without_opening_browser(sett
 
 async def test_token_expired_during_refresh_is_not_stored(settings: Settings) -> None:
     provider = OAuthPKCEProvider(settings)
-    expired = AccessToken("expired", 0, "retryable-refresh")
+    expired = AccessToken(value=SecretStr("expired"), expires_at=0, refresh_token=SecretStr("retryable-refresh"))
     provider._token = expired
     http_mock.post(f"{BASE_URL}/oauth_token.do").respond(
         200,
@@ -449,8 +455,8 @@ async def test_token_expired_during_refresh_is_not_stored(settings: Settings) ->
 
 async def test_expiry_requires_new_flow_and_concurrent_calls_share_it(settings: Settings) -> None:
     provider = OAuthPKCEProvider(settings)
-    provider._token = AccessToken("expired", time.monotonic() - 1)
-    authorize = AsyncMock(return_value=AccessToken("fresh", time.monotonic() + 3600))
+    provider._token = AccessToken(value=SecretStr("expired"), expires_at=time.monotonic() - 1)
+    authorize = AsyncMock(return_value=AccessToken(value=SecretStr("fresh"), expires_at=time.monotonic() + 3600))
     with patch.object(provider, "_authorize", authorize):
         results = await asyncio.gather(*(provider.get_headers() for _ in range(8)))
     authorize.assert_awaited_once()
@@ -474,7 +480,7 @@ async def test_token_expired_during_exchange_is_not_stored(settings: Settings) -
 
 async def test_failed_authorization_cannot_reuse_expired_token(settings: Settings) -> None:
     provider = OAuthPKCEProvider(settings)
-    provider._token = AccessToken("expired", 0)
+    provider._token = AccessToken(value=SecretStr("expired"), expires_at=0)
     with (
         patch.object(provider, "_authorize", side_effect=AuthError("denied")),
         pytest.raises(AuthError, match="denied"),
@@ -485,7 +491,7 @@ async def test_failed_authorization_cannot_reuse_expired_token(settings: Setting
 
 async def test_401_invalidates_without_replaying_request(settings: Settings) -> None:
     provider = OAuthPKCEProvider(settings)
-    provider._token = AccessToken("test-token", time.monotonic() + 3600)
+    provider._token = AccessToken(value=SecretStr("test-token"), expires_at=time.monotonic() + 3600)
     route = http_mock.get(f"{BASE_URL}/api/now/table/incident/test-id").respond(401, json={"error": "private"})
     async with ServiceNowClient(settings, provider) as client:
         with pytest.raises(AuthError, match="authorize again"):
@@ -496,7 +502,11 @@ async def test_401_invalidates_without_replaying_request(settings: Settings) -> 
 
 async def test_401_preserves_refresh_token_for_next_request(settings: Settings) -> None:
     provider = OAuthPKCEProvider(settings)
-    provider._token = AccessToken("rejected-access", time.monotonic() + 3600, "usable-refresh")
+    provider._token = AccessToken(
+        value=SecretStr("rejected-access"),
+        expires_at=time.monotonic() + 3600,
+        refresh_token=SecretStr("usable-refresh"),
+    )
     api_route = http_mock.get(f"{BASE_URL}/api/now/table/incident/test-id").mock(
         side_effect=[
             httpx2.Response(401, json={"error": "private"}),
@@ -527,12 +537,12 @@ async def test_401_preserves_refresh_token_for_next_request(settings: Settings) 
     assert token_route.call_count == 1
     assert api_route.calls.last.request.headers["Authorization"] == "Bearer refreshed-access"
     assert provider._token is not None
-    assert provider._token.refresh_token == "rotated-refresh"
+    assert provider._token.refresh_token == SecretStr("rotated-refresh")
 
 
 def test_stale_401_does_not_invalidate_new_token(settings: Settings) -> None:
     provider = OAuthPKCEProvider(settings)
-    provider._token = AccessToken("new-token", 100)
+    provider._token = AccessToken(value=SecretStr("new-token"), expires_at=100)
     provider.invalidate("Bearer old-token")
     assert provider._token is not None
 
@@ -836,7 +846,7 @@ async def test_flow_exit_closes_idle_browser_connection(redirect_uri: str, has_c
 async def test_expired_exchange_result_is_never_sent(settings: Settings) -> None:
     provider = OAuthPKCEProvider(settings)
     with (
-        patch.object(provider, "_authorize", return_value=AccessToken("expired", 0)),
+        patch.object(provider, "_authorize", return_value=AccessToken(value=SecretStr("expired"), expires_at=0)),
         pytest.raises(AuthError, match="expired during authorization"),
     ):
         await provider.get_headers()

@@ -1,8 +1,9 @@
 """Parse raw unified-query arguments into trusted request values."""
 
 import re
-from dataclasses import dataclass, field
 from typing import Final
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from servicenow_mcp.validation import validate_identifier
 
@@ -14,15 +15,16 @@ _FIELD_TOKEN_RE: Final[re.Pattern[str]] = re.compile(r"^[a-z][a-z0-9_]*(?:\.[a-z
 _COMPACT_RECORD_FIELDS: Final[tuple[str, ...]] = ("sys_id", "sys_updated_on")
 
 
-@dataclass(frozen=True)
-class AggregatePlan:
+class AggregatePlan(BaseModel):
     """Parsed aggregation request for the ServiceNow Stats API."""
 
+    model_config = ConfigDict(frozen=True)
+
     count: bool = False
-    avg_fields: list[str] = field(default_factory=list)
-    sum_fields: list[str] = field(default_factory=list)
-    min_fields: list[str] = field(default_factory=list)
-    max_fields: list[str] = field(default_factory=list)
+    avg_fields: list[str] = Field(default_factory=list)
+    sum_fields: list[str] = Field(default_factory=list)
+    min_fields: list[str] = Field(default_factory=list)
+    max_fields: list[str] = Field(default_factory=list)
 
     @property
     def is_empty(self) -> bool:
@@ -30,17 +32,19 @@ class AggregatePlan:
         return not (self.count or self.avg_fields or self.sum_fields or self.min_fields or self.max_fields)
 
 
-@dataclass(frozen=True)
-class LabelPair:
+class LabelPair(BaseModel):
     """One parsed ``field=label`` choice-resolution directive."""
+
+    model_config = ConfigDict(frozen=True)
 
     field: str
     label: str
 
 
-@dataclass(frozen=True)
-class Projection:
+class Projection(BaseModel):
     """A parsed ServiceNow field projection."""
+
+    model_config = ConfigDict(frozen=True)
 
     fields: list[str] | None
 

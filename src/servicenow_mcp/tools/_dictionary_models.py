@@ -1,13 +1,14 @@
 """Value objects returned by ServiceNow dictionary discovery."""
 
-from dataclasses import dataclass
-from dataclasses import field as dataclass_field
 from typing import Any
 
+from pydantic import BaseModel, ConfigDict, Field
 
-@dataclass(frozen=True, slots=True)
-class ScriptField:
+
+class ScriptField(BaseModel):
     """A field that carries executable script or markup content."""
+
+    model_config = ConfigDict(frozen=True)
 
     name: str
     internal_type: str
@@ -15,12 +16,13 @@ class ScriptField:
     via_heuristic: bool
 
 
-@dataclass(frozen=True, slots=True)
-class DictionaryField:
+class DictionaryField(BaseModel):
     """A normalized field from ``sys_dictionary``."""
+
+    model_config = ConfigDict(frozen=True)
 
     name: str
     internal_type: str
     attributes: str
     inherited_from: str | None
-    metadata: dict[str, Any] = dataclass_field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)

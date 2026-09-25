@@ -1,10 +1,10 @@
 """Prepare unified-query requests and apply read-side policy."""
 
 import logging
-from dataclasses import dataclass
 from typing import Final
 
 import httpx2
+from pydantic import BaseModel, ConfigDict
 
 from servicenow_mcp.choices import ChoiceRegistry
 from servicenow_mcp.config import Settings
@@ -41,17 +41,19 @@ _UNIVERSAL_FIELDS: Final[frozenset[str]] = frozenset(
 )
 
 
-@dataclass(frozen=True)
-class AggregateRequest:
+class AggregateRequest(BaseModel):
     """Validated aggregate request values."""
+
+    model_config = ConfigDict(frozen=True)
 
     plan: AggregatePlan
     group_fields: list[str]
 
 
-@dataclass(frozen=True)
-class ListRequest:
+class ListRequest(BaseModel):
     """Validated list request values."""
+
+    model_config = ConfigDict(frozen=True)
 
     projection: Projection
     limit: int

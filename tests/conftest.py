@@ -102,6 +102,8 @@ def _fail_closed_network(request: pytest.FixtureRequest, monkeypatch: pytest.Mon
     is_loopback_allowed = request.node.get_closest_marker("loopback") is not None
     original_connect = socket.socket.connect
     original_connect_ex = socket.socket.connect_ex
+    original_sendto = socket.socket.sendto
+    original_getaddrinfo = socket.getaddrinfo
 
     def check(address: Any) -> None:
         if not _is_loopback(address):
@@ -117,11 +119,23 @@ def _fail_closed_network(request: pytest.FixtureRequest, monkeypatch: pytest.Mon
         check(address)
         return original_connect_ex(self, address)
 
+    def guarded_sendto(self: socket.socket, data: Any, *args: Any) -> int:
+        check(args[-1])
+        return original_sendto(self, data, *args)
+
+    def guarded_getaddrinfo(host: Any, port: Any, *args: Any, **kwargs: Any) -> Any:
+        # Name resolution can leak to a remote DNS server before any connect() is attempted.
+        if host is not None and not _is_loopback((host.decode() if isinstance(host, bytes) else host, port)):
+            raise RuntimeError(f"Unit tests must not resolve non-loopback hosts: {host!r}")
+        return original_getaddrinfo(host, port, *args, **kwargs)
+
     def blocked_browser(*_args: Any, **_kwargs: Any) -> bool:
         raise RuntimeError("Unit tests must not open a browser")
 
     monkeypatch.setattr(socket.socket, "connect", guarded_connect)
     monkeypatch.setattr(socket.socket, "connect_ex", guarded_connect_ex)
+    monkeypatch.setattr(socket.socket, "sendto", guarded_sendto)
+    monkeypatch.setattr(socket, "getaddrinfo", guarded_getaddrinfo)
     monkeypatch.setattr(webbrowser, "open", blocked_browser)
     for name in ("SENTRY_DSN", "SENTRY_ENVIRONMENT"):
         monkeypatch.delenv(name, raising=False)

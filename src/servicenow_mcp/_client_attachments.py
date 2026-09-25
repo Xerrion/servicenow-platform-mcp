@@ -44,7 +44,7 @@ class AttachmentApiClient(ServiceNowRequestClient):
         )
         self._raise_for_status(response)
         return {
-            "records": self._extract_result(response.json()),
+            "records": self._extract_json_result(response),
             "count": self._parse_total_count(response),
         }
 
@@ -52,7 +52,7 @@ class AttachmentApiClient(ServiceNowRequestClient):
         """Fetch attachment metadata by sys_id."""
         response = await self._ensure_client().get(self._attachment_url(sys_id), headers=await self._headers())
         self._raise_for_status(response)
-        return self._extract_result(response.json())
+        return self._extract_json_result(response)
 
     async def upload_attachment(
         self,
@@ -81,7 +81,7 @@ class AttachmentApiClient(ServiceNowRequestClient):
             content=content,
         )
         self._raise_for_status(response)
-        return self._extract_result(response.json())
+        return self._extract_json_result(response)
 
     async def download_attachment(self, sys_id: str) -> bytes:
         """Download attachment content by sys_id."""

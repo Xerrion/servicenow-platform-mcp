@@ -39,7 +39,7 @@ class CodeSearchApiClient(ServiceNowRequestClient):
             params=params,
         )
         self._raise_for_status(response)
-        return self._extract_result(response.json())
+        return self._extract_json_result(response)
 
     async def code_search_tables(self, search_group: str | None = None) -> dict[str, Any]:
         """Get tables searched by a code search group."""
@@ -49,4 +49,4 @@ class CodeSearchApiClient(ServiceNowRequestClient):
             params={"search_group": search_group or "sn_codesearch.Default Search Group"},
         )
         self._raise_for_status(response)
-        return self._extract_result(response.json())
+        return self._extract_json_result(response)

@@ -109,7 +109,7 @@ class ServiceCatalogApiClient(ServiceNowRequestClient):
             params=params,
         )
         self._raise_for_status(response)
-        return self._extract_result(response.json())
+        return self._extract_json_result(response)
 
     async def _sc_post(self, *segments: str, body: dict[str, Any]) -> Any:
         response = await self._ensure_client().post(
@@ -118,4 +118,4 @@ class ServiceCatalogApiClient(ServiceNowRequestClient):
             json=body,
         )
         self._raise_for_status(response)
-        return self._extract_result(response.json())
+        return self._extract_json_result(response)

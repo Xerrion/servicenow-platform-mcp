@@ -1,13 +1,14 @@
 """Shared HTTP lifecycle and error mapping for ServiceNow API clients."""
 
-import json
 import logging
 import re
 import uuid
 from typing import Any, Self
 
 import httpx2
+from pydantic import ValidationError
 
+from servicenow_mcp._json import JSON
 from servicenow_mcp._rest_auth_evidence import rest_auth_evidence
 from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.config import Settings
@@ -89,8 +90,8 @@ class ServiceNowRequestClient:
     def _extract_json_result(self, response: httpx2.Response) -> Any:
         """Parse a result without disclosing response bodies or query values in errors."""
         try:
-            payload = response.json()
-        except (json.JSONDecodeError, UnicodeDecodeError):
+            payload = JSON.validate_json(response.content)
+        except ValidationError:
             if response.request.method in {"POST", "PATCH"}:
                 raise ServerError(
                     f"Invalid JSON response from {response.request.method} {response.request.url.path} "
@@ -178,9 +179,9 @@ class ServiceNowRequestClient:
     def _is_acl_error_response(response: httpx2.Response) -> bool:
         """Return whether a ServiceNow 403 response explicitly reports an ACL denial."""
         try:
-            payload = response.json()
-        except Exception:
-            logger.debug("Could not parse ServiceNow error body for ACL detection", exc_info=True)
+            payload = JSON.validate_json(response.content)
+        except ValidationError:
+            logger.debug("Could not parse ServiceNow error body for ACL detection")
             return False
 
         values: list[str] = []
@@ -202,7 +203,7 @@ class ServiceNowRequestClient:
     def _extract_error_message(response: httpx2.Response, default: str) -> str:
         """Extract a ServiceNow error message when the response shape permits it."""
         try:
-            body = response.json()
+            body = JSON.validate_json(response.content)
             if "error" in body and "message" in body["error"]:
                 return body["error"]["message"]
         except Exception:

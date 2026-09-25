@@ -5,7 +5,19 @@ import secrets
 import webbrowser
 from urllib.parse import parse_qs, urlsplit
 
+from pydantic import BaseModel, ConfigDict
+
 from servicenow_mcp.errors import AuthError
+
+
+class _CallbackParams(BaseModel):
+    """Single-valued authorization callback query parameters."""
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    state: str = ""
+    code: str = ""
+    has_error: bool = False
 
 
 def _callback_result(request: bytes, redirect_uri: str, state: str) -> str | AuthError | None:
@@ -28,12 +40,14 @@ def _callback_result(request: bytes, redirect_uri: str, state: str) -> str | Aut
         params = parse_qs(url.query, keep_blank_values=True, strict_parsing=True, max_num_fields=16)
         if any(len(values) != 1 for values in params.values()):
             return None
-        actual_state = params.get("state", [""])[0]
-        if not actual_state.isascii() or not secrets.compare_digest(actual_state, state):
+        callback = _CallbackParams(
+            state=params.get("state", [""])[0], code=params.get("code", [""])[0], has_error="error" in params
+        )
+        if not callback.state.isascii() or not secrets.compare_digest(callback.state, state):
             return None
-        if "error" in params:
+        if callback.has_error:
             return AuthError("ServiceNow authorization was denied or failed. Call the tool again to authorize.")
-        code = params.get("code", [""])[0]
+        code = callback.code
         if not code or not code.isascii() or any(ord(char) < 33 or ord(char) == 127 for char in code):
             return AuthError("ServiceNow callback did not contain a valid authorization code.")
         return code

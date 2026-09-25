@@ -53,6 +53,7 @@ asyncio_mode = "auto"
 addopts = "-m 'not integration' --cov=servicenow_mcp --cov-report=xml --cov-report=term-missing"
 markers = [
     "integration: tests that run against a live ServiceNow instance (requires .env.local credentials)",
+    "loopback: unit tests allowed to open loopback sockets",
 ]
 
 [dependency-groups]

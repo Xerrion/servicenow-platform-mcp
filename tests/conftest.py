@@ -1,7 +1,11 @@
 """Shared test fixtures and helpers."""
 
+import ipaddress
+import socket
 import time
+import webbrowser
 from collections.abc import Generator
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -73,3 +77,60 @@ def _stub_user_authorization(request: pytest.FixtureRequest) -> Generator[None, 
         OAuthPKCEProvider, "_authorize", return_value=AccessToken("test-only-token", time.monotonic() + 3600)
     ):
         yield
+
+
+def _is_loopback(address: Any) -> bool:
+    if not isinstance(address, tuple):
+        return True  # AF_UNIX paths never leave the host.
+    host = str(address[0])
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+@pytest.fixture(autouse=True)
+def _fail_closed_network(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Block real network, browser and telemetry side effects in unit tests.
+
+    Loopback sockets are allowed only for tests marked ``loopback``.
+    """
+    if "integration" in request.node.path.parts:
+        return
+    is_loopback_allowed = request.node.get_closest_marker("loopback") is not None
+    original_connect = socket.socket.connect
+    original_connect_ex = socket.socket.connect_ex
+
+    def check(address: Any) -> None:
+        if not _is_loopback(address):
+            raise RuntimeError(f"Unit tests must not open non-loopback connections: {address!r}")
+        if not is_loopback_allowed:
+            raise RuntimeError(f"Loopback connection requires @pytest.mark.loopback: {address!r}")
+
+    def guarded_connect(self: socket.socket, address: Any) -> None:
+        check(address)
+        original_connect(self, address)
+
+    def guarded_connect_ex(self: socket.socket, address: Any) -> int:
+        check(address)
+        return original_connect_ex(self, address)
+
+    def blocked_browser(*args: Any, **kwargs: Any) -> bool:
+        raise RuntimeError("Unit tests must not open a browser")
+
+    monkeypatch.setattr(socket.socket, "connect", guarded_connect)
+    monkeypatch.setattr(socket.socket, "connect_ex", guarded_connect_ex)
+    monkeypatch.setattr(webbrowser, "open", blocked_browser)
+    for name in ("SENTRY_DSN", "SENTRY_ENVIRONMENT"):
+        monkeypatch.delenv(name, raising=False)
+    try:
+        import sentry_sdk
+    except ImportError:
+        return
+
+    def blocked_sentry_init(*args: Any, **kwargs: Any) -> None:
+        raise RuntimeError("Unit tests must not initialize remote Sentry telemetry")
+
+    monkeypatch.setattr(sentry_sdk, "init", blocked_sentry_init)

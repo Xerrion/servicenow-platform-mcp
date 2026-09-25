@@ -21,6 +21,8 @@ from servicenow_mcp.errors import AuthError
 from servicenow_mcp.oauth_callback import _callback_result, receive_authorization_code
 
 
+pytestmark = pytest.mark.loopback()
+
 BASE_URL = "https://test.service-now.com"
 REDIRECT = "http://127.0.0.1:8765/oauth/callback"
 

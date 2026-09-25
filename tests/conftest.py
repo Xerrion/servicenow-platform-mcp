@@ -117,7 +117,7 @@ def _fail_closed_network(request: pytest.FixtureRequest, monkeypatch: pytest.Mon
         check(address)
         return original_connect_ex(self, address)
 
-    def blocked_browser(*args: Any, **kwargs: Any) -> bool:
+    def blocked_browser(*_args: Any, **_kwargs: Any) -> bool:
         raise RuntimeError("Unit tests must not open a browser")
 
     monkeypatch.setattr(socket.socket, "connect", guarded_connect)
@@ -130,7 +130,7 @@ def _fail_closed_network(request: pytest.FixtureRequest, monkeypatch: pytest.Mon
     except ImportError:
         return
 
-    def blocked_sentry_init(*args: Any, **kwargs: Any) -> None:
+    def blocked_sentry_init(*_args: Any, **_kwargs: Any) -> None:
         raise RuntimeError("Unit tests must not initialize remote Sentry telemetry")
 
     monkeypatch.setattr(sentry_sdk, "init", blocked_sentry_init)

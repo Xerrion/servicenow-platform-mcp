@@ -126,9 +126,11 @@ def test_payload_accepts_non_finite_numbers() -> None:
 @pytest.mark.parametrize(
     ("raw", "message"),
     [
-        ('\ufeff{"a":1}', "data is not valid JSON: Unexpected UTF-8 BOM (decode using utf-8-sig)"),
-        ('{"a":', "data is not valid JSON: Expecting value"),
-        ("", "data is not valid JSON: Expecting value"),
+        # Approved D1: fixed safe message without parser detail; BOM keeps its own message.
+        ('\ufeff{"a":1}', "data is not valid JSON: unexpected UTF-8 BOM"),
+        ('{"a":', "data is not valid JSON"),
+        ("", "data is not valid JSON"),
+        ('{"a":"\\ud800"}', "data is not valid JSON"),
         ("null", "data must be a JSON object"),
     ],
 )
@@ -139,6 +141,10 @@ def test_payload_rejects_malformed_input(raw: str, message: str) -> None:
 def test_payload_depth_boundary() -> None:
     assert isinstance(parse_payload_json(json.dumps(_nested(MAX_JSON_DEPTH)), field_name="data"), dict)
     assert _error(json.dumps(_nested(MAX_JSON_DEPTH + 1))) == {"message": "data exceeds maximum nesting depth of 32"}
+
+
+def test_payload_extreme_depth_reports_depth_error() -> None:
+    assert _error('{"a":' * 2000 + "1" + "}" * 2000) == {"message": "data exceeds maximum nesting depth of 32"}
 
 
 def test_payload_size_boundary() -> None:

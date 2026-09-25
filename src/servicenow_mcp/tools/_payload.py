@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 
+from pydantic import ValidationError
+
+from servicenow_mcp._json import JSON
 from servicenow_mcp.response import format_response
 from servicenow_mcp.validation import validate_identifier
 
@@ -42,14 +44,19 @@ def parse_payload_json(
             status="error",
             error=f"{field_name} exceeds maximum size of {max_bytes} bytes",
         )
+    if raw.startswith("\ufeff"):
+        return format_response(data=None, status="error", error=f"{field_name} is not valid JSON: unexpected UTF-8 BOM")
     try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError as e:
-        return format_response(
-            data=None,
-            status="error",
-            error=f"{field_name} is not valid JSON: {e.msg}",
-        )
+        # Recursion-limit failures are reported as depth errors, matching the prior short-circuit contract.
+        parsed = JSON.validate_json(raw)
+    except ValidationError as e:
+        if "recursion limit" in e.errors(include_input=False, include_url=False)[0]["msg"]:
+            return format_response(
+                data=None,
+                status="error",
+                error=f"{field_name} exceeds maximum nesting depth of {max_depth}",
+            )
+        return format_response(data=None, status="error", error=f"{field_name} is not valid JSON")
     if not isinstance(parsed, dict):
         return format_response(
             data=None,

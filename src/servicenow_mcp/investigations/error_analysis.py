@@ -9,15 +9,16 @@ from servicenow_mcp.investigation_helpers import (
     fetch_and_explain,
     parse_int_param,
 )
+from servicenow_mcp.investigations._models import ErrorClusterFinding, ParamSpec, param_specs
 from servicenow_mcp.policy import check_table_access, mask_sensitive_fields
 from servicenow_mcp.query_builder import ServiceNowQuery
 
 
-PARAMS: Final[dict[str, dict[str, Any]]] = {
-    "hours": {"type": "int", "default": 24, "description": "Lookback window in hours."},
-    "source": {"type": "str|None", "default": None, "description": "Optional source-name filter (LIKE match)."},
-    "limit": {"type": "int", "default": 100, "description": "Max log entries to fetch."},
-}
+PARAMS: Final[dict[str, dict[str, Any]]] = param_specs(
+    hours=ParamSpec(type="int", default=24, description="Lookback window in hours."),
+    source=ParamSpec(type="str|None", default=None, description="Optional source-name filter (LIKE match)."),
+    limit=ParamSpec(type="int", default=100, description="Max log entries to fetch."),
+)
 
 
 async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any]:
@@ -61,15 +62,14 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
         timestamps = [e.get("sys_created_on", "") for e in entries]
         sample_messages = [e.get("message", "") for e in entries[:3]]
         findings.append(
-            {
-                "category": "error_cluster",
-                "source": src,
-                "frequency": len(entries),
-                "first_seen": min(timestamps) if timestamps else "",
-                "last_seen": max(timestamps) if timestamps else "",
-                "sample_messages": sample_messages,
-                "element_id": f"syslog:{entries[0].get('sys_id', '')}",
-            }
+            ErrorClusterFinding(
+                source=src,
+                frequency=len(entries),
+                first_seen=min(timestamps) if timestamps else "",
+                last_seen=max(timestamps) if timestamps else "",
+                sample_messages=sample_messages,
+                element_id=f"syslog:{entries[0].get('sys_id', '')}",
+            ).to_payload()
         )
 
     return build_investigation_result(

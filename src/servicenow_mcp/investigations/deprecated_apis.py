@@ -8,6 +8,7 @@ from servicenow_mcp.investigation_helpers import (
     fetch_and_explain,
     parse_int_param,
 )
+from servicenow_mcp.investigations._models import DeprecatedApiFinding, ParamSpec, param_specs
 
 
 # Legacy Java Packages calls have documented supported replacements.
@@ -27,9 +28,9 @@ _ALLOWED_TABLES = {
 }
 
 
-PARAMS: Final[dict[str, dict[str, Any]]] = {
-    "limit": {"type": "int", "default": 20, "description": "Max findings per pattern."},
-}
+PARAMS: Final[dict[str, dict[str, Any]]] = param_specs(
+    limit=ParamSpec(type="int", default=20, description="Max findings per pattern."),
+)
 
 
 async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any]:
@@ -47,13 +48,13 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
         result = await client.code_search(term=pattern, limit=limit)
         search_results = result.get("search_results", [])
         findings.extend(
-            {
-                "pattern": pattern,
-                "element_id": f"{match.get('className', 'unknown')}:{match.get('sys_id', '')}",
-                "name": match.get("name", ""),
-                "table": match.get("className", ""),
-                "detail": f"Uses deprecated pattern '{pattern}'",
-            }
+            DeprecatedApiFinding(
+                pattern=pattern,
+                element_id=f"{match.get('className', 'unknown')}:{match.get('sys_id', '')}",
+                name=match.get("name", ""),
+                table=match.get("className", ""),
+                detail=f"Uses deprecated pattern '{pattern}'",
+            ).to_payload()
             for match in search_results
         )
 

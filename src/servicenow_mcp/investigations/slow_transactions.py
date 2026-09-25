@@ -9,6 +9,7 @@ from servicenow_mcp.investigation_helpers import (
     fetch_and_explain,
     parse_int_param,
 )
+from servicenow_mcp.investigations._models import ParamSpec, SlowPatternFinding, param_specs
 from servicenow_mcp.policy import check_table_access, mask_sensitive_fields
 from servicenow_mcp.query_builder import ServiceNowQuery
 
@@ -27,11 +28,11 @@ PERFORMANCE_TABLES = [
 _ALLOWED_TABLES = {t[0] for t in PERFORMANCE_TABLES}
 
 
-PARAMS: Final[dict[str, dict[str, Any]]] = {
-    "hours": {"type": "int", "default": 24, "description": "Lookback window for syslog_cancellation."},
-    "limit": {"type": "int", "default": 20, "description": "Max findings per table."},
-    "categories": {"type": "csv", "default": None, "description": "Comma-separated category filter."},
-}
+PARAMS: Final[dict[str, dict[str, Any]]] = param_specs(
+    hours=ParamSpec(type="int", default=24, description="Lookback window for syslog_cancellation."),
+    limit=ParamSpec(type="int", default=20, description="Max findings per table."),
+    categories=ParamSpec(type="csv", default=None, description="Comma-separated category filter."),
+)
 
 
 async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any]:
@@ -83,15 +84,15 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
             for rec in result["records"]:
                 masked_rec = mask_sensitive_fields(rec)
                 findings.append(
-                    {
-                        "category": category,
-                        "table": table_name,
-                        "element_id": f"{table_name}:{masked_rec.get('sys_id', '')}",
-                        "name": masked_rec.get("name", masked_rec.get("sys_id", "")),
-                        "count": masked_rec.get("count", ""),
-                        "detail": f"Performance pattern from {table_name}",
-                        "sys_created_on": masked_rec.get("sys_created_on", ""),
-                    }
+                    SlowPatternFinding(
+                        category=category,
+                        table=table_name,
+                        element_id=f"{table_name}:{masked_rec.get('sys_id', '')}",
+                        name=masked_rec.get("name", masked_rec.get("sys_id", "")),
+                        count=masked_rec.get("count", ""),
+                        detail=f"Performance pattern from {table_name}",
+                        sys_created_on=masked_rec.get("sys_created_on", ""),
+                    ).to_payload()
                 )
         except (NotFoundError, ForbiddenError):
             warnings.append(f"Table {table_name} is unavailable or inaccessible; findings are incomplete.")

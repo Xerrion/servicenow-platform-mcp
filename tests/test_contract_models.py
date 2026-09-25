@@ -68,3 +68,20 @@ def test_flow_node_and_trigger_omit_absent_optional_keys() -> None:
         sys_id="s", type="t", active=True, table="x", remote_trigger_id="", condition="", values_decoded=None
     )
     assert "decode_error" not in trig.to_payload()
+
+
+def test_investigation_models_match_legacy_shapes() -> None:
+    from servicenow_mcp.investigations._models import ParamSpec, RecordFinding, param_specs
+
+    assert param_specs(t=ParamSpec(type="str", required=True, default=None, description="d")) == {
+        "t": {"type": "str", "required": True, "default": None, "description": "d"}
+    }
+    assert param_specs(h=ParamSpec(type="int", default=None, description="d")) == {
+        "h": {"type": "int", "default": None, "description": "d"}
+    }
+    assert RecordFinding(category="c", element_id="e", name="n", detail="d").to_payload() == {
+        "category": "c",
+        "element_id": "e",
+        "name": "n",
+        "detail": "d",
+    }

@@ -9,6 +9,7 @@ from servicenow_mcp.investigation_helpers import (
     parse_element_id,
     parse_int_param,
 )
+from servicenow_mcp.investigations._models import ParamSpec, RecordFinding, param_specs
 from servicenow_mcp.policy import (
     INTERNAL_QUERY_LIMIT,
     check_table_access,
@@ -21,14 +22,10 @@ from servicenow_mcp.validation import validate_identifier
 HEAVY_AUTOMATION_THRESHOLD = 10
 
 
-PARAMS: Final[dict[str, dict[str, Any]]] = {
-    "hours": {
-        "type": "int|None",
-        "default": None,
-        "description": "Lookback window in hours; omit to query all history.",
-    },
-    "limit": {"type": "int", "default": 20, "description": "Max findings per category."},
-}
+PARAMS: Final[dict[str, dict[str, Any]]] = param_specs(
+    hours=ParamSpec(type="int|None", default=None, description="Lookback window in hours; omit to query all history."),
+    limit=ParamSpec(type="int", default=20, description="Max findings per category."),
+)
 
 
 async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any]:
@@ -74,13 +71,13 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
     for table_name, count in table_counts.most_common(limit):
         if count > HEAVY_AUTOMATION_THRESHOLD:
             findings.append(
-                {
-                    "category": "heavy_automation",
-                    "element_id": table_name,
-                    "name": table_name,
-                    "detail": f"Table '{table_name}' has {count} active business rules (threshold: {HEAVY_AUTOMATION_THRESHOLD})",
-                    "br_count": count,
-                }
+                RecordFinding(
+                    category="heavy_automation",
+                    element_id=table_name,
+                    name=table_name,
+                    detail=f"Table '{table_name}' has {count} active business rules (threshold: {HEAVY_AUTOMATION_THRESHOLD})",
+                    br_count=count,
+                ).to_payload()
             )
 
     # 2. Frequent scheduled jobs
@@ -103,13 +100,13 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
     for rec in sj_result["records"]:
         masked_rec = mask_sensitive_fields(rec)
         findings.append(
-            {
-                "category": "frequent_job",
-                "element_id": f"sysauto_script:{masked_rec.get('sys_id', '')}",
-                "name": masked_rec.get("name", ""),
-                "detail": f"Active scheduled job: {masked_rec.get('name', '')}",
-                "run_type": masked_rec.get("run_type", ""),
-            }
+            RecordFinding(
+                category="frequent_job",
+                element_id=f"sysauto_script:{masked_rec.get('sys_id', '')}",
+                name=masked_rec.get("name", ""),
+                detail=f"Active scheduled job: {masked_rec.get('name', '')}",
+                run_type=masked_rec.get("run_type", ""),
+            ).to_payload()
         )
 
     # 3. Long-running flows (still IN_PROGRESS)
@@ -126,12 +123,12 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
     for rec in flow_result["records"]:
         masked_rec = mask_sensitive_fields(rec)
         findings.append(
-            {
-                "category": "long_running_flow",
-                "element_id": f"sys_flow_context:{masked_rec.get('sys_id', '')}",
-                "name": masked_rec.get("name", ""),
-                "detail": f"Flow in progress since {masked_rec.get('sys_created_on', '')}",
-            }
+            RecordFinding(
+                category="long_running_flow",
+                element_id=f"sys_flow_context:{masked_rec.get('sys_id', '')}",
+                name=masked_rec.get("name", ""),
+                detail=f"Flow in progress since {masked_rec.get('sys_created_on', '')}",
+            ).to_payload()
         )
 
     return build_investigation_result(

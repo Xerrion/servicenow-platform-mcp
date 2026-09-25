@@ -157,3 +157,11 @@ def test_missing_result_is_distinct_from_null_result() -> None:
     assert ServiceNowRequestClient._extract_result({"result": None}) is None
     with pytest.raises(ServerError, match="missing 'result' key"):
         ServiceNowRequestClient._extract_result({})
+
+
+def test_request_body_is_compact_strict_json() -> None:
+    from servicenow_mcp._json import dump_request_body
+
+    assert dump_request_body({"a": "æ", "b": [1, None]}) == '{"a":"æ","b":[1,null]}'.encode()
+    with pytest.raises(ValueError, match="not JSON compliant"):
+        dump_request_body({"a": float("nan")})

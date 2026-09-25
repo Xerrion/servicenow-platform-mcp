@@ -3,6 +3,7 @@
 from typing import Any
 
 from servicenow_mcp._client_transport import ServiceNowRequestClient
+from servicenow_mcp._json import dump_request_body
 
 
 class ServiceCatalogApiClient(ServiceNowRequestClient):
@@ -114,8 +115,8 @@ class ServiceCatalogApiClient(ServiceNowRequestClient):
     async def _sc_post(self, *segments: str, body: dict[str, Any]) -> Any:
         response = await self._ensure_client().post(
             self._sc_url(*segments),
-            headers=await self._headers(),
-            json=body,
+            headers={**await self._headers(), "Content-Type": "application/json"},
+            content=dump_request_body(body),
         )
         self._raise_for_status(response)
         return self._extract_json_result(response)

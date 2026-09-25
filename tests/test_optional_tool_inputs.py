@@ -111,6 +111,7 @@ async def test_create_needs_no_sys_id_and_null_keeps_preview_default(
     if commit:
         assert created.call_count == 1
         assert json.loads(created.calls.last.request.content) == payload
+        assert created.calls.last.request.headers["content-type"] == "application/json"
     else:
         assert response["data"]["preview_token"]
         assert response["data"]["preview"]["data"] == payload

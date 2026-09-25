@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Internal changes
+
+- Application HTTP now uses `httpx2` (pinned `>=2.12.0,<3`, locked 2.12.0). `httpx`
+  and `respx` are no longer dependencies. Tests use a local `httpx2.MockTransport`
+  fixture and a fail-closed network guard.
+- Internal models and JSON boundaries use Pydantic (`BaseModel`, `TypeAdapter`).
+  Tool names, input schemas, and response envelopes are unchanged except for the
+  approved differences recorded in the release notes. Malformed ServiceNow
+  responses return a curated server error without raw payload text.
+- Unchanged: Sentry configuration and transport, `HTTPX_TIMEOUT_SECONDS`, and
+  timeout diagnostics. After upgrade, restart the server; authorize again in the
+  browser and create new write previews, because both are held in memory only.
+
 ### Breaking changes
 
 - Removed the entire `selection` object from tool response envelopes, including

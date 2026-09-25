@@ -165,3 +165,44 @@ def test_request_body_is_compact_strict_json() -> None:
     assert dump_request_body({"a": "æ", "b": [1, None]}) == '{"a":"æ","b":[1,null]}'.encode()
     with pytest.raises(ValueError, match="not JSON compliant"):
         dump_request_body({"a": float("nan")})
+
+
+_SAFE_RESPONSE_BODIES = [b"<html>secret-body</html>", b"\xffsecret-body", b'["secret-body"]', b'"secret-body"', b"null"]
+
+
+@pytest.mark.parametrize("body", _SAFE_RESPONSE_BODIES)
+@pytest.mark.parametrize(
+    ("call", "path"),
+    [
+        (lambda c: c.get_attachment("0" * 32), "/api/now/attachment/"),
+        (lambda c: c.sc_get_catalogs(), "/api/sn_sc/servicecatalog/catalogs"),
+        (lambda c: c.code_search("term"), "/api/sn_codesearch/"),
+    ],
+    ids=["attachment", "catalog", "code_search"],
+)
+async def test_malformed_or_non_object_responses_raise_curated_server_error(
+    settings: Settings, body: bytes, call: Any, path: str
+) -> None:
+    """Approved contract: curated ServerError; response content never echoed."""
+    from unittest.mock import AsyncMock
+
+    import httpx2
+
+    from servicenow_mcp.client import ServiceNowClient
+    from servicenow_mcp.tool_errors import safe_tool_call
+
+    auth = AsyncMock()
+    auth.get_headers = AsyncMock(return_value={})
+    transport = httpx2.MockTransport(lambda request: httpx2.Response(200, content=body))
+    async with httpx2.AsyncClient(transport=transport) as http:
+        client = ServiceNowClient(settings, auth, http_client=http)
+        with pytest.raises(ServerError) as exc:
+            await call(client)
+        envelope = await safe_tool_call(lambda: call(client))
+    message = str(exc.value)
+    assert message.startswith(("Invalid JSON response from GET ", "Unexpected JSON response from "))
+    assert path in message
+    for text in (message, envelope):
+        assert "secret-body" not in text
+        assert "0xff" not in text and "\\xff" not in text
+    assert json.loads(envelope)["error"] == {"message": message}

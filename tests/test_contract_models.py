@@ -61,8 +61,8 @@ def test_flow_node_and_trigger_omit_absent_optional_keys() -> None:
         "values_decoded": None,
         "children": [],
     }
-    assert list(FlowNode(**base).to_payload()) == [*base]
-    node = FlowNode(**{**base, "kind": "action"}, action_type=ActionTypeRef(sys_id="a", name="b"))
+    assert list(FlowNode.model_validate(base).to_payload()) == [*base]
+    node = FlowNode.model_validate({**base, "kind": "action", "action_type": ActionTypeRef(sys_id="a", name="b")})
     assert node.to_payload()["action_type"] == {"sys_id": "a", "name": "b"}
     trig = V2Trigger(
         sys_id="s", type="t", active=True, table="x", remote_trigger_id="", condition="", values_decoded=None

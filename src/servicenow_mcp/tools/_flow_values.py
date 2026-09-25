@@ -12,9 +12,12 @@ state. Callers decide when (and whether) to decode.
 from __future__ import annotations
 
 import base64
-import json
 import zlib
 from typing import Any
+
+from pydantic import ValidationError
+
+from servicenow_mcp._json import JSON
 
 
 # Base64 prefix produced by the gzip magic bytes (``1f 8b 08 ...``). Cheap
@@ -50,7 +53,7 @@ def decode_values(compressed: str) -> list[Any] | dict[str, Any]:
 
     Pipeline: locate the base64 payload (skipping any leading whitespace or
     short internal header) -> ``base64.b64decode`` -> ``gzip.decompress`` ->
-    ``json.loads``.
+    ``validate_json``.
 
     Raises:
         ValueError: When *compressed* is empty, not valid base64, not valid
@@ -99,9 +102,11 @@ def decode_values(compressed: str) -> list[Any] | dict[str, Any]:
         raise ValueError("invalid or truncated gzip stream")
 
     try:
-        decoded = json.loads(decompressed.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ValueError(f"decompressed payload is not valid JSON: {exc}") from exc
+        decoded = JSON.validate_json(decompressed)
+    except ValidationError as exc:
+        # The docstring promises the underlying cause; the error text excludes the input value.
+        cause = exc.errors(include_input=False, include_url=False)[0]["msg"]
+        raise ValueError(f"decompressed payload is not valid JSON: {cause}") from None
 
     if not isinstance(decoded, list | dict):
         raise ValueError(f"decoded payload is not a list or dict (got {type(decoded).__name__})")

@@ -2,10 +2,12 @@
 
 import json
 import math
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
+from uuid import UUID
 
 import pytest
 
@@ -67,7 +69,15 @@ def test_envelope_key_order_and_omissions_are_byte_stable() -> None:
         (float("nan"), "NaN"),
         (float("inf"), "Infinity"),
         ("æ€", '"æ€"'),
-        (datetime(2026, 1, 2, tzinfo=UTC), '"2026-01-02 00:00:00+00:00"'),
+        # Pydantic native forms (approved D2): ISO 8601 replaces str() for datetime.
+        (datetime(2026, 1, 2, tzinfo=UTC), '"2026-01-02T00:00:00Z"'),
+        (date(2026, 1, 2), '"2026-01-02"'),
+        (Decimal("1.5"), '"1.5"'),
+        (UUID(int=1), '"00000000-0000-0000-0000-000000000001"'),
+        ((1, 2), "[1,2]"),
+        ({1: 2}, '{"1":2}'),
+        ({1}, "[1]"),
+        (b"x", '"x"'),
     ],
 )
 def test_serialize_edge_values(value: Any, expected: str) -> None:

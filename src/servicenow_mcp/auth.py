@@ -26,6 +26,17 @@ class AccessToken(BaseModel):
     refresh_token: SecretStr | None = Field(default=None, repr=False)
 
 
+class _TokenResponse(BaseModel):
+    """Raw OAuth token response fields; value checks stay in ``_parse_token`` for curated errors."""
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    access_token: object = None
+    token_type: object = None
+    expires_in: object = None
+    refresh_token: object = None
+
+
 class _RefreshRejected(AuthError):
     """A refresh grant rejected by ServiceNow, requiring browser authorization."""
 
@@ -34,13 +45,15 @@ def _parse_token(payload: object, issued_at: float, fallback_refresh_token: str 
     """Validate a token response and preserve an unrotated refresh token."""
     if not isinstance(payload, dict):
         raise AuthError("Invalid OAuth token response; expected a JSON object.")
-    value = payload.get("access_token")
-    token_type = payload.get("token_type")
-    expires_in = payload.get("expires_in")
-    refresh_token = payload.get("refresh_token") if "refresh_token" in payload else fallback_refresh_token
+    response = _TokenResponse.model_validate(payload)
+    has_refresh_token = "refresh_token" in response.model_fields_set
+    value = response.access_token
+    token_type = response.token_type
+    expires_in = response.expires_in
+    refresh_token = response.refresh_token if has_refresh_token else fallback_refresh_token
     if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9._~+/-]+=*", value):
         raise AuthError("Invalid OAuth access token in response.")
-    if "refresh_token" in payload and (
+    if has_refresh_token and (
         not isinstance(refresh_token, str) or not re.fullmatch(r"[A-Za-z0-9._~+/-]+=*", refresh_token)
     ):
         raise AuthError("Invalid OAuth refresh token in response.")

@@ -140,13 +140,13 @@ class ServiceNowRequestClient:
 
         if response.status_code == 401:
             authorization = response.request.headers.get("Authorization", "")
-            token = self._auth_provider._token
+            token_secret = self._auth_provider.current_token_secret()
             self._auth_provider.invalidate(authorization)
             evidence = rest_auth_evidence(
                 response,
                 (
                     authorization.removeprefix("Bearer "),
-                    token.value.get_secret_value() if token else "",
+                    token_secret,
                     self._settings.servicenow_oauth_client_id,
                 ),
             )

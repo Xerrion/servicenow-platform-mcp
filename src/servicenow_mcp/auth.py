@@ -122,6 +122,10 @@ class OAuthPKCEProvider:
             else:
                 self._token = AccessToken(value=SecretStr(""), expires_at=0, refresh_token=self._token.refresh_token)
 
+    def current_token_secret(self) -> str:
+        """Return the stored access token's secret value, or empty when no token is held."""
+        return self._token.value.get_secret_value() if self._token is not None else ""
+
     async def _authorize(self) -> AccessToken:
         settings = self._settings
         state = secrets.token_urlsafe(32)

@@ -312,7 +312,13 @@ class TelemetryAsyncClient(httpx2.AsyncClient):
             raise
 
         duration_ms = (perf_counter() - started) * 1000
-        response_bytes = response.num_bytes_downloaded or len(response.content)
+        # Buffered reads do not update num_bytes_downloaded, so buffered responses
+        # rely on the content length. .content raises ResponseNotRead for unread
+        # streams, so guard it the way httpx2's own content property does.
+        if hasattr(response, "_content"):
+            response_bytes = response.num_bytes_downloaded or len(response.content)
+        else:
+            response_bytes = response.num_bytes_downloaded
         self._telemetry.record_completed(response_bytes=response_bytes, duration_ms=duration_ms)
         set_sentry_context("http_telemetry", self._telemetry.sentry_context())
         logger.info(

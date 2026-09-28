@@ -1,0 +1,1189 @@
+{
+  "analysis": {
+    "properties": {
+      "action": {
+        "title": "Action",
+        "type": "string"
+      },
+      "fields_csv": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Fields Csv"
+      },
+      "limit": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Limit"
+      },
+      "offset": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": 0,
+        "title": "Offset"
+      },
+      "since": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Since"
+      },
+      "sys_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Sys Id"
+      },
+      "table": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Table"
+      },
+      "window_days": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Window Days"
+      }
+    },
+    "required": [
+      "action"
+    ],
+    "title": "analysisArguments",
+    "type": "object"
+  },
+  "attachment": {
+    "properties": {
+      "action": {
+        "title": "Action",
+        "type": "string"
+      },
+      "file_name": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "File Name"
+      },
+      "sys_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Sys Id"
+      },
+      "table": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Table"
+      },
+      "table_sys_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Table Sys Id"
+      }
+    },
+    "required": [
+      "action"
+    ],
+    "title": "attachmentArguments",
+    "type": "object"
+  },
+  "attachment_write": {
+    "properties": {
+      "action": {
+        "title": "Action",
+        "type": "string"
+      },
+      "content_base64": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Content Base64"
+      },
+      "content_type": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": "application/octet-stream",
+        "title": "Content Type"
+      },
+      "file_name": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "File Name"
+      },
+      "sys_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Sys Id"
+      },
+      "table": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Table"
+      },
+      "table_sys_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Table Sys Id"
+      }
+    },
+    "required": [
+      "action"
+    ],
+    "title": "attachment_writeArguments",
+    "type": "object"
+  },
+  "audit": {
+    "properties": {
+      "action": {
+        "title": "Action",
+        "type": "string"
+      },
+      "field": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Field"
+      },
+      "fields_csv": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Fields Csv"
+      },
+      "limit": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Limit"
+      },
+      "since": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Since"
+      },
+      "sys_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Sys Id"
+      },
+      "table": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Table"
+      },
+      "window_days": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Window Days"
+      }
+    },
+    "required": [
+      "action"
+    ],
+    "title": "auditArguments",
+    "type": "object"
+  },
+  "cmdb": {
+    "properties": {
+      "action": {
+        "title": "Action",
+        "type": "string"
+      },
+      "class_name": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Class Name"
+      },
+      "encoded_query": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Encoded Query"
+      },
+      "limit": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": 20,
+        "title": "Limit"
+      },
+      "offset": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": 0,
+        "title": "Offset"
+      },
+      "sys_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Sys Id"
+      }
+    },
+    "required": [
+      "action"
+    ],
+    "title": "cmdbArguments",
+    "type": "object"
+  },
+  "code_search": {
+    "properties": {
+      "action": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": "search",
+        "title": "Action"
+      },
+      "extended_matching": {
+        "anyOf": [
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": false,
+        "title": "Extended Matching"
+      },
+      "limit": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": 20,
+        "title": "Limit"
+      },
+      "search_group": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Search Group"
+      },
+      "table": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Table"
+      },
+      "term": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Term"
+      }
+    },
+    "title": "code_searchArguments",
+    "type": "object"
+  },
+  "describe": {
+    "properties": {
+      "action": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Action"
+      },
+      "field_limit": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": 25,
+        "title": "Field Limit"
+      },
+      "field_offset": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": 0,
+        "title": "Field Offset"
+      },
+      "fields": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Fields"
+      },
+      "include_docs": {
+        "anyOf": [
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": false,
+        "title": "Include Docs"
+      },
+      "name_filter": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Name Filter"
+      },
+      "table": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Table"
+      },
+      "verbose": {
+        "anyOf": [
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": false,
+        "title": "Verbose"
+      }
+    },
+    "title": "describeArguments",
+    "type": "object"
+  },
+  "flow": {
+    "properties": {
+      "action": {
+        "title": "Action",
+        "type": "string"
+      },
+      "active": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Active"
+      },
+      "limit": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Limit"
+      },
+      "name": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Name"
+      },
+      "section_limit": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Section Limit"
+      },
+      "sections": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Sections"
+      },
+      "sys_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Sys Id"
+      },
+      "table": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Table"
+      },
+      "trigger_type": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Trigger Type"
+      },
+      "value": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Value"
+      }
+    },
+    "required": [
+      "action"
+    ],
+    "title": "flowArguments",
+    "type": "object"
+  },
+  "investigate": {
+    "properties": {
+      "action": {
+        "title": "Action",
+        "type": "string"
+      },
+      "element_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Element Id"
+      },
+      "name": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Name"
+      },
+      "params": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": "{}",
+        "title": "Params"
+      }
+    },
+    "required": [
+      "action"
+    ],
+    "title": "investigateArguments",
+    "type": "object"
+  },
+  "list_tool_packages": {
+    "properties": {},
+    "title": "list_tool_packagesArguments",
+    "type": "object"
+  },
+  "query": {
+    "properties": {
+      "aggregate": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Aggregate"
+      },
+      "display_values": {
+        "anyOf": [
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": false,
+        "title": "Display Values"
+      },
+      "encoded_query": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Encoded Query"
+      },
+      "fields": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Fields"
+      },
+      "group_by": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Group By"
+      },
+      "limit": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": 20,
+        "title": "Limit"
+      },
+      "offset": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": 0,
+        "title": "Offset"
+      },
+      "order_by": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Order By"
+      },
+      "resolve_labels": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Resolve Labels"
+      },
+      "sys_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Sys Id"
+      },
+      "table": {
+        "title": "Table",
+        "type": "string"
+      }
+    },
+    "required": [
+      "table"
+    ],
+    "title": "queryArguments",
+    "type": "object"
+  },
+  "record_apply": {
+    "properties": {
+      "preview_token": {
+        "title": "Preview Token",
+        "type": "string"
+      }
+    },
+    "required": [
+      "preview_token"
+    ],
+    "title": "record_applyArguments",
+    "type": "object"
+  },
+  "record_read": {
+    "properties": {
+      "fields": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Fields"
+      },
+      "name": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Name"
+      },
+      "sys_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Sys Id"
+      },
+      "table": {
+        "title": "Table",
+        "type": "string"
+      }
+    },
+    "required": [
+      "table"
+    ],
+    "title": "record_readArguments",
+    "type": "object"
+  },
+  "record_write": {
+    "properties": {
+      "action": {
+        "title": "Action",
+        "type": "string"
+      },
+      "data": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Data"
+      },
+      "preview": {
+        "anyOf": [
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": true,
+        "title": "Preview"
+      },
+      "sys_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Sys Id"
+      },
+      "table": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Table"
+      }
+    },
+    "required": [
+      "action"
+    ],
+    "title": "record_writeArguments",
+    "type": "object"
+  },
+  "resolve_choice": {
+    "properties": {
+      "field": {
+        "title": "Field",
+        "type": "string"
+      },
+      "label": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Label"
+      },
+      "table": {
+        "title": "Table",
+        "type": "string"
+      }
+    },
+    "required": [
+      "table",
+      "field"
+    ],
+    "title": "resolve_choiceArguments",
+    "type": "object"
+  },
+  "service_catalog": {
+    "properties": {
+      "action": {
+        "title": "Action",
+        "type": "string"
+      },
+      "catalog": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Catalog"
+      },
+      "catalog_sys_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Catalog Sys Id"
+      },
+      "category": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Category"
+      },
+      "item_sys_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Item Sys Id"
+      },
+      "limit": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": 20,
+        "title": "Limit"
+      },
+      "offset": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": 0,
+        "title": "Offset"
+      },
+      "sys_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Sys Id"
+      },
+      "text": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Text"
+      },
+      "top_level_only": {
+        "anyOf": [
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": false,
+        "title": "Top Level Only"
+      },
+      "variables": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Variables"
+      }
+    },
+    "required": [
+      "action"
+    ],
+    "title": "service_catalogArguments",
+    "type": "object"
+  }
+}

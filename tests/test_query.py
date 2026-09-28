@@ -5,14 +5,14 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import AsyncMock
 
-import httpx
+import httpx2
 import pytest
-import respx
 
 from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.choices import ChoiceRegistry
 from servicenow_mcp.config import Settings
 from servicenow_mcp.policy import DENIED_TABLES
+from tests._mock_transport import http_mock
 from tests.helpers import decode_response, get_registered_tools, get_tool_functions
 
 
@@ -64,13 +64,12 @@ class TestQueryMode:
         assert "narrow date bound" not in description
 
     @pytest.mark.parametrize("total", [3, 50])
-    @respx.mock
     async def test_capped_limit_uses_pagination_not_warning(
         self, settings: Settings, auth_provider: OAuthPKCEProvider, total: int
     ) -> None:
         settings.max_row_limit = 5
-        route = respx.get(f"{BASE_URL}/api/now/table/incident").mock(
-            return_value=httpx.Response(
+        route = http_mock.get(f"{BASE_URL}/api/now/table/incident").mock(
+            return_value=httpx2.Response(
                 200,
                 json={"result": [{"sys_id": "1", "number": "INC0001", "description": "unrequested"}]},
                 headers={"X-Total-Count": str(total)},
@@ -88,11 +87,10 @@ class TestQueryMode:
         assert route.calls.last.request.url.params["sysparm_limit"] == "5"
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_query_mode_returns_records(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """Returns matching records with pagination, sensitive fields masked."""
-        route = respx.get(f"{BASE_URL}/api/now/table/incident").mock(
-            return_value=httpx.Response(
+        route = http_mock.get(f"{BASE_URL}/api/now/table/incident").mock(
+            return_value=httpx2.Response(
                 200,
                 json={
                     "result": [
@@ -120,12 +118,11 @@ class TestQueryMode:
         assert "selection" not in result
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_empty_page_with_nonzero_total_warns(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
-        respx.get(f"{BASE_URL}/api/now/table/syslog_transaction").mock(
-            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "12"})
+        http_mock.get(f"{BASE_URL}/api/now/table/syslog_transaction").mock(
+            return_value=httpx2.Response(200, json={"result": []}, headers={"X-Total-Count": "12"})
         )
         tools = _register_and_get_tools(settings, auth_provider)
 
@@ -141,7 +138,6 @@ class TestQueryMode:
         assert any("empty page" in warning and "ACL" in warning for warning in result["warnings"])
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_omitted_fields_returns_error_without_io(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
@@ -150,10 +146,9 @@ class TestQueryMode:
 
         assert result["status"] == "error"
         assert "fields is required" in result["error"]["message"]
-        assert not respx.calls
+        assert not http_mock.calls
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_invalid_order_by_returns_error_without_io(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
@@ -162,13 +157,12 @@ class TestQueryMode:
 
         assert result["status"] == "error"
         assert "Invalid identifier" in result["error"]["message"]
-        assert not respx.calls
+        assert not http_mock.calls
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_star_requests_all_masked_fields(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-        route = respx.get(f"{BASE_URL}/api/now/table/incident").mock(
-            return_value=httpx.Response(
+        route = http_mock.get(f"{BASE_URL}/api/now/table/incident").mock(
+            return_value=httpx2.Response(
                 200,
                 json={"result": [{"sys_id": "1", "password": "secret"}]},
                 headers={"X-Total-Count": "1"},
@@ -183,13 +177,12 @@ class TestQueryMode:
         assert "selection" not in result
 
     @pytest.mark.parametrize("fields", ["description,active,sys_mod_count,sys_tags", "*"])
-    @respx.mock
     async def test_explicit_fields_preserve_empty_and_system_values(
         self, settings: Settings, auth_provider: OAuthPKCEProvider, fields: str
     ) -> None:
         record = {"sys_id": "1", "description": "", "active": False, "sys_mod_count": 0, "sys_tags": None}
-        respx.get(f"{BASE_URL}/api/now/table/incident").mock(
-            return_value=httpx.Response(200, json={"result": [record]}, headers={"X-Total-Count": "1"})
+        http_mock.get(f"{BASE_URL}/api/now/table/incident").mock(
+            return_value=httpx2.Response(200, json={"result": [record]}, headers={"X-Total-Count": "1"})
         )
         tools = _register_and_get_tools(settings, auth_provider)
         result = decode_response(await tools["query"](table="incident", fields=fields))
@@ -226,7 +219,6 @@ class TestQueryMode:
         dictionary.get_all_fields.assert_not_awaited()
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_transaction_log_requires_date_filter_by_default(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
@@ -236,16 +228,15 @@ class TestQueryMode:
 
         assert result["status"] == "error"
         assert "date" in result["error"]["message"].lower()
-        assert not respx.calls
+        assert not http_mock.calls
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_sys_audit_query_masks_audit_values(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
         """sys_audit rows have oldvalue/newvalue masked when fieldname is sensitive."""
-        respx.get(f"{BASE_URL}/api/now/table/sys_audit").mock(
-            return_value=httpx.Response(
+        http_mock.get(f"{BASE_URL}/api/now/table/sys_audit").mock(
+            return_value=httpx2.Response(
                 200,
                 json={
                     "result": [
@@ -288,14 +279,13 @@ class TestSysIdMode:
     """Single-record fetch mode."""
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_sys_id_mode_returns_single_record(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
         """sys_id branch returns one record and no pagination key."""
         sys_id = "a" * 32
-        respx.get(f"{BASE_URL}/api/now/table/incident/{sys_id}").mock(
-            return_value=httpx.Response(
+        http_mock.get(f"{BASE_URL}/api/now/table/incident/{sys_id}").mock(
+            return_value=httpx2.Response(
                 200,
                 json={"result": {"sys_id": sys_id, "number": "INC0001", "secret": "shh"}},
             )
@@ -312,13 +302,12 @@ class TestSysIdMode:
         assert "selection" not in result
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_sys_id_omitted_fields_uses_compact_projection(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
         sys_id = "a" * 32
-        route = respx.get(f"{BASE_URL}/api/now/table/incident/{sys_id}").mock(
-            return_value=httpx.Response(
+        route = http_mock.get(f"{BASE_URL}/api/now/table/incident/{sys_id}").mock(
+            return_value=httpx2.Response(
                 200,
                 json={"result": {"sys_id": sys_id, "sys_updated_on": "now", "description": "unrequested"}},
             )
@@ -363,13 +352,12 @@ class TestAggregateMode:
     """Stats API mode."""
 
     @pytest.mark.parametrize("group_by", ["state,active", " state , active ", "request_item.state,active"])
-    @respx.mock
     async def test_multiple_group_fields(
         self, settings: Settings, auth_provider: OAuthPKCEProvider, group_by: str
     ) -> None:
         """Validate each grouping field and preserve the Stats API CSV contract."""
-        route = respx.get(f"{BASE_URL}/api/now/stats/sc_task").mock(
-            return_value=httpx.Response(200, json={"result": []})
+        route = http_mock.get(f"{BASE_URL}/api/now/stats/sc_task").mock(
+            return_value=httpx2.Response(200, json={"result": []})
         )
         tools = _register_and_get_tools(settings, auth_provider)
         result = decode_response(await tools["query"](table="sc_task", aggregate="count", group_by=group_by))
@@ -377,7 +365,6 @@ class TestAggregateMode:
         assert route.calls.last.request.url.params["sysparm_group_by"] == group_by.replace(" ", "")
 
     @pytest.mark.parametrize("group_by", ["state,active^ORstate=3", "state,,active", ",", "state,"])
-    @respx.mock
     async def test_invalid_group_fields_fail_before_io(
         self, settings: Settings, auth_provider: OAuthPKCEProvider, group_by: str
     ) -> None:
@@ -385,14 +372,13 @@ class TestAggregateMode:
         tools = _register_and_get_tools(settings, auth_provider)
         result = decode_response(await tools["query"](table="sc_task", aggregate="count", group_by=group_by))
         assert result["status"] == "error"
-        assert not respx.calls
+        assert not http_mock.calls
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_aggregate_mode_count(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """`aggregate='count'` calls the Stats endpoint and returns the result dict."""
-        route = respx.get(f"{BASE_URL}/api/now/stats/incident").mock(
-            return_value=httpx.Response(
+        route = http_mock.get(f"{BASE_URL}/api/now/stats/incident").mock(
+            return_value=httpx2.Response(
                 200,
                 json={"result": {"stats": {"count": "42"}}},
             )
@@ -408,11 +394,10 @@ class TestAggregateMode:
         assert route.called
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_aggregate_mode_avg_with_group_by(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """`aggregate='avg:priority'` + `group_by='state'` is forwarded to Stats."""
-        route = respx.get(f"{BASE_URL}/api/now/stats/incident").mock(
-            return_value=httpx.Response(
+        route = http_mock.get(f"{BASE_URL}/api/now/stats/incident").mock(
+            return_value=httpx2.Response(
                 200,
                 json={"result": [{"groupby_fields": [{"field": "state", "value": "1"}]}]},
             )
@@ -465,13 +450,12 @@ class TestResolveLabels:
     """ChoiceRegistry-backed label resolution against `encoded_query`."""
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_resolve_labels_appends_resolved_value(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
         """Each resolved label is ANDed into encoded_query as `field=value`."""
-        route = respx.get(f"{BASE_URL}/api/now/table/incident").mock(
-            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        route = http_mock.get(f"{BASE_URL}/api/now/table/incident").mock(
+            return_value=httpx2.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
         )
 
         choices = ChoiceRegistry(settings, auth_provider)
@@ -491,13 +475,12 @@ class TestResolveLabels:
         assert "active%3Dtrue%5Estate%3D1%5Epriority%3D2" in request_url
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_resolve_labels_passthrough_emits_warning(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
         """A non-numeric label that resolves to itself triggers a warning."""
-        respx.get(f"{BASE_URL}/api/now/table/incident").mock(
-            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        http_mock.get(f"{BASE_URL}/api/now/table/incident").mock(
+            return_value=httpx2.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
         )
 
         choices = ChoiceRegistry(settings, auth_provider)
@@ -593,11 +576,10 @@ class TestFieldValidation:
         return dictionary
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_unknown_field_warns(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """A filter on a non-existent column warns that results are unfiltered."""
-        respx.get(f"{BASE_URL}/api/now/table/u_custom").mock(
-            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        http_mock.get(f"{BASE_URL}/api/now/table/u_custom").mock(
+            return_value=httpx2.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
         )
         dictionary = self._stub_dictionary(settings, auth_provider, ["u_samaccountname", "u_member"])
 
@@ -613,11 +595,10 @@ class TestFieldValidation:
         assert len(warnings) == 1
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_known_field_no_warning(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """A filter on a real column produces no field-validation warning."""
-        respx.get(f"{BASE_URL}/api/now/table/u_custom").mock(
-            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        http_mock.get(f"{BASE_URL}/api/now/table/u_custom").mock(
+            return_value=httpx2.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
         )
         dictionary = self._stub_dictionary(settings, auth_provider, ["u_samaccountname", "u_member"])
 
@@ -629,11 +610,10 @@ class TestFieldValidation:
         assert "warnings" not in result
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_lookup_failure_skips_validation(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """A dictionary lookup error is swallowed; the query still succeeds."""
-        respx.get(f"{BASE_URL}/api/now/table/u_custom").mock(
-            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        http_mock.get(f"{BASE_URL}/api/now/table/u_custom").mock(
+            return_value=httpx2.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
         )
         from servicenow_mcp.tools._dictionary import DictionaryRegistry
 

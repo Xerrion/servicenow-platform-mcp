@@ -4,27 +4,27 @@ import json
 import time
 from unittest.mock import patch
 
-import httpx
+import httpx2
 import pytest
-import respx
+from pydantic import SecretStr
 
 from servicenow_mcp.auth import AccessToken, OAuthPKCEProvider
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
 from servicenow_mcp.errors import AuthError
 from servicenow_mcp.tool_errors import safe_tool_call
+from tests._mock_transport import http_mock
 
 
 BASE_URL = "https://test.service-now.com"
 TRANSACTION_ID = "0123456789abcdef0123456789abcdef"
 
 
-@respx.mock
 async def test_safe_evidence_reaches_tool_error_without_replay(settings: Settings) -> None:
     """Only selected diagnostics reach the error envelope; rejected tokens are discarded."""
     provider = OAuthPKCEProvider(settings)
-    provider._token = AccessToken("test-access", time.monotonic() + 3600)
-    route = respx.get(f"{BASE_URL}/api/now/table/incident").respond(
+    provider._token = AccessToken(value=SecretStr("test-access"), expires_at=time.monotonic() + 3600)
+    route = http_mock.get(f"{BASE_URL}/api/now/table/incident").respond(
         401,
         json={"error": {"message": "User Not Authenticated", "detail": "private customer data"}},
         headers={
@@ -44,11 +44,11 @@ async def test_safe_evidence_reaches_tool_error_without_replay(settings: Setting
 
     assert result["status"] == "error"
     message = result["error"]["message"]
-    assert '"message": "User Not Authenticated"' in message
-    assert '"scheme": "Bearer"' in message
-    assert '"error": "invalid_token"' in message
-    assert '"error_description": "The access token expired"' in message
-    assert f'"x-transaction-id": "{TRANSACTION_ID}"' in message
+    assert '"message":"User Not Authenticated"' in message
+    assert '"scheme":"Bearer"' in message
+    assert '"error":"invalid_token"' in message
+    assert '"error_description":"The access token expired"' in message
+    assert f'"x-transaction-id":"{TRANSACTION_ID}"' in message
     assert "private" not in message
     assert "test-access" not in message
     assert "not replayed" in message
@@ -56,14 +56,14 @@ async def test_safe_evidence_reaches_tool_error_without_replay(settings: Setting
     assert provider._token is None
 
 
-def _error(settings: Settings, response: httpx.Response) -> str:
-    response.request = httpx.Request(
+def _error(settings: Settings, response: httpx2.Response) -> str:
+    response.request = httpx2.Request(
         "GET",
         f"{BASE_URL}/api/now/table/incident?sysparm_query=private-query",
         headers={"Authorization": "Bearer test-access", "Cookie": "session=private-cookie"},
     )
     provider = OAuthPKCEProvider(settings)
-    provider._token = AccessToken("test-access", time.monotonic() + 3600)
+    provider._token = AccessToken(value=SecretStr("test-access"), expires_at=time.monotonic() + 3600)
     with pytest.raises(AuthError) as exc:
         ServiceNowClient(settings, provider)._raise_for_status(response)
     assert provider._token is None
@@ -72,8 +72,8 @@ def _error(settings: Settings, response: httpx.Response) -> str:
 
 @pytest.mark.parametrize("body", [b"", b"<html>private customer data</html>", b"\xff", b'{"error":'])
 def test_non_json_body_is_never_echoed(settings: Settings, body: bytes) -> None:
-    message = _error(settings, httpx.Response(401, content=body, headers={"WWW-Authenticate": "Basic"}))
-    assert '"scheme": "Basic"' in message
+    message = _error(settings, httpx2.Response(401, content=body, headers={"WWW-Authenticate": "Basic"}))
+    assert '"scheme":"Basic"' in message
     assert "private" not in message
     assert "<html>" not in message
     assert "HTTP 401" in message
@@ -84,7 +84,7 @@ def test_non_json_body_is_never_echoed(settings: Settings, body: bytes) -> None:
     [[], None, "private", {"error": "private"}, {"error": []}, {"error": {"message": ["private"]}}],
 )
 def test_unexpected_json_shape_is_not_echoed(settings: Settings, payload: object) -> None:
-    message = _error(settings, httpx.Response(401, content=json.dumps(payload)))
+    message = _error(settings, httpx2.Response(401, content=json.dumps(payload)))
     assert "private" not in message
     assert "HTTP 401" in message
 
@@ -107,7 +107,7 @@ def test_unexpected_json_shape_is_not_echoed(settings: Settings, payload: object
     ],
 )
 def test_hostile_message_and_description_are_omitted(settings: Settings, value: str) -> None:
-    response = httpx.Response(
+    response = httpx2.Response(
         401,
         json={"error": {"message": value}},
         headers={"WWW-Authenticate": f'Bearer error="invalid_token", error_description={json.dumps(value)}'},
@@ -130,11 +130,11 @@ def test_hostile_message_and_description_are_omitted(settings: Settings, value: 
     ],
 )
 def test_challenge_grammar(settings: Settings, header: str) -> None:
-    message = _error(settings, httpx.Response(401, headers={"WWW-Authenticate": header}))
-    assert '"scheme": "Bearer"' in message
+    message = _error(settings, httpx2.Response(401, headers={"WWW-Authenticate": header}))
+    assert '"scheme":"Bearer"' in message
     if "invalid_token" in header:
-        assert '"error": "invalid_token"' in message
-        assert '"error_description": "The access token expired"' in message
+        assert '"error":"invalid_token"' in message
+        assert '"error_description":"The access token expired"' in message
     assert "private" not in message
     assert "cHJpdmF0ZQ" not in message
 
@@ -142,7 +142,7 @@ def test_challenge_grammar(settings: Settings, header: str) -> None:
 def test_repeated_challenge_headers_and_escaped_value(settings: Settings) -> None:
     message = _error(
         settings,
-        httpx.Response(
+        httpx2.Response(
             401,
             headers=[
                 ("WWW-Authenticate", 'Basic realm="private"'),
@@ -150,9 +150,9 @@ def test_repeated_challenge_headers_and_escaped_value(settings: Settings) -> Non
             ],
         ),
     )
-    assert '"scheme": "Basic"' in message
-    assert '"scheme": "Bearer"' in message
-    assert '"error_description": "The access token expired"' in message
+    assert '"scheme":"Basic"' in message
+    assert '"scheme":"Bearer"' in message
+    assert '"error_description":"The access token expired"' in message
 
 
 @pytest.mark.parametrize(
@@ -172,9 +172,9 @@ def test_repeated_challenge_headers_and_escaped_value(settings: Settings) -> Non
     ],
 )
 def test_malformed_or_oversized_challenge_is_not_partly_trusted(settings: Settings, header: str) -> None:
-    message = _error(settings, httpx.Response(401, headers={"WWW-Authenticate": header}))
+    message = _error(settings, httpx2.Response(401, headers={"WWW-Authenticate": header}))
     assert '"scheme"' not in message
-    assert '"error": "invalid_token"' not in message
+    assert '"error":"invalid_token"' not in message
     assert "private" not in message
     assert all(" " <= char <= "~" for char in message)
     assert len(message) < 2048
@@ -182,15 +182,15 @@ def test_malformed_or_oversized_challenge_is_not_partly_trusted(settings: Settin
 
 @pytest.mark.parametrize("header", ["test-access", "Bearer test-access", 'Bearer error="test-access"'])
 def test_scheme_token68_and_unknown_error_cannot_leak(settings: Settings, header: str) -> None:
-    message = _error(settings, httpx.Response(401, headers={"WWW-Authenticate": header}))
+    message = _error(settings, httpx2.Response(401, headers={"WWW-Authenticate": header}))
     assert "test-access" not in message
 
 
 @pytest.mark.parametrize("name", ["X-Transaction-ID", "X-Request-ID", "X-Correlation-ID"])
 @pytest.mark.parametrize("value", [TRANSACTION_ID, "550e8400-e29b-41d4-a716-446655440000"])
 def test_explicit_trace_header_allowlist(settings: Settings, name: str, value: str) -> None:
-    message = _error(settings, httpx.Response(401, headers={name: value, "X-Arbitrary": "private"}))
-    assert f'"{name.lower()}": "{value}"' in message
+    message = _error(settings, httpx2.Response(401, headers={name: value, "X-Arbitrary": "private"}))
+    assert f'"{name.lower()}":"{value}"' in message
     assert "private" not in message
     assert "x-arbitrary" not in message
 
@@ -200,7 +200,7 @@ def test_explicit_trace_header_allowlist(settings: Settings, name: str, value: s
     ["test-access", "Bearer test-access", "customer@example.com", "1234\r\nprivate", "1234\x00", "a" * 10000],
 )
 def test_trace_header_values_are_not_free_text(settings: Settings, value: str) -> None:
-    message = _error(settings, httpx.Response(401, headers={"X-Request-ID": value}))
+    message = _error(settings, httpx2.Response(401, headers={"X-Request-ID": value}))
     assert value not in message
     assert '"x-request-id"' not in message
 
@@ -208,7 +208,7 @@ def test_trace_header_values_are_not_free_text(settings: Settings, value: str) -
 def test_duplicate_trace_header_is_omitted(settings: Settings) -> None:
     message = _error(
         settings,
-        httpx.Response(401, headers=[("X-Request-ID", TRANSACTION_ID), ("X-Request-ID", TRANSACTION_ID)]),
+        httpx2.Response(401, headers=[("X-Request-ID", TRANSACTION_ID), ("X-Request-ID", TRANSACTION_ID)]),
     )
     assert '"x-request-id"' not in message
 
@@ -217,9 +217,9 @@ def test_duplicate_trace_header_is_omitted(settings: Settings) -> None:
     "body", [b"[" * 2000 + b"]" * 2000, b'{"error":{"message":"Unauthorized"},"other":"' + b"x" * 10000 + b'"}']
 )
 def test_body_budget_and_depth_fail_closed(settings: Settings, body: bytes) -> None:
-    message = _error(settings, httpx.Response(401, content=body, headers={"WWW-Authenticate": "Bearer"}))
-    assert '"scheme": "Bearer"' in message
-    assert '"message": "Unauthorized"' not in message
+    message = _error(settings, httpx2.Response(401, content=body, headers={"WWW-Authenticate": "Bearer"}))
+    assert '"scheme":"Bearer"' in message
+    assert '"message":"Unauthorized"' not in message
     assert len(message) < 2048
 
 
@@ -228,13 +228,13 @@ def test_trace_shaped_secret_is_not_echoed(settings: Settings, source: str) -> N
     """A hex credential is still a credential when reflected into an allowed header."""
     provider = OAuthPKCEProvider(settings)
     provider._token = AccessToken(
-        TRANSACTION_ID if source == "access" else "test-access",
-        time.monotonic() + 3600,
+        value=SecretStr(TRANSACTION_ID if source == "access" else "test-access"),
+        expires_at=time.monotonic() + 3600,
     )
     if source == "client_id":
         settings.servicenow_oauth_client_id = TRANSACTION_ID
-    authorization = TRANSACTION_ID if source == "rejected" else provider._token.value
-    request = httpx.Request(
+    authorization = TRANSACTION_ID if source == "rejected" else provider._token.value.get_secret_value()
+    request = httpx2.Request(
         "GET",
         f"{BASE_URL}/api/now/table/incident",
         params={"sysparm_query": TRANSACTION_ID if source == "query" else "private-query"},
@@ -243,7 +243,7 @@ def test_trace_shaped_secret_is_not_echoed(settings: Settings, source: str) -> N
             "Cookie": f"session={TRANSACTION_ID}" if source == "cookie" else "session=private-cookie",
         },
     )
-    response = httpx.Response(
+    response = httpx2.Response(
         401,
         request=request,
         json={"error": {"message": "User Not Authenticated"}},
@@ -256,7 +256,7 @@ def test_trace_shaped_secret_is_not_echoed(settings: Settings, source: str) -> N
         ServiceNowClient(settings, provider)._raise_for_status(response)
     assert TRANSACTION_ID not in str(exc.value).lower()
     assert '"x-transaction-id"' not in str(exc.value)
-    assert '"message": "User Not Authenticated"' in str(exc.value)
+    assert '"message":"User Not Authenticated"' in str(exc.value)
     if source == "rejected":
         assert provider._token is not None
         assert provider._token.expires_at > 0
@@ -266,10 +266,10 @@ def test_trace_shaped_secret_is_not_echoed(settings: Settings, source: str) -> N
 
 def test_phrase_shaped_access_token_is_not_echoed(settings: Settings) -> None:
     provider = OAuthPKCEProvider(settings)
-    provider._token = AccessToken("Unauthorized", time.monotonic() + 3600)
-    response = httpx.Response(
+    provider._token = AccessToken(value=SecretStr("Unauthorized"), expires_at=time.monotonic() + 3600)
+    response = httpx2.Response(
         401,
-        request=httpx.Request("GET", BASE_URL, headers={"Authorization": "Bearer Unauthorized"}),
+        request=httpx2.Request("GET", BASE_URL, headers={"Authorization": "Bearer Unauthorized"}),
         json={"error": {"message": "Unauthorized"}},
     )
     with pytest.raises(AuthError) as exc:
@@ -283,7 +283,7 @@ def test_diagnostics_do_not_log_raw_response(settings: Settings, caplog: pytest.
     with patch("servicenow_mcp._client_transport.set_sentry_context") as context:
         message = _error(
             settings,
-            httpx.Response(
+            httpx2.Response(
                 401,
                 content=b"private-body",
                 headers={"WWW-Authenticate": 'Bearer error_description="private-header"'},
@@ -300,7 +300,7 @@ def test_diagnostics_do_not_log_raw_response(settings: Settings, caplog: pytest.
 def test_aggregate_header_budget_and_single_trace_id(settings: Settings) -> None:
     message = _error(
         settings,
-        httpx.Response(
+        httpx2.Response(
             401,
             headers=[("WWW-Authenticate", "Basic") for _ in range(1000)]
             + [(name, TRANSACTION_ID) for name in ("X-Transaction-ID", "X-Request-ID", "X-Correlation-ID")],
@@ -320,13 +320,13 @@ def test_largest_allowed_evidence_remains_bounded(settings: Settings) -> None:
     )
     message = _error(
         settings,
-        httpx.Response(
+        httpx2.Response(
             401,
             json={"error": {"message": "User Not Authenticated"}},
             headers={"WWW-Authenticate": ",".join([challenge] * 4), "X-Transaction-ID": "f" * 64},
         ),
     )
-    assert message.count('"scheme": "Bearer"') == 4
+    assert message.count('"scheme":"Bearer"') == 4
     assert message.count('"error_description"') == 4
     assert all(" " <= char <= "~" for char in message)
     assert len(message) < 2048

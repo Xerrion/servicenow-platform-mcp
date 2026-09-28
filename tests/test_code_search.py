@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
-import httpx
+import httpx2
 import pytest
-import respx
 
 from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.config import Settings
+from tests._mock_transport import http_mock
 from tests.helpers import decode_response, get_registered_tools, get_tool_functions
 
 
@@ -60,11 +60,10 @@ class TestCodeSearch:
         assert "correlation_id" not in properties
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_search_calls_code_search_api(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """Search action calls the ServiceNow Code Search API."""
-        route = respx.get(SEARCH_URL).mock(
-            return_value=httpx.Response(
+        route = http_mock.get(SEARCH_URL).mock(
+            return_value=httpx2.Response(
                 200,
                 json={
                     "result": {
@@ -95,7 +94,6 @@ class TestCodeSearch:
         assert route.calls.last.request.url.params["extended_matching"] == "false"
 
     @pytest.mark.parametrize("extended_matching", [False, True])
-    @respx.mock
     async def test_search_context_opt_in_preserves_platform_metadata(
         self, settings: Settings, auth_provider: OAuthPKCEProvider, extended_matching: bool
     ) -> None:
@@ -106,7 +104,7 @@ class TestCodeSearch:
             "warnings": ["Results truncated; narrow the table filter."],
             "has_more": True,
         }
-        route = respx.get(SEARCH_URL).mock(return_value=httpx.Response(200, json={"result": payload}))
+        route = http_mock.get(SEARCH_URL).mock(return_value=httpx2.Response(200, json={"result": payload}))
         tools = _register_and_get_tools(settings, auth_provider)
         result = decode_response(await tools["code_search"](term="foo", limit=100, extended_matching=extended_matching))
 
@@ -119,10 +117,9 @@ class TestCodeSearch:
         assert route.calls.last.request.url.params["extended_matching"] == str(extended_matching).lower()
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_search_passes_search_group(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """Search action forwards an optional Code Search group."""
-        route = respx.get(SEARCH_URL).mock(return_value=httpx.Response(200, json={"result": {}}))
+        route = http_mock.get(SEARCH_URL).mock(return_value=httpx2.Response(200, json={"result": {}}))
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["code_search"](
@@ -136,11 +133,10 @@ class TestCodeSearch:
         assert "search_group" in str(route.calls.last.request.url)
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_list_tables_calls_tables_api(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """list_tables action calls the Code Search tables endpoint."""
-        route = respx.get(TABLES_URL).mock(
-            return_value=httpx.Response(
+        route = http_mock.get(TABLES_URL).mock(
+            return_value=httpx2.Response(
                 200,
                 json={"result": {"tables": [{"name": "sys_script_include"}, {"name": "sys_script"}]}},
             )

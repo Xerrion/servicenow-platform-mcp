@@ -13,7 +13,7 @@ request deadline. Increasing the HTTP timeout does not increase that deadline.
 The CLI writes diagnostic events to stderr. Restart the full MCP process to
 load this behavior, then inspect its stderr in the agent host's server logs.
 No Sentry configuration is needed. Stdout remains reserved for MCP messages.
-Raw `httpx` and `httpcore` request logs are suppressed at INFO and DEBUG levels.
+Raw `httpx2` and `httpcore2` request logs are suppressed at INFO and DEBUG levels.
 
 Each decorated tool invocation has a random `trace_id`. Events include:
 
@@ -25,7 +25,7 @@ Each decorated tool invocation has a random `trace_id`. Events include:
   `write`, `pool`, or `unknown` for HTTPX timeouts, and `none` for other failures.
 
 Operation labels distinguish `dictionary`, `table_metadata`, `choices`,
-`documentation`, `records`, `aggregate`, `attachment`, `oauth`, and `other`.
+`documentation`, `records`, `aggregate`, `attachment`, and `other`.
 They do not disclose target table names, record IDs, URLs, query strings,
 headers, or record contents. The outbound `X-Correlation-ID` carries the tool's
 trace ID. It is not a ServiceNow transaction ID.

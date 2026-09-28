@@ -3,6 +3,7 @@
 from typing import Any
 
 from servicenow_mcp._client_transport import ServiceNowRequestClient
+from servicenow_mcp._json import dump_request_body
 from servicenow_mcp.query_builder import ServiceNowQuery
 from servicenow_mcp.validation import validate_identifier
 
@@ -113,8 +114,8 @@ class TableApiClient(ServiceNowRequestClient):
         """Create a record with the Table API."""
         response = await self._ensure_client().post(
             self._table_url(table),
-            headers=await self._headers(),
-            json=data,
+            headers={**await self._headers(), "Content-Type": "application/json"},
+            content=dump_request_body(data),
         )
         self._raise_for_status(response)
         return self._extract_json_result(response)
@@ -123,8 +124,8 @@ class TableApiClient(ServiceNowRequestClient):
         """Update a record with the Table API."""
         response = await self._ensure_client().patch(
             self._table_url(table, sys_id),
-            headers=await self._headers(),
-            json=data,
+            headers={**await self._headers(), "Content-Type": "application/json"},
+            content=dump_request_body(data),
         )
         self._raise_for_status(response)
         return self._extract_json_result(response)

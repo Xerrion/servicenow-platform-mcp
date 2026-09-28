@@ -271,6 +271,8 @@ policies and `MCP_TOOL_PACKAGE=readonly`.
 | HTTP 401 or `User Not Authenticated` | Authorize again on the next call. If the error continues, check scopes, REST API policies, and the user's access. |
 | HTTP 403                            | Check REST resource permissions, roles, table ACLs, and field ACLs. |
 | Configuration changes do not apply  | Restart the MCP server process. |
+| `No module named httpx2` in a source checkout | Run `uv sync --group dev` again. The server uses `httpx2`, not `httpx`. |
+| Write preview token not found after upgrade | Previews are memory-only. Create the preview again after the restart. |
 
 ## Security
 

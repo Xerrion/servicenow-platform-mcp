@@ -1,9 +1,9 @@
 """Tests for utility functions."""
 
 import json
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
-import httpx
+import httpx2
 import pytest
 
 from servicenow_mcp.errors import ForbiddenError
@@ -12,6 +12,10 @@ from servicenow_mcp.response import format_response, serialize
 from servicenow_mcp.tool_errors import safe_tool_call
 from servicenow_mcp.validation import resolve_ref_value, sanitize_query_value, validate_identifier, validate_sys_id
 from tests.helpers import decode_response
+
+
+# A lone surrogate has no UTF-8 encoding, so JSON serialization must fail.
+_UNENCODABLE = "\ud800"
 
 
 class TestFormatResponse:
@@ -86,30 +90,14 @@ class TestSerialize:
     """Test serialize function with JSON output and error-envelope fallback."""
 
     def test_serialize_returns_json_by_default(self) -> None:
-        """When json.dumps succeeds, serialize returns parseable JSON output."""
+        """A serializable payload returns parseable JSON output."""
         result = serialize({"key": "value"})
         parsed = decode_response(result)
         assert parsed["key"] == "value"
 
     def test_serialize_falls_back_to_error_envelope_on_json_failure(self) -> None:
-        """When json.dumps raises on the original data, serialize returns a JSON-encoded error envelope.
-
-        The original payload is intentionally NOT leaked through; the failure is
-        made visible via the error envelope (logged + reported to Sentry).
-        """
-        # An arbitrary object that json cannot encode (default=str converts it,
-        # so we patch json.dumps to force a TypeError on the first call only).
-        original_dumps = json.dumps
-        call_count = {"n": 0}
-
-        def faulty_dumps(*args: object, **kwargs: object) -> str:
-            call_count["n"] += 1
-            if call_count["n"] == 1:
-                raise TypeError("unsupported type")
-            return original_dumps(*args, **kwargs)  # type: ignore[arg-type]
-
-        with patch("servicenow_mcp.response.json.dumps", side_effect=faulty_dumps):
-            result = serialize({"key": "value"})
+        """An unserializable payload returns the error envelope without leaking data."""
+        result = serialize({"key": "value", "bad": _UNENCODABLE})
 
         parsed = json.loads(result)
         assert parsed["status"] == "error"
@@ -119,18 +107,7 @@ class TestSerialize:
 
     def test_serialize_fallback_does_not_promote_record_correlation_id(self) -> None:
         """Serialization failures do not copy record fields into the envelope."""
-        original_dumps = json.dumps
-        call_count = {"n": 0}
-
-        def faulty_dumps(*args: object, **kwargs: object) -> str:
-            call_count["n"] += 1
-            if call_count["n"] == 1:
-                raise TypeError("unsupported type")
-            return original_dumps(*args, **kwargs)  # type: ignore[arg-type]
-
-        record = {"correlation_id": "record-value", "k": "v"}
-        with patch("servicenow_mcp.response.json.dumps", side_effect=faulty_dumps):
-            result = serialize(record)
+        result = serialize({"correlation_id": "record-value", "k": "v", "bad": _UNENCODABLE})
 
         parsed = json.loads(result)
         assert parsed["status"] == "error"
@@ -139,19 +116,7 @@ class TestSerialize:
 
     def test_serialize_fallback_omits_correlation_id_when_absent(self) -> None:
         """When the input has no correlation_id, the envelope must not invent one."""
-        original_dumps = json.dumps
-        call_count = {"n": 0}
-
-        def faulty_dumps(*args: object, **kwargs: object) -> str:
-            call_count["n"] += 1
-            if call_count["n"] == 1:
-                raise TypeError("unsupported type")
-            return original_dumps(*args, **kwargs)  # type: ignore[arg-type]
-
-        with patch("servicenow_mcp.response.json.dumps", side_effect=faulty_dumps):
-            result = serialize({"key": "value"})
-
-        parsed = json.loads(result)
+        parsed = json.loads(serialize({"key": "value", "bad": _UNENCODABLE}))
         assert "correlation_id" not in parsed
 
 
@@ -454,9 +419,9 @@ class TestSafeToolCall:
 
     async def test_get_timeout_returns_query_narrowing_advice(self) -> None:
         async def fn() -> str:
-            raise httpx.ReadTimeout(
+            raise httpx2.ReadTimeout(
                 "private request details",
-                request=httpx.Request("GET", "https://test.service-now.com/api/now/table/incident"),
+                request=httpx2.Request("GET", "https://test.service-now.com/api/now/table/incident"),
             )
 
         result = await safe_tool_call(fn)
@@ -472,21 +437,21 @@ class TestSafeToolCall:
     @pytest.mark.parametrize(
         ("method", "timeout_type", "phase"),
         [
-            ("POST", httpx.ReadTimeout, "receiving the response"),
-            ("PATCH", httpx.WriteTimeout, "sending the request"),
-            ("DELETE", httpx.ConnectTimeout, "connecting"),
+            ("POST", httpx2.ReadTimeout, "receiving the response"),
+            ("PATCH", httpx2.WriteTimeout, "sending the request"),
+            ("DELETE", httpx2.ConnectTimeout, "connecting"),
         ],
     )
     async def test_mutation_timeout_requires_verification_before_retry(
         self,
         method: str,
-        timeout_type: type[httpx.TimeoutException],
+        timeout_type: type[httpx2.TimeoutException],
         phase: str,
     ) -> None:
         async def fn() -> str:
             raise timeout_type(
                 "private request details",
-                request=httpx.Request(method, "https://test.service-now.com/api/now/table/incident"),
+                request=httpx2.Request(method, "https://test.service-now.com/api/now/table/incident"),
             )
 
         result = await safe_tool_call(fn)
@@ -501,7 +466,7 @@ class TestSafeToolCall:
 
     async def test_timeout_without_request_has_no_query_advice(self) -> None:
         async def fn() -> str:
-            raise httpx.PoolTimeout("private request details")
+            raise httpx2.PoolTimeout("private request details")
 
         message = decode_response(await safe_tool_call(fn))["error"]["message"]
 
@@ -650,3 +615,30 @@ class TestValidateSysId:
     def test_empty_string(self) -> None:
         with pytest.raises(ValueError, match="Invalid sys_id"):
             validate_sys_id("")
+
+
+class TestValidationErrorTranslation:
+    """Pydantic validation failures never expose inputs or locations."""
+
+    async def test_validation_error_is_translated_without_inputs(self) -> None:
+        from unittest.mock import patch
+
+        from pydantic import BaseModel
+
+        class Probe(BaseModel):
+            secret_field: int
+
+        async def fn() -> str:
+            Probe.model_validate({"secret_field": "private-input-value"})
+            return ""
+
+        with patch("servicenow_mcp.tool_errors.sentry_capture") as capture:
+            result = await safe_tool_call(fn)
+        parsed = decode_response(result)
+        message = parsed["error"]["message"]
+        assert message == "Invalid Probe data (1 validation error)."
+        captured = capture.call_args.args[0]
+        assert type(captured) is ValueError
+        for leaked in ("private-input-value", "secret_field", "pydantic.dev"):
+            assert leaked not in result
+            assert leaked not in str(captured)

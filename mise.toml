@@ -1,0 +1,40 @@
+# Dev tools (ruff, ty, pytest) come from the uv.lock dev group, not from mise.
+[tools]
+python = "3.14"
+ruff = "latest"
+uv = "latest"
+
+[env]
+_.python.venv = { path = ".venv", create = false }
+
+[tasks.install]
+description = "Install project and dev dependencies"
+run = "uv sync --group dev"
+
+[tasks.lint]
+description = "Run ruff lint and format checks"
+run = ["uv run ruff check .", "uv run ruff format --check ."]
+
+[tasks.format]
+description = "Format and auto-fix with ruff"
+run = ["uv run ruff format .", "uv run ruff check --fix ."]
+
+[tasks.typecheck]
+description = "Run ty type checks (same scope as CI)"
+run = "uv run ty check src/"
+
+[tasks.test]
+description = "Run offline tests with coverage"
+run = "uv run pytest"
+
+[tasks.test-integration]
+description = "Run live integration tests (non-production instance only)"
+run = "uv run pytest -m integration"
+
+[tasks.build]
+description = "Build the distribution"
+run = "uv build"
+
+[tasks.check]
+description = "Run all CI checks"
+depends = ["lint", "typecheck", "test"]

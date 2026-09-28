@@ -5,13 +5,13 @@ from typing import cast
 from unittest.mock import AsyncMock, patch
 
 import pytest
-import respx
-from httpx import Response
+from httpx2 import Response
 
 from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.choices import ChoiceRegistry, _group_choice_records, _merge_with_defaults
 from servicenow_mcp.client import ServiceNowClientProvider
 from servicenow_mcp.config import Settings
+from tests._mock_transport import http_mock
 
 
 BASE_URL = "https://test.service-now.com"
@@ -98,16 +98,15 @@ class TestChoiceRegistryDefaults:
 
 
 class TestChoiceRegistryFetch:
-    """Test HTTP-fetching behavior using respx mocks."""
+    """Test HTTP-fetching behavior using the httpx2 mock transport."""
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_fetch_merges_instance_data_over_defaults(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
         """Instance data should override defaults while preserving non-overridden entries."""
         # Mock sys_choice response: override "open" value for incident.state
-        respx.get(f"{BASE_URL}/api/now/table/sys_choice").mock(
+        http_mock.get(f"{BASE_URL}/api/now/table/sys_choice").mock(
             return_value=Response(
                 200,
                 json={
@@ -134,10 +133,9 @@ class TestChoiceRegistryFetch:
         assert closed == "7"
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_fetch_only_happens_once(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """Repeated resolve() calls should only trigger one HTTP fetch."""
-        route = respx.get(f"{BASE_URL}/api/now/table/sys_choice").mock(
+        route = http_mock.get(f"{BASE_URL}/api/now/table/sys_choice").mock(
             return_value=Response(
                 200,
                 json={"result": []},
@@ -165,12 +163,11 @@ class TestChoiceRegistryFetch:
         client_factory.assert_not_called()
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_fetch_adds_custom_instance_values(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
         """Instance-only choices not in defaults should be available after fetch."""
-        respx.get(f"{BASE_URL}/api/now/table/sys_choice").mock(
+        http_mock.get(f"{BASE_URL}/api/now/table/sys_choice").mock(
             return_value=Response(
                 200,
                 json={
@@ -193,10 +190,9 @@ class TestChoiceRegistryFetch:
         assert result == "77"
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_concurrent_fetch_shares_load(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """Concurrent resolve() calls should share one HTTP fetch."""
-        route = respx.get(f"{BASE_URL}/api/now/table/sys_choice").mock(
+        route = http_mock.get(f"{BASE_URL}/api/now/table/sys_choice").mock(
             return_value=Response(
                 200,
                 json={"result": []},
@@ -219,10 +215,9 @@ class TestChoiceRegistryLabelNormalization:
     """Test label normalization behavior (spaces, case)."""
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_label_with_spaces_normalized(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """Labels with spaces should be stored as underscore-separated lowercase keys."""
-        respx.get(f"{BASE_URL}/api/now/table/sys_choice").mock(
+        http_mock.get(f"{BASE_URL}/api/now/table/sys_choice").mock(
             return_value=Response(
                 200,
                 json={
@@ -244,10 +239,9 @@ class TestChoiceRegistryLabelNormalization:
         assert result == "2"
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_label_case_insensitive(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """Labels like 'NEW' should be stored as the lowercase key 'new'."""
-        respx.get(f"{BASE_URL}/api/now/table/sys_choice").mock(
+        http_mock.get(f"{BASE_URL}/api/now/table/sys_choice").mock(
             return_value=Response(
                 200,
                 json={
@@ -269,10 +263,9 @@ class TestChoiceRegistryLabelNormalization:
         assert result == "1"
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_label_with_mixed_case_and_spaces(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """'Root Cause Analysis' should normalize to 'root_cause_analysis'."""
-        respx.get(f"{BASE_URL}/api/now/table/sys_choice").mock(
+        http_mock.get(f"{BASE_URL}/api/now/table/sys_choice").mock(
             return_value=Response(
                 200,
                 json={
@@ -350,7 +343,6 @@ class TestChoiceRegistryExceptionPaths:
     """Test async exception handling and edge cases in ChoiceRegistry."""
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_concurrent_waiter_shares_in_flight_load(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
@@ -364,7 +356,7 @@ class TestChoiceRegistryExceptionPaths:
             await gate.wait()
             return await original_fetch(self_inner)
 
-        respx.get(f"{BASE_URL}/api/now/table/sys_choice").mock(
+        http_mock.get(f"{BASE_URL}/api/now/table/sys_choice").mock(
             return_value=Response(
                 200,
                 json={"result": []},
@@ -391,12 +383,11 @@ class TestChoiceRegistryExceptionPaths:
         assert results[1] == "7"  # "closed" from defaults
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_ensure_fetched_falls_back_on_fetch_error(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
         """When _fetch_from_instance raises, the registry should fall back to OOTB defaults."""
-        respx.get(f"{BASE_URL}/api/now/table/sys_choice").mock(
+        http_mock.get(f"{BASE_URL}/api/now/table/sys_choice").mock(
             return_value=Response(500, json={"error": {"message": "Internal Server Error"}})
         )
 

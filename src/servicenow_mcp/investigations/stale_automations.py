@@ -8,6 +8,7 @@ from servicenow_mcp.investigation_helpers import (
     fetch_and_explain,
     parse_int_param,
 )
+from servicenow_mcp.investigations._models import ParamSpec, RecordFinding, param_specs
 from servicenow_mcp.policy import check_table_access, mask_sensitive_fields
 from servicenow_mcp.query_builder import ServiceNowQuery
 
@@ -20,10 +21,10 @@ _ALLOWED_TABLES = {
 }
 
 
-PARAMS: Final[dict[str, dict[str, Any]]] = {
-    "stale_days": {"type": "int", "default": 30, "description": "Days to consider stale."},
-    "limit": {"type": "int", "default": 20, "description": "Max findings per category."},
-}
+PARAMS: Final[dict[str, dict[str, Any]]] = param_specs(
+    stale_days=ParamSpec(type="int", default=30, description="Days to consider stale."),
+    limit=ParamSpec(type="int", default=20, description="Max findings per category."),
+)
 
 
 async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any]:
@@ -56,12 +57,12 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
     for rec in flow_result["records"]:
         masked_rec = mask_sensitive_fields(rec)
         findings.append(
-            {
-                "category": "stuck_flow",
-                "element_id": f"sys_flow_context:{masked_rec.get('sys_id', '')}",
-                "name": masked_rec.get("name", ""),
-                "detail": f"Flow stuck in IN_PROGRESS since {masked_rec.get('sys_created_on', '')}",
-            }
+            RecordFinding(
+                category="stuck_flow",
+                element_id=f"sys_flow_context:{masked_rec.get('sys_id', '')}",
+                name=masked_rec.get("name", ""),
+                detail=f"Flow stuck in IN_PROGRESS since {masked_rec.get('sys_created_on', '')}",
+            ).to_payload()
         )
 
     # 2. Disabled business rules
@@ -76,12 +77,12 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
     for rec in br_result["records"]:
         masked_rec = mask_sensitive_fields(rec)
         findings.append(
-            {
-                "category": "disabled_business_rule",
-                "element_id": f"sys_script:{masked_rec.get('sys_id', '')}",
-                "name": masked_rec.get("name", ""),
-                "detail": f"Disabled BR on table '{masked_rec.get('collection', '')}'",
-            }
+            RecordFinding(
+                category="disabled_business_rule",
+                element_id=f"sys_script:{masked_rec.get('sys_id', '')}",
+                name=masked_rec.get("name", ""),
+                detail=f"Disabled BR on table '{masked_rec.get('collection', '')}'",
+            ).to_payload()
         )
 
     # 3. Disabled script includes
@@ -96,12 +97,12 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
     for rec in si_result["records"]:
         masked_rec = mask_sensitive_fields(rec)
         findings.append(
-            {
-                "category": "disabled_script_include",
-                "element_id": f"sys_script_include:{masked_rec.get('sys_id', '')}",
-                "name": masked_rec.get("name", ""),
-                "detail": f"Disabled script include '{masked_rec.get('api_name', '')}'",
-            }
+            RecordFinding(
+                category="disabled_script_include",
+                element_id=f"sys_script_include:{masked_rec.get('sys_id', '')}",
+                name=masked_rec.get("name", ""),
+                detail=f"Disabled script include '{masked_rec.get('api_name', '')}'",
+            ).to_payload()
         )
 
     # 4. Stale scheduled jobs (repeating triggers with no recent activity)
@@ -122,16 +123,16 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
     for rec in sj_result["records"]:
         masked_rec = mask_sensitive_fields(rec)
         findings.append(
-            {
-                "category": "stale_scheduled_job",
-                "element_id": f"sys_trigger:{masked_rec.get('sys_id', '')}",
-                "name": masked_rec.get("name", ""),
-                "detail": (
+            RecordFinding(
+                category="stale_scheduled_job",
+                element_id=f"sys_trigger:{masked_rec.get('sys_id', '')}",
+                name=masked_rec.get("name", ""),
+                detail=(
                     f"Scheduled trigger '{masked_rec.get('name', '?')}' "
                     f"last activity {masked_rec.get('sys_updated_on', 'unknown')}, "
                     f"next_action={masked_rec.get('next_action', 'none')}"
                 ),
-            }
+            ).to_payload()
         )
 
     return build_investigation_result(

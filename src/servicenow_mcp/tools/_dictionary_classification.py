@@ -43,9 +43,13 @@ def classify_script_field(field: DictionaryField) -> ScriptField | None:
     if field.name in EXCLUDED_ELEMENTS:
         return None
     if field.internal_type in UNAMBIGUOUS_SCRIPT_TYPES:
-        return ScriptField(field.name, field.internal_type, field.inherited_from, False)
+        return ScriptField(
+            name=field.name, internal_type=field.internal_type, inherited_from=field.inherited_from, via_heuristic=False
+        )
     if field.internal_type in _HEURISTIC_TYPES and attributes_admit_heuristic(field.attributes):
-        return ScriptField(field.name, field.internal_type, field.inherited_from, True)
+        return ScriptField(
+            name=field.name, internal_type=field.internal_type, inherited_from=field.inherited_from, via_heuristic=True
+        )
     return None
 
 

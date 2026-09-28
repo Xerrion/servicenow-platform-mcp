@@ -2,7 +2,7 @@
 
 from typing import Any
 
-import httpx
+import httpx2
 
 from servicenow_mcp._client_transport import ServiceNowRequestClient
 from servicenow_mcp.errors import ServerError, ServiceNowMCPError
@@ -12,7 +12,7 @@ from servicenow_mcp.validation import validate_identifier, validate_sys_id
 class CmdbApiClient(ServiceNowRequestClient):
     """Read configuration items, relationships, and class metadata."""
 
-    def _cmdb_object(self, response: httpx.Response) -> dict[str, Any]:
+    def _cmdb_object(self, response: httpx2.Response) -> dict[str, Any]:
         """Validate a CMDB object, including errors returned inside HTTP 200."""
         self._raise_for_status(response)
         result = self._extract_json_result(response)

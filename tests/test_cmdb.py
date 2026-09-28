@@ -2,15 +2,15 @@
 
 from typing import Any
 
-import httpx
+import httpx2
 import pytest
-import respx
 from mcp.server import MCPServer
 from mcp.types import CallToolResult
 
 from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.tools.cmdb import register_tools
+from tests._mock_transport import http_mock
 from tests.helpers import decode_response
 
 
@@ -29,9 +29,10 @@ async def _call(settings: Settings, **arguments: Any) -> dict[str, Any]:
 
 
 @pytest.mark.parametrize("null_defaults", [False, True])
-@respx.mock
 async def test_query_caps_and_paginates_without_inventing_a_total(settings: Settings, null_defaults: bool) -> None:
-    route = respx.get(f"{BASE}/instance/cmdb_ci").respond(200, json={"result": [{"sys_id": SYS_ID, "name": "Example"}]})
+    route = http_mock.get(f"{BASE}/instance/cmdb_ci").respond(
+        200, json={"result": [{"sys_id": SYS_ID, "name": "Example"}]}
+    )
     response = await _call(
         settings,
         action="query",
@@ -50,14 +51,13 @@ async def test_query_caps_and_paginates_without_inventing_a_total(settings: Sett
 
 
 @pytest.mark.parametrize("action", ["get", "meta"])
-@respx.mock
 async def test_ci_relationships_and_class_metadata_are_preserved_and_masked(settings: Settings, action: str) -> None:
     path = f"instance/cmdb_ci/{SYS_ID}" if action == "get" else "meta/cmdb_ci"
     payload = {
         "attributes": {"name": "Example", "password": "fixture-secret"},
         "inbound_relations": [{"target": {"value": "b" * 32, "api_key": "fixture-secret"}}],
     }
-    route = respx.get(f"{BASE}/{path}").respond(200, json={"result": payload})
+    route = http_mock.get(f"{BASE}/{path}").respond(200, json={"result": payload})
     response = await _call(settings, action=action, class_name="cmdb_ci", sys_id=SYS_ID if action == "get" else None)
     assert response["status"] == "success"
     assert response["data"]["attributes"] == {"name": "Example", "password": "***MASKED***"}
@@ -78,32 +78,28 @@ async def test_ci_relationships_and_class_metadata_are_preserved_and_masked(sett
         {"action": "query", "class_name": "cmdb_ci", "offset": -1},
     ],
 )
-@respx.mock
 async def test_invalid_or_denied_inputs_fail_before_http(settings: Settings, arguments: dict[str, Any]) -> None:
     response = await _call(settings, **arguments)
     assert response["status"] == "error"
-    assert not respx.calls
+    assert not http_mock.calls
 
 
-@respx.mock
 async def test_large_cmdb_classes_require_date_bounds(settings: Settings) -> None:
     settings = settings.model_copy(update={"large_table_names_csv": "cmdb_ci"})
     response = await _call(settings, action="query", class_name="cmdb_ci")
     assert response["status"] == "error"
     assert "date-bounded" in response["error"]["message"]
-    assert not respx.calls
+    assert not http_mock.calls
 
 
-@respx.mock
 async def test_describe_needs_no_class_or_http(settings: Settings) -> None:
     response = await _call(settings, action="describe")
     assert set(response["data"]["actions"]) == {"query", "get", "meta", "describe"}
-    assert not respx.calls
+    assert not http_mock.calls
 
 
-@respx.mock
 async def test_upstream_timeout_is_a_structured_error(settings: Settings) -> None:
-    route = respx.get(f"{BASE}/meta/cmdb_ci").mock(side_effect=httpx.ReadTimeout("private-detail"))
+    route = http_mock.get(f"{BASE}/meta/cmdb_ci").mock(side_effect=httpx2.ReadTimeout("private-detail"))
     response = await _call(settings, action="meta", class_name="cmdb_ci")
     assert response["status"] == "error"
     assert response["error"]["code"] == "UPSTREAM_TIMEOUT"
@@ -115,14 +111,13 @@ async def test_upstream_timeout_is_a_structured_error(settings: Settings) -> Non
     ("action", "result"),
     [("query", {}), ("meta", []), ("get", {"error": {"message": "private-detail"}})],
 )
-@respx.mock
 async def test_invalid_or_failed_cmdb_results_do_not_report_success(
     settings: Settings, action: str, result: Any
 ) -> None:
     path = "meta/cmdb_ci" if action == "meta" else "instance/cmdb_ci"
     if action == "get":
         path += f"/{SYS_ID}"
-    respx.get(f"{BASE}/{path}").respond(200, json={"result": result})
+    http_mock.get(f"{BASE}/{path}").respond(200, json={"result": result})
     response = await _call(settings, action=action, class_name="cmdb_ci", sys_id=SYS_ID)
     assert response["status"] == "error"
     assert "private-detail" not in str(response)

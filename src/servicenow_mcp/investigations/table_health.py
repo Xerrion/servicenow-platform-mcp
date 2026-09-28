@@ -5,6 +5,7 @@ from typing import Any, Final
 
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.investigation_helpers import build_investigation_result
+from servicenow_mcp.investigations._models import HealthIndicatorFinding, ParamSpec, param_specs
 from servicenow_mcp.policy import (
     INTERNAL_QUERY_LIMIT,
     check_table_access,
@@ -14,14 +15,10 @@ from servicenow_mcp.query_builder import ServiceNowQuery
 from servicenow_mcp.validation import validate_identifier
 
 
-PARAMS: Final[dict[str, dict[str, Any]]] = {
-    "table": {"type": "str", "required": True, "default": None, "description": "Table name to analyze."},
-    "hours": {
-        "type": "int|None",
-        "default": None,
-        "description": "Lookback window in hours; omit to query all history.",
-    },
-}
+PARAMS: Final[dict[str, dict[str, Any]]] = param_specs(
+    table=ParamSpec(type="str", required=True, default=None, description="Table name to analyze."),
+    hours=ParamSpec(type="int|None", default=None, description="Lookback window in hours; omit to query all history."),
+)
 
 
 async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any]:
@@ -124,7 +121,7 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
 
     return build_investigation_result(
         "table_health",
-        [{"category": "health_indicator", "detail": ind} for ind in health_indicators],
+        [HealthIndicatorFinding(detail=ind).to_payload() for ind in health_indicators],
         table=table,
         hours=hours,
         record_count=record_count,

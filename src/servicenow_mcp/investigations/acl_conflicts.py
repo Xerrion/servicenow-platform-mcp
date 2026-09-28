@@ -5,6 +5,7 @@ from typing import Any, Final
 
 from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.investigation_helpers import build_investigation_result, parse_element_id
+from servicenow_mcp.investigations._models import AclConflictFinding, AclRef, ParamSpec, param_specs
 from servicenow_mcp.policy import (
     INTERNAL_QUERY_LIMIT,
     check_table_access,
@@ -14,9 +15,9 @@ from servicenow_mcp.query_builder import ServiceNowQuery
 from servicenow_mcp.validation import validate_identifier
 
 
-PARAMS: Final[dict[str, dict[str, Any]]] = {
-    "table": {"type": "str", "required": True, "default": None, "description": "Table name to check."},
-}
+PARAMS: Final[dict[str, dict[str, Any]]] = param_specs(
+    table=ParamSpec(type="str", required=True, default=None, description="Table name to check."),
+)
 
 
 async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any]:
@@ -63,22 +64,21 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
         if len(group) >= 2:
             name, operation = key.split("|", 1)
             findings.append(
-                {
-                    "category": "acl_conflict",
-                    "name": name,
-                    "operation": operation,
-                    "count": len(group),
-                    "acls": [
-                        {
-                            "sys_id": a.get("sys_id", ""),
-                            "operation": a.get("operation", ""),
-                            "condition": a.get("condition", ""),
-                            "active": a.get("active", ""),
-                        }
+                AclConflictFinding(
+                    name=name,
+                    operation=operation,
+                    count=len(group),
+                    acls=[
+                        AclRef(
+                            sys_id=a.get("sys_id", ""),
+                            operation=a.get("operation", ""),
+                            condition=a.get("condition", ""),
+                            active=a.get("active", ""),
+                        )
                         for a in group
                     ],
-                    "detail": f"ACL '{name}' (operation: {operation}) has {len(group)} overlapping rules with different conditions",
-                }
+                    detail=f"ACL '{name}' (operation: {operation}) has {len(group)} overlapping rules with different conditions",
+                ).to_payload()
             )
 
     return build_investigation_result(

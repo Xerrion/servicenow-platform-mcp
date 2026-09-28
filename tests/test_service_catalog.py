@@ -6,13 +6,13 @@ import json
 from typing import Any
 
 import pytest
-import respx
-from httpx import Response
+from httpx2 import Response
 from mcp.server import MCPServer
 
 from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.tools.service_catalog import register_tools
+from tests._mock_transport import http_mock
 from tests.helpers import decode_response, get_tool_functions
 
 
@@ -47,10 +47,9 @@ class TestCatalogsList:
     """Tests for action='catalogs_list'."""
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_list_defaults(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """List catalogs with default parameters."""
-        respx.get(f"{SC_BASE}/catalogs").mock(
+        http_mock.get(f"{SC_BASE}/catalogs").mock(
             return_value=Response(
                 200,
                 json={
@@ -70,26 +69,24 @@ class TestCatalogsList:
         assert result["data"][0]["title"] == "Service Catalog"
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_list_with_text_filter(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """text parameter is forwarded to the API."""
-        respx.get(f"{SC_BASE}/catalogs").mock(return_value=Response(200, json={"result": []}))
+        http_mock.get(f"{SC_BASE}/catalogs").mock(return_value=Response(200, json={"result": []}))
 
         tools = _register_and_get_tools(settings, auth_provider)
         await tools["service_catalog"](action="catalogs_list", text="hardware")
 
-        assert "sysparm_text=hardware" in str(respx.calls.last.request.url)
+        assert "sysparm_text=hardware" in str(http_mock.calls.last.request.url)
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_list_with_limit(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """limit parameter is forwarded."""
-        respx.get(f"{SC_BASE}/catalogs").mock(return_value=Response(200, json={"result": []}))
+        http_mock.get(f"{SC_BASE}/catalogs").mock(return_value=Response(200, json={"result": []}))
 
         tools = _register_and_get_tools(settings, auth_provider)
         await tools["service_catalog"](action="catalogs_list", limit=5)
 
-        assert "sysparm_limit=5" in str(respx.calls.last.request.url)
+        assert "sysparm_limit=5" in str(http_mock.calls.last.request.url)
 
 
 # ---------------------------------------------------------------------------
@@ -101,11 +98,10 @@ class TestCatalogGet:
     """Tests for action='catalog_get'."""
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_get_catalog(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """Fetch one catalog by sys_id."""
         sys_id = "a" * 32
-        respx.get(f"{SC_BASE}/catalogs/{sys_id}").mock(
+        http_mock.get(f"{SC_BASE}/catalogs/{sys_id}").mock(
             return_value=Response(200, json={"result": {"sys_id": sys_id, "title": "Service Catalog"}})
         )
 
@@ -133,10 +129,9 @@ class TestCategoriesList:
     """Tests for action='categories_list'."""
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_list_categories(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """List categories for a catalog."""
-        respx.get(f"{SC_BASE}/catalogs/{CATALOG_SYS_ID}/categories").mock(
+        http_mock.get(f"{SC_BASE}/catalogs/{CATALOG_SYS_ID}/categories").mock(
             return_value=Response(
                 200,
                 json={
@@ -157,35 +152,32 @@ class TestCategoriesList:
         assert len(result["data"]) == 2
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_pagination(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """limit / offset are forwarded."""
-        respx.get(f"{SC_BASE}/catalogs/{CATALOG_SYS_ID}/categories").mock(
+        http_mock.get(f"{SC_BASE}/catalogs/{CATALOG_SYS_ID}/categories").mock(
             return_value=Response(200, json={"result": []})
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
         await tools["service_catalog"](action="categories_list", catalog_sys_id=CATALOG_SYS_ID, limit=10, offset=5)
 
-        url = str(respx.calls.last.request.url)
+        url = str(http_mock.calls.last.request.url)
         assert "sysparm_limit=10" in url
         assert "sysparm_offset=5" in url
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_top_level_only(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """top_level_only=True is forwarded."""
-        respx.get(f"{SC_BASE}/catalogs/{CATALOG_SYS_ID}/categories").mock(
+        http_mock.get(f"{SC_BASE}/catalogs/{CATALOG_SYS_ID}/categories").mock(
             return_value=Response(200, json={"result": []})
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
         await tools["service_catalog"](action="categories_list", catalog_sys_id=CATALOG_SYS_ID, top_level_only=True)
 
-        assert "sysparm_top_level_only=true" in str(respx.calls.last.request.url)
+        assert "sysparm_top_level_only=true" in str(http_mock.calls.last.request.url)
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_invalid_catalog_sys_id_rejected(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """A catalog_sys_id that is not a 32-char hex string is rejected before any HTTP call."""
         tools = _register_and_get_tools(settings, auth_provider)
@@ -194,7 +186,7 @@ class TestCategoriesList:
         )
 
         assert result["status"] == "error"
-        assert len(respx.calls) == 0
+        assert len(http_mock.calls) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -206,11 +198,10 @@ class TestCategoryGet:
     """Tests for action='category_get'."""
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_get_category(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """Fetch one category by sys_id."""
         sys_id = "b" * 32
-        respx.get(f"{SC_BASE}/categories/{sys_id}").mock(
+        http_mock.get(f"{SC_BASE}/categories/{sys_id}").mock(
             return_value=Response(200, json={"result": {"sys_id": sys_id, "title": "Hardware"}})
         )
 
@@ -230,10 +221,9 @@ class TestItemsList:
     """Tests for action='items_list'."""
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_list_defaults(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """List items with defaults."""
-        respx.get(f"{SC_BASE}/items").mock(
+        http_mock.get(f"{SC_BASE}/items").mock(
             return_value=Response(
                 200,
                 json={
@@ -252,10 +242,9 @@ class TestItemsList:
         assert len(result["data"]) == 2
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_list_with_filters(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """text / catalog / category / limit / offset are all forwarded."""
-        respx.get(f"{SC_BASE}/items").mock(return_value=Response(200, json={"result": []}))
+        http_mock.get(f"{SC_BASE}/items").mock(return_value=Response(200, json={"result": []}))
 
         tools = _register_and_get_tools(settings, auth_provider)
         await tools["service_catalog"](
@@ -267,7 +256,7 @@ class TestItemsList:
             offset=5,
         )
 
-        url = str(respx.calls.last.request.url)
+        url = str(http_mock.calls.last.request.url)
         assert "sysparm_text=laptop" in url
         assert "sysparm_catalog=cat123" in url
         assert "sysparm_category=categ456" in url
@@ -284,11 +273,10 @@ class TestItemGet:
     """Tests for action='item_get'."""
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_get_item(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """Fetch one catalog item by sys_id."""
         sys_id = "c" * 32
-        respx.get(f"{SC_BASE}/items/{sys_id}").mock(
+        http_mock.get(f"{SC_BASE}/items/{sys_id}").mock(
             return_value=Response(200, json={"result": {"sys_id": sys_id, "name": "Laptop", "price": "$1200"}})
         )
 
@@ -308,11 +296,10 @@ class TestItemVariables:
     """Tests for action='item_variables'."""
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_get_variables(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """Fetch the form variables of a catalog item."""
         sys_id = "d" * 32
-        respx.get(f"{SC_BASE}/items/{sys_id}/variables").mock(
+        http_mock.get(f"{SC_BASE}/items/{sys_id}/variables").mock(
             return_value=Response(
                 200,
                 json={
@@ -341,10 +328,9 @@ class TestOrderNow:
     """Tests for action='order_now'."""
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_order_no_variables(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """Order an item without variables (writes succeed in dev)."""
-        respx.post(f"{SC_BASE}/items/{ITEM_SYS_ID}/order_now").mock(
+        http_mock.post(f"{SC_BASE}/items/{ITEM_SYS_ID}/order_now").mock(
             return_value=Response(200, json={"result": {"sys_id": "req123", "number": "REQ0010001"}})
         )
 
@@ -355,10 +341,9 @@ class TestOrderNow:
         assert result["data"]["number"] == "REQ0010001"
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_order_with_variables(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """Order an item with variables JSON (validate_keys=False allows arbitrary names)."""
-        respx.post(f"{SC_BASE}/items/{ITEM_SYS_ID}/order_now").mock(
+        http_mock.post(f"{SC_BASE}/items/{ITEM_SYS_ID}/order_now").mock(
             return_value=Response(200, json={"result": {"sys_id": "req123", "number": "REQ0010001"}})
         )
 
@@ -368,7 +353,10 @@ class TestOrderNow:
         )
 
         assert result["status"] == "success"
-        assert json.loads(respx.calls.last.request.content) == {"sysparm_quantity": "1", "variables": {"urgency": "1"}}
+        assert json.loads(http_mock.calls.last.request.content) == {
+            "sysparm_quantity": "1",
+            "variables": {"urgency": "1"},
+        }
 
     @pytest.mark.asyncio()
     async def test_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: OAuthPKCEProvider) -> None:
@@ -380,7 +368,6 @@ class TestOrderNow:
         assert "production" in result["error"]["message"].lower()
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_invalid_item_sys_id_rejected(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """An item_sys_id that is not a 32-char hex string is rejected before any HTTP call."""
         tools = _register_and_get_tools(settings, auth_provider)
@@ -389,7 +376,7 @@ class TestOrderNow:
         )
 
         assert result["status"] == "error"
-        assert len(respx.calls) == 0
+        assert len(http_mock.calls) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -401,10 +388,9 @@ class TestAddToCart:
     """Tests for action='add_to_cart'."""
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_add_no_variables(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """Add an item to cart (writes succeed in dev)."""
-        respx.post(f"{SC_BASE}/items/{ITEM_SYS_ID}/add_to_cart").mock(
+        http_mock.post(f"{SC_BASE}/items/{ITEM_SYS_ID}/add_to_cart").mock(
             return_value=Response(200, json={"result": {"cart_item_id": "ci123", "item_id": ITEM_SYS_ID}})
         )
 
@@ -415,10 +401,9 @@ class TestAddToCart:
         assert result["data"]["cart_item_id"] == "ci123"
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_add_with_variables(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """Variables JSON with arbitrary keys is accepted (validate_keys=False)."""
-        respx.post(f"{SC_BASE}/items/{ITEM_SYS_ID}/add_to_cart").mock(
+        http_mock.post(f"{SC_BASE}/items/{ITEM_SYS_ID}/add_to_cart").mock(
             return_value=Response(200, json={"result": {"cart_item_id": "ci123"}})
         )
 
@@ -432,7 +417,10 @@ class TestAddToCart:
         )
 
         assert result["status"] == "success"
-        assert json.loads(respx.calls.last.request.content) == {"sysparm_quantity": "1", "variables": {"quantity": "2"}}
+        assert json.loads(http_mock.calls.last.request.content) == {
+            "sysparm_quantity": "1",
+            "variables": {"quantity": "2"},
+        }
 
     @pytest.mark.asyncio()
     async def test_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: OAuthPKCEProvider) -> None:
@@ -444,14 +432,13 @@ class TestAddToCart:
         assert "production" in result["error"]["message"].lower()
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_invalid_item_sys_id_rejected(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """An item_sys_id that is not a 32-char hex string is rejected before any HTTP call."""
         tools = _register_and_get_tools(settings, auth_provider)
         result = decode_response(await tools["service_catalog"](action="add_to_cart", item_sys_id="bad; DROP"))
 
         assert result["status"] == "error"
-        assert len(respx.calls) == 0
+        assert len(http_mock.calls) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -463,10 +450,9 @@ class TestCartGet:
     """Tests for action='cart_get'."""
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_get_cart(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """Retrieve the caller's cart."""
-        respx.get(f"{SC_BASE}/cart").mock(
+        http_mock.get(f"{SC_BASE}/cart").mock(
             return_value=Response(
                 200,
                 json={
@@ -494,10 +480,9 @@ class TestCartSubmit:
     """Tests for action='cart_submit'."""
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_submit_cart(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """Submit the cart (writes succeed in dev)."""
-        respx.post(f"{SC_BASE}/cart/submit_order").mock(
+        http_mock.post(f"{SC_BASE}/cart/submit_order").mock(
             return_value=Response(
                 200,
                 json={"result": {"request_number": "REQ0010001", "request_id": "req123"}},
@@ -529,10 +514,9 @@ class TestCartCheckout:
     """Tests for action='cart_checkout'."""
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_checkout(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """Two-step checkout (writes succeed in dev)."""
-        respx.post(f"{SC_BASE}/cart/checkout").mock(
+        http_mock.post(f"{SC_BASE}/cart/checkout").mock(
             return_value=Response(
                 200,
                 json={"result": {"request_number": "REQ0010002", "request_id": "req456"}},

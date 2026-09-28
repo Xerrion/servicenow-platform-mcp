@@ -7,12 +7,12 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
-import respx
 from mcp.server import MCPServer
 from mcp.types import CallToolResult
 
 from servicenow_mcp.config import Settings
 from servicenow_mcp.server import create_mcp_server
+from tests._mock_transport import http_mock
 from tests.helpers import decode_response, get_registered_tools
 
 
@@ -96,14 +96,13 @@ async def test_all_optional_schema_inputs_are_nullable_and_omittable(server: MCP
 
 @pytest.mark.parametrize("fill_null", [False, True])
 @pytest.mark.parametrize("commit", [False, True])
-@respx.mock(assert_all_called=False)
 async def test_create_needs_no_sys_id_and_null_keeps_preview_default(
-    server: MCPServer, fill_null: bool, commit: bool, respx_mock: respx.MockRouter
+    server: MCPServer, fill_null: bool, commit: bool
 ) -> None:
-    respx_mock.get(f"{TABLE_URL}/sys_dictionary").respond(200, json={"result": []})
-    respx_mock.get(f"{TABLE_URL}/sys_db_object").respond(200, json={"result": []})
+    http_mock.get(f"{TABLE_URL}/sys_dictionary").respond(200, json={"result": []})
+    http_mock.get(f"{TABLE_URL}/sys_db_object").respond(200, json={"result": []})
     payload = {"short_description": "Optional input regression", "assigned_to": None, "active": False}
-    created = respx_mock.post(f"{TABLE_URL}/sc_req_item").respond(200, json={"result": {"sys_id": SYS_ID, **payload}})
+    created = http_mock.post(f"{TABLE_URL}/sc_req_item").respond(200, json={"result": {"sys_id": SYS_ID, **payload}})
     args: dict[str, Any] = {"action": "create", "table": "sc_req_item", "data": json.dumps(payload)}
     if commit:
         args["preview"] = False
@@ -112,20 +111,20 @@ async def test_create_needs_no_sys_id_and_null_keeps_preview_default(
     if commit:
         assert created.call_count == 1
         assert json.loads(created.calls.last.request.content) == payload
+        assert created.calls.last.request.headers["content-type"] == "application/json"
     else:
         assert response["data"]["preview_token"]
         assert response["data"]["preview"]["data"] == payload
         assert not created.called
-        assert all(call.request.method == "GET" for call in respx_mock.calls)
+        assert all(call.request.method == "GET" for call in http_mock.calls)
 
 
 @pytest.mark.parametrize("fill_null", [False, True])
 @pytest.mark.parametrize("since", [None, "2026-09-15"])
-@respx.mock
 async def test_history_needs_no_irrelevant_fields_and_keeps_window_and_limit_defaults(
     server: MCPServer, settings: Settings, fill_null: bool, since: str | None
 ) -> None:
-    route = respx.get(f"{TABLE_URL}/sys_audit").respond(200, json={"result": []})
+    route = http_mock.get(f"{TABLE_URL}/sys_audit").respond(200, json={"result": []})
     args: dict[str, Any] = {"action": "history", "table": "sys_script", "sys_id": SYS_ID}
     if since is not None:
         args["since"] = since
@@ -160,14 +159,13 @@ async def test_history_needs_no_irrelevant_fields_and_keeps_window_and_limit_def
         ("code_search", {"action": ""}, "Unknown action"),
     ],
 )
-@respx.mock
 async def test_null_does_not_bypass_action_requirements_or_explicit_values(
     server: MCPServer, fill_null: bool, tool: str, arguments: dict[str, Any], error: str
 ) -> None:
     response = await _call(server, tool, arguments, fill_null=fill_null)
     assert response["status"] == "error"
     assert error in response["error"]["message"]
-    assert not respx.calls
+    assert not http_mock.calls
 
 
 @pytest.mark.parametrize("fill_null", [False, True])
@@ -187,41 +185,39 @@ async def test_null_does_not_bypass_action_requirements_or_explicit_values(
         ("code_search", {"term": "current.update"}),
     ],
 )
-@respx.mock(assert_all_called=False)
 async def test_optional_inputs_reach_all_read_tool_handlers(
-    server: MCPServer, fill_null: bool, tool: str, arguments: dict[str, Any], respx_mock: respx.MockRouter
+    server: MCPServer, fill_null: bool, tool: str, arguments: dict[str, Any]
 ) -> None:
     dictionary = [
         {"element": name, "internal_type.name": "journal_input", "mandatory": "false"}
         for name in ("comments", "work_notes")
     ]
-    respx_mock.get(f"{TABLE_URL}/sys_dictionary").respond(200, json={"result": dictionary})
-    respx_mock.get(f"{TABLE_URL}/sys_db_object").respond(200, json={"result": []})
-    respx_mock.get(f"{TABLE_URL}/sys_choice").respond(200, json={"result": []})
-    respx_mock.get(f"{TABLE_URL}/sys_documentation").respond(200, json={"result": []})
-    respx_mock.get(f"{TABLE_URL}/incident/{SYS_ID}").respond(200, json={"result": {"sys_id": SYS_ID}})
-    respx_mock.get(f"{TABLE_URL}/incident").respond(200, json={"result": [{"sys_id": SYS_ID}]})
-    respx_mock.get(f"{TABLE_URL}/sys_journal_field").respond(200, json={"result": []})
-    respx_mock.get(f"{BASE_URL}/api/now/attachment").respond(200, json={"result": []})
-    respx_mock.get(f"{BASE_URL}/api/now/stats/sys_audit").respond(200, json={"result": {"stats": {"count": "0"}}})
-    respx_mock.get(f"{BASE_URL}/api/sn_sc/servicecatalog/items").respond(200, json={"result": []})
-    respx_mock.get(f"{BASE_URL}/api/sn_codesearch/code_search/search").respond(200, json={"result": {}})
+    http_mock.get(f"{TABLE_URL}/sys_dictionary").respond(200, json={"result": dictionary})
+    http_mock.get(f"{TABLE_URL}/sys_db_object").respond(200, json={"result": []})
+    http_mock.get(f"{TABLE_URL}/sys_choice").respond(200, json={"result": []})
+    http_mock.get(f"{TABLE_URL}/sys_documentation").respond(200, json={"result": []})
+    http_mock.get(f"{TABLE_URL}/incident/{SYS_ID}").respond(200, json={"result": {"sys_id": SYS_ID}})
+    http_mock.get(f"{TABLE_URL}/incident").respond(200, json={"result": [{"sys_id": SYS_ID}]})
+    http_mock.get(f"{TABLE_URL}/sys_journal_field").respond(200, json={"result": []})
+    http_mock.get(f"{BASE_URL}/api/now/attachment").respond(200, json={"result": []})
+    http_mock.get(f"{BASE_URL}/api/now/stats/sys_audit").respond(200, json={"result": {"stats": {"count": "0"}}})
+    http_mock.get(f"{BASE_URL}/api/sn_sc/servicecatalog/items").respond(200, json={"result": []})
+    http_mock.get(f"{BASE_URL}/api/sn_codesearch/code_search/search").respond(200, json={"result": {}})
     for table in ("sys_hub_trigger_instance", "sys_hub_trigger_instance_v2"):
-        respx_mock.get(f"{TABLE_URL}/{table}").respond(200, json={"result": []})
+        http_mock.get(f"{TABLE_URL}/{table}").respond(200, json={"result": []})
     response = await _call(server, tool, arguments, fill_null=fill_null)
     assert response["status"] == "success", response
-    assert all(call.request.method == "GET" for call in respx_mock.calls)
+    assert all(call.request.method == "GET" for call in http_mock.calls)
     if tool == "query":
-        params = respx_mock.calls.last.request.url.params
+        params = http_mock.calls.last.request.url.params
         assert params["sysparm_limit"] == "20"
         assert params["sysparm_offset"] == "0"
         assert params["sysparm_display_value"] == "false"
 
 
 @pytest.mark.parametrize("fill_null", [False, True])
-@respx.mock
 async def test_attachment_upload_null_content_type_uses_default(server: MCPServer, fill_null: bool) -> None:
-    route = respx.post(f"{BASE_URL}/api/now/attachment/file").respond(200, json={"result": {"sys_id": SYS_ID}})
+    route = http_mock.post(f"{BASE_URL}/api/now/attachment/file").respond(200, json={"result": {"sys_id": SYS_ID}})
     response = await _call(
         server,
         "attachment_write",

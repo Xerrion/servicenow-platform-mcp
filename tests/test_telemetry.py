@@ -6,7 +6,7 @@ from contextlib import AbstractAsyncContextManager
 from typing import Any, Protocol, cast
 from unittest.mock import AsyncMock, patch
 
-import httpx
+import httpx2
 import pytest
 from mcp.server import MCPServer
 
@@ -17,7 +17,7 @@ from servicenow_mcp.telemetry import HttpTelemetry, TelemetryAsyncClient
 from tests.helpers import decode_response, get_tool_functions
 
 
-class _CloseTrackingAsyncClient(httpx.AsyncClient):
+class _CloseTrackingAsyncClient(httpx2.AsyncClient):
     """Track transport close calls without changing HTTPX behavior."""
 
     def __init__(self, **kwargs: Any) -> None:
@@ -51,9 +51,9 @@ def auth_provider(settings: Settings) -> OAuthPKCEProvider:
 @pytest.mark.asyncio()
 async def test_owned_client_closes_transport(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     """A directly constructed client closes the transport it creates."""
-    transport = AsyncMock(spec=httpx.AsyncClient)
+    transport = AsyncMock(spec=httpx2.AsyncClient)
 
-    with patch("servicenow_mcp._client_transport.httpx.AsyncClient", return_value=transport):
+    with patch("servicenow_mcp._client_transport.httpx2.AsyncClient", return_value=transport):
         async with ServiceNowClient(settings, auth_provider):
             pass
 
@@ -66,7 +66,7 @@ async def test_shared_client_reuses_transport_without_closing_it(
     auth_provider: OAuthPKCEProvider,
 ) -> None:
     """Separate ServiceNow client contexts reuse and do not close shared transport."""
-    transport = _CloseTrackingAsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(200)))
+    transport = _CloseTrackingAsyncClient(transport=httpx2.MockTransport(lambda request: httpx2.Response(200)))
     factory = ServiceNowClientFactory(settings, auth_provider, transport)
 
     async with factory() as first:
@@ -86,11 +86,11 @@ async def test_shared_transport_isolates_request_headers_and_records_telemetry(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Per-request headers stay isolated while bounded aggregates record both calls."""
-    requests: list[httpx.Request] = []
+    requests: list[httpx2.Request] = []
 
-    def handle(request: httpx.Request) -> httpx.Response:
+    def handle(request: httpx2.Request) -> httpx2.Response:
         requests.append(request)
-        return httpx.Response(
+        return httpx2.Response(
             200,
             headers={"Content-Length": "34"},
             json={"result": {"sys_id": "abc123"}},
@@ -101,7 +101,7 @@ async def test_shared_transport_isolates_request_headers_and_records_telemetry(
         telemetry=telemetry,
         is_shared_pool=True,
         timeout=settings.httpx_timeout_seconds,
-        transport=httpx.MockTransport(handle),
+        transport=httpx2.MockTransport(handle),
     )
     factory = ServiceNowClientFactory(settings, auth_provider, transport)
     headers = [
@@ -151,8 +151,8 @@ async def test_repeated_tool_calls_share_one_transport(
         telemetry=telemetry,
         is_shared_pool=True,
         timeout=settings.httpx_timeout_seconds,
-        transport=httpx.MockTransport(
-            lambda request: httpx.Response(
+        transport=httpx2.MockTransport(
+            lambda request: httpx2.Response(
                 200,
                 headers={"X-Total-Count": "1"},
                 json={"result": [{"sys_id": "abc123"}]},
@@ -180,18 +180,18 @@ async def test_repeated_tool_calls_share_one_transport(
 async def test_failed_request_records_bounded_telemetry(settings: Settings) -> None:
     """A transport failure increments failure totals without recording response data."""
 
-    def fail(request: httpx.Request) -> httpx.Response:
-        raise httpx.ConnectError("offline", request=request)
+    def fail(request: httpx2.Request) -> httpx2.Response:
+        raise httpx2.ConnectError("offline", request=request)
 
     telemetry = HttpTelemetry()
     transport = TelemetryAsyncClient(
         telemetry=telemetry,
         is_shared_pool=True,
-        transport=httpx.MockTransport(fail),
+        transport=httpx2.MockTransport(fail),
         timeout=settings.httpx_timeout_seconds,
     )
 
-    with pytest.raises(httpx.ConnectError):
+    with pytest.raises(httpx2.ConnectError):
         await transport.get("https://test.service-now.com/api/now/table/incident")
 
     snapshot = telemetry.snapshot()

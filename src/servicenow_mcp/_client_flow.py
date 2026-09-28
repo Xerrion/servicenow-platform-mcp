@@ -2,7 +2,7 @@
 
 from typing import Any
 
-import httpx
+import httpx2
 
 from servicenow_mcp._client_transport import ServiceNowRequestClient
 from servicenow_mcp.errors import NotFoundError, ServiceNowMCPError
@@ -14,7 +14,7 @@ from servicenow_mcp.validation import resolve_ref_value, sanitize_query_value, v
 class FlowDesignerApiClient(ServiceNowRequestClient):
     """Implement Flow Designer record discovery and bounded joins."""
 
-    def _raise_for_flow_read_status(self, response: httpx.Response) -> None:
+    def _raise_for_flow_read_status(self, response: httpx2.Response) -> None:
         """Require a completed Table API response for a Flow Designer read."""
         self._raise_for_status(response)
         if response.status_code != 200:

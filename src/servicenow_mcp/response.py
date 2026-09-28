@@ -1,24 +1,30 @@
 """MCP response formatting and serialization."""
 
-import json
 import logging
 from typing import Any
 
+from servicenow_mcp._json import JSON
 from servicenow_mcp.sentry import capture_exception as sentry_capture
 
 
 logger = logging.getLogger(__name__)
 
+# Exact legacy bytes: clients may match this failure envelope literally.
+SERIALIZATION_FAILED = '{"status": "error", "error": {"message": "Serialization failed"}}'
+
 
 def serialize(data: Any) -> str:
-    """Serialize *data* to a JSON string suitable for MCP tool output."""
+    """Serialize *data* to a compact UTF-8 JSON string suitable for MCP tool output.
+
+    Pydantic native types (datetime, date, UUID, Decimal) use ISO/JSON forms.
+    Types with no JSON form fall back to ``str()``.
+    """
     try:
-        return json.dumps(data, default=str, ensure_ascii=False, separators=(",", ":"))
+        return JSON.dump_json(data, fallback=str).decode("utf-8")
     except (TypeError, ValueError) as e:
         logger.warning("JSON serialization failed", exc_info=True)
         sentry_capture(e)
-        envelope: dict[str, Any] = {"status": "error", "error": {"message": "Serialization failed"}}
-        return json.dumps(envelope)
+        return SERIALIZATION_FAILED
 
 
 def format_response(

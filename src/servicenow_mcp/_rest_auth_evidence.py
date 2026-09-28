@@ -1,9 +1,11 @@
 """Bounded REST 401 evidence; unknown text is omitted, never partially echoed."""
 
-import json
 import re
 
-import httpx
+import httpx2
+from pydantic import ValidationError
+
+from servicenow_mcp._json import JSON
 
 
 _MAX_BODY_BYTES = 8192
@@ -51,12 +53,12 @@ def _safe_text(value: object) -> str:
     return _SAFE_TEXT.get(value.strip(" ").removesuffix(".").casefold(), _OMITTED)
 
 
-def _message(response: httpx.Response) -> str:
+def _message(response: httpx2.Response) -> str:
     if len(response.content) > _MAX_BODY_BYTES:
         return "[omitted: body exceeds 8192 bytes]"
     try:
-        body = response.json()
-    except (ValueError, UnicodeDecodeError, RecursionError):
+        body = JSON.validate_json(response.content)
+    except ValidationError:
         return "[omitted: non-JSON or malformed body]"
     if not isinstance(body, dict) or not isinstance(body.get("error"), dict):
         return "[omitted: no error.message]"
@@ -102,7 +104,7 @@ def _challenges(header: str) -> list[dict[str, str]] | None:
     return challenges
 
 
-def rest_auth_evidence(response: httpx.Response, sensitive_values: tuple[str, ...]) -> str:
+def rest_auth_evidence(response: httpx2.Response, sensitive_values: tuple[str, ...]) -> str:
     """Return safe 401 diagnostics, not raw bodies, headers, URLs or credentials.
 
     JSON error.message and challenge descriptions must match static phrases.
@@ -148,7 +150,8 @@ def rest_auth_evidence(response: httpx.Response, sensitive_values: tuple[str, ..
             continue
         evidence[name] = values[0]
         break
-    result = json.dumps(evidence, ensure_ascii=True)
+    # Allowlisted values are printable ASCII, so compact UTF-8 output equals ASCII output.
+    result = JSON.dump_json(evidence).decode("ascii")
     if any(secret and secret.casefold() in result.casefold() for secret in sensitive_values):
         return "[omitted: credential overlap]"
     return result

@@ -22,7 +22,7 @@ classifiers = [
 ]
 dependencies = [
     "mcp>=2.1.1",
-    "httpx>=0.28.1",
+    "httpx2>=2.12.0,<3",
     "pydantic>=2.13.5",
     "pydantic-settings>=2.15.0",
     "python-dotenv>=1.2.2",
@@ -53,13 +53,14 @@ asyncio_mode = "auto"
 addopts = "-m 'not integration' --cov=servicenow_mcp --cov-report=xml --cov-report=term-missing"
 markers = [
     "integration: tests that run against a live ServiceNow instance (requires .env.local credentials)",
+    "loopback: unit tests allowed to open loopback sockets",
+    "real_http: unit tests that use the real httpx2 transport against local fixtures",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=9.0.3",
     "pytest-asyncio>=1.3.0",
-    "respx>=0.21.0",
     "ruff>=0.16.5",
     "pytest-cov>=6.0.0",
     "basedpyright>=1.39.9",

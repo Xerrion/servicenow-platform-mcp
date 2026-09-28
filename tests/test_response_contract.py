@@ -4,7 +4,6 @@ import json
 from unittest.mock import patch
 
 import pytest
-import respx
 from mcp.server import MCPServer
 
 from servicenow_mcp.auth import OAuthPKCEProvider
@@ -14,6 +13,7 @@ from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.response import format_response
 from servicenow_mcp.tools.query import register_tools
 from servicenow_mcp.tools.service_catalog import register_tools as register_catalog_tools
+from tests._mock_transport import http_mock
 
 
 BASE_URL = "https://test.service-now.com"
@@ -58,7 +58,6 @@ async def test_query_schema_has_optional_inputs_without_empty_defaults(settings:
 @pytest.mark.parametrize(
     "mode", [{"fields": "*"}, {"fields": "correlation_id"}, {"aggregate": "count"}, {"sys_id": "a" * 32}]
 )
-@respx.mock
 async def test_query_mcp_calls_omit_empty_parameters(
     settings: Settings, empty: str | None, mode: dict[str, str]
 ) -> None:
@@ -67,7 +66,7 @@ async def test_query_mcp_calls_omit_empty_parameters(
     path = "stats/incident" if is_aggregate else "table/incident"
     if is_single:
         path += "/" + mode["sys_id"]
-    route = respx.get(f"{BASE_URL}/api/now/{path}").respond(200, json={"result": {} if is_single else []})
+    route = http_mock.get(f"{BASE_URL}/api/now/{path}").respond(200, json={"result": {} if is_single else []})
     mcp = MCPServer("test")
     register_tools(mcp, settings, OAuthPKCEProvider(settings))
     optional = (
@@ -95,10 +94,9 @@ async def test_query_mcp_calls_omit_empty_parameters(
 
 
 @pytest.mark.parametrize("empty", ["", None])
-@respx.mock
 async def test_client_omits_empty_query_parameters(settings: Settings, empty: str | None) -> None:
-    table = respx.get(f"{BASE_URL}/api/now/table/incident").respond(200, json={"result": []})
-    stats = respx.get(f"{BASE_URL}/api/now/stats/incident").respond(200, json={"result": {}})
+    table = http_mock.get(f"{BASE_URL}/api/now/table/incident").respond(200, json={"result": []})
+    stats = http_mock.get(f"{BASE_URL}/api/now/stats/incident").respond(200, json={"result": {}})
     async with ServiceNowClient(settings, OAuthPKCEProvider(settings)) as client:
         await client.query_records(
             "incident", empty, fields=[], order_by=empty, limit=5, offset=0, display_values=False
@@ -115,13 +113,12 @@ async def test_client_omits_empty_query_parameters(settings: Settings, empty: st
 @pytest.mark.parametrize("fields", ["explicit", "*"])
 @pytest.mark.parametrize("field_name", ["correlation_id", "selection"])
 @pytest.mark.parametrize("is_single", [False, True])
-@respx.mock
 async def test_query_preserves_record_metadata_fields(
     settings: Settings, fields: str, field_name: str, is_single: bool
 ) -> None:
     record = {"sys_id": "a" * 32, field_name: "record-value"}
     path = "table/incident" + ("/" + record["sys_id"] if is_single else "")
-    respx.get(f"{BASE_URL}/api/now/{path}").respond(200, json={"result": record if is_single else [record]})
+    http_mock.get(f"{BASE_URL}/api/now/{path}").respond(200, json={"result": record if is_single else [record]})
     mcp = MCPServer("test")
     register_tools(mcp, settings, OAuthPKCEProvider(settings))
     arguments = {"table": "incident", "fields": field_name if fields == "explicit" else fields}
@@ -138,10 +135,9 @@ async def test_query_preserves_record_metadata_fields(
 
 
 @pytest.mark.parametrize("empty", ["", None])
-@respx.mock
 async def test_catalog_client_omits_empty_filters(settings: Settings, empty: str | None) -> None:
-    catalogs = respx.get(f"{BASE_URL}/api/sn_sc/servicecatalog/catalogs").respond(200, json={"result": []})
-    items = respx.get(f"{BASE_URL}/api/sn_sc/servicecatalog/items").respond(200, json={"result": []})
+    catalogs = http_mock.get(f"{BASE_URL}/api/sn_sc/servicecatalog/catalogs").respond(200, json={"result": []})
+    items = http_mock.get(f"{BASE_URL}/api/sn_sc/servicecatalog/items").respond(200, json={"result": []})
     async with ServiceNowClient(settings, OAuthPKCEProvider(settings)) as client:
         await client.sc_get_catalogs(text=empty)
         await client.sc_get_items(text=empty, catalog=empty, category=empty, limit=5, offset=0)
@@ -163,10 +159,9 @@ async def test_catalog_schema_has_nullable_filters(settings: Settings) -> None:
 
 @pytest.mark.parametrize("empty", ["omitted", "", None])
 @pytest.mark.parametrize("action", ["catalogs_list", "items_list"])
-@respx.mock
 async def test_catalog_mcp_calls_omit_empty_filters(settings: Settings, empty: str | None, action: str) -> None:
     path = "catalogs" if action == "catalogs_list" else "items"
-    route = respx.get(f"{BASE_URL}/api/sn_sc/servicecatalog/{path}").respond(200, json={"result": []})
+    route = http_mock.get(f"{BASE_URL}/api/sn_sc/servicecatalog/{path}").respond(200, json={"result": []})
     mcp = MCPServer("test")
     register_catalog_tools(mcp, settings, OAuthPKCEProvider(settings))
     optional = {} if empty == "omitted" else dict.fromkeys(("text", "catalog", "category"), empty)
@@ -180,11 +175,10 @@ async def test_catalog_mcp_calls_omit_empty_filters(settings: Settings, empty: s
     assert dict(route.calls.last.request.url.params) == expected
 
 
-@respx.mock
 async def test_unfiltered_related_reads_omit_empty_queries(settings: Settings) -> None:
-    attachments = respx.get(f"{BASE_URL}/api/now/attachment").respond(200, json={"result": []})
+    attachments = http_mock.get(f"{BASE_URL}/api/now/attachment").respond(200, json={"result": []})
     triggers = [
-        respx.get(f"{BASE_URL}/api/now/table/{table}").respond(200, json={"result": []})
+        http_mock.get(f"{BASE_URL}/api/now/table/{table}").respond(200, json={"result": []})
         for table in ("sys_hub_trigger_instance", "sys_hub_trigger_instance_v2")
     ]
     async with ServiceNowClient(settings, OAuthPKCEProvider(settings)) as client:
@@ -196,7 +190,6 @@ async def test_unfiltered_related_reads_omit_empty_queries(settings: Settings) -
 
 
 @pytest.mark.parametrize("fields", [None, ""])
-@respx.mock
 async def test_null_or_empty_list_projection_still_fails_before_io(settings: Settings, fields: str | None) -> None:
     mcp = MCPServer("test")
     register_tools(mcp, settings, OAuthPKCEProvider(settings))
@@ -206,4 +199,4 @@ async def test_null_or_empty_list_projection_still_fails_before_io(settings: Set
     response = json.loads(result.structured_content["result"])
     assert response["status"] == "error"
     assert "fields is required" in response["error"]["message"]
-    assert not respx.calls
+    assert not http_mock.calls

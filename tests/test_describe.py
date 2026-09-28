@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
-import httpx
+import httpx2
 import pytest
-import respx
 
 from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.policy import DENIED_TABLES
+from tests._mock_transport import http_mock
 from tests.helpers import decode_response, get_tool_functions
 
 
@@ -43,8 +43,8 @@ class TestDescribe:
     @staticmethod
     def _mock_dictionary(total: int = 2) -> None:
         """Default sys_dictionary mock with two fields: number, state."""
-        respx.get(f"{BASE_URL}/api/now/table/sys_dictionary").mock(
-            return_value=httpx.Response(
+        http_mock.get(f"{BASE_URL}/api/now/table/sys_dictionary").mock(
+            return_value=httpx2.Response(
                 200,
                 json={
                     "result": [
@@ -82,8 +82,8 @@ class TestDescribe:
 
     @staticmethod
     def _mock_db_object() -> None:
-        respx.get(f"{BASE_URL}/api/now/table/sys_db_object").mock(
-            return_value=httpx.Response(
+        http_mock.get(f"{BASE_URL}/api/now/table/sys_db_object").mock(
+            return_value=httpx2.Response(
                 200,
                 json={
                     "result": [
@@ -103,8 +103,8 @@ class TestDescribe:
 
     @staticmethod
     def _mock_choices(records: list[dict[str, Any]] | None = None) -> None:
-        respx.get(f"{BASE_URL}/api/now/table/sys_choice").mock(
-            return_value=httpx.Response(
+        http_mock.get(f"{BASE_URL}/api/now/table/sys_choice").mock(
+            return_value=httpx2.Response(
                 200,
                 json={"result": records or []},
                 headers={"X-Total-Count": str(len(records or []))},
@@ -112,7 +112,6 @@ class TestDescribe:
         )
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_returns_slim_field_metadata(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """Default shape returns the 8-key slim per-field metadata."""
         self._mock_dictionary()
@@ -149,7 +148,6 @@ class TestDescribe:
         assert second["choice_count"] == 0
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_verbose_returns_full_dictionary_row(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
@@ -176,7 +174,6 @@ class TestDescribe:
         assert "pagination" not in result
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_fields_filter_narrows_results(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """fields= filter restricts the response and warns on unknown names."""
         self._mock_dictionary()
@@ -192,11 +189,10 @@ class TestDescribe:
         assert names == ["state"]
         assert any("priority" in w for w in result.get("warnings", []))
         assert "pagination" not in result
-        dictionary_call = next(call for call in respx.calls if call.request.url.path.endswith("/sys_dictionary"))
+        dictionary_call = next(call for call in http_mock.calls if call.request.url.path.endswith("/sys_dictionary"))
         assert "name%3Dincident" in str(dictionary_call.request.url)
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_compact_default_has_continuation_metadata(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
@@ -233,7 +229,6 @@ class TestDescribe:
         assert [field["name"] for field in result["data"]["fields"]] == ["field_10", "field_11"]
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_invalid_page_returns_error_without_io(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
@@ -242,10 +237,9 @@ class TestDescribe:
 
         assert result["status"] == "error"
         assert "field_limit" in result["error"]["message"]
-        assert not respx.calls
+        assert not http_mock.calls
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_include_docs_attaches_documentation(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
@@ -253,8 +247,8 @@ class TestDescribe:
         self._mock_dictionary()
         self._mock_db_object()
         self._mock_choices()
-        respx.get(f"{BASE_URL}/api/now/table/sys_documentation").mock(
-            return_value=httpx.Response(
+        http_mock.get(f"{BASE_URL}/api/now/table/sys_documentation").mock(
+            return_value=httpx2.Response(
                 200,
                 json={
                     "result": [
@@ -281,7 +275,6 @@ class TestDescribe:
         assert docs["state"]["help"] == "Lifecycle state of the incident."
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_choice_count_populated(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """choice_count reflects the batched sys_choice tally per element."""
         self._mock_dictionary()
@@ -304,15 +297,14 @@ class TestDescribe:
         assert by_name["number"]["choice_count"] == 0
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_choice_fetch_failure_does_not_break_describe(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
         """A failing sys_choice query degrades gracefully to choice_count=0 with a warning."""
         self._mock_dictionary()
         self._mock_db_object()
-        respx.get(f"{BASE_URL}/api/now/table/sys_choice").mock(
-            return_value=httpx.Response(500, json={"error": {"message": "boom"}})
+        http_mock.get(f"{BASE_URL}/api/now/table/sys_choice").mock(
+            return_value=httpx2.Response(500, json={"error": {"message": "boom"}})
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
@@ -336,14 +328,13 @@ class TestDescribe:
         assert "denied" in result["error"]["message"].lower()
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_omits_correlation_id(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """Response contains no internal correlation ID."""
-        respx.get(f"{BASE_URL}/api/now/table/sys_dictionary").mock(
-            return_value=httpx.Response(200, json={"result": []})
+        http_mock.get(f"{BASE_URL}/api/now/table/sys_dictionary").mock(
+            return_value=httpx2.Response(200, json={"result": []})
         )
-        respx.get(f"{BASE_URL}/api/now/table/sys_db_object").mock(
-            return_value=httpx.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+        http_mock.get(f"{BASE_URL}/api/now/table/sys_db_object").mock(
+            return_value=httpx2.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
         )
         self._mock_choices()
 
@@ -389,7 +380,7 @@ class TestDescribe:
         register_tools(mcp, settings, auth_provider, dictionary=dictionary)
         tools = get_tool_functions(mcp)
 
-        with respx.mock:
+        with http_mock:
             self._mock_db_object()
             self._mock_choices()
             result = decode_response(await tools["describe"](table="incident", fields="number,state"))
@@ -428,9 +419,9 @@ class TestDescribe:
         mcp = MCPServer("test")
         register_tools(mcp, settings, auth_provider, dictionary=dictionary)
         tools = get_tool_functions(mcp)
-        with respx.mock:
-            respx.get(f"{BASE_URL}/api/now/table/sys_db_object").mock(
-                return_value=httpx.Response(200, json={"result": [{"name": table}]})
+        with http_mock:
+            http_mock.get(f"{BASE_URL}/api/now/table/sys_db_object").mock(
+                return_value=httpx2.Response(200, json={"result": [{"name": table}]})
             )
             self._mock_choices()
             result = decode_response(await tools["describe"](table=table, fields="number"))
@@ -443,18 +434,17 @@ class TestListScriptFields:
     @staticmethod
     def _mock_super_class(parent: str = "") -> None:
         """Mock the sys_db_object lookup to return ``parent`` as super_class display value."""
-        respx.get(f"{BASE_URL}/api/now/table/sys_db_object").mock(
-            return_value=httpx.Response(200, json={"result": [{"super_class.name": parent}]}),
+        http_mock.get(f"{BASE_URL}/api/now/table/sys_db_object").mock(
+            return_value=httpx2.Response(200, json={"result": [{"super_class.name": parent}]}),
         )
 
     @staticmethod
     def _mock_dictionary_rows(rows: list[dict[str, str]]) -> None:
         """Mock the sys_dictionary fetch to return ``rows``."""
-        respx.get(f"{BASE_URL}/api/now/table/sys_dictionary").mock(
-            return_value=httpx.Response(200, json={"result": rows}),
+        http_mock.get(f"{BASE_URL}/api/now/table/sys_dictionary").mock(
+            return_value=httpx2.Response(200, json={"result": rows}),
         )
 
-    @respx.mock
     @pytest.mark.asyncio()
     async def test_returns_script_fields_for_table(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         self._mock_super_class("")
@@ -482,7 +472,6 @@ class TestListScriptFields:
             assert entry["via_heuristic"] is False
             assert entry["inherited_from"] is None
 
-    @respx.mock
     @pytest.mark.asyncio()
     async def test_missing_table_returns_error(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
@@ -491,7 +480,6 @@ class TestListScriptFields:
         assert result["status"] == "error"
         assert "table is required" in result["error"]["message"]
 
-    @respx.mock
     @pytest.mark.asyncio()
     async def test_unknown_action_returns_error(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
@@ -500,7 +488,6 @@ class TestListScriptFields:
         assert result["status"] == "error"
         assert "Unknown describe action" in result["error"]["message"]
 
-    @respx.mock
     @pytest.mark.asyncio()
     async def test_missing_table_without_action_returns_error(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
@@ -518,15 +505,14 @@ class TestListTables:
     @staticmethod
     def _mock_tables(rows: list[dict[str, Any]], total: int | None = None) -> None:
         """Mock the sys_db_object query to return ``rows`` with a total-count header."""
-        respx.get(f"{BASE_URL}/api/now/table/sys_db_object").mock(
-            return_value=httpx.Response(
+        http_mock.get(f"{BASE_URL}/api/now/table/sys_db_object").mock(
+            return_value=httpx2.Response(
                 200,
                 json={"result": rows},
                 headers={"X-Total-Count": str(total if total is not None else len(rows))},
             ),
         )
 
-    @respx.mock
     @pytest.mark.asyncio()
     async def test_lists_filtered_tables(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         self._mock_tables(
@@ -551,7 +537,6 @@ class TestListTables:
             "sys_scope": "Global",
         }
 
-    @respx.mock
     @pytest.mark.asyncio()
     async def test_coerces_display_value_dicts(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """Reference fields returned as display-value dicts are flattened to strings."""
@@ -575,7 +560,6 @@ class TestListTables:
         assert row["super_class"] == "Task"
         assert row["sys_scope"] == "Global"
 
-    @respx.mock
     @pytest.mark.asyncio()
     async def test_no_filter_lists_all(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """Empty name_filter still returns rows (no filter clause)."""
@@ -588,7 +572,6 @@ class TestListTables:
         assert result["status"] == "success"
         assert result["data"]["count"] == 1
 
-    @respx.mock
     @pytest.mark.asyncio()
     async def test_truncation_warning(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """Hitting the result cap emits a truncation warning."""

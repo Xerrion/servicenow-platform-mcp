@@ -6,9 +6,8 @@ import base64
 import importlib
 from typing import Any
 
-import httpx
+import httpx2
 import pytest
-import respx
 from mcp.server import MCPServer
 
 from servicenow_mcp.auth import OAuthPKCEProvider
@@ -16,6 +15,7 @@ from servicenow_mcp.config import Settings
 from servicenow_mcp.policy import DENIED_TABLES
 from servicenow_mcp.tools.attachment import register_tools as register_read_tools
 from servicenow_mcp.tools.attachment_write import register_tools as register_write_tools
+from tests._mock_transport import http_mock
 from tests.helpers import decode_response, get_tool_functions
 
 
@@ -73,11 +73,10 @@ class TestUnifiedAttachmentRead:
         assert "unknown action" in result["error"]["message"].lower()
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_list_action_lists_attachments(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """The list action returns attachment metadata for the parent record."""
-        respx.get(f"{BASE_URL}/api/now/attachment").mock(
-            return_value=httpx.Response(200, json={"result": [_metadata()]}, headers={"X-Total-Count": "1"})
+        http_mock.get(f"{BASE_URL}/api/now/attachment").mock(
+            return_value=httpx2.Response(200, json={"result": [_metadata()]}, headers={"X-Total-Count": "1"})
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
@@ -99,11 +98,10 @@ class TestUnifiedAttachmentRead:
         assert "table is required" in result["error"]["message"]
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_get_action_returns_metadata(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """The get action returns masked metadata for a single attachment."""
-        respx.get(f"{BASE_URL}/api/now/attachment/{ATTACHMENT_SYS_ID}").mock(
-            return_value=httpx.Response(200, json={"result": _metadata()})
+        http_mock.get(f"{BASE_URL}/api/now/attachment/{ATTACHMENT_SYS_ID}").mock(
+            return_value=httpx2.Response(200, json={"result": _metadata()})
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
@@ -125,16 +123,15 @@ class TestUnifiedAttachmentRead:
         assert "sys_id is required" in result["error"]["message"]
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_download_action_returns_content_base64(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
         """The download action returns metadata plus base64-encoded payload."""
-        respx.get(f"{BASE_URL}/api/now/attachment/{ATTACHMENT_SYS_ID}").mock(
-            return_value=httpx.Response(200, json={"result": _metadata()})
+        http_mock.get(f"{BASE_URL}/api/now/attachment/{ATTACHMENT_SYS_ID}").mock(
+            return_value=httpx2.Response(200, json={"result": _metadata()})
         )
-        respx.get(f"{BASE_URL}/api/now/attachment/{ATTACHMENT_SYS_ID}/file").mock(
-            return_value=httpx.Response(200, content=b"hello")
+        http_mock.get(f"{BASE_URL}/api/now/attachment/{ATTACHMENT_SYS_ID}/file").mock(
+            return_value=httpx2.Response(200, content=b"hello")
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
@@ -144,16 +141,15 @@ class TestUnifiedAttachmentRead:
         assert result["data"]["content_base64"] == base64.b64encode(b"hello").decode("ascii")
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_download_by_name_action_returns_content_base64(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
         """The download_by_name action resolves metadata then downloads payload."""
-        respx.get(f"{BASE_URL}/api/now/table/sys_attachment").mock(
-            return_value=httpx.Response(200, json={"result": [_metadata()]}, headers={"X-Total-Count": "1"})
+        http_mock.get(f"{BASE_URL}/api/now/table/sys_attachment").mock(
+            return_value=httpx2.Response(200, json={"result": [_metadata()]}, headers={"X-Total-Count": "1"})
         )
-        respx.get(f"{BASE_URL}/api/now/attachment/{ATTACHMENT_SYS_ID}/file").mock(
-            return_value=httpx.Response(200, content=b"hello")
+        http_mock.get(f"{BASE_URL}/api/now/attachment/{ATTACHMENT_SYS_ID}/file").mock(
+            return_value=httpx2.Response(200, content=b"hello")
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
@@ -219,7 +215,6 @@ class TestUnifiedAttachmentWrite:
         assert "unknown action" in result["error"]["message"].lower()
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_upload_action_remains_gated_in_production(
         self, prod_settings: Settings, prod_auth_provider: OAuthPKCEProvider
     ) -> None:
@@ -237,14 +232,13 @@ class TestUnifiedAttachmentWrite:
 
         assert result["status"] == "error"
         assert "production" in result["error"]["message"].lower()
-        assert not respx.calls.called
+        assert not http_mock.calls.called
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_upload_action_creates_attachment(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """The upload action decodes content and posts via the attachment API."""
-        route = respx.post(f"{BASE_URL}/api/now/attachment/file").mock(
-            return_value=httpx.Response(201, json={"result": _metadata()})
+        route = http_mock.post(f"{BASE_URL}/api/now/attachment/file").mock(
+            return_value=httpx2.Response(201, json={"result": _metadata()})
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
@@ -303,14 +297,13 @@ class TestUnifiedAttachmentWrite:
         assert "exceeds the maximum supported size" in result["error"]["message"]
 
     @pytest.mark.asyncio()
-    @respx.mock
     async def test_delete_action_removes_attachment(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """The delete action looks up metadata then issues DELETE."""
-        respx.get(f"{BASE_URL}/api/now/attachment/{ATTACHMENT_SYS_ID}").mock(
-            return_value=httpx.Response(200, json={"result": _metadata()})
+        http_mock.get(f"{BASE_URL}/api/now/attachment/{ATTACHMENT_SYS_ID}").mock(
+            return_value=httpx2.Response(200, json={"result": _metadata()})
         )
-        delete_route = respx.delete(f"{BASE_URL}/api/now/attachment/{ATTACHMENT_SYS_ID}").mock(
-            return_value=httpx.Response(204)
+        delete_route = http_mock.delete(f"{BASE_URL}/api/now/attachment/{ATTACHMENT_SYS_ID}").mock(
+            return_value=httpx2.Response(204)
         )
 
         tools = _register_and_get_tools(settings, auth_provider)

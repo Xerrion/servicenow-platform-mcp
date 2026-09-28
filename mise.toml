@@ -1,6 +1,7 @@
 # Dev tools (ruff, ty, pytest) come from the uv.lock dev group, not from mise.
 [tools]
 python = "3.14"
+ruff = "latest"
 uv = "latest"
 
 [env]

@@ -32,18 +32,14 @@ class DictionaryRegistry:
     ) -> None:
         self._client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
         ttl = settings.metadata_cache_ttl_seconds
-        self._script_cache = AsyncMetadataCache[str, list[ScriptField]](
+        self._script_cache = AsyncMetadataCache(
             name=CacheName.DICTIONARY_SCRIPT_FIELDS, ttl_seconds=ttl, telemetry=telemetry
         )
-        self._all_cache = AsyncMetadataCache[str, list[DictionaryField]](
+        self._all_cache = AsyncMetadataCache(name=CacheName.DICTIONARY_FIELDS, ttl_seconds=ttl, telemetry=telemetry)
+        self._selected_cache = AsyncMetadataCache(
             name=CacheName.DICTIONARY_FIELDS, ttl_seconds=ttl, telemetry=telemetry
         )
-        self._selected_cache = AsyncMetadataCache[tuple[str, tuple[str, ...]], list[DictionaryField]](
-            name=CacheName.DICTIONARY_FIELDS, ttl_seconds=ttl, telemetry=telemetry
-        )
-        self._chain_cache = AsyncMetadataCache[str, list[str]](
-            name=CacheName.DICTIONARY_CHAINS, ttl_seconds=ttl, telemetry=telemetry
-        )
+        self._chain_cache = AsyncMetadataCache(name=CacheName.DICTIONARY_CHAINS, ttl_seconds=ttl, telemetry=telemetry)
 
     async def get_script_fields(self, table: str) -> list[ScriptField]:
         """Return cached script-bearing fields, with child declarations first."""
@@ -151,22 +147,20 @@ async def _fetch_dictionary_rows(client: ServiceNowClient, table: str) -> list[d
     result = await client.query_records(table="sys_dictionary", query=query, fields=None, limit=1000)
     records: Any = result.get("records") or []
     rows = list(records) if isinstance(records, list) else []
-    if not any(isinstance(row.get("internal_type"), dict) and not row.get("internal_type.name") for row in rows):
-        return rows
-
-    type_result = await client.query_records(
-        table="sys_dictionary",
-        query=query,
-        fields=["element", "internal_type.name"],
-        limit=1000,
-    )
-    type_by_element = {
-        str(row.get("element") or ""): row.get("internal_type.name")
-        for row in type_result.get("records") or []
-        if isinstance(row, dict) and row.get("element")
-    }
-    for row in rows:
-        row["internal_type.name"] = type_by_element.get(str(row.get("element") or ""), "")
+    if any(isinstance(row.get("internal_type"), dict) and not row.get("internal_type.name") for row in rows):
+        type_result = await client.query_records(
+            table="sys_dictionary",
+            query=query,
+            fields=["element", "internal_type.name"],
+            limit=1000,
+        )
+        type_by_element = {
+            str(row.get("element") or ""): row.get("internal_type.name")
+            for row in type_result.get("records") or []
+            if isinstance(row, dict) and row.get("element")
+        }
+        for row in rows:
+            row["internal_type.name"] = type_by_element.get(str(row.get("element") or ""), "")
     return rows
 
 

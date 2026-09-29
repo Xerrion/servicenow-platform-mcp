@@ -200,6 +200,26 @@ class TestHeuristicAdmission:
         assert fields[0].internal_type == "journal_input"
 
     @pytest.mark.asyncio()
+    async def test_internal_type_fallback_queries_dot_walk_name(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
+        dictionary = http_mock.get(DICTIONARY_URL).mock(
+            side_effect=[
+                httpx2.Response(200, json={"result": [{"element": "comments", "internal_type": {"value": "a" * 32}}]}),
+                httpx2.Response(200, json={"result": [{"element": "comments", "internal_type.name": "journal_input"}]}),
+            ]
+        )
+        http_mock.get(DB_OBJECT_URL).mock(
+            return_value=httpx2.Response(200, json={"result": [{"super_class.name": ""}]})
+        )
+
+        fields = await DictionaryRegistry(settings, auth_provider).get_all_fields("task")
+
+        assert fields[0].internal_type == "journal_input"
+        assert dictionary.call_count == 2
+        assert dictionary.calls[1].request.url.params["sysparm_fields"] == "element,internal_type.name"
+
+    @pytest.mark.asyncio()
     async def test_html_sanitize_false_alone_admits(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         _mock_root_table([_row("body", "html", "html_sanitize=false")])
         registry = DictionaryRegistry(settings, auth_provider)

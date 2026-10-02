@@ -117,6 +117,47 @@ class TestQueryMode:
         assert result["pagination"] == {"offset": 0, "limit": 20, "total": 2}
         assert "selection" not in result
 
+    @pytest.mark.parametrize("offset", [None, 0])
+    async def test_first_page_avoids_upstream_pagination_rejection(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider, offset: int | None
+    ) -> None:
+        record = {"sys_id": "a" * 32, "asset_tag": "TEST001"}
+
+        def handler(request: httpx2.Request) -> httpx2.Response:
+            params = request.url.params
+            if "sysparm_offset" in params or params.get("sysparm_suppress_pagination_header") != "true":
+                return httpx2.Response(400, json={"error": {"message": "Pagination not supported"}})
+            return httpx2.Response(200, json={"result": [record]}, headers={"X-Total-Count": "1"})
+
+        route = http_mock.get(f"{BASE_URL}/api/now/table/alm_asset").mock(side_effect=handler)
+        tools = _register_and_get_tools(settings, auth_provider)
+        result = decode_response(
+            await tools["query"](
+                table="alm_asset", encoded_query="active=true", fields="asset_tag", limit=100, offset=offset
+            )
+        )
+
+        assert result["status"] == "success"
+        assert result["data"] == [record]
+        assert result["pagination"] == {"offset": 0, "limit": 100, "total": 1}
+        assert route.call_count == 1
+        assert route.calls.last.request.url.params["sysparm_query"] == "active=true"
+
+    async def test_unsupported_offset_pagination_is_not_replayed(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
+        route = http_mock.get(f"{BASE_URL}/api/now/table/alm_asset").respond(
+            400, json={"error": {"message": "Pagination not supported"}}
+        )
+        tools = _register_and_get_tools(settings, auth_provider)
+        result = decode_response(await tools["query"](table="alm_asset", fields="asset_tag", limit=100, offset=100))
+
+        assert result["status"] == "error"
+        assert result["data"] is None
+        assert result["error"]["message"] == "Pagination not supported"
+        assert route.call_count == 1
+        assert route.calls.last.request.url.params["sysparm_offset"] == "100"
+
     @pytest.mark.asyncio()
     async def test_empty_page_with_nonzero_total_warns(
         self, settings: Settings, auth_provider: OAuthPKCEProvider

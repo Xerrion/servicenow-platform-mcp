@@ -276,7 +276,7 @@ async def test_ritm_variables_mrvs_metadata_does_not_distort_answer_pagination(
 
     def links_handler(request: httpx2.Request) -> httpx2.Response:
         assert request.url.params["sysparm_limit"] == "1"
-        assert request.url.params["sysparm_offset"] == str(offset)
+        assert request.url.params.get("sysparm_offset") == (str(offset) if offset else None)
         return httpx2.Response(
             200,
             json={"result": [{"sys_id": "f" * 32, "sc_item_option": option_id}]},

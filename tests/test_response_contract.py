@@ -89,8 +89,9 @@ async def test_query_mcp_calls_omit_empty_parameters(
     assert all(value != "" for value in params.values())
     if not is_single and not is_aggregate:
         assert params["sysparm_limit"] == "20"
-        assert params["sysparm_offset"] == "0"
+        assert "sysparm_offset" not in params
         assert params["sysparm_display_value"] == "false"
+        assert params["sysparm_suppress_pagination_header"] == "true"
 
 
 @pytest.mark.parametrize("empty", ["", None])
@@ -104,8 +105,8 @@ async def test_client_omits_empty_query_parameters(settings: Settings, empty: st
         await client.aggregate("incident", empty, group_by=empty, having=empty, order_by=empty)
     assert dict(table.calls.last.request.url.params) == {
         "sysparm_limit": "5",
-        "sysparm_offset": "0",
         "sysparm_display_value": "false",
+        "sysparm_suppress_pagination_header": "true",
     }
     assert dict(stats.calls.last.request.url.params) == {"sysparm_count": "true", "sysparm_display_value": "false"}
 

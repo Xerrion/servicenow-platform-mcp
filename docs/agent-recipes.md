@@ -334,6 +334,10 @@ Queries against `syslog`, `sys_audit`, `syslog_transaction`, and `sys_email_log`
 
 The `query` tool returns a `pagination` object containing `offset`, `limit`, and `total`. `limit` caps returned rows, not database scan or count cost. An empty page with a nonzero total can result from ACL filtering because ServiceNow applies the limit before ACL evaluation. Follow the response warning; change ordering or offset instead of treating the page as proof that no records match.
 
+Table API reads omit `sysparm_offset` for the first page (`offset=0`) and send `sysparm_suppress_pagination_header=true`. This removes unnecessary offset and `Link` header requirements for queries that reject pagination. The client preserves nonzero offsets, row limits, filters, and totals from `X-Total-Count`. It does not send `sysparm_no_count`.
+
+If ServiceNow still returns `Pagination not supported`, the tool reports the error without retrying or resetting the offset. An exact `sys_id` lookup avoids list pagination when the record identifier is known. The error alone does not establish an ACL denial.
+
 ---
 
 For detailed per-tool API documentation, see [Tool Reference](./wiki/Tool-Reference.md).

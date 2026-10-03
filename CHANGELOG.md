@@ -29,6 +29,13 @@
   previously repeated the same value or was null for unresolved references.
   Masking, raw reference IDs, pagination, and completeness indicators are preserved.
 
+## [2.1.2](https://github.com/Xerrion/servicenow-platform-mcp/compare/v2.1.1...v2.1.2) (2026-10-03)
+
+
+### Bug Fixes
+
+* improve Sentry diagnostics and first-page query compatibility ([#200](https://github.com/Xerrion/servicenow-platform-mcp/issues/200)) ([e829fc5](https://github.com/Xerrion/servicenow-platform-mcp/commit/e829fc5a870c64a45ab53a63843a5a30e21197e8))
+
 ## [2.1.1](https://github.com/Xerrion/servicenow-platform-mcp/compare/v2.1.0...v2.1.1) (2026-09-24)
 
 

@@ -1,11 +1,13 @@
 """Decorators for reducing tool function boilerplate."""
 
 import functools
+import inspect
 from collections.abc import Callable, Coroutine
+from time import perf_counter
 from typing import Any, Protocol
 
-from servicenow_mcp.sentry import set_sentry_context, set_sentry_tag
-from servicenow_mcp.telemetry import trace_tool_call
+from servicenow_mcp.sentry import sentry_tool_scope, set_sentry_context, set_sentry_tag
+from servicenow_mcp.telemetry import current_tool_trace, trace_tool_call
 from servicenow_mcp.tool_errors import safe_tool_call
 from servicenow_mcp.tool_inputs import nullable_string_signature
 
@@ -35,6 +37,7 @@ _SENSITIVE_ARG_KEYS: frozenset[str] = frozenset(
         "conditions",
         "text",
         "term",
+        "resolve_labels",
     }
 )
 
@@ -70,6 +73,20 @@ def _redact_args(kwargs: dict[str, Any]) -> dict[str, Any]:
     return redacted
 
 
+def _bound_tool_args(signature: inspect.Signature, args: tuple[Any, ...], kwargs: dict[str, Any]) -> dict[str, Any]:
+    """Include positional and default inputs while redacting unstructured arguments."""
+    bound = signature.bind(*args, **kwargs)
+    bound.apply_defaults()
+    values: dict[str, Any] = {}
+    for name, value in bound.arguments.items():
+        kind = signature.parameters[name].kind
+        if kind == inspect.Parameter.VAR_KEYWORD:
+            values.update(value)
+        else:
+            values[name] = _REDACTED if kind == inspect.Parameter.VAR_POSITIONAL else value
+    return _redact_args(values)
+
+
 def tool_handler(
     fn: _ToolFunction,
 ) -> Callable[..., Coroutine[Any, Any, str]]:
@@ -83,23 +100,34 @@ def tool_handler(
             ...
             return format_response(data=result)
     """
+    input_signature = inspect.signature(fn)
 
     @functools.wraps(fn)
     async def wrapper(*args: Any, **kwargs: Any) -> str:
-        set_sentry_tag("tool.name", fn.__name__)
+        with sentry_tool_scope(fn.__name__), trace_tool_call(fn.__name__):
+            started = perf_counter()
+            set_sentry_tag("tool.name", fn.__name__)
 
-        set_sentry_context(
-            "tool",
-            {
-                "name": fn.__name__,
-                "args": _redact_args(kwargs),
-            },
-        )
+            async def _run() -> str:
+                try:
+                    set_sentry_context(
+                        "tool",
+                        {"name": fn.__name__, "args": _bound_tool_args(input_signature, args, kwargs)},
+                    )
+                    return await fn(*args, **kwargs)
+                finally:
+                    trace = current_tool_trace()
+                    if trace is not None:
+                        set_sentry_context(
+                            "tool_trace",
+                            {
+                                "trace_id": trace.trace_id,
+                                "tool": trace.tool,
+                                "http_requests": trace.request_count,
+                                "duration_ms": round((perf_counter() - started) * 1000, 3),
+                            },
+                        )
 
-        async def _run() -> str:
-            return await fn(*args, **kwargs)
-
-        with trace_tool_call(fn.__name__):
             return await safe_tool_call(_run)
 
     signature = nullable_string_signature(fn)

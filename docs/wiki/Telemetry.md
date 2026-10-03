@@ -78,17 +78,52 @@ Sentry configuration includes:
 - An MCP integration when the installed SDK provides it.
 - `traces_sample_rate=0.1`.
 - Profiling disabled.
+- At most 50 breadcrumbs per event.
 
-Tool context records the tool name and redacted arguments. HTTP errors add
-bounded request context. The server context includes instance hostname,
-environment, production flag, and selected package. Do not widen captured
-values without reviewing credential, PII, and untrusted-payload exposure.
+Each decorated tool has a separate Sentry scope. Its error transaction name
+identifies that tool, without renaming a shared MCP span. Tool scopes discard
+inherited request contexts and breadcrumbs. Server and aggregate cache context
+remain available.
+
+`tool` records the tool name and redacted arguments, including positional inputs
+and declared defaults. Query values, resolved labels, credentials, and payloads
+remain redacted. `tool_trace` records the local trace ID, elapsed duration, and
+HTTP request count. The trace ID matches stderr and outbound `X-Correlation-ID`.
+It is separate from the Sentry distributed trace ID.
+
+`http_request` describes the latest completed or failed HTTP attempt. Its
+breadcrumbs retain a bounded request history with operation, method, request
+number, duration, status or timeout phase, response size, and pool mode. HTTP
+errors also set indexed `http.status_code` and `http.operation` tags.
+
+Request evidence records transmitted, allowlisted pagination and display
+controls. It distinguishes an omitted offset from an explicit zero. A query
+summary records length and lexical features: text search, JavaScript, OR, NQ,
+and ordering. It does not capture field names, search terms, values, or
+JavaScript source. Summaries are not query validation. Duplicate queries and
+queries over 8192 characters receive an explicit inspection omission.
+
+HTTP error response evidence includes content type, size, JSON shape, and
+reviewed static `error.message` or `error.detail` phrases. Unknown text receives
+an omission marker. Bodies over 8192 bytes and unread streams are not inspected.
+At most one transaction, request, or correlation header survives hex/UUID
+validation and credential, cookie, query, and request-body reflection checks.
+Raw bodies, unrestricted headers, and authentication challenges are not added
+to this evidence. Existing REST 401 diagnostics retain their separate policy.
+
+The server context includes instance hostname, environment, production flag,
+and selected package. Do not widen captured values without reviewing
+credential, PII, and untrusted-payload exposure.
+
+Restart the updated MCP process to capture this evidence. Existing Sentry
+events cannot recover data that the old process did not record.
 
 ## Bounded runtime telemetry
 
 The shared HTTP client records aggregate:
 
 - Started, completed, and failed request counts.
+- HTTP error responses (`http_error_count`, status 400 or higher).
 - Downloaded response bytes.
 - Total request duration.
 - Requests using the shared connection pool.
@@ -109,6 +144,10 @@ Telemetry does not record credentials, request contents, URLs, or arbitrary
 table names. It does not cache records, query results, flows, attachments,
 preview tokens, or audit row counts.
 
+`failed_request_count` counts transport failures and cancellation, not HTTP
+error responses. A received HTTP 400 counts as both a completed request and an
+HTTP error. Its response bytes and duration are counted once.
+
 ## Contributor guidance
 
 Use the public helpers in `servicenow_mcp.sentry`:
@@ -117,6 +156,8 @@ Use the public helpers in `servicenow_mcp.sentry`:
 - `capture_exception(exc)` reports an exception when active.
 - `set_sentry_tag(key, value)` sets an indexed tag.
 - `set_sentry_context(key, data)` sets structured context.
+- `sentry_tool_scope(tool)` isolates tool evidence and error attribution.
+- `add_sentry_breadcrumb(category, data)` records caller-curated request history.
 - `shutdown_sentry()` flushes and closes the client.
 
 Tests reset Sentry initialization state through the autouse fixture in

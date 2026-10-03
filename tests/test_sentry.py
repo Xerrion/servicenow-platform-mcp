@@ -88,6 +88,7 @@ class TestSetupSentry:
         assert call_kwargs["integrations"] == []
         assert call_kwargs["traces_sample_rate"] == pytest.approx(0.1)
         assert call_kwargs["profiles_sample_rate"] is None
+        assert call_kwargs["max_breadcrumbs"] == 50
 
     def test_falls_back_to_servicenow_env(self) -> None:
         """When sentry_environment is empty, falls back to servicenow_env."""
@@ -393,13 +394,17 @@ class TestSetSentryContextIntegration:
             patch("servicenow_mcp.decorators.set_sentry_tag") as mock_tag,
         ):
             await my_tool(table="incident")
-            mock_ctx.assert_called_once()
-            call_args = mock_ctx.call_args
+            assert mock_ctx.call_count == 2
+            call_args = mock_ctx.call_args_list[0]
             assert call_args[0][0] == "tool"
             context_data = call_args[0][1]
             assert context_data["name"] == "my_tool"
             assert "correlation_id" not in context_data
             assert context_data["args"] == {"table": "incident"}
+            trace_context = mock_ctx.call_args_list[1].args
+            assert trace_context[0] == "tool_trace"
+            assert trace_context[1]["tool"] == "my_tool"
+            assert trace_context[1]["http_requests"] == 0
             mock_tag.assert_called_once_with("tool.name", "my_tool")
 
     def test_raise_for_status_sets_http_context(self) -> None:
@@ -426,5 +431,14 @@ class TestSetSentryContextIntegration:
                     "status_code": 500,
                     "method": "GET",
                     "url": "https://test.service-now.com/api/now/table/incident",  # query stripped
+                    "operation": "records",
+                    "parameters": {},
+                    "query_summary": {"present": False},
+                    "response": {
+                        "content_type": "application/json",
+                        "body_bytes": len(mock_response.content),
+                        "body_format": "JSON",
+                        "error": {"message": "Server error"},
+                    },
                 },
             )

@@ -8,6 +8,7 @@ from typing import Any, Self
 import httpx2
 from pydantic import ValidationError
 
+from servicenow_mcp._http_diagnostics import request_diagnostics, response_diagnostics
 from servicenow_mcp._json import JSON
 from servicenow_mcp._rest_auth_evidence import rest_auth_evidence
 from servicenow_mcp.auth import OAuthPKCEProvider
@@ -20,8 +21,8 @@ from servicenow_mcp.errors import (
     ServerError,
     ServiceNowMCPError,
 )
-from servicenow_mcp.sentry import set_sentry_context
-from servicenow_mcp.telemetry import current_tool_trace, trace_authorization_wait
+from servicenow_mcp.sentry import set_sentry_context, set_sentry_tag
+from servicenow_mcp.telemetry import current_tool_trace, request_operation, trace_authorization_wait
 from servicenow_mcp.validation import validate_identifier
 
 
@@ -129,26 +130,33 @@ class ServiceNowRequestClient:
             return
 
         url = str(response.request.url).split("?", 1)[0]
+        authorization = response.request.headers.get("Authorization", "")
+        token_secret = self._auth_provider.current_token_secret()
+        sensitive_values = (
+            authorization,
+            authorization.removeprefix("Bearer "),
+            token_secret,
+            self._settings.servicenow_oauth_client_id,
+        )
         set_sentry_context(
             "http",
             {
                 "status_code": response.status_code,
                 "method": response.request.method,
                 "url": url,
+                "operation": request_operation(response.request),
+                **request_diagnostics(response.request),
+                "response": response_diagnostics(response, sensitive_values),
             },
         )
+        set_sentry_tag("http.status_code", str(response.status_code))
+        set_sentry_tag("http.operation", request_operation(response.request))
 
         if response.status_code == 401:
-            authorization = response.request.headers.get("Authorization", "")
-            token_secret = self._auth_provider.current_token_secret()
             self._auth_provider.invalidate(authorization)
             evidence = rest_auth_evidence(
                 response,
-                (
-                    authorization.removeprefix("Bearer "),
-                    token_secret,
-                    self._settings.servicenow_oauth_client_id,
-                ),
+                sensitive_values,
             )
             raise AuthError(
                 "ServiceNow rejected the OAuth token on a REST request (HTTP 401). "

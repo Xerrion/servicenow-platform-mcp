@@ -7,11 +7,15 @@ when the package is missing or no DSN is configured.
 """
 
 import logging
+from collections.abc import Generator
+from contextlib import contextmanager
 from importlib.metadata import version as pkg_version
 from typing import TYPE_CHECKING, Any
 
 
 if TYPE_CHECKING:
+    from sentry_sdk.types import Event, Hint
+
     from servicenow_mcp.config import Settings
 
 
@@ -112,6 +116,7 @@ def setup_sentry(settings: "Settings") -> None:
         integrations=integrations,
         traces_sample_rate=0.1,
         profiles_sample_rate=None,
+        max_breadcrumbs=50,
     )
 
     _initialized = True
@@ -165,6 +170,34 @@ def set_sentry_context(key: str, data: dict[str, Any]) -> None:
     if not HAS_SENTRY or not _initialized:
         return
     sentry_sdk.set_context(key, data)
+
+
+@contextmanager
+def sentry_tool_scope(tool: str) -> Generator[None, None, None]:
+    """Isolate tool evidence and attribute error events without renaming shared spans."""
+    if not HAS_SENTRY or not _initialized:
+        yield
+        return
+
+    def identify_tool(event: "Event", _hint: "Hint") -> "Event":
+        event["transaction"] = f"tools/call {tool}"
+        return event
+
+    with sentry_sdk.isolation_scope() as scope:
+        for key in ("tool", "tool_trace", "http", "http_request"):
+            scope.remove_context(key)
+        for key in ("tool.name", "http.status_code", "http.operation"):
+            scope.remove_tag(key)
+        scope.clear_breadcrumbs()
+        scope.add_event_processor(identify_tool)
+        yield
+
+
+def add_sentry_breadcrumb(category: str, data: dict[str, Any], *, is_error: bool = False) -> None:
+    """Add bounded caller-curated evidence to the active tool's request history."""
+    if not HAS_SENTRY or not _initialized:
+        return
+    sentry_sdk.add_breadcrumb(category=category, data=data, level="error" if is_error else "info")
 
 
 def shutdown_sentry() -> None:

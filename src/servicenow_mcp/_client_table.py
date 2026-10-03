@@ -48,9 +48,11 @@ class TableApiClient(ServiceNowRequestClient):
         """Query records with an encoded query string."""
         params: dict[str, str] = {
             "sysparm_limit": str(limit),
-            "sysparm_offset": str(offset),
             "sysparm_display_value": str(display_values).lower(),
+            "sysparm_suppress_pagination_header": "true",
         }
+        if offset != 0:
+            params["sysparm_offset"] = str(offset)
         effective_query = query
         if order_by:
             is_descending = order_by.startswith("-")

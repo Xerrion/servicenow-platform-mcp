@@ -225,6 +225,40 @@ class TestServiceNowClientQueryRecords:
         assert len(result["records"]) == 2
         assert result["count"] == 2
 
+    @pytest.mark.parametrize("offset", [0, 20])
+    async def test_query_records_preserves_pagination_without_link_headers(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider, offset: int
+    ) -> None:
+        from servicenow_mcp.client import ServiceNowClient
+
+        record = {"sys_id": "a" * 32, "asset_tag": "TEST001"}
+        route = http_mock.get(f"{BASE_URL}/api/now/table/alm_asset").respond(
+            200, json={"result": [record]}, headers={"X-Total-Count": "42"}
+        )
+
+        async with ServiceNowClient(settings, auth_provider) as client:
+            result = await client.query_records(
+                "alm_asset",
+                "active=true",
+                fields=["sys_id", "asset_tag"],
+                limit=10,
+                offset=offset,
+                order_by="sys_id",
+                display_values=True,
+            )
+
+        assert result == {"records": [record], "count": 42}
+        assert route.call_count == 1
+        params = dict(route.calls.last.request.url.params)
+        assert params == {
+            "sysparm_limit": "10",
+            "sysparm_display_value": "true",
+            "sysparm_suppress_pagination_header": "true",
+            "sysparm_query": "active=true^ORDERBYsys_id",
+            "sysparm_fields": "sys_id,asset_tag",
+            **({"sysparm_offset": str(offset)} if offset else {}),
+        }
+
     @pytest.mark.asyncio()
     async def test_query_records_with_limit_and_offset(
         self, settings: Settings, auth_provider: OAuthPKCEProvider

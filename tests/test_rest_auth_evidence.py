@@ -291,10 +291,13 @@ def test_diagnostics_do_not_log_raw_response(settings: Settings, caplog: pytest.
         )
     assert caplog.text == ""
     assert "private" not in message
-    assert context.call_args.args == (
-        "http",
-        {"status_code": 401, "method": "GET", "url": f"{BASE_URL}/api/now/table/incident"},
-    )
+    assert context.call_args.args[0] == "http"
+    diagnostic = context.call_args.args[1]
+    assert diagnostic["status_code"] == 401
+    assert diagnostic["method"] == "GET"
+    assert diagnostic["url"] == f"{BASE_URL}/api/now/table/incident"
+    assert diagnostic["response"]["body_format"] == "non-JSON or malformed"
+    assert "private" not in json.dumps(diagnostic)
 
 
 def test_aggregate_header_budget_and_single_trace_id(settings: Settings) -> None:

@@ -104,6 +104,38 @@ def _challenges(header: str) -> list[dict[str, str]] | None:
     return challenges
 
 
+def safe_trace_header(response: httpx2.Response, sensitive_values: tuple[str, ...]) -> dict[str, str]:
+    """Select one hex/UUID trace ID that does not reflect credentials or request data."""
+    reflection_sources = (
+        response.request.headers.get_list("cookie")
+        + response.headers.get_list("set-cookie")
+        + list(response.request.url.params.values())
+    )
+    if sum(map(len, reflection_sources)) > _MAX_BODY_BYTES:
+        return {}
+    request_body = None
+    if hasattr(response.request, "_content"):
+        request_body = response.request.content
+        if len(request_body) > _MAX_BODY_BYTES:
+            return {}
+    elif response.request.method in {"POST", "PUT", "PATCH"}:
+        return {}
+
+    for name in _TRACE_HEADERS:
+        values = response.headers.get_list(name)
+        if len(values) != 1 or len(values[0]) > 64 or not _TRACE_ID.fullmatch(values[0]):
+            continue
+        value = values[0]
+        if any(secret and secret.casefold() in value.casefold() for secret in sensitive_values):
+            continue
+        if any(value.casefold() in source.casefold() for source in reflection_sources):
+            continue
+        if request_body and value.lower().encode("ascii") in request_body.lower():
+            continue
+        return {name: value}
+    return {}
+
+
 def rest_auth_evidence(response: httpx2.Response, sensitive_values: tuple[str, ...]) -> str:
     """Return safe 401 diagnostics, not raw bodies, headers, URLs or credentials.
 
@@ -135,21 +167,7 @@ def rest_auth_evidence(response: httpx2.Response, sensitive_values: tuple[str, .
                     fields["error_description"] = _safe_text(challenge["error_description"])
                 selected.append(fields)
             evidence["www-authenticate"] = selected
-    for name in _TRACE_HEADERS:
-        values = response.headers.get_list(name)
-        if len(values) != 1 or len(values[0]) > 64 or not _TRACE_ID.fullmatch(values[0]):
-            continue
-        if any(secret and secret.casefold() in values[0].casefold() for secret in sensitive_values):
-            continue
-        reflection_sources = (
-            response.request.headers.get_list("cookie")
-            + response.headers.get_list("set-cookie")
-            + list(response.request.url.params.values())
-        )
-        if any(values[0].casefold() in source.casefold() for source in reflection_sources):
-            continue
-        evidence[name] = values[0]
-        break
+    evidence.update(safe_trace_header(response, sensitive_values))
     # Allowlisted values are printable ASCII, so compact UTF-8 output equals ASCII output.
     result = JSON.dump_json(evidence).decode("ascii")
     if any(secret and secret.casefold() in result.casefold() for secret in sensitive_values):

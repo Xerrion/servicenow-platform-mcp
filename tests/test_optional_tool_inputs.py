@@ -211,8 +211,9 @@ async def test_optional_inputs_reach_all_read_tool_handlers(
     if tool == "query":
         params = http_mock.calls.last.request.url.params
         assert params["sysparm_limit"] == "20"
-        assert params["sysparm_offset"] == "0"
+        assert "sysparm_offset" not in params
         assert params["sysparm_display_value"] == "false"
+        assert params["sysparm_suppress_pagination_header"] == "true"
 
 
 @pytest.mark.parametrize("fill_null", [False, True])

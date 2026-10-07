@@ -1,213 +1,142 @@
-# ServiceNow Platform MCP installation guide
+# Install ServiceNow Platform MCP
 
-This guide is for operators who install the ServiceNow Platform MCP server and
-connect it to an MCP client. It covers the shortest safe path to a working
-stdio server, then explains package selection, permissions, and troubleshooting.
+Connect your AI app to ServiceNow, sign in with your account, and complete a
+small read before enabling changes.
 
-For the complete product reference, see the [root README](README.md). For
-encoded-query examples, see [Agent Recipes](docs/agent-recipes.md).
+If your app already has the connection, start with [Getting started](docs/wiki/Getting-Started.md).
+For examples of what you can do, see the [README](README.md).
 
-## 1. Choose the installation mode
+An administrator prepares OAuth and ServiceNow access. Each user then authorizes
+the connection in their browser. The public client ID identifies the application.
+The signed-in user's ServiceNow permissions control record access.
 
-### Local source checkout
+## Before you start
 
-The repository supports Python 3.12, 3.13, and 3.14. Install it with `uv`:
+You need:
 
-```bash
-git clone https://github.com/Xerrion/servicenow-platform-mcp.git
-cd servicenow-platform-mcp
-uv sync --group dev
-```
+- Python 3.12 or later and [uv](https://docs.astral.sh/uv/getting-started/installation/).
+- An AI app that can start local MCP servers, such as VS Code with GitHub Copilot, Claude Code, or OpenCode.
+- Your ServiceNow instance's HTTPS address, such as `https://your-instance.service-now.com`.
+- A public OAuth application's client ID, prepared by your ServiceNow administrator.
+- A ServiceNow account with API access and permission to read the records required for your work.
 
-The server uses stdio. An MCP client must launch the process. Do not configure
-it as an HTTP endpoint.
+The AI app starts the server on your computer. They communicate through
+**stdio**, a local connection between the two programs. Run the authorization
+browser on that same computer.
 
-The command reads `.env` and `.env.local` from its current working directory.
-Use the cloned repository as the working directory, or place the intended
-dotenv files in the working directory used by the client. A client that starts
-the process elsewhere does not read dotenv files from the repository.
+## 1. Prepare ServiceNow access
 
-### Published package
+If your administrator already supplied the instance URL and public client ID,
+continue to [connect your AI app](#2-connect-your-ai-app).
 
-If the package is available from the package index used by your environment,
-your MCP client may launch its published console entry point with its package
-runner. Verify the package name and release before using a command such as
-`uvx`; this repository does not make `uvx` availability a requirement. A
-published-package launch also changes the working-directory and dotenv-file
-considerations described above.
+1. Open **System OAuth > Application Registry**.
+2. Select **New**.
+3. Select **Create an OAuth API endpoint for external clients**.
+4. Configure the application to meet the requirements below.
+5. Save it and copy its public client ID.
 
-## 2. Configure public OAuth PKCE
+You can use an existing inbound application that meets the same requirements.
 
-Authentication has two separate parts: the ServiceNow Application Registry
-and the local MCP server configuration. This server supports only public OAuth
-authorization-code PKCE S256.
+| Requirement | Value |
+| --- | --- |
+| Client type | Public, with no client secret |
+| Authorization flow | Authorization code with PKCE |
+| PKCE method | `S256` |
+| Scope | `useraccount` |
+| Redirect URL | `http://127.0.0.1:8765/oauth/callback` |
 
-### ServiceNow Application Registry
+These are connection requirements. OAuth configuration screens depend on the
+ServiceNow release and application type.
 
-1. Open **System OAuth > Application Registry** and create or select the
-   application for this server.
-2. Set **Public Client** to `true`.
-3. Enable authorization-code PKCE with **S256**.
-4. Enable the `useraccount` scope.
-5. Register this exact redirect URL:
+OAuth authenticates the user. It does not grant table access.
+Ask the administrator to allow the required API resources and record or field
+access rules. Begin with access to one table you can use to check the connection.
 
-   ```text
-   http://127.0.0.1:8765/oauth/callback
-   ```
+The [permissions guide](docs/wiki/Safety-and-Policy.md#servicenow-permissions)
+explains how access policies, roles, and access control rules (ACLs) work together.
 
-6. Save the application and copy its client ID.
+## 2. Connect your AI app
 
-Use a ServiceNow user with the roles and REST, table, and field ACL access
-required by the selected tools. OAuth does not bypass those permissions.
+The examples run the [published package](https://pypi.org/project/servicenow-platform-mcp/)
+with `uvx`. For a local source installation, use the
+[source checkout instructions](#run-from-a-source-checkout).
 
-### Local `.env.local`
+Replace the two placeholder values with your instance URL and public client ID.
+Use the instance's HTTPS address without a page path, query string, or credentials.
+Keep any existing server entries when adding this configuration.
 
-Create `.env.local` in the working directory used to launch the MCP server:
+Each example selects `readonly` and blocks writes with `SERVICENOW_ENV=prod`.
+The server otherwise defaults to `full`, which includes write tools.
+The environment setting controls local write protection. It does not select
+an instance or detect whether that instance is production.
 
-```dotenv
-SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com
-SERVICENOW_OAUTH_CLIENT_ID=your-public-client-id
-SERVICENOW_OAUTH_REDIRECT_URI=http://127.0.0.1:8765/oauth/callback
-SERVICENOW_OAUTH_TIMEOUT_SECONDS=180
-MCP_TOOL_PACKAGE=readonly
-SERVICENOW_ENV=dev
-```
+Do not add passwords, API keys, client secrets, or tokens to the configuration.
 
-Use an HTTPS instance origin without credentials, path, query, or fragment.
-One trailing slash is removed. The OAuth scope defaults to `useraccount` and
-can be overridden with `SERVICENOW_OAUTH_SCOPE`.
-The redirect URI must match the Application Registry entry and the format
-`http://127.0.0.1:<port>/oauth/callback`, with port `1024`-`65535`.
-`localhost`, other paths, query strings, and fragments are not accepted.
-Register the complete new URL if you change the port.
+### VS Code with GitHub Copilot, or Claude Code
 
-The server reads `.env`, then `.env.local`, from its working directory. Process
-environment variables override both files. Restart the full MCP server after
-changing settings. Never commit these dotenv files.
-
-Remove `SERVICENOW_API_KEY`, `SERVICENOW_USERNAME`, and `SERVICENOW_PASSWORD`
-from all configuration sources. Non-empty values fail startup; there is no
-Basic Auth or API-key fallback. A stale `SERVICENOW_OAUTH_CLIENT_SECRET` is
-ignored, not used or rejected. Remove it. Do not configure a client secret.
-
-### First tool call and token lifecycle
-
-The first tool call that needs ServiceNow access opens the default browser.
-The browser and MCP process must run on the same machine. A temporary loopback
-listener starts before the browser and closes before token exchange, or on
-denial, timeout, or cancellation. It is not an MCP HTTP transport.
-
-Approve access as the ServiceNow user whose roles and ACLs should apply to
-tool calls. The public client ID identifies the application, not a separate
-service account. Authorization sends random state and an S256 challenge.
-The callback validates state, path, and Host. Code exchange sends the PKCE
-verifier, not state or a client secret. See the
-[exact request fields](README.md#exact-oauth-requests).
-
-REST calls use `Authorization: Bearer <access_token>`, never tokens in URLs.
-Access tokens, refresh tokens, and expiry stay in process memory. On access-token
-expiry, the server requests a replacement with the refresh token, public client
-ID, and no client secret. A rotated refresh token replaces the previous value;
-if ServiceNow omits a replacement, the previous refresh token remains in use.
-Restarting the MCP process loses both tokens and requires browser authorization.
-
-A REST 401 expires only the matching access token and does not replay the
-request. The next outbound call attempts refresh unless a newer concurrent
-grant exists. A rejected refresh grant falls back to browser authorization;
-connectivity and malformed-response failures preserve the refresh token for a
-later retry. Successful calls reuse the valid token within that server process.
-
-### API access policy migration
-
-An old API-key-only REST API access policy can reject an OAuth Bearer request
-even after token issuance succeeds. Administrator-side response inspection
-may show `HTTP 401` with `WWW-Authenticate: API_KEY`. The server's sanitized
-evidence omits `API_KEY` because it is not an allowed diagnostic scheme.
-Do not expect that header value in a tool error.
-
-Ask the administrator to identify the policy for the failed resource and
-method. Adjust or replace only that policy to permit the intended OAuth Bearer
-requests. Preserve unrelated policies and restrictions. Test a small read-only
-request with the intended user. Retire an obsolete API-key requirement only
-within the approved migration scope, after checking other consumers.
-
-Do not disable global protection or unrelated policies. Do not add an API key
-to the server configuration. See the
-[policy migration procedure](README.md#5-migrate-rest-api-access-policies-narrowly).
-
-Never log or persist access tokens, PKCE verifiers, authorization codes, or
-callback URLs and query strings. Do not attach raw headers or callback data
-to an issue report.
-
-## 3. Select a tool package
-
-The server has 13 tool groups. It always exposes `list_tool_packages`, so the
-public-tool counts include that tool.
-
-| Package | Public tools | Use |
-| --- | ---: | --- |
-| `full` | 15 | All groups, including writes. |
-| `readonly` | 11 | Read, investigation, analysis, audit, Flow, and Code Search tools. |
-| `core_readonly` | 4 | `query`, `describe`, and read-only `attachment`. |
-| `none` | 1 | Only `list_tool_packages`. |
-
-`analysis` is included in `full` and `readonly`, but not in
-`core_readonly`. The `attachment` group is read-only. `attachment_write` is a
-separate explicit opt-in group and is included in `full` only among the preset
-packages. A custom package can add it, but upload and delete remain subject to
-write gating and ServiceNow authorization.
-
-Custom packages use comma-separated group names:
-
-```bash
-MCP_TOOL_PACKAGE=query,describe,record_read,attachment
-```
-
-Valid groups are:
-
-`query`, `describe`, `record_write`, `record_read`, `attachment`,
-`attachment_write`, `investigate`, `resolve_choice`, `service_catalog`,
-`analysis`, `audit`, `flow`, and `code_search`.
-
-For a normal read workflow, use `readonly` or a smaller custom package. The
-package controls which tools are loaded. It is not an authorization boundary.
-
-## 4. Configure the server
-
-The following examples use instance and public client ID placeholders. Use
-the client's documented environment forwarding. Do not put tokens, callback
-data, PKCE verifiers, API keys, Basic credentials, or client secrets in this file.
-
-The OAuth example below runs from a local source checkout.
-It requires `uv sync` first and sets `cwd` to that checkout.
-
-### Public OAuth authorization-code PKCE S256
+Save this as `.mcp.json` in the top-level folder you open in your AI app:
 
 ```json
 {
-  "command": "uv",
-  "args": ["run", "servicenow-platform-mcp"],
-  "cwd": "/path/to/servicenow-platform-mcp",
-  "env": {
-    "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-    "SERVICENOW_OAUTH_CLIENT_ID": "your-public-client-id",
-    "SERVICENOW_OAUTH_REDIRECT_URI": "http://127.0.0.1:8765/oauth/callback",
-    "MCP_TOOL_PACKAGE": "readonly",
-    "SERVICENOW_ENV": "prod"
+  "mcpServers": {
+    "servicenow-platform": {
+      "command": "uvx",
+      "args": ["servicenow-platform-mcp"],
+      "env": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_OAUTH_CLIENT_ID": "your-public-client-id",
+        "MCP_TOOL_PACKAGE": "readonly",
+        "SERVICENOW_ENV": "prod"
+      }
+    }
   }
 }
 ```
 
-`cwd` is a common client setting, not an MCP protocol field. Use the equivalent
-working-directory field for your client. If the client does not support it,
-use an absolute command or arrange for the process environment and dotenv files
-to be available from its launch directory.
+In VS Code, open Chat and enable the ServiceNow tools.
+In Claude Code, approve the project MCP server when prompted.
+Restart the app or its MCP server after saving changes.
 
-### Managed published package
+For user-wide configuration and server controls, see the
+[VS Code guide](https://code.visualstudio.com/docs/agent-customization/mcp-servers)
+or [Claude Code guide](https://code.claude.com/docs/en/mcp).
 
-After you confirm that the required release exists on the Python package index
-configured for your environment, `uvx` can resolve the distribution and run its
-console entry point without a source checkout:
+<details>
+<summary>OpenCode</summary>
+
+Add this configuration to `opencode.json` in your project:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servicenow-platform": {
+      "type": "local",
+      "command": ["uvx", "servicenow-platform-mcp"],
+      "enabled": true,
+      "environment": {
+        "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+        "SERVICENOW_OAUTH_CLIENT_ID": "your-public-client-id",
+        "MCP_TOOL_PACKAGE": "readonly",
+        "SERVICENOW_ENV": "prod"
+      }
+    }
+  }
+}
+```
+
+Restart OpenCode. Its [MCP guide](https://opencode.ai/docs/mcp-servers/)
+explains other configuration locations and options.
+
+</details>
+
+<details>
+<summary>Another local MCP app</summary>
+
+Configure the app to start `uvx servicenow-platform-mcp`.
+Pass the same four environment variables from the examples above.
+
+This is a server entry, not a complete client configuration:
 
 ```json
 {
@@ -216,206 +145,178 @@ console entry point without a source checkout:
   "env": {
     "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
     "SERVICENOW_OAUTH_CLIENT_ID": "your-public-client-id",
-    "SERVICENOW_OAUTH_REDIRECT_URI": "http://127.0.0.1:8765/oauth/callback",
     "MCP_TOOL_PACKAGE": "readonly",
     "SERVICENOW_ENV": "prod"
   }
 }
 ```
 
-Do not add the source-checkout `cwd` only to make this managed launch work.
-Forward the required environment through the client or its secret store. If
-you intentionally use dotenv files instead, they are still resolved from the
-managed process's working directory, not from a repository that `uvx` manages.
+Use your app's documented format for a local stdio server.
 
-## 5. Configuration reference
+</details>
 
-All settings are environment variables. The server reads `.env`, then
-`.env.local`; later dotenv values override earlier values, and process
-environment variables override both.
+## 3. Sign in and try one read
 
-| Variable | Required | Default | Range or values | Purpose |
-| --- | --- | --- | --- | --- |
-| `SERVICENOW_INSTANCE_URL` | Yes | None | HTTPS origin without credentials, path, query, or fragment | ServiceNow instance. One trailing slash is removed. |
-| `SERVICENOW_OAUTH_CLIENT_ID` | Yes | None | Non-empty printable ASCII; surrounding spaces removed | Public ServiceNow OAuth application. |
-| `SERVICENOW_OAUTH_SCOPE` | No | `useraccount` | Scope enabled for the public PKCE application | OAuth authorization scope. |
-| `SERVICENOW_OAUTH_REDIRECT_URI` | No | `http://127.0.0.1:8765/oauth/callback` | Exactly `http://127.0.0.1:<port>/oauth/callback`; port `1024`-`65535` | Registered loopback URI. |
-| `SERVICENOW_OAUTH_TIMEOUT_SECONDS` | No | `180` | `1`-`600` | Authorization wait in seconds. |
-| `MCP_TOOL_PACKAGE` | No | `full` | Preset or comma-separated groups | Selects loaded tool groups. |
-| `SERVICENOW_ENV` | No | `dev` | Any string | `prod` and `production` block writes. |
-| `MAX_ROW_LIMIT` | No | `100` | `1`-`10000` | Cap for bounded generic and query-oriented paths that use it. Not a global response cap. |
-| `LARGE_TABLE_NAMES_CSV` | No | `syslog,sys_audit,syslog_transaction,sys_email_log` | Comma-separated names | Tables that require date-bounded queries. |
-| `HTTPX_TIMEOUT_SECONDS` | No | `30.0` | `1.0`-`600.0`, finite | ServiceNow HTTP timeout. |
-| `METADATA_CACHE_TTL_SECONDS` | No | `300` | `1`-`86400` | Freshness window for choice, dictionary, and audit-configuration metadata. |
-| `SENTRY_DSN` | No | Unset | Sentry DSN | Optional error reporting. Omit when Sentry is not used. |
-| `SENTRY_ENVIRONMENT` | No | Unset | Any string | Sentry environment; when omitted, uses `SERVICENOW_ENV`. |
+1. Restart the ServiceNow MCP server in your AI app.
+2. Ask: "List the available ServiceNow tools."
+3. Ask: "Use ServiceNow to show one active incident. Include its number and short description."
+4. Complete browser authorization with the intended ServiceNow account.
+5. Check the returned record in ServiceNow.
 
-Sentry is optional. Leave `SENTRY_DSN` and `SENTRY_ENVIRONMENT` unset when it
-is not used. `SERVICENOW_INSTANCE_URL` and usable authentication are
-validated at startup even when the selected package has no operational tools.
+If your account cannot read incidents, ask for a record from a table you can access.
+A returned record confirms access to that table. Tool discovery alone only
+shows that the MCP connection starts.
 
-Record writes need no script directory configuration. Put complete script and
-markup values under their field names in the JSON string `record_write.data`.
-The total UTF-8 JSON limit is 256 KiB, including escaping. Read access to
-`sys_db_object` and `sys_dictionary` supports inherited XML-field validation;
-metadata request errors block writes. See the [migration note](CHANGELOG.md#unreleased)
-when updating a client that used file input.
+The first request that needs ServiceNow opens the browser.
+Tokens stay in server memory. The server renews an expired access token when
+it can. Restarting the server requires browser authorization again.
 
-## 6. Public tool inventory
+Continue with [ITSM work](docs/wiki/ITSM-Work.md) or
+[instance administration and development](docs/wiki/Instance-Development.md).
 
-The public tools are:
+## 4. Choose the tools needed for your work
 
-- `list_tool_packages` - reports preset packages and groups. Always available.
-- `query` - reads records and Aggregate API results. List mode requires an
-  explicit `fields` projection; encoded queries are passed to ServiceNow.
-- `describe` - describes tables, fields, inherited metadata, and discovered
-  script fields.
-- `record_read` - reads one record by `sys_id` or `name`, with masked output and
-  discovered `script_fields`.
-- `record_write` and `record_apply` - stage and apply create, update, and
-  delete operations. Preview mode is the default.
-- `attachment` - lists, gets, downloads, or downloads attachments by name.
-- `attachment_write` - uploads or deletes attachments.
-- `investigate` - runs or explains registered investigations, or describes them
-  (`run`, `explain`, `describe`).
-- `resolve_choice` - maps choice labels to stored values.
-- `service_catalog` - browses catalogs, categories, items, variables, and
-  carts (`catalogs_list`, `catalog_get`, `categories_list`, `category_get`,
-  `items_list`, `item_get`, `item_variables`, `cart_get`); ordering and
-  state-changing cart actions (`order_now`, `add_to_cart`, `cart_submit`,
-  `cart_checkout`) are write-gated.
-- `analysis` - composes fulfilled RITM variables or reads journal history
-  (`ritm_variables`, `journal_history`, `describe`).
-- `audit` - checks audit configuration or reads date-bounded audit history
-  (`check_field`, `check_fields`, `check_table`, `history`, `describe`).
-- `flow` - inspects Flow Designer records and decodes V1/V2 flow data
-  (`contract`, `inspect`, `find_by_table`, `decode_values`, `list_triggers`,
-  `describe`).
-- `code_search` - searches script-bearing artifacts or lists Code Search tables
-  (`search`, `list_tables`, `describe`).
+Keep `MCP_TOOL_PACKAGE=readonly` for ordinary record inspection and investigation.
+Use a smaller custom package when you need fewer tools.
 
-Use each tool's `describe` action where available. The runtime tool schema is
-the authoritative input contract.
-
-### Analysis actions
-
-`analysis(action="ritm_variables", sys_id="<32-char-sys-id>")` composes
-submitted answers for one `sc_req_item` through
-`sc_item_option_mtom`, `sc_item_option`, and `item_option_new`. Password,
-token, secret, credential, API-key, and private-key answers are masked. Missing
-or inaccessible options and definitions are reported as degraded entries or
-warnings. Reference and List Collector values retain raw identifiers. List
-Collector display values are not fabricated. Multi-row variable set payloads
-are not retrieved or decoded; the response only reports bounded presence
-metadata. Completeness depends on row ACLs, field ACLs, and instance data.
-
-`analysis(action="journal_history", table="incident",
-sys_id="<32-char-sys-id>")` reads dictionary-confirmed `comments`,
-`work_notes`, and `close_notes` entries from `sys_journal_field`. The default
-window is 90 days and the default fields are `comments,work_notes`. Use
-`since` or `window_days` to change the date window, and `limit` plus `offset`
-for bounded pagination. The target table, its dictionary metadata, and the
-journal table require suitable read access. Row ACLs, field ACLs, and retention
-can make the result incomplete. This is journal history, not the field-change
-history returned by `audit(action="history")`.
-
-## 7. ServiceNow permissions
-
-Authentication, API-resource policy, and table or field ACLs are separate
-controls. A valid OAuth access token does not grant table access.
-
-The baseline read-only API families are the Table API, Attachment API, and
-Aggregate API (Stats). The `core_readonly` package uses Table and Attachment;
-Stats is needed when a selected read tool uses aggregates. The `readonly`
-package also needs the resources and read ACLs used by its selected tools:
-
-- **Table API:** records, dictionary metadata, Flow inspection, analysis, and
-  other table-backed reads.
-- **Aggregate API:** `query` aggregate mode and audit positive-control counts.
-- **Attachment API:** attachment metadata and downloads. Upload and delete
-  require additional POST or DELETE permissions and `attachment_write`.
-- **Code Search:** only when `code_search` is selected; allow its GET search
-  and table-list resources.
-- **Service Catalog:** only when `service_catalog` is selected; allow the GET
-  catalog, category, item, variable, and cart resources needed by the chosen
-  actions. State-changing order and cart actions require their POST resources.
-
-Analysis additionally needs Table API access and applicable read ACLs for
-`sc_req_item`, `sc_item_option_mtom`, `sc_item_option`, `item_option_new`,
-`sc_multi_row_question_answer`, `sys_journal_field`, `sys_db_object`, and
-`sys_dictionary`, as well as the target table and fields.
-
-For a true read-only deployment, use all of these controls:
-
-1. `MCP_TOOL_PACKAGE=readonly`, or a smaller custom package with read groups;
-2. GET-only ServiceNow API resource policies;
-3. read-only ServiceNow table and field ACLs; and
-4. `SERVICENOW_ENV=prod` or `production` to block local writes.
-
-Resource policies are instance-specific. They are not universal across all
-ServiceNow deployments. Package selection alone is not authorization.
-
-## 8. Safety and limits
-
-The server blocks a set of highly sensitive tables and masks sensitive values
-on specific record-oriented paths. Masking is not global. Aggregate values and
-arbitrary content from Code Search, Flow, Service Catalog, and other surfaces
-are not globally masked. Enforce ServiceNow field ACLs and do not aggregate or
-group sensitive fields.
-
-Other important limits include:
-
-- `MAX_ROW_LIMIT` applies only to bounded paths that use it. It is not a global
-  response or egress cap.
-- `attachment(action="list")` returns at most 100 metadata records and has no
-  caller-controlled offset or pagination.
-- Attachment transfers are limited to 10 MiB.
-- Large tables listed in `LARGE_TABLE_NAMES_CSV` require date-bounded queries.
-- Writes are locally blocked in production, but ServiceNow remains the
-  authorization authority. Keep write packages and credentials least
-  privileged.
-- Attachment content, submitted catalog values, and arbitrary platform content
-  are untrusted data.
-
-## 9. Verify and troubleshoot
-
-1. Restart the full MCP server process.
-2. Call `list_tool_packages`. It is always available and lists the available
-   presets and groups without contacting ServiceNow. It does not report the
-   active package.
-3. Call `query(table="incident", fields="sys_id,number", limit=1)` as a small
-   operational read if that table is permitted. Complete browser authorization.
-
-### Authentication troubleshooting
-
-| Observed error or event | Safe action |
+| Need | Package |
 | --- | --- |
-| `Cannot bind OAuth loopback port` | Close only a known conflicting listener, or configure and register another allowed port. |
-| `ServiceNow authorization timed out` | Complete authorization on the same machine before the timeout. Check the exact callback URL and retry. The wait defaults to 180 seconds and accepts 1-600. |
-| ServiceNow rejects the scope | Confirm the application enables `useraccount`, or set `SERVICENOW_OAUTH_SCOPE` to an enabled scope. |
-| `Cannot open the local browser` | Check the local browser setup. This is a launch failure, not proof of an Application Registry error. |
-| Error on the ServiceNow authorization page | Check **Public Client=true**, PKCE S256, client ID, scope, and exact redirect URL. |
-| `OAuth token exchange rejected (HTTP ...)` | Check the public application and OAuth settings. Token exchange failure is separate from a later REST 401. |
-| REST 401 or `User Not Authenticated` | The request was not replayed. Authorize on the next outbound call. If a new token also fails, ask the administrator to check scopes, REST policy, and user access. |
-| REST 401 plus administrator-observed `WWW-Authenticate: API_KEY` | Migrate only the policy that excludes OAuth Bearer. The server omits this scheme from sanitized evidence. |
-| HTTP 403 | Check REST-resource permissions, user roles, and table and field ACLs. Not every 403 identifies a table ACL denial. |
-| Token expiry or server restart | Complete browser authorization again on the next outbound call. |
+| ITSM reads, ticket history, metadata, investigations, flows, code search, and CMDB inspection | `readonly` |
+| Queries, field descriptions, and attachment reads | `core_readonly` |
+| Record changes, attachment changes, or catalog actions | A custom package with the required groups, or `full` |
+| Check that the server starts without contacting ServiceNow | `none` |
 
-Use the following checks for common failures:
+**Set the package explicitly. The default is `full`.**
+Package selection does not grant ServiceNow access.
+Catalog browsing and ordering share the `service_catalog` group, which is
+absent from `readonly`.
 
-- **Startup says the instance URL is missing:** set
-  `SERVICENOW_INSTANCE_URL` to a complete lowercase-HTTPS instance URL. Check
-  the MCP client's environment and working directory.
-- **OAuth token is valid but a request is denied:** check OAuth scopes and REST-resource
-  policy. This is distinct from table and field ACL denial.
-- **A table or field is denied:** check its ServiceNow row and field ACLs. The
-  selected MCP package only controls tool exposure.
-- **Environment changes have no effect:** restart the full server process;
-  settings are loaded at startup.
-- **The MCP client reports `-32000`:** this may be a client-level wrapper.
-  Inspect the client's stderr and the underlying server-process error before
-  assigning the cause to authentication or ACLs.
+The [package guide](docs/wiki/Tool-Packages.md) lists each group and its purpose.
+The [tool reference](docs/wiki/Tool-Reference.md) describes exact actions and inputs.
 
-Include sanitized error evidence and an allowed transaction ID when available.
-Do not include tokens, raw headers, or callback data. If
-Sentry is configured, it provides additional visibility for unexpected errors.
+## 5. Prepare changes on a test instance
+
+For changes, use a development or test instance and the required ServiceNow permissions.
+An example package for record work is:
+
+```dotenv
+MCP_TOOL_PACKAGE=query,describe,record_read,record_write
+SERVICENOW_ENV=dev
+```
+
+Confirm that `SERVICENOW_INSTANCE_URL` identifies the intended non-production instance.
+Changing `SERVICENOW_ENV` does not change that URL. Restart the server after changing settings.
+
+Record writes offer previews, but callers can request immediate changes.
+The server does not enforce human approval. Ask the app to show a preview and
+wait for your approval before applying a record change.
+
+Attachment changes and catalog orders apply directly.
+Review the [change guidance](docs/wiki/Instance-Development.md) and
+[safety limits](docs/wiki/Safety-and-Policy.md) before enabling those tools.
+
+## Run from a source checkout
+
+Use a checkout when you need repository changes or want to contribute to the MCP server.
+The published-package setup above is sufficient for normal use.
+
+1. Clone the repository:
+
+   ```bash
+   git clone https://github.com/Xerrion/servicenow-platform-mcp.git
+   cd servicenow-platform-mcp
+   ```
+
+2. Install the dependencies from that folder:
+
+   ```bash
+   uv sync --group dev
+   ```
+
+3. Configure your AI app to run `uv run servicenow-platform-mcp` from the checkout.
+
+This server entry illustrates the command, working directory, and settings.
+Adapt the entry to your app's configuration format:
+
+```json
+{
+  "command": "uv",
+  "args": ["run", "servicenow-platform-mcp"],
+  "cwd": "/absolute/path/to/servicenow-platform-mcp",
+  "env": {
+    "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
+    "SERVICENOW_OAUTH_CLIENT_ID": "your-public-client-id",
+    "MCP_TOOL_PACKAGE": "readonly",
+    "SERVICENOW_ENV": "prod"
+  }
+}
+```
+
+Replace `cwd` with the checkout's absolute path. The working-directory setting
+is client-specific. Use your app's equivalent or documented command options.
+
+You can also store settings in `.env.local` in the server's working directory.
+The server reads `.env` first, then `.env.local`. Process environment variables override both.
+A client that starts the process elsewhere does not read the checkout's dotenv files.
+Never commit `.env` or `.env.local`.
+
+For checks and contribution steps, see [MCP server development](docs/wiki/Development.md).
+
+## Troubleshooting
+
+### The server does not start
+
+Check Python, `uv`, the configured command, and the two required ServiceNow values.
+If the app cannot find `uvx`, use the executable path recognized by your app.
+For a source checkout, check the working directory and installed dependencies.
+
+Remove `SERVICENOW_USERNAME`, `SERVICENOW_PASSWORD`, and `SERVICENOW_API_KEY`
+from the app environment and dotenv files. Non-empty values fail startup.
+Remove stale `SERVICENOW_OAUTH_CLIENT_SECRET` values. The server ignores them.
+
+### The browser does not open or authorization times out
+
+Use a browser on the computer running the server.
+Check that the registered redirect URL exactly matches the configured value.
+The default wait is 180 seconds.
+
+For `Cannot bind OAuth loopback port`, close a known conflicting listener or
+configure and register another port. The callback must use
+`http://127.0.0.1:<port>/oauth/callback`, with a port from `1024` to `65535`.
+The server rejects `localhost` and other callback paths.
+
+### ServiceNow rejects OAuth
+
+Ask the administrator to check the public application, PKCE S256, client ID,
+enabled scope, and exact redirect URL. The default scope is `useraccount`.
+Token exchange errors are separate from later record-access errors.
+
+### Sign-in succeeds, but a read returns 401 or 403
+
+Ask the administrator to check the API policy, user roles, and table or field access rules.
+A valid OAuth token does not prove permission to use a specific API resource.
+A rejected REST request is not replayed automatically. Retry the read after
+correcting access. The next request attempts token renewal or authorization when needed.
+
+For an old policy that requires API keys, follow the
+[narrow policy migration](docs/wiki/Configuration.md#rest-api-access-policies).
+Do not add an API key or disable unrelated policies.
+
+### Tools or settings do not match your configuration
+
+Check `MCP_TOOL_PACKAGE` and restart the full MCP server.
+`list_tool_packages` lists available packages and groups, not the active package.
+Settings in the process environment override dotenv values.
+
+For write protection, check `SERVICENOW_ENV` and the instance URL separately.
+Keep `prod` or `production` for production connections.
+
+Include the attempted action and sanitized error when reporting a problem.
+Exclude passwords, tokens, raw headers, and browser callback URLs.
+
+## Reference
+
+- [Configuration](docs/wiki/Configuration.md): all settings, defaults, OAuth behavior, and API policy troubleshooting.
+- [Safety and permissions](docs/wiki/Safety-and-Policy.md): access controls, masking, write protection, and query limits.
+- [Tool reference](docs/wiki/Tool-Reference.md): complete actions and input contracts.
+- [Agent recipes](docs/agent-recipes.md): technical query and record-change examples.

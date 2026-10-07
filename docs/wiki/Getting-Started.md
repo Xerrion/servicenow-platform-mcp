@@ -1,153 +1,95 @@
-# Getting Started
+# Getting started
 
-Use this guide to install the server, connect it to an MCP client, and complete
-one read from ServiceNow.
+Open your AI app and try one small ServiceNow read.
+You can describe the task in plain language without knowing API requests or tool names.
 
-## Prerequisites
+## 1. Check whether the connection is available
 
-- Python 3.12 or newer.
-- `uv`.
-- An MCP client that supports local stdio servers.
-- A ServiceNow instance and permission to create or use an Application Registry entry.
-- A ServiceNow user with roles, REST API access, and table and field ACL access for selected tools.
+Ask:
 
-The browser and MCP server must run on the same machine. OAuth uses an IPv4
-loopback callback.
+> List the available ServiceNow tools. Do not change anything in ServiceNow.
 
-## Install
+If the app has no ServiceNow tools, follow the
+[installation guide](https://github.com/Xerrion/servicenow-platform-mcp/blob/main/INSTALL.md)
+or ask your administrator to prepare the connection.
 
-### Source checkout
+An administrator provides the instance address and a public OAuth client ID.
+OAuth lets you authorize access through your browser.
+Each user signs in with their own ServiceNow account.
 
-```bash
-git clone https://github.com/Xerrion/servicenow-platform-mcp.git
-cd servicenow-platform-mcp
-uv sync --group dev
-```
-
-Configure the MCP client to launch the checkout with:
-
-```text
-uv run servicenow-platform-mcp
-```
-
-### Published package
-
-Confirm that your package index contains the release and behavior required by
-your environment before using a published package:
-
-```bash
-uvx servicenow-platform-mcp
-```
-
-The server uses stdio. The MCP client launches it as a subprocess. Do not
-configure it as an HTTP endpoint.
-
-## Configure ServiceNow OAuth
-
-In **System OAuth > Application Registry**, create or select an application:
-
-1. Set **Public Client** to `true`.
-2. Enable authorization-code PKCE with **S256**.
-3. Enable the `useraccount` scope.
-4. Register the exact redirect URL:
-
-   ```text
-   http://127.0.0.1:8765/oauth/callback
-   ```
-
-5. Save the application and copy its public client ID.
-
-OAuth identifies the user. It does not grant table or field access. ServiceNow
-REST policies, roles, row visibility, and ACLs still apply.
-
-## Configure the server
-
-Pass settings through the MCP client's process environment, or create `.env`
-and `.env.local` in the server's working directory:
+For the first connection, use these settings in the app's server configuration:
 
 ```dotenv
 SERVICENOW_INSTANCE_URL=https://your-instance.service-now.com
 SERVICENOW_OAUTH_CLIENT_ID=your-public-client-id
-SERVICENOW_OAUTH_REDIRECT_URI=http://127.0.0.1:8765/oauth/callback
 MCP_TOOL_PACKAGE=readonly
-SERVICENOW_ENV=dev
+SERVICENOW_ENV=prod
 ```
 
-`SERVICENOW_OAUTH_SCOPE` is optional. It defaults to `useraccount`. Set it only
-when the Application Registry enables another valid OAuth scope-token value.
-Multiple scope tokens use one space between tokens.
+Replace the first two values with those from your administrator.
+This is a settings example, not a complete configuration file for an AI app.
+The installation guide gives the server command and the file format for supported apps.
 
-The instance value must be an HTTPS origin without credentials, path, query, or
-fragment. The redirect URI must use
-`http://127.0.0.1:<port>/oauth/callback`, with port `1024`-`65535`, and must
-match the registered URL exactly. `localhost` is not accepted.
+`readonly` exposes read tools. `prod` also blocks writes through this server.
+The environment setting does not select an instance or identify a production instance.
+Do not put passwords, tokens, API keys, or client secrets in the configuration.
 
-Do not configure `SERVICENOW_API_KEY`, `SERVICENOW_USERNAME`, or
-`SERVICENOW_PASSWORD`. Non-empty values fail startup. A stale
-`SERVICENOW_OAUTH_CLIENT_SECRET` is ignored; remove it.
+## 2. Read one record
 
-The server reads `.env`, then `.env.local`, then process environment variables.
-Later sources override earlier sources. Restart the full MCP process after
-configuration changes. Never commit dotenv files.
+Ask:
 
-See [[Configuration]] for defaults, validation, package groups, and limits.
+> Use ServiceNow to show one active incident I can access. Include its number
+> and short description. Do not change anything.
 
-## Configure the MCP client
+When the browser opens, authorize the connection with the intended ServiceNow account.
+The browser must run on the same computer as the server.
+The supported setup runs the server locally through your AI app.
 
-Client configuration shape varies. Use its equivalent stdio fields for
-`command`, `args`, working directory, and `env`:
+A returned record confirms access to that table.
+The tool list alone does not confirm a working ServiceNow connection.
+If your account cannot read incidents, try a table your administrator confirms you can access.
 
-```json
-{
-  "command": "uv",
-  "args": ["run", "servicenow-platform-mcp"],
-  "cwd": "/path/to/servicenow-platform-mcp",
-  "env": {
-    "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
-    "SERVICENOW_OAUTH_CLIENT_ID": "your-public-client-id",
-    "SERVICENOW_OAUTH_REDIRECT_URI": "http://127.0.0.1:8765/oauth/callback",
-    "MCP_TOOL_PACKAGE": "readonly"
-  }
-}
-```
+An empty result can mean that no record matches the filter or that access rules hide matching records.
+Ask the app to show the table and filters it used before drawing a conclusion.
 
-`cwd` is a client setting, not an MCP protocol field. Do not put tokens,
-authorization codes, PKCE verifiers, callback query strings, passwords, API
-keys, or client secrets in client configuration.
+## 3. Choose your first useful task
 
-## Verify setup
+### For ITSM work
 
-1. Restart the MCP server.
-2. Call `list_tool_packages`. It does not contact ServiceNow.
-3. Call `query` with a small read against a permitted table:
+Choose a real ticket number from your instance:
 
-   ```text
-   table="incident", fields="sys_id,number", limit=1
-   ```
+> Read INC0012345. Summarize the issue, current state, assignment, and work notes
+> from the last 30 days. Include the ticket number. Do not change anything.
 
-4. Complete browser authorization when prompted.
-5. Confirm a successful response.
+Check the summary against the ticket in ServiceNow.
+Use [[ITSM-Work]] for queue reviews, request answers, attachments, and ticket updates.
 
-Use another table when the user cannot access `incident`.
+### For instance administration and development
 
-The first ServiceNow call opens the default browser. REST calls use a Bearer
-header. A restart or token expiry requires authorization again. A REST 401 does
-not replay the request.
+Choose a real Business Rule name from your instance:
 
-## Troubleshooting
+> Read the Business Rule named 'Validate priority'. Show its table, conditions,
+> and complete script. Explain when it runs. Do not change anything.
 
-| Symptom | Action |
+If several rules have that name, ask the app to list the matches first.
+Select the intended record before continuing.
+Use [[Instance-Development]] for table information, script changes, Flow Designer inspection, and troubleshooting.
+
+## When access fails
+
+| What happens | What to check next |
 | --- | --- |
-| Invalid configuration at startup | Check variable names and values. Check the MCP client's process environment and working directory. |
-| `Cannot open the local browser` | Check the browser on the machine running the server. |
-| `Cannot bind OAuth loopback port` | Close a known conflicting listener, or configure and register another allowed `127.0.0.1` port. |
-| `ServiceNow authorization timed out` | Authorize on the same machine before the timeout. Check the exact redirect URL and retry. |
-| ServiceNow rejects the scope | Enable `useraccount`, or set `SERVICENOW_OAUTH_SCOPE` to an enabled valid scope-token value. |
-| OAuth token exchange rejected | Check Public Client, PKCE S256, client ID, scope, and exact redirect URL. |
-| REST 401 or `User Not Authenticated` | Authorize on the next call. If it persists, ask an administrator to check scopes, REST policy, and user access. |
-| HTTP 403 | Check REST resource permissions, roles, table ACLs, and field ACLs. |
-| No tools appear | Check `MCP_TOOL_PACKAGE` and call `list_tool_packages`. |
-| Writes are blocked | `SERVICENOW_ENV=prod` and `production` block local writes. Use a sub-production instance for write testing. |
+| The app has no ServiceNow tools | Check the connection settings and selected tool package. Restart the MCP server after changes. |
+| The browser does not open or authorization fails | Follow the [installation troubleshooting](https://github.com/Xerrion/servicenow-platform-mcp/blob/main/INSTALL.md#troubleshooting). |
+| Sign-in succeeds, but a read returns 401 or 403 | Ask your administrator to check API access policies, roles, and table or field permissions. |
+| A field or history entry is missing | Check the requested fields, access rules, time period, and any result limits. |
+| A write is unavailable or blocked | Check [[Tool-Packages]] and [[Safety-and-Policy]]. Use a development or test instance for write testing. |
 
-For REST policy migration, see [[Configuration]]. Adjust only the affected
-policy. Do not add an API key or disable unrelated protection.
+ServiceNow data returned by tools becomes available to your AI app.
+Use an app approved for the data you handle.
+
+The server keeps tokens in memory and renews expired access tokens when possible.
+Restarting the server requires browser authorization again.
+
+For a problem report, include the action, table or record, and sanitized error.
+Exclude passwords, tokens, raw headers, and browser callback URLs.

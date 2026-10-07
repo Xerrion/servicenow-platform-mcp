@@ -1,333 +1,694 @@
-# Tool Reference
+# Tool reference
 
-Complete reference for all 16 public tools in 14 tool groups. Use this page when
-you need an action, input, limit, or response detail. Tools use dispatcher
-patterns and ServiceNow encoded queries.
+Start with the task you want to complete. You can ask your AI app in plain
+language. The app chooses the tools and supplies their inputs.
 
-Omit unused optional arguments, including arguments whose defaults are desired.
-For example, omit `preview` for the normal `record_write` preview flow; send
-`preview=false` only to request an immediate write. All optional tool inputs also
-accept JSON `null`, which uses the same behavior as omission. Absence-only inputs default to `null`
-in the tool schema; no empty strings or zero placeholders are needed. Meaningful
-defaults such as `preview=true`, `limit=20`, and `offset=0` remain documented in
-the schema. Explicit `false`, `0`, and empty strings retain their existing
-meaning and validation. Requirements for the selected action still apply:
-`record_write(create)` needs `table` and `data`, while `audit(history)` needs
-`table` and `sys_id`. This applies to top-level tool arguments only; `null`
-inside a JSON field map such as `data` is preserved as a field value.
+| Your task | Tools |
+| --- | --- |
+| Find tickets, read a record, or count records | `query`, `record_read` |
+| Understand tables, fields, or choice values | `describe`, `resolve_choice` |
+| Read comments, request answers, or field changes | `analysis`, `audit` |
+| Inspect attachments or configuration items | `attachment`, `cmdb` |
+| Understand scripts, flows, or instance issues | `code_search`, `flow`, `investigate` |
+| Browse the catalog or place an order | `service_catalog` |
+| Create, update, or delete records and attachments | `record_write`, `record_apply`, `attachment_write` |
 
-Operational tools return responses as JSON strings with `status`, `data`, and optional `error`, `pagination`, non-empty `truncation`, and non-empty `warnings`. The always-on `list_tool_packages` tool returns the preset-to-group registry directly. Responses omit `selection` metadata. Paged reads use `pagination` with `offset`, `limit`, and `total`; compact `describe` pages use the same shape with `field_offset` and `field_limit` as inputs. Flow responses include `truncation` only when needed to explain incomplete results and how to continue.
+The configured tool package determines which tools your app can use.
+See [[Tool-Packages]] for availability and [[Safety-and-Policy]] for access and write controls.
+`list_tool_packages` is always available. It takes no inputs and lists package contents without contacting ServiceNow.
+`MAX_ROW_LIMIT` caps the paths that use it. Some tools have separate fixed limits.
+See [[Configuration]] for its setting.
 
-For security guardrails that apply across all tools, see [[Safety-and-Policy]]. For worked examples of complex queries and multi-tool workflows, see [Agent Recipes](../../docs/agent-recipes.md).
+## Read the input examples
 
----
+The JSON examples are arguments for the named MCP tool. Your AI app makes
+these calls. They are not terminal commands or a Python client library.
+Replace example ticket numbers, names, and every value in angle brackets with
+values from your instance.
 
-## Always-On Tool
+| Term | Meaning |
+| --- | --- |
+| Table | A collection of ServiceNow records, such as `incident`. |
+| Field | A value on a record, such as `short_description` or `assigned_to`. |
+| `sys_id` | A record's internal identifier, containing 32 hexadecimal characters. It differs from a ticket number such as `INC0012345`. |
+| Encoded query | A ServiceNow filter string, such as `active=true^priority=1`. Copy one from a ServiceNow list filter. |
+| JSON string | Text containing JSON. Inputs such as `data`, `params`, and `variables` need this text, not a nested JSON object. |
 
-The `list_tool_packages` tool is always available, regardless of which tool package is configured.
+Omit optional inputs you do not need. Top-level JSON `null` uses the same
+behavior as omission. Explicit `false`, `0`, and empty strings retain each
+tool's documented behavior. A `null` inside `record_write.data` remains a field value.
 
-| Tool                 | Description                                     | Key Parameters |
-| -------------------- | ----------------------------------------------- | -------------- |
-| `list_tool_packages` | List available tool packages and their contents | -              |
+Common ITSM tables:
 
----
+| Record | Table |
+| --- | --- |
+| Incident | `incident` |
+| Problem | `problem` |
+| Change request | `change_request` |
+| Catalog request or requested item | `sc_request` or `sc_req_item` |
+| Catalog task | `sc_task` |
 
-## Introspection Tools
+Common administration and development tables:
+
+| Configuration | Table |
+| --- | --- |
+| Business Rule | `sys_script` |
+| Script Include | `sys_script_include` |
+| Client Script | `sys_script_client` |
+| UI Policy | `sys_ui_policy` |
+| Access control rule (ACL) | `sys_security_acl` |
+
+## Find and read records
+
+> Show 10 active incidents. Include number, short description, priority, and
+> assigned person. Order them by priority. Do not change anything.
 
 ### `query`
 
-Search and retrieve records from any table using ServiceNow encoded query strings.
+Use `query` to list records, read one record by `sys_id`, or calculate totals.
 
-- **Purpose:** Primary tool for finding records, auditing history (`sys_audit`), or checking logs (`syslog`).
-- **Key Parameters:**
-  - `table`: Target table name (e.g., `incident`).
-  - `encoded_query`: ServiceNow query string (e.g., `active=true^priority=1`).
-  - `sys_id`: Select exact-record mode. With no `fields`, this mode returns `sys_id,sys_updated_on`.
-  - `fields`: Required in list mode. Use a comma-separated field projection, or `*` for all fields. `sys_id` is always included.
-  - `resolve_labels`: Optional label-to-value resolution (e.g., `state=open`).
-  - `display_values`: If `true`, returns human-readable labels in a `_display` object.
-  - `limit`, `offset`, `order_by`: Pagination and sorting.
-- **Example:**
+| Input | Use |
+| --- | --- |
+| `table` | Required table name. |
+| `encoded_query` | Optional encoded filter. Omitted, null, and empty filters mean no filter. |
+| `fields` | Comma-separated field names. Required for lists. `*` requests all masked fields. `sys_id` is always included. |
+| `sys_id` | Read one exact record. Without `fields`, returns `sys_id,sys_updated_on`. |
+| `limit` | Rows per list page. Default 20. Range 1 to `MAX_ROW_LIMIT`. |
+| `offset` | Starting row for a list page. Default 0. |
+| `order_by` | Field to sort by. Prefix `-` for descending order, such as `-sys_created_on`. |
+| `display_values` | Default `false`. Set `true` to request ServiceNow display values for reference and choice fields. |
+| `aggregate` | Comma-separated `count`, `avg:<field>`, `sum:<field>`, `min:<field>`, or `max:<field>`. Returns totals instead of records. |
+| `group_by` | Comma-separated grouping fields. Requires `aggregate`. |
+| `resolve_labels` | Comma-separated `field=choice_key` pairs. Resolves supported choices and adds them to the filter. See `resolve_choice`. |
 
-  ```python
-   await query(table="incident", encoded_query="active=true^priority=1", fields="number,short_description")
-   ```
+Arguments for `query`:
 
-ServiceNow encoded queries are the only supported query construction interface. Copy a filter breadcrumb from a ServiceNow list, or construct the encoded query string directly, then pass it in `encoded_query`. Query safety still applies.
+```json
+{
+  "table": "incident",
+  "encoded_query": "active=true",
+  "fields": "number,short_description,priority,assigned_to",
+  "order_by": "priority",
+  "display_values": true,
+  "limit": 10
+}
+```
 
-Only `table` is required by the `query` schema. Optional string inputs default to null, so callers can omit unused arguments instead of passing empty strings. List mode still requires `fields`. Empty or null filters are not sent to ServiceNow. Numeric defaults and false display-value flags remain meaningful values.
+For a ticket number, query its `number` field first:
 
-### `describe`
+```json
+{
+  "table": "incident",
+  "encoded_query": "number=INC0012345",
+  "fields": "number,short_description,state,sys_updated_on",
+  "limit": 1
+}
+```
 
-Retrieve inherited schema and metadata for a table, or enumerate its script-bearing fields.
+> Count active incidents by assignment group. Include the filter used.
 
-- **Purpose:** Understand a table's structure before querying or writing; discover dictionary-driven script fields at runtime.
-- **Key Parameters:**
-   - `action`: Optional. Empty uses normal table description. `list_script_fields` returns the resolved super_class `chain` and the script-bearing fields (`name`, `internal_type`, `inherited_from`, `via_heuristic`) for the supplied `table`. `list_tables` lists tables from `sys_db_object`.
-  - `table`: Target table name (required for both actions).
-  - `verbose`: If `true`, returns all platform metadata (otherwise returns a slim summary per field).
-  - `fields`: Optional field projection. Empty returns an alphabetical page of 25 fields; `*` returns all fields.
-  - `field_offset`: Offset for continuing the default field page.
-  - `field_limit`: Page size from 1 to 100.
-- **Example:**
+Arguments for `query`:
 
-  ```python
-  await describe(table="incident")
-  await describe(action="list_script_fields", table="sys_script")
-  ```
+```json
+{
+  "table": "incident",
+  "encoded_query": "active=true",
+  "aggregate": "count",
+  "group_by": "assignment_group"
+}
+```
 
-Ordinary field listing and explicit lookup walk the bounded `sys_db_object.super_class` chain child-first. Child declarations override ancestor declarations. Each field includes `inherited_from`; direct fields use `null`. Pagination runs after de-duplication.
+You cannot combine `sys_id` with `aggregate` or `group_by`. Exact-record mode
+uses only the record selector, `fields`, and `display_values`. Aggregate mode
+does not use list pagination inputs. A row limit bounds returned rows, not the
+database work needed to filter or count them.
 
----
-
-## Record Management
-
-Record mutations use a two-stage preview/apply flow by default. A caller can explicitly set `preview=false` to request an immediate write.
-
-### `record_write`
-
-Unified tool for staging `create`, `update`, or `delete` actions.
-
-- **Purpose:** Perform mutations with built-in safety checks and preview flow.
-- **Key Parameters:**
-  - `action`: One of `create`, `update`, or `delete`.
-  - `table`: Target table name.
-  - `sys_id`: Required for `update` and `delete`.
-  - `data`: JSON string of field-value pairs for `create`/`update`, including complete script or markup values. Maximum 256 KiB of UTF-8 JSON, including field names and escaping. Omitted fields stay unchanged on update. Multiple script fields can be supplied together.
-  - `preview`: If `true` (default), stores the change in `PreviewTokenStore` and returns a `preview_token`.
-- **Notes:** No local script-file loading. Dictionary types are queried only for supplied fields, with child-first inheritance. Fields resolved as `internal_type == 'xml'` require string values containing well-formed XML before staging or mutation; empty, null, and malformed values are rejected for these XML fields. Non-XML fields are not subject to XML validation. Creates also check mandatory fields across the bounded `sys_db_object.super_class` chain before preview creation or direct mutation, and again on apply. Child declarations take precedence, including non-mandatory overrides. Metadata request errors block writes; fields hidden by dictionary ACLs cannot receive local validation. Script syntax is not checked.
-- **Example:**
-
-  ```python
-  # Stage a create
-  preview = await record_write(action="create", table="incident", data='{"short_description": "New issue"}')
-  # Returns: {"data": {"preview_token": "uuid-token-here", ...}}
-  ```
+Lists and aggregates on configured large tables require a recognized date
+filter. See [[Safety-and-Policy]]. Exact-record reads do not require that filter.
+`display_values` passes ServiceNow's display-value option through and preserves
+the returned field structure. The server does not add a `_display` object.
 
 ### `record_read`
 
-Read-only counterpart to `record_write` for any table.
+> Read the Business Rule named 'Validate priority'. Explain its script and when it runs.
 
-- **Purpose:** Inspect an existing record (and learn its script-bearing fields) before composing a multi-field update through `record_write.data`.
-- **Key Parameters:**
-  - `table`: Target table name.
-  - `sys_id` **or** `name`: Exactly one must be supplied. Ambiguous names (more than one match) and missing records return a structured error.
-  - `fields`: Optional field projection. Empty returns compact identity/update fields plus discovered script-bearing fields; `*` returns the full masked record. `sys_id` is always included.
-- **Response:** Masked record fields plus the `script_fields` list resolved from `sys_dictionary` for the table.
-- **Availability:** Included in both the `full` and `readonly` packages.
-- **Example:**
+| Input | Use |
+| --- | --- |
+| `table` | Required table name. |
+| `sys_id` | Exact record identifier. Supply this or `name`, never both. |
+| `name` | Matches the record's actual `name` field. Missing or ambiguous matches return an error. |
+| `fields` | Optional comma-separated field names. Default returns compact identity/update fields and discovered script fields. `*` returns the full masked record. |
 
-  ```python
-  await record_read(table="sys_script", name="Validate priority on insert")
-  ```
+Arguments for `record_read`:
 
-### `record_apply`
+```json
+{
+  "table": "sys_script",
+  "name": "Validate priority"
+}
+```
 
-Commits a write operation staged through the default `record_write` preview flow.
+The response includes `script_fields` discovered from dictionary metadata,
+including inherited fields. Tables without script fields return an empty list.
+The record always includes `sys_id`.
+To read a ticket, use `query` with `encoded_query="number=INC0012345"` to find its `sys_id` first.
+`record_read.name` does not search ticket numbers.
 
-- **Purpose:** Finalize a mutation after inspecting the preview.
-- **Key Parameters:**
-  - `preview_token`: The token returned by `record_write`.
-- **Example:**
+## Understand tables and choice values
 
-  ```python
-  await record_apply(preview_token="uuid-token-here")
-  ```
+> Show the incident state and assigned-to fields. Explain their types and available help text.
 
----
+### `describe`
 
-## Specialized Dispatchers
+| Action | Required input | Result |
+| --- | --- | --- |
+| Omit `action` | `table` | Field definitions, including inherited fields. |
+| `list_script_fields` | `table` | Script fields and the resolved parent-table chain. |
+| `list_tables` | None | Tables matching optional `name_filter`. `table` is ignored. |
 
-### `attachment`
+| Input | Use |
+| --- | --- |
+| `fields` | Optional comma-separated field names. Omit for an alphabetical page. `*` requests all fields. |
+| `field_offset` | Starting field for default pages. Default 0. |
+| `field_limit` | Fields per default page. Default 25. Range 1 to 100. |
+| `verbose` | Default `false`. Set `true` for dictionary rows with specific noisy metadata keys removed. |
+| `include_docs` | Default `false`. Set `true` for matching field labels, help, hints, and documentation URLs. |
+| `name_filter` | Substring matched against table name or label for `list_tables`. |
 
-Unified dispatcher for reading and downloading record attachments.
+Arguments for `describe`:
 
-- **Actions:**
-  - `list`: List metadata for all attachments on a record.
-  - `get`: Fetch metadata for a specific attachment by sys_id.
-  - `download`: Download attachment content as base64.
-  - `download_by_name`: Resolve the earliest matching attachment by parent table, record sys_id, and file name, then download it as base64.
-- **Limits:** `list` returns at most 100 attachment records. Upload and download content are limited to 10 MiB.
-- **Example:**
+```json
+{
+  "table": "incident",
+  "fields": "state,assigned_to",
+  "include_docs": true
+}
+```
 
-  ```python
-  await attachment(action="list", table="incident", table_sys_id="...")
-  ```
+To find a table, use `describe` with:
 
-### `attachment_write`
+```json
+{
+  "action": "list_tables",
+  "name_filter": "request"
+}
+```
 
-Dispatcher for attachment mutations. Included in `full` or available as the explicit `attachment_write` custom group. Runtime write gating applies to every action.
+Default field pages follow the bounded parent-table chain. Child definitions
+override parent definitions. Each field includes `inherited_from`, which is
+`null` for fields defined directly on the table. Pagination follows this merge.
+Explicit field lists and `fields="*"` do not use default field pagination.
 
-- **Actions:**
-  - `upload`: Upload a base64-encoded file.
-  - `delete`: Delete an attachment by sys_id.
-- **Limit:** Upload content is limited to 10 MiB.
-
-### `investigate`
-
-Runs pre-defined diagnostic and health check modules.
-
-- **Actions:**
-  - `run`: Execute a module (e.g., `stale_automations`, `table_health`).
-  - `explain`: Interpret a specific finding from a previous run. Pass the registered investigation `name` and an `element_id` for direct dispatch. If `name` is omitted, the tool tries registered investigations until one can explain the element.
-- **Modules:** `stale_automations`, `deprecated_apis`, `table_health`, `acl_conflicts`, `error_analysis`, `slow_transactions`, `performance_bottlenecks`.
-- **Explanation identifiers:** Usually `table:sys_id`. With an explicit investigation name, `table_health` and heavy-automation findings from `performance_bottlenecks` accept a table name; `acl_conflicts` accepts either an ACL sys_id or `sys_security_acl:sys_id`.
-- **Response metadata:** `run` identifies the registered investigation once in `data.investigation`; findings do not repeat it. Warnings appear only in top-level `warnings`, and empty warnings are omitted. `slow_transactions` reports only attempted tables; missing or inaccessible optional tables produce warnings and `complete=false`. Timeouts and unexpected failures return errors instead of empty success results.
-
-### `audit`
-
-Inspect ServiceNow field-level auditing posture and masked history.
-
-- **Purpose:** Resolve whether a `(table, field)` pair is actually audited (walking `super_class` and `sys_dictionary`), survey a table's audit posture, and fetch a masked, date-bounded audit trail for one record.
-- **Availability:** Included in the `full` and `readonly` packages.
-- **Actions:**
-  - `check_field`: Resolve the combined audit verdict for one `(table, field)` pair. Returns the chain-walked dictionary flag, the `no_audit` attribute veto, the table-level flag, and a positive-control count from `sys_audit` within `window_days`.
-  - `check_fields`: Batch variant of `check_field`. Accepts `fields_csv` (max 50) and returns one verdict per field plus a single shared `table_change_count`. Uses one table count and one count grouped by the requested fields, rather than a separate scan for each field. Counts are live and are not cached. Large audit tables can still exceed the MCP client's deadline; use a narrow `window_days`.
-  - `check_table`: Table-level posture - the table default plus the list of fields whose resolved audit flag differs from that default.
-  - `history`: Masked, date-bounded audit trail for one record. Queries `sys_audit` by `tablename` + `documentkey` and masks sensitive fields via `mask_audit_entry`.
-  - `describe`: Return the action registry without platform I/O.
-- **Key Parameters:**
-  - `action`: One of `check_field`, `check_fields`, `check_table`, `history`, or `describe`.
-  - `table`: Target table name (required for all actions except `describe`).
-  - `field`: Field name (required for `check_field`).
-  - `fields_csv`: Comma-separated field names, max 50 (required for `check_fields`).
-  - `sys_id`: Document sys_id for `history`.
-  - `window_days`: Override the default 90-day window for `sys_audit` queries. Wider windows risk timeouts.
-  - `since`: Explicit ISO date floor for `history` (overrides `window_days`).
-- **Notes:** `sys_audit` is one of the largest tables on the platform; every action that touches it applies a default 90-day window. Responses include the `window_days` actually used and a `window_note` describing it. `no_audit=true` in the `attributes` blob vetoes the boolean `audit` column. The positive-control count distinguishes "no field activity in window" (`audited_but_inactive`) from "audit not configured" (`inconclusive`).
-- **Example:**
-
-  ```python
-  await audit(action="check_field", table="incident", field="state")
-  await audit(action="check_fields", table="incident", fields_csv="state,priority,assigned_to")
-  await audit(action="check_table", table="incident")
-  await audit(action="history", table="incident", sys_id="<sys_id>", window_days=30)
-  ```
-
-### `analysis`
-
-Compose read-only data that otherwise needs several bounded Table API calls. Included in `full` and `readonly`, but not `core_readonly`.
-
-- `ritm_variables`: Requires one `sc_req_item` `sys_id`. It joins `sc_item_option_mtom`, `sc_item_option`, and `item_option_new`, and returns bounded submitted answers with definition metadata and pagination. Answers use `raw_value`; the redundant `display_value` field is omitted. Variable names and labels that indicate password, token, secret, credential, API key, or private key cause the answer to be masked. Answers are also conservatively masked when either name or label metadata is unavailable. Reference and List Collector values retain raw sys_ids and have no inferred display value; List Collectors with multiple comma-separated identifiers are marked `multi_value`. A separate bounded, value-free `sc_multi_row_question_answer` query reports MRVS presence in `data.unsupported_features.multi_row_variable_sets`; this metadata does not affect answer entries or pagination. MRVS payload fields are not retrieved or decoded.
-- `journal_history`: Requires `table` and `sys_id`. It reads only dictionary-confirmed `comments`, `work_notes`, and `close_notes` entries from `sys_journal_field`. The query always constrains `name`, `element`, `element_id`, and a date floor. Results use deterministic chronological order and bounded `limit`/`offset` pagination. This is separate from `audit(action="history")`, which reads field changes from `sys_audit`.
-- `describe`: Returns the action registry without platform I/O.
-
-Required resources are the Table API and read ACLs for the target record, `sys_db_object`, `sys_dictionary`, and the composition tables used by each action. Row ACLs, field ACLs, and journal retention can make results incomplete.
-
-### `flow`
-
-Inspect ServiceNow Flow Designer artifacts from documented Table API records.
-
-- **Purpose:** Read Flow Designer flows and subflows, including concise integration contracts, triggers, declared inputs/outputs/variables, decoded V2 action and logic configuration, canvas structure, and published snapshot drift.
-- **Availability:** Included in the `full` and `readonly` packages. Custom packages can include it with `MCP_TOOL_PACKAGE=flow,query,describe`.
-- **Actions:**
-  - `contract`: Return an agent-oriented data contract for one flow/subflow. Requires exactly one of `sys_id` or `name`.
-  - `inspect`: Assemble one flow/subflow. Requires exactly one of `sys_id` or `name`.
-  - `find_by_table`: Find flows with a record trigger on `table`. Resolves current snapshot references to canonical flow IDs. Unresolved headers are listed in `unresolved_flow_ids` with `metadata_resolved=false` and `active=null`; they are not confirmed inactive flows.
-  - `decode_values`: Decode a gzip+base64+JSON `values` blob from a `sys_hub_*_v2` row. Requires `value`.
-  - `list_triggers`: List record triggers across flows. Optional filters: `table`, `trigger_type`, `active` (`true`/`false`), `limit`.
-  - `describe`: Return the action registry with names, descriptions, and parameters.
-- **Key Parameters:**
-  - `action`: One of `contract`, `inspect`, `find_by_table`, `decode_values`, `list_triggers`, or `describe`.
-  - `sys_id`: 32-character flow sys_id for `contract` or `inspect`; mutually exclusive with `name`.
-  - `name`: Flow name or `internal_name` for `contract` or `inspect`; must resolve to exactly one flow.
-  - `table`: Target record table for `find_by_table`; optional filter for `list_triggers`.
-  - `trigger_type`: Optional trigger filter for `list_triggers`, such as `record_update`.
-  - `active`: Optional `true`/`false` filter for `list_triggers`.
-  - `value`: Raw compressed `values` field content for `decode_values`.
-  - `limit`: Optional page size for `list_triggers`; defaults to 100 when omitted or `0`.
-  - `sections`: For `inspect` and `contract`, comma-separated sections to return. Empty selects `flow,published_state,structural_summary,warnings`; `*` selects every section.
-  - `section_limit`: Maximum rows or nodes per selected section. The default is 100, capped by `MAX_ROW_LIMIT`.
-- **Examples:**
-
-  ```python
-  await flow(action="contract", name="Provision Entra ID Group Membership")
-  await flow(action="inspect", sys_id="9e858befc3340f105cf89fcd2b01317d")
-  await flow(
-      action="inspect", name="My Flow", sections="flow,published_state,structural_summary,warnings", section_limit=25
-  )
-  await flow(action="find_by_table", table="incident")
-  await flow(action="decode_values", value="H4sIA...")
-  await flow(action="list_triggers", trigger_type="record_update", active="true", limit=50)
-  await flow(action="describe")
-  ```
-
-- **`inspect` response highlights:** The default `data` contains only `flow`, `published_state`, `structural_summary`, and `warnings`. Request other sections by name, or pass `sections="*"` for all inspect sections.
-  - `flow`: Flow metadata (`sys_id`, `name`, `internal_name`, `type`, `active`, `description`, `sys_scope`).
-  - `published_state`: `{master_snapshot, latest_snapshot, drift}`. `drift` is `true` when the published snapshot differs from the latest authored snapshot.
-  - `canvas`: Nested V2 tree. Root nodes have an empty `parent_ui_id`; children are sorted by `order`. Each node includes `kind` (`action` or `logic`), `ui_id`, `parent_ui_id`, `order`, `decoded_values`, and recursive `children`.
-  - `warnings`: Returned in the standard response envelope for mixed V1/V2 flows, snapshot drift, IntegrationHub spoke heuristics, or V1 logic that cannot be woven into the V2 canvas tree.
-- **`contract` response highlights:** The default `data` contains only `flow`, `published_state`, `structural_summary`, and `warnings`. Request `inputs`, `outputs`, `variables`, `triggers`, or `steps` as needed, or pass `sections="*"` for all contract sections.
-  - Each action step exposes its action type, configured `inputs`, and a concise `definition` with declared `inputs` and `outputs`. Definition fields include `name`, `label`, `required`, and, when available, `type`, input `default`, and `reference_table`. Each logic step exposes its `conditions`; `output_assignments` are included when stored configuration has them.
-  - Action definitions are read from `sys_hub_action_input` and `sys_hub_action_output`, joined to `sys_hub_action_type_base` through `action_type`. `type` is emitted only when `element_prototype` provides a usable display label. Missing or inaccessible definition schema is reported in contract warnings and the affected action's `definition.limitations`.
-  - Binding `value` is preserved exactly as configured. `data_pills` lists only `{{...}}` references found in that value; the tool does not infer action behavior or resolve a data pill's runtime value.
-  - Contract steps represent V2 nodes only. If V1 actions or logic are present, `warnings` explains that their bindings cannot be reconstructed into ordered contract steps.
-- **Notes:** The tool reads both V1 (`sys_hub_action_instance`, `sys_hub_flow_logic`, `sys_hub_trigger_instance`) and V2 (`sys_hub_action_instance_v2`, `sys_hub_flow_logic_instance_v2`, `sys_hub_trigger_instance_v2`) records. Record-trigger conditions are joined through `sys_flow_record_trigger`. It does not use the undocumented `/api/now/processflow/flow/{sys_id}` endpoint or the opaque `sys_hub_flow_snapshot` compiled cache. A bad per-node `values` blob adds `decode_error` to that node; the rest of `inspect` still succeeds.
-- **Truncation:** Successful `inspect` and `contract` responses include top-level `truncation` only when results or dependencies are incomplete. For example, its `warnings` entry reports saturated action, logic, or trigger probes, and `v1_variable_values` reports when its V1-action probe can omit later values. Below `MAX_ROW_LIMIT`, the continuation tells you to request a larger `section_limit`. At the configured maximum, no further continuation is available through `flow`; the metadata gives the complete direct-query sequence, field projections, and encoded-query filters needed to finish the selected analysis with `query`. Paginate those reads with `limit` and `offset`; normal query safety and row limits still apply.
+`list_tables` returns at most 500 tables. If the result reaches that limit,
+narrow `name_filter`. The tool has no table-list continuation input.
+`list_script_fields` returns `name`, `internal_type`, `inherited_from`, and
+`via_heuristic` for each discovered script field.
 
 ### `resolve_choice`
 
-Resolves human-readable labels to underlying ServiceNow values using the `sys_choice` table.
+> List the supported incident state choices. Use the returned key for 'In Progress' before filtering incidents.
 
-- **Key Parameters:**
-  - `table`: Table name.
-  - `field`: Field name.
-  - `label`: Human label (e.g., "In Progress"). If omitted, returns all choices for the field.
-- **Example:**
+| Input | Use |
+| --- | --- |
+| `table` | Required table name. |
+| `field` | Required choice field. |
+| `label` | Optional exact key from the returned choices. Omit to list the mapping. |
 
-  ```python
-  await resolve_choice(table="incident", field="state", label="New")
-  ```
+Arguments for `resolve_choice`:
 
-### `service_catalog`
+```json
+{
+  "table": "incident",
+  "field": "state"
+}
+```
 
-Unified dispatcher for Service Catalog operations.
+Choice keys use lowercase words with underscores, such as `in_progress`.
+Use the exact returned key when supplying `label` or `query.resolve_labels`.
+Labels such as `New` and `In Progress` can remain unresolved. An unresolved
+value returns unchanged with a warning, so inspect the warning before using it.
 
-Optional filters `text`, `catalog`, and `category` default to null. Omitted, null, and empty filters are not sent to ServiceNow; limits and zero offsets are preserved.
+The registry supports `state` for `incident`, `change_request`, `problem`,
+`sc_request`, and `sc_req_item`. It also supports `operational_status` for
+`cmdb_ci`. It reads instance choices and can fall back to built-in defaults
+when instance choices cannot be fetched. It is not a general resolver for
+every choice field on every table.
 
-- **Actions:** `catalogs_list`, `catalog_get`, `categories_list`, `category_get`, `items_list`, `item_get`, `item_variables`, `order_now`, `add_to_cart`, `cart_get`, `cart_submit`, `cart_checkout`.
-- **Example:**
+## Read ticket history and request answers
 
-  ```python
-  await service_catalog(action="items_list", text="laptop")
-  ```
+> Summarize comments and work notes on INC0012345 from the last 30 days.
+> Separately, show changes to its state and assigned person.
 
-### `code_search`
+Find the ticket's `sys_id` with `query` first. Journal entries and field changes
+come from different tools.
 
-Search ServiceNow script-bearing artifacts through the Code Search API.
+### `analysis`
 
-- **Actions:**
-  - `search`: Search for a required `term`, optionally restricted to `table` and `search_group`.
-  - `list_tables`: List tables covered by the selected Code Search group.
-  - `describe`: Return the action registry without platform I/O.
-- **Key Parameters:** `limit` defaults to 20 and is capped by `MAX_ROW_LIMIT`. Set `extended_matching=true` to request additional context fields.
-- **Example:**
+| Action | Required inputs | Optional inputs |
+| --- | --- | --- |
+| `ritm_variables` | `sys_id` of an `sc_req_item` record | `limit`, `offset` |
+| `journal_history` | `table`, `sys_id` | `fields_csv`, `since`, `window_days`, `limit`, `offset` |
+| `describe` | None | None. Returns action contracts without contacting ServiceNow. |
 
-  ```python
-  await code_search(action="search", term="validate priority", table="sys_script")
-  ```
+`limit` defaults to `MAX_ROW_LIMIT` and is capped by it. `offset` defaults to 0.
+For journal history, `fields_csv` defaults to `comments,work_notes`.
+It accepts only `comments`, `work_notes`, and `close_notes` that dictionary
+metadata confirms are journal fields. `window_days` defaults to 90.
+`since` must use `YYYY-MM-DD` and overrides `window_days`.
 
----
+Arguments for `analysis`, after replacing the identifier:
+
+```json
+{
+  "action": "journal_history",
+  "table": "incident",
+  "sys_id": "<32-character incident sys_id>",
+  "window_days": 30,
+  "limit": 50
+}
+```
+
+Journal entries use chronological order and `limit`/`offset` pagination.
+Access rules and journal retention can make history incomplete.
+
+> Show the answers submitted with RITM0012345.
+
+For `analysis.ritm_variables`, find the requested item's `sys_id` in
+`sc_req_item`. The result joins submitted answers to variable definitions.
+Answers use `raw_value`. References retain their raw identifiers, and List
+Collectors can contain multiple identifiers marked `multi_value`.
+
+Sensitive variable names or labels cause masking. Missing name or label
+metadata also causes masking. Multi-row variable sets (MRVS) appear only as
+presence metadata in `data.unsupported_features.multi_row_variable_sets`.
+The tool does not retrieve or decode their answer payloads.
+
+Reading these results requires access to the target record, dictionary tables,
+and the supporting journal or catalog-answer tables.
+
+### `audit`
+
+> Check whether incident state changes are audited. Explain any inconclusive result.
+
+| Action | Required inputs | Optional inputs and result |
+| --- | --- | --- |
+| `check_field` | `table`, `field` | `window_days`. Checks field/table settings and recent audit activity. |
+| `check_fields` | `table`, `fields_csv` | `window_days`. Checks 1 to 50 fields with shared activity counts. |
+| `check_table` | `table` | Returns table settings and fields with different audit settings. |
+| `history` | `table`, `sys_id` | `since`, `window_days`, `limit`. Returns masked field-change entries. |
+| `describe` | None | Returns action contracts without contacting ServiceNow. |
+
+Arguments for `audit`:
+
+```json
+{
+  "action": "check_fields",
+  "table": "incident",
+  "fields_csv": "state,priority,assigned_to",
+  "window_days": 30
+}
+```
+
+Activity checks and history use a 90-day default window. `since` accepts
+`YYYY-MM-DD` for `history` and overrides `window_days`. Wider windows can
+time out on large audit tables. Batch activity counts are live and are not cached.
+
+History returns the newest entries within the window, bounded by `limit`.
+The default limit is `MAX_ROW_LIMIT`, which also caps the result.
+This action has no `offset` input. A result is a bounded history, not a
+guarantee that every change appears.
+
+The audit check follows inherited dictionary settings and table settings.
+A field's `no_audit=true` attribute overrides its audit flag.
+`audited` confirms activity within the window. `audited_but_inactive` means
+the field is configured for auditing but has no activity in that window.
+`inconclusive` means metadata is missing or table activity is insufficient to
+confirm the result. It does not establish that auditing is disabled.
+
+## Inspect attachments
+
+> List the attachments on INC0012345. Show each file name and size before downloading one.
+
+Find the parent record's `sys_id` with `query` first.
+
+### `attachment`
+
+| Action | Required inputs | Result |
+| --- | --- | --- |
+| `list` | `table`, `table_sys_id` | Attachment metadata for the parent record. |
+| `get` | Attachment `sys_id` | Metadata for one attachment. |
+| `download` | Attachment `sys_id` | File content encoded as base64. |
+| `download_by_name` | `table`, `table_sys_id`, `file_name` | Downloads the earliest matching attachment as base64. |
+
+Arguments for `attachment`, after replacing the identifier:
+
+```json
+{
+  "action": "list",
+  "table": "incident",
+  "table_sys_id": "<32-character incident sys_id>"
+}
+```
+
+`list` returns at most 100 attachments. It has no continuation input.
+Its reported pagination total is the number returned, not a global count.
+Downloads are limited to 10 MiB. Uploads and deletions use `attachment_write`.
+
+## Inspect configuration items
+
+> Find 10 server configuration items. Show their names, then inspect the relationships for the server I select.
 
 ### `cmdb`
 
-Read configuration items through the dedicated CMDB Instance and Meta APIs.
-Available in `full`, `readonly`, or a custom `MCP_TOOL_PACKAGE=cmdb` package.
+| Action | Required inputs | Optional inputs and result |
+| --- | --- | --- |
+| `query` | `class_name` | `encoded_query`, `limit`, `offset`. Lists configuration item names and identifiers. |
+| `get` | `class_name`, `sys_id` | Returns attributes and inbound/outbound relationships. |
+| `meta` | `class_name` | Returns class metadata. The ServiceNow Meta API requires the `itil` role. |
+| `describe` | None | Returns action contracts without contacting ServiceNow. |
 
-- `query`: Requires `class_name`. Lists CI names and sys_ids with optional `encoded_query`, `limit` (default 20), and `offset` (default 0). Limits are capped by `MAX_ROW_LIMIT`; configured large classes require a date filter. `data.count` is the returned page size, not a global total. Advance offset by the effective limit to continue; ACL filtering can produce short pages.
-- `get`: Requires `class_name` and `sys_id`. Returns CI attributes and inbound/outbound relationships.
-- `meta`: Requires `class_name`. Returns class metadata; ServiceNow documents the ITIL role as required.
-- `describe`: Returns action contracts without platform calls.
+Arguments for `cmdb`:
 
-All actions are read-only and apply identifier validation, denied-table policy,
-and nested sensitive-field masking. Omit unused optional inputs. CMDB table
-queries through `query` and dictionary discovery through `describe` remain available.
-
-```python
-await cmdb(action="query", class_name="cmdb_ci_server", limit=20)
-await cmdb(action="get", class_name="cmdb_ci_server", sys_id="<32-character CI sys_id>")
-await cmdb(action="meta", class_name="cmdb_ci_server")
+```json
+{
+  "action": "query",
+  "class_name": "cmdb_ci_server",
+  "limit": 10
+}
 ```
 
-Restart the MCP server and reconnect the client after updating so the new tool
-appears in the refreshed tool list.
+`limit` defaults to 20 and is capped by `MAX_ROW_LIMIT`. `offset` defaults to 0.
+Configured large classes require a date filter. `data.count` is the returned
+page size. The response has no global total. Continue by advancing `offset`
+by the effective limit. Access rules can produce short pages.
+
+These actions use the CMDB Instance and Meta APIs. They are read-only and mask
+sensitive nested fields. You can also use `query` and `describe` for ordinary
+CMDB table reads and dictionary discovery.
+
+## Understand scripts and flows
+
+> Find scripts that call `gs.eventQueue`. Show the matching records so I can review them.
+
+### `code_search`
+
+| Action | Required input | Optional inputs |
+| --- | --- | --- |
+| `search` (default) | `term` | `table`, `search_group`, `limit`, `extended_matching` |
+| `list_tables` | None | `search_group` |
+| `describe` | None | None. Returns action contracts without contacting ServiceNow. |
+
+Arguments for `code_search`:
+
+```json
+{
+  "term": "gs.eventQueue",
+  "table": "sys_script",
+  "limit": 20
+}
+```
+
+The default search group is `sn_codesearch.Default Search Group`.
+`limit` defaults to 20 and is capped by `MAX_ROW_LIMIT`.
+`extended_matching` defaults to `false`. Set it to `true` for additional
+context fields. This tool uses ServiceNow's Code Search API. It has no `offset`
+input. Use `list_tables` to check which tables the selected group covers.
+Use `record_read` to read a matching record's complete script fields.
+
+### `flow`
+
+> Inspect the 'New starter' flow. Explain its trigger, inputs, configured stages, and configured steps. Show any incomplete sections.
+
+Flow tools inspect stored Flow Designer configuration. They do not run,
+edit, publish, or test flows. A configured step is not evidence of an executed step.
+
+| Action | Required inputs | Optional inputs and result |
+| --- | --- | --- |
+| `contract` | Exactly one of `sys_id` or `name` | `sections`, `section_limit`. Concise declared fields and configured V2 steps. |
+| `inspect` | Exactly one of `sys_id` or `name` | `sections`, `section_limit`. Detailed flow metadata and configuration. |
+| `find_by_table` | `table` | Finds V1/V2 record-triggered flows for that table. |
+| `list_triggers` | None | `table`, `trigger_type`, `active`, `limit`. Lists V1/V2 record triggers. |
+| `decode_values` | `value` | Decodes a complete gzip, base64, and JSON `values` blob. |
+| `describe` | None | Returns action contracts without contacting ServiceNow. |
+
+`name` matches a flow's name or `internal_name` and must identify one flow.
+For `list_triggers`, `active` is the string `"true"` or `"false"`, not a JSON
+boolean. `trigger_type` can be a value such as `record_update`.
+`limit` defaults to 100 when omitted or set to 0.
+
+Arguments for `flow`, after replacing the example name:
+
+```json
+{
+  "action": "contract",
+  "name": "New starter",
+  "sections": "flow,published_state,inputs,outputs,stages,triggers,steps,warnings",
+  "section_limit": 50
+}
+```
+
+Both `inspect` and `contract` default to
+`flow,published_state,structural_summary,warnings`.
+`sections="*"` requests every section for that action.
+`section_limit` defaults to 100 and is capped by `MAX_ROW_LIMIT`.
+
+| Sections | Available in |
+| --- | --- |
+| `flow`, `published_state`, `structural_summary`, `inputs`, `outputs`, `variables`, `stages`, `triggers`, `warnings` | `inspect` and `contract` |
+| `canvas`, `v1_actions`, `v1_variable_values` | `inspect` |
+| `steps` | `contract` |
+
+Interpret the selected sections as follows:
+
+- `published_state` compares `master_snapshot` with `latest_snapshot`. `drift=true` means the published and latest authored snapshots differ.
+- `stages` contains stored lifecycle configuration and its source records. It does not show stage execution history.
+- `canvas` contains the nested V2 action/logic tree with decoded values. Children follow stored order.
+- `steps` contains configured V2 action inputs, logic conditions, and available output assignments. Action definitions list declared inputs and outputs.
+- `warnings` appears inside `data.warnings` when that section is selected. Check it for V1 limitations, snapshot differences, and inaccessible definitions.
+
+Action definitions include `name`, `label`, and `required`. Where available,
+they also include `type`, input `default`, and `reference_table`.
+Missing or inaccessible definitions appear in contract warnings and the
+affected action's `definition.limitations`.
+
+Bindings preserve configured values. `data_pills` lists stored `{{...}}`
+references without resolving runtime values or inferring action behavior.
+V1 actions and logic cannot be reconstructed into the ordered V2 contract.
+A bad node blob adds `decode_error` to that node while other inspection can succeed.
+
+`find_by_table` resolves snapshot references to canonical flow identifiers.
+Unresolved headers appear in `unresolved_flow_ids` with `metadata_resolved=false`
+and `active=null`. This does not establish that those flows are inactive.
+
+Successful inspections include top-level `truncation` only when results or
+dependencies are incomplete. Follow its continuation instructions. Below the
+configured maximum, this can mean increasing `section_limit`. At the maximum,
+use the supplied table, field, and filter details with paginated `query` calls.
+`flow` itself has no offset-based continuation for these sections.
+
+The tool reads documented Table API records, including V1/V2 flow artifacts
+and record-trigger conditions. It does not use the undocumented process-flow
+endpoint or the opaque compiled snapshot cache.
+
+## Investigate instance issues
+
+> Investigate errors from the last 24 hours. Show the evidence for each finding and explain what needs checking next.
+
+### `investigate`
+
+| Action | Required inputs | Optional inputs and result |
+| --- | --- | --- |
+| `describe` | None | `name` selects one investigation's parameter contract. Omit it to list investigations. |
+| `run` | `name` | `params`, a JSON object string. Default `"{}"`. Runs the named investigation. |
+| `explain` | `element_id` | `name` directly selects an investigation. Explains a finding from a previous run. |
+
+| Investigation | Parameters inside `params` |
+| --- | --- |
+| `error_analysis` | `hours` (default 24), optional `source` substring, `limit` (default 100 log entries). |
+| `slow_transactions` | `hours` (default 24), `limit` (default 20 per table), optional comma-separated `categories`. |
+| `table_health` | Required `table`. Optional `hours`. Omitted `hours` includes all history. |
+| `acl_conflicts` | Required `table`. |
+| `performance_bottlenecks` | Optional `hours`, omitted for all history. `limit` defaults to 20 per category. |
+| `stale_automations` | `stale_days` (default 30), `limit` (default 20 per category). |
+| `deprecated_apis` | `limit` (default 20 per pattern). |
+
+Arguments for `investigate`:
+
+```json
+{
+  "action": "run",
+  "name": "error_analysis",
+  "params": "{\"hours\":24,\"limit\":50}"
+}
+```
+
+Use `describe` before a new investigation to check its available parameters.
+Results contain bounded candidate findings. Findings do not establish a root
+cause or measure the performance impact of a proposed fix.
+
+For `explain`, `element_id` usually takes the form `table:sys_id`.
+With a named investigation, `table_health` and heavy-automation findings from
+`performance_bottlenecks` accept a table name. `acl_conflicts` also accepts an
+ACL `sys_id`. Without `name`, the server tries registered investigations until
+one accepts the identifier.
+
+The run identifies its module in `data.investigation`. Non-empty run warnings
+appear at the top level. `slow_transactions` reports attempted tables only.
+Missing or inaccessible optional tables produce warnings and `complete=false`.
+Timeouts and unexpected failures return errors.
+
+## Browse and order from the catalog
+
+> Find catalog items matching 'laptop'. Show the selected item's variables before preparing an order.
+
+### `service_catalog`
+
+This tool requires `full` or a custom package containing `service_catalog`.
+It is absent from `readonly`. The group combines browsing and ordering.
+Order and cart mutations apply directly, without record previews.
+
+| Action | Required inputs | Optional inputs or result |
+| --- | --- | --- |
+| `catalogs_list` | None | `text`, `limit`. Lists catalogs. |
+| `catalog_get` | Catalog `sys_id` | Reads one catalog. |
+| `categories_list` | `catalog_sys_id` | `limit`, `offset`, `top_level_only`. Lists categories in that catalog. |
+| `category_get` | Category `sys_id` | Reads one category. |
+| `items_list` | None | `text`, `catalog`, `category`, `limit`, `offset`. Lists items. |
+| `item_get` | Item `sys_id` | Reads one item. |
+| `item_variables` | Item `sys_id` | Reads the item's variable definitions. |
+| `cart_get` | None | Reads the current cart. |
+| `order_now` | `item_sys_id` | Optional `variables` JSON object string. Places an order directly. |
+| `add_to_cart` | `item_sys_id` | Optional `variables` JSON object string. Changes the cart directly. |
+| `cart_submit` | None | Submits the cart directly. |
+| `cart_checkout` | None | Checks out the cart directly. |
+
+For list actions, `limit` defaults to 20. Category and item lists use `offset`,
+which defaults to 0. `top_level_only` defaults to `false`.
+`catalog` and `category` are identifier filters for item lists.
+Omitted, null, and empty `text`, `catalog`, and `category` filters are not sent
+to ServiceNow.
+
+Arguments for `service_catalog`:
+
+```json
+{
+  "action": "items_list",
+  "text": "laptop",
+  "limit": 10
+}
+```
+
+Before ordering, read `item_variables` and use the returned variable names.
+The following is an argument template for a direct order. Replace the item
+identifier and example variable with actual values. Instance rules determine
+which answers the item requires.
+
+```json
+{
+  "action": "order_now",
+  "item_sys_id": "<32-character catalog item sys_id>",
+  "variables": "{\"business_justification\":\"Replacement for a damaged laptop\"}"
+}
+```
+
+## Change records and attachments
+
+Start on a development or test instance. Write tools, local write settings,
+and ServiceNow permissions must allow the requested change.
+See [[Safety-and-Policy]] before enabling writes.
+Record writes default to previews, but callers can request immediate writes.
+The server does not require human approval. State your review requirement in
+the request before the app prepares a change.
+
+> Preview adding this work note to INC0012345: 'Waiting for the caller to
+> confirm the fix.' Show the proposed change and wait for my approval.
+
+### `record_write`
+
+| Action | Required inputs | Result with the default preview |
+| --- | --- | --- |
+| `create` | `table`, `data`. Omit `sys_id`. | Stages a new record. |
+| `update` | `table`, `sys_id`, `data` | Stages changes to supplied fields. Omitted fields stay unchanged. |
+| `delete` | `table`, `sys_id` | Stages deletion. |
+
+`data` is a JSON object string mapping field names to values.
+It can contain multiple script or markup fields. The maximum is 256 KiB of
+UTF-8 JSON, including field names and escaping. Supply complete script values.
+The tool does not read local script files or check JavaScript syntax.
+
+`preview` defaults to `true`. Omit it to receive `data.preview_token`.
+Setting `preview=false` requests an immediate write.
+
+Arguments for `record_write`, after finding and replacing the incident identifier:
+
+```json
+{
+  "action": "update",
+  "table": "incident",
+  "sys_id": "<32-character incident sys_id>",
+  "data": "{\"work_notes\":\"Waiting for the caller to confirm the fix.\"}"
+}
+```
+
+The tool checks supplied XML fields against inherited dictionary metadata.
+These fields require non-empty strings containing well-formed XML.
+It checks mandatory fields for creates before staging or writing, and again
+when applying. Child definitions take precedence. Metadata request errors
+block writes. Fields hidden by dictionary access rules cannot receive local
+validation. These checks do not replace testing on the instance.
+
+### `record_apply`
+
+After reviewing a record preview, supply its `preview_token` to `record_apply`:
+
+```json
+{
+  "preview_token": "<token returned by record_write>"
+}
+```
+
+Previews remain in server memory for five minutes. Restarting the server
+removes them. Each token is consumed once, even if applying the change fails.
+Request a new preview after expiration, restart, or a failed apply.
+
+A preview does not reserve the record or check for intervening changes when
+applied. Read the current record before reviewing a change. After applying it,
+check the saved result in ServiceNow and test changed behavior.
+
+### `attachment_write`
+
+| Action | Required inputs | Optional inputs |
+| --- | --- | --- |
+| `upload` | `table`, `table_sys_id`, `file_name`, `content_base64` | `content_type`, default `application/octet-stream`. |
+| `delete` | Attachment `sys_id` | None. |
+
+Uploads are limited to 10 MiB of decoded file content.
+`content_base64` must contain complete base64-encoded file bytes.
+`content_type` is the file's MIME type, such as `application/pdf`.
+Both actions apply directly. They do not use `record_write` previews or
+`record_apply`. Identify the attachment or parent record before requesting a change.
+
+## Interpret results and incomplete reads
+
+Operational tools return JSON strings with `status` and `data`.
+Errors include `error`. Responses can also contain `pagination`, non-empty
+`warnings`, and non-empty `truncation`. They omit `selection` metadata.
+`list_tool_packages` returns the package registry directly.
+
+Check the specific tool's continuation contract:
+
+| Read | Continuation and count meaning |
+| --- | --- |
+| `query` lists and `analysis` | Use `limit`/`offset`. Pagination includes `offset`, `limit`, and `total`. |
+| Default `describe` field pages | Use `field_limit`/`field_offset`. Response pagination uses `limit`, `offset`, and `total`. |
+| `cmdb.query` | Use `limit`/`offset`. Returned count is the page size. No global total. |
+| `attachment.list`, `code_search`, `audit.history` | Bounded results without an offset continuation input. Attachment total means returned count. |
+| `flow.inspect` and `flow.contract` | Follow top-level `truncation` instructions. Selected flow warnings appear in `data.warnings`. |
+
+Access rules, limits, retention, and incomplete metadata can affect results.
+An empty or short result alone does not prove that matching records do not exist.
+Ask the app to report filters, warnings, and incomplete sections when the
+answer informs an operational or development decision.
+
+For more complete workflows, see
+[Agent recipes](https://github.com/Xerrion/servicenow-platform-mcp/blob/main/docs/agent-recipes.md).

@@ -1,49 +1,95 @@
-# Architecture
+# How the MCP server works
 
-Runtime map for contributors. The server is an async Python MCP server that
-uses ServiceNow REST APIs over a local MCP stdio process.
+Use this page when changing the MCP server or investigating its behavior.
+For changes to scripts or configuration on an instance, use [[Instance-Development]].
+For connection setup, use [[Getting-Started]].
 
-## Runtime shape
+The supported live connection runs as a local Python process. The AI app sends
+MCP requests over stdio. The server then calls ServiceNow REST APIs with the
+signed-in user's authorization.
 
-`server.py` creates the application in this order:
+```text
+AI app
+  | local MCP connection (stdio)
+  v
+Registered tool
+  | input checks and server policy
+  v
+ServiceNow client
+  | HTTPS request with the user's OAuth token
+  v
+ServiceNow REST API
+  | ServiceNow roles, API policies, and ACLs
+  v
+Record or error response
+```
 
-1. Load and validate `Settings`.
-2. Create one shared `OAuthPKCEProvider`.
-3. Set up optional Sentry context.
-4. Create one telemetry-aware shared `httpx.AsyncClient` and a
-   `ServiceNowClientFactory`.
-5. Create the `ChoiceRegistry` and `DictionaryRegistry`.
-6. Register `list_tool_packages`.
-7. Load the selected tool groups and inject dependencies by parameter name.
-8. Run `MCPServer("servicenow-platform-mcp")` over stdio.
+An ACL is an access control rule. ServiceNow decides which records and fields
+the account can read or change. Selecting tools in the MCP server does not
+grant additional ServiceNow permissions.
 
-The server-lifetime HTTP client closes in the MCP lifespan. A directly created
-`ServiceNowClient` owns and closes its own transport.
+## MCP connection and OAuth callback
 
-## Authentication
+The AI app communicates with the server over stdio.
+The temporary local HTTP callback handles browser authorization.
+It does not accept MCP tool requests.
 
-`OAuthPKCEProvider` implements public authorization-code PKCE S256:
+## Local startup and cleanup
 
-- Construction does not open a browser.
-- The first outbound ServiceNow call starts authorization.
-- The callback binds the configured `127.0.0.1` port and validates state, path, and Host.
-- The authorization request sends `response_type`, client ID, redirect URI, S256 challenge, configured scope, and state.
-- The token request sends grant type, code, redirect URI, client ID, and PKCE verifier.
-- The refresh request sends grant type, refresh token, and public client ID.
-- It does not send a client secret, state, or HTTP Basic authentication to the token endpoint.
-- The access token, refresh token, and monotonic access-token expiry stay in memory.
-- Refresh-token rotation is supported; an omitted replacement retains the previous refresh token.
-- Concurrent calls share one valid token.
-- A REST 401 expires only the matching access token. The request is not replayed.
+`server.py` prepares the stdio application in this order:
 
-The configured OAuth scope defaults to `useraccount`. The setting accepts one or
-more printable ASCII scope-token values separated by single spaces. ServiceNow
-must enable each configured scope.
+1. Load and check `Settings`, then create the shared `OAuthPKCEProvider`.
+2. Initialize optional Sentry diagnostics and a shared HTTP client.
+3. Create the client factory, choice registry, and dictionary registry.
+4. Register `list_tool_packages` and the selected tool groups.
+5. Run `MCPServer("servicenow-platform-mcp")` over stdio.
 
-## Tool registration
+The choice registry resolves choice values and labels. The dictionary registry
+reads field definitions, including fields inherited from parent tables.
+The client factory gives tools clients that use the shared HTTP connection pool.
+A pool lets repeated requests reuse network connections.
 
-Tool groups live under `servicenow_mcp.tools`. Bootstrap injects dependencies
-only when a registration function declares them. Available dependency names are:
+The MCP lifespan closes the shared HTTP client when the application stops.
+A directly created `ServiceNowClient` owns its own transport and closes it
+when its context ends. The stdio entry point also shuts down Sentry.
+
+## Browser authorization and token renewal
+
+`OAuthPKCEProvider` uses authorization-code OAuth with PKCE S256. PKCE binds the
+browser authorization to a temporary verifier held by the local server.
+This public-client flow does not use a client secret.
+
+Constructing the provider does not open a browser. The first outbound ServiceNow
+call starts authorization. The one-time callback receiver listens on the configured
+`127.0.0.1` port and checks the callback state, path, and Host header.
+
+| Request | Values sent |
+| --- | --- |
+| Browser authorization | Response type, public client ID, redirect URL, S256 challenge, scope, and state. |
+| Token exchange | Grant type, authorization code, redirect URL, public client ID, and PKCE verifier. |
+| Token renewal | Grant type, refresh token, and public client ID. |
+
+The token endpoint receives no client secret, state, or HTTP Basic credentials.
+The configured scope defaults to `useraccount`. Custom values contain printable
+ASCII scope tokens separated by single spaces. ServiceNow must enable each scope.
+
+Access and refresh tokens stay in memory. The provider measures access-token
+expiry with a monotonic clock, which does not change with wall-clock adjustments.
+Concurrent calls share authorization and one valid token.
+
+The provider renews an expired token when a refresh token is available.
+It accepts a rotated refresh token and retains the previous one if ServiceNow
+omits a replacement. A rejected refresh can require browser authorization again.
+
+A REST 401 invalidates only the matching access token. It cannot invalidate a
+newer token from another call. The failed REST request is not replayed.
+Restarting the server clears its tokens and requires authorization again.
+
+## Tool registration and responses
+
+Groups live under `servicenow_mcp.tools`. Bootstrap calls each selected group's
+`register_tools` function. It supplies only the dependencies declared in that
+function's signature:
 
 ```text
 mcp
@@ -56,61 +102,65 @@ telemetry
 ```
 
 `record_write.py` registers both `record_write` and `record_apply`.
-`list_tool_packages` is registered outside the package loader, so it remains
-available for every package, including `none`.
+`list_tool_packages` registers outside the package loader. It remains available
+with every stdio package, including `none`. It lists the package registry, not
+the active package.
 
-Tools use `@mcp.tool()` and `@tool_handler`. The handler adds redacted Sentry
-context and converts tool exceptions into JSON error envelopes.
+Operational tools return JSON strings with `status` and `data`.
+Responses can also contain pagination, truncation details, and warnings.
+`list_tool_packages` returns the registry directly.
 
-## Data and state
+Tools use `@mcp.tool()` and `@tool_handler`. The handler records the tool name,
+adds redacted diagnostic context, and calls `safe_tool_call()`.
+Expected policy, access, and tool failures return `status: "error"`.
+Unclassified exceptions return a generic internal error.
+See [[Telemetry]] for diagnostic evidence and its limits.
 
-Operational tools serialize standard JSON envelopes with `status`, `data`, and
-optional pagination and non-empty truncation and warnings metadata. `list_tool_packages`
-returns its registry directly.
+## State held by the local server
 
-In-memory state includes:
+| State | Lifetime and purpose |
+| --- | --- |
+| OAuth tokens | Memory only, until expiry, renewal, rejection, or process exit. |
+| Record previews | Single-use payloads in `PreviewTokenStore`. Tokens expire after five minutes and disappear on restart. |
+| Metadata | Cached choice values, dictionary fields and inheritance, script-field discovery, and audit configuration. |
 
-- **OAuth provider:** access token, refresh token, and access-token expiry only.
-- **PreviewTokenStore:** single-use mutation payloads, with a five-minute TTL.
-- **Metadata caches:** choices, dictionary chains and fields, script-field discovery, and audit configuration.
+Each metadata cache has a configurable time to live (TTL), defaulting to
+300 seconds. It holds up to 1,000 entries and removes the least recently used
+entry when full. Concurrent callers can share one metadata load.
 
-The metadata cache has a configurable TTL and a 1,000-entry LRU bound. It does
-not cache records, query results, flows, attachments, preview tokens, or audit
-row counts. Encoded queries pass directly to `query`.
+Metadata caches do not store records, query results, flows, attachments, preview
+tokens, or audit row counts. Encoded query text passes to the query tool's
+ServiceNow request. Advisory dictionary checks do not cover every part of that text.
 
-## Shared policy boundaries
+Record previews default to inspection, but callers can request an immediate write.
+The server does not enforce human approval. Some other mutations apply directly.
+See [[Safety-and-Policy]] for the complete change controls.
 
-`policy.py` applies denied tables, sensitive-field masking, query limits, date
-requirements, identifier validation, and production write gating. Dictionary
-lookups resolve inherited fields child-first. XML validation applies only to
-supplied fields whose dictionary type is `xml`.
+## Where policy applies
 
-ServiceNow still controls REST policy, roles, ACLs, and final validation.
+`policy.py` controls denied tables, sensitive-field masking, query limits, date
+requirements, identifier checks, and production write protection.
+Dictionary lookups resolve inherited fields child-first.
+XML checks apply only to supplied fields with dictionary type `xml`.
 
-## Error flow
+These controls supplement ServiceNow's REST policies, roles, ACLs, and final
+validation. `SERVICENOW_ENV` controls local write protection. It does not detect
+the environment of the configured instance.
 
-`@tool_handler` records the tool name and redacted arguments, then calls
-`safe_tool_call()`. Expected policy, ACL, and other tool failures return
-`status: "error"` JSON. Sentry receives exception data only when a DSN is
-configured. Sensitive argument names are redacted before tool context is set.
+## Find the source
 
-## Source layout
+Paths below are relative to `src/servicenow_mcp/`.
 
-```text
-src/servicenow_mcp/
-    server.py              # bootstrap, package loading, stdio entry point
-    auth.py                # public OAuth PKCE provider
-    oauth_callback.py      # one-shot loopback receiver
-    client.py              # ServiceNow client factory and facade
-    _client_cmdb.py         # CMDB Instance and Meta APIs
-    _client_code_search.py  # Code Search API
-    config.py              # environment settings and validation
-    policy.py              # safety guardrails and write gating
-    state.py               # preview token store
-    telemetry.py           # bounded HTTP and cache counters
-    sentry.py              # optional error tracking
-    tools/                 # MCP tool groups and focused helpers
-```
+| File or folder | Responsibility |
+| --- | --- |
+| `server.py`, `packages.py` | Local startup, tool selection, and command entry point. |
+| `auth.py`, `oauth_callback.py` | Browser authorization, token renewal, and local callback checks. |
+| `client.py`, `_client_*.py` | ServiceNow client factory, REST calls, and specialized API operations. |
+| `config.py`, `policy.py` | Settings, validation, masking, and write protection. |
+| `state.py`, `metadata_cache.py` | Record previews and metadata cache behavior. |
+| `choices.py`, `tools/_dictionary.py` | Choice labels, table fields, and inheritance. |
+| `tools/`, `decorators.py`, `tool_errors.py`, `response.py` | Tool implementations, diagnostic wrappers, and JSON responses. |
+| `telemetry.py`, `_http_diagnostics.py`, `sentry.py` | Local timing, bounded request evidence, and optional Sentry reporting. |
 
-Read [[Development]] before changing registration or test patterns. Read
-[[Safety-and-Policy]] before changing policy behavior.
+Use [[Development]] for the contributor workflow. Check [[Safety-and-Policy]]
+before changing controls that affect record access or writes.

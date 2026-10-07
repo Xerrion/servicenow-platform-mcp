@@ -1,56 +1,105 @@
-# Tool Packages
+# Choose the available tools
 
-Tool packages control which MCP tools load at server startup. Set the active
-package with `MCP_TOOL_PACKAGE`.
+Start with `MCP_TOOL_PACKAGE=readonly` for ITSM reads and instance investigation.
+A tool package selects which tools your AI app can call.
+It does not grant ServiceNow permission to read or change records.
 
-`list_tool_packages` is always available. It lists package definitions and
-groups; it does not report the active package.
+**Set the package explicitly. The server defaults to `full`, which includes write tools.**
+Restart the MCP server after changing the package.
 
-## Presets
+## Preset packages
 
-Counts include `list_tool_packages`.
+| Package | Available work |
+| --- | --- |
+| `readonly` | Records, metadata, attachments, ticket history, submitted request answers, investigations, audits, flows, code search, and CMDB inspection. |
+| `core_readonly` | Queries, table and field descriptions, and attachment reads. |
+| `full` | All tools, including record changes, attachment changes, catalog browsing, and catalog orders. |
+| `none` | Only `list_tool_packages`, for checking that the server starts. |
 
-| Package | Public tools | Use |
-| --- | ---: | --- |
-| `full` | 16 | All groups, including record and attachment writes. |
-| `readonly` | 12 | Read, investigation, analysis, audit, Flow, Code Search, and CMDB tools. |
-| `core_readonly` | 4 | `query`, `describe`, and read-only `attachment`. |
-| `none` | 1 | Only `list_tool_packages`. |
+`list_tool_packages` is always available. It lists package definitions and group names.
+It does not report the active package or contact ServiceNow.
+Use your AI app's tool list to check which tools actually loaded.
 
-## Custom packages
+Catalog browsing and ordering share the `service_catalog` group.
+That group is absent from `readonly`.
+A custom package containing it exposes both read and write actions.
 
-Use comma-separated group names:
+## Choose groups for a specific task
 
-```text
+A custom package uses comma-separated group names:
+
+```dotenv
 MCP_TOOL_PACKAGE=query,describe,record_read,attachment
 ```
 
-Valid groups:
+This example supports record and field inspection plus attachment reads.
+For ticket history and submitted request answers, include `analysis`.
 
-```text
-query
-describe
-record_write
-record_read
-attachment
-attachment_write
-investigate
-resolve_choice
-service_catalog
-analysis
-audit
-flow
-code_search
-cmdb
+For record changes on a development or test instance:
+
+```dotenv
+MCP_TOOL_PACKAGE=query,describe,record_read,record_write
+SERVICENOW_ENV=dev
 ```
 
-`record_write` registers both `record_write` and `record_apply`. Do not add
-`record_apply` as a group. `attachment` is read-only; add
-`attachment_write` explicitly for upload and delete. `service_catalog` is a
-tool group, not a preset.
+Verify the instance URL separately. The environment label does not select the instance.
+Keep `SERVICENOW_ENV=prod` or `production` on production connections to block local writes.
+See [[Safety-and-Policy]] for the change and approval limits.
 
-Package selection controls tool exposure. ServiceNow OAuth scopes, REST
-policies, roles, and ACLs remain the authorization controls.
+## Record and metadata groups
 
-For tool actions and parameters, see [[Tool-Reference]]. For local write
-blocking and query safety, see [[Safety-and-Policy]].
+| Group | Work |
+| --- | --- |
+| `query` | Find records, read exact IDs, and request counts or grouped results. |
+| `describe` | Inspect tables, fields, inherited metadata, and script fields. |
+| `record_read` | Read one record by its internal ID or actual `name` field. |
+| `resolve_choice` | List known choice keys or resolve a supported key to a stored value. |
+
+A ticket number such as `INC0012345` is not a record's `name` field.
+Find it with `query`, then use the returned `sys_id` for other record tools.
+
+## Investigation groups
+
+| Group | Work |
+| --- | --- |
+| `analysis` | Read comments and work notes, or compose submitted requested-item answers. |
+| `audit` | Inspect audit configuration and field-change history. |
+| `investigate` | Run bounded diagnostic checks and explain candidate findings. |
+| `code_search` | Search code and inspect which tables Code Search covers. |
+
+## Platform inspection groups
+
+| Group | Work |
+| --- | --- |
+| `attachment` | List metadata or read and download attachments. |
+| `flow` | Inspect Flow Designer configuration, triggers, contracts, and stored values. |
+| `cmdb` | Read configuration items, relationships, and class metadata. |
+
+These groups provide inspection tools. The dedicated Flow Designer tool does
+not edit, publish, or run flows.
+
+## Groups that include changes
+
+| Group | Work |
+| --- | --- |
+| `record_write` | Create, update, or delete records. Registers both `record_write` and `record_apply`. |
+| `attachment_write` | Upload or delete attachments directly. |
+| `service_catalog` | Browse catalogs and carts, order items, and submit or check out carts. |
+
+Use `record_write` as the group name. `record_apply` is a tool, not a group.
+`attachment` and `attachment_write` are separate groups.
+
+Record writes default to previews, but immediate writes are possible.
+Attachment and catalog changes apply directly.
+The server does not enforce human approval.
+ServiceNow still checks API policies, roles, and record or field access rules.
+
+## Custom package rules
+
+Use preset names alone, or combine valid group names with commas.
+Do not combine a preset such as `readonly` with group names.
+Empty group names and unknown names fail startup. The server ignores duplicate group names.
+`service_catalog` is a group, not a preset package.
+
+For exact actions and inputs, see [[Tool-Reference]].
+For connection settings, see [[Configuration]].

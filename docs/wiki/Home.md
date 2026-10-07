@@ -1,37 +1,60 @@
-# ServiceNow Platform MCP Server
+# ServiceNow Platform MCP
 
-`servicenow-platform-mcp` gives an MCP client controlled access to ServiceNow
-through ServiceNow REST APIs. It runs as a local child process over MCP stdio.
+Use your AI app to find tickets, review requests, understand scripts, and prepare
+changes to your ServiceNow instance. Describe the work in plain language.
+The app chooses the ServiceNow tools it needs.
 
-## Choose a path
+MCP (Model Context Protocol) connects an AI app to tools from another system.
+This server uses your ServiceNow account. Your roles and access control rules
+still determine what you can read or change.
 
-### Operators
+## Start with your task
 
-1. [[Getting-Started]] - install the server, configure OAuth, connect an MCP client, and verify access.
-2. [[Configuration]] - set environment variables and choose a tool package.
-3. [[Tool-Packages]] - choose the smallest tool surface that meets the use case.
-4. [[Tool-Reference]] - find tool actions, inputs, limits, and response behavior.
-5. [[Safety-and-Policy]] - understand table restrictions, masking, query limits, and write gates.
+| What you want to do | Where to start |
+| --- | --- |
+| Connect for the first time or check an existing connection | [[Getting-Started]] |
+| Find tickets, read work notes, review request answers, or prepare a ticket update | [[ITSM-Work]] |
+| Understand tables, scripts, flows, or instance issues | [[Instance-Development]] |
+| Install the server or prepare the connection for other users | [Installation guide](https://github.com/Xerrion/servicenow-platform-mcp/blob/main/INSTALL.md) |
 
-### Contributors
+If the connection is already available in your AI app, try:
 
-1. [[Development]] - set up a checkout, run checks, and understand CI.
-2. [[Architecture]] - follow bootstrap, authentication, tool registration, state, and error flow.
-3. [[Telemetry]] - configure or change Sentry and bounded runtime telemetry.
+> Use ServiceNow to show 5 active incidents I can access. Include their number,
+> short description, priority, and assigned person. Do not change anything.
 
-## Operational facts
+The first request that needs ServiceNow opens your browser for authorization.
+Use the browser on the computer running the server.
 
-- An MCP client launches the server. It is not an HTTP service.
-- Authentication uses public ServiceNow OAuth authorization-code PKCE S256.
-- The first ServiceNow call opens the browser on the machine running the server.
-- The authorizing ServiceNow user's roles and ACLs apply to requests.
-- Access tokens stay in process memory. They are not persisted or placed in URLs.
-- `MCP_TOOL_PACKAGE` controls loaded tools. It does not grant ServiceNow access.
-- `SERVICENOW_ENV=prod` or `SERVICENOW_ENV=production` blocks local writes.
+## Choose what the app can do
 
-## Project links
+Start with `MCP_TOOL_PACKAGE=readonly`. This package includes ticket reads,
+table information, script inspection, Flow Designer inspection, and investigations.
+The server defaults to `full` if you omit the setting.
 
-- [Repository](https://github.com/Xerrion/servicenow-platform-mcp)
-- [PyPI](https://pypi.org/project/servicenow-platform-mcp/)
-- [Issues](https://github.com/Xerrion/servicenow-platform-mcp/issues)
-- [License](https://github.com/Xerrion/servicenow-platform-mcp/blob/main/LICENSE)
+Write tools need separate configuration and ServiceNow permissions.
+Record changes offer previews, but the server does not enforce human approval.
+Attachment changes and catalog orders apply directly.
+Read [[Safety-and-Policy]] before enabling writes.
+
+For production connections, set `SERVICENOW_ENV=prod` or `production` to block
+writes through this server. This setting does not detect the instance type.
+
+## Find a specific answer
+
+- [[Configuration]]: connection settings, defaults, and limits.
+- [[Tool-Packages]]: choose the tools available to your AI app.
+- [[Tool-Reference]]: exact tool inputs, actions, and response details.
+- [[Safety-and-Policy]]: access restrictions and how changes work.
+- [[Telemetry]]: optional monitoring and what it sends.
+
+## Contribute to the MCP server
+
+Developing your ServiceNow instance uses [[Instance-Development]].
+Changing this Python server uses [[Development]] and [[Architecture]].
+Server contributions need a repository checkout and the project's checks.
+You do not need that workflow to use the MCP on your instance.
+
+[Repository and README](https://github.com/Xerrion/servicenow-platform-mcp) ·
+[Report an issue](https://github.com/Xerrion/servicenow-platform-mcp/issues) ·
+[PyPI package](https://pypi.org/project/servicenow-platform-mcp/) ·
+[MIT license](https://github.com/Xerrion/servicenow-platform-mcp/blob/main/LICENSE)

@@ -1,127 +1,37 @@
-"""MCP stdio entry point with outbound ServiceNow OAuth authorization."""
+"""Installed command for the local MCP stdio application."""
 
-import importlib
-import inspect
-import logging
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
-from urllib.parse import urlparse
-
-from mcp.server import MCPServer
 from pydantic import ValidationError
 
-from servicenow_mcp.auth import create_auth
-from servicenow_mcp.choices import ChoiceRegistry
-from servicenow_mcp.client import ServiceNowClientFactory
-from servicenow_mcp.config import Settings
-from servicenow_mcp.packages import _TOOL_GROUP_MODULES, get_package, list_packages
-from servicenow_mcp.response import serialize
-from servicenow_mcp.sentry import capture_exception as sentry_capture
-from servicenow_mcp.sentry import set_sentry_context, setup_sentry, shutdown_sentry
-from servicenow_mcp.telemetry import HttpTelemetry, TelemetryAsyncClient, configure_diagnostic_logging
-from servicenow_mcp.tools._dictionary import DictionaryRegistry
-
-
-logger = logging.getLogger(__name__)
+from servicenow_mcp.bootstrap.stdio import create_mcp_server
+from servicenow_mcp.sentry import shutdown_sentry
+from servicenow_mcp.telemetry import configure_diagnostic_logging
 
 
 def _format_configuration_error(exc: ValidationError) -> str:
-    """Format settings validation failures without including input values."""
+    """Describe invalid settings without including submitted values."""
     details = []
     for error in exc.errors(include_url=False, include_context=False, include_input=False):
         location = error["loc"]
         setting = ".".join(str(part).upper() for part in location) if location else "CONFIGURATION"
         details.append(f"- {setting}: {error['msg']}")
-
-    lines = [
-        "Invalid ServiceNow MCP configuration:",
-        *details,
-        "Set required values in the process environment or in .env/.env.local in the working directory.",
-    ]
-    return "\n".join(lines)
-
-
-def create_mcp_server() -> MCPServer:
-    """Create and configure the MCP server with tools based on the active package."""
-    settings = Settings()
-    auth_provider = create_auth(settings)
-    setup_sentry(settings)
-    set_sentry_context(
-        "server",
-        {
-            "instance_url": urlparse(settings.servicenow_instance_url).hostname or "unknown",
-            "environment": settings.servicenow_env,
-            "is_production": settings.is_production,
-            "tool_package": settings.mcp_tool_package,
-        },
+    return "\n".join(
+        [
+            "Invalid ServiceNow MCP configuration:",
+            *details,
+            "Set required values in the process environment or in .env/.env.local in the working directory.",
+        ],
     )
-
-    telemetry = HttpTelemetry()
-    http_client = TelemetryAsyncClient(
-        telemetry=telemetry,
-        is_shared_pool=True,
-        timeout=settings.httpx_timeout_seconds,
-    )
-    client_factory = ServiceNowClientFactory(settings, auth_provider, http_client)
-
-    @asynccontextmanager
-    async def lifespan(_mcp_server: MCPServer) -> AsyncIterator[None]:
-        try:
-            yield
-        finally:
-            if not http_client.is_closed:
-                await http_client.aclose()
-
-    mcp = MCPServer("servicenow-platform-mcp", lifespan=lifespan)
-
-    choices = ChoiceRegistry(settings, auth_provider, client_factory, telemetry)
-    dictionary = DictionaryRegistry(settings, auth_provider, client_factory, telemetry)
-
-    # Always register the list_tool_packages tool
-    @mcp.tool()
-    def list_tool_packages() -> str:
-        """List all available tool packages and their tool groups."""
-        return serialize(list_packages())
-
-    # Load tools based on active package
-    package_name = settings.mcp_tool_package
-    tool_groups = get_package(package_name)
-    dependencies = {
-        "mcp": mcp,
-        "settings": settings,
-        "auth_provider": auth_provider,
-        "choices": choices,
-        "dictionary": dictionary,
-        "client_factory": client_factory,
-        "telemetry": telemetry,
-    }
-
-    for group_name in tool_groups:
-        module_path = _TOOL_GROUP_MODULES.get(group_name)
-        if module_path:
-            try:
-                module = importlib.import_module(module_path)
-                if hasattr(module, "register_tools"):
-                    module.register_tools(
-                        **{name: dependencies[name] for name in inspect.signature(module.register_tools).parameters}
-                    )
-                    logger.info("Loaded tool group: %s", group_name)
-            except ImportError as e:
-                logger.warning("Could not load tool group '%s': %s", group_name, e)
-                sentry_capture(e)
-
-    return mcp
 
 
 def main() -> None:
-    """Run the MCP server with stdio transport."""
+    """Run the stdio application and release telemetry on exit."""
     configure_diagnostic_logging()
     try:
-        mcp = create_mcp_server()
+        server = create_mcp_server()
     except ValidationError as exc:
         raise SystemExit(_format_configuration_error(exc)) from None
     try:
-        mcp.run(transport="stdio")
+        server.run(transport="stdio")
     finally:
         shutdown_sentry()
 

@@ -1,165 +1,87 @@
-"""Tests for in-memory state management (PreviewTokenStore)."""
+"""Bounded preview ownership, expiry, and single-use concurrency."""
 
 import asyncio
 from unittest.mock import patch
 
 import pytest
 
-from servicenow_mcp.state import PreviewTokenStore
+from servicenow_mcp.capabilities.contracts import CapabilityError
+from servicenow_mcp.capabilities.mutations.models import RecordCommand, StagedMutation, retained_bytes
+from servicenow_mcp.capabilities.mutations.store import PreviewTokenStore
 
 
-class TestPreviewTokenStore:
-    """Tests for PreviewTokenStore."""
+def staged() -> StagedMutation:
+    return StagedMutation(
+        command=RecordCommand(action="create", table="incident", data={"nested": {"value": 1}}),
+        instance="https://test.service-now.com",
+        authorization_generation=1,
+    )
 
-    @pytest.mark.asyncio()
-    async def test_create_returns_token_string(self) -> None:
-        """create() returns a UUID-style string token."""
-        store = PreviewTokenStore(ttl_seconds=300)
-        token = await store.create({"table": "incident", "sys_id": "abc", "changes": {"state": "2"}})
-        assert isinstance(token, str)
-        assert len(token) > 0
 
-    @pytest.mark.asyncio()
-    async def test_get_returns_stored_payload(self) -> None:
-        """get() returns the payload stored for a valid token."""
-        store = PreviewTokenStore(ttl_seconds=300)
-        payload = {
-            "table": "incident",
-            "sys_id": "abc",
-            "changes": {"state": "2"},
-        }
-        token = await store.create(payload)
-        result = await store.get(token)
-        assert result is not None
-        assert result["table"] == "incident"
-        assert result["changes"] == {"state": "2"}
+async def test_owned_command_consumes_once() -> None:
+    value = staged()
+    store = PreviewTokenStore()
+    token = await store.create(value)
+    value.command.data["nested"]["value"] = 2
+    consumed = await store.consume(token)
+    assert consumed.command.data == {"nested": {"value": 1}}
+    assert len(store) == store.retained_payload_bytes == 0
+    with pytest.raises(CapabilityError, match="Invalid or expired"):
+        await store.consume(token)
 
-    @pytest.mark.asyncio()
-    async def test_get_returns_none_for_unknown_token(self) -> None:
-        """get() returns None for a token that was never created."""
-        store = PreviewTokenStore(ttl_seconds=300)
-        result = await store.get("nonexistent-token")
-        assert result is None
 
-    @pytest.mark.asyncio()
-    async def test_get_returns_none_for_expired_token(self) -> None:
-        """get() returns None for a token that has expired (mocked clock)."""
-        fake_time = 1000.0
-        with patch(
-            "servicenow_mcp.state.time.monotonic",
-            side_effect=lambda: fake_time,
-        ):
-            store = PreviewTokenStore(ttl_seconds=60)
-            token = await store.create({"table": "incident"})
+@pytest.mark.parametrize(("elapsed", "valid"), [(59, True), (60, True), (61, False)])
+async def test_monotonic_expiry(elapsed: int, valid: bool) -> None:
+    with patch("servicenow_mcp.capabilities.mutations.store.time.monotonic", return_value=1000):
+        store = PreviewTokenStore(ttl_seconds=60)
+        token = await store.create(staged())
+    with patch("servicenow_mcp.capabilities.mutations.store.time.monotonic", return_value=1000 + elapsed):
+        if valid:
+            assert await store.consume(token)
+        else:
+            with pytest.raises(CapabilityError, match="Invalid or expired"):
+                await store.consume(token)
+    assert store.retained_payload_bytes == 0
 
-        # Advance time past TTL
-        with patch("servicenow_mcp.state.time.monotonic", return_value=fake_time + 61):
-            result = await store.get(token)
 
-        assert result is None
+async def test_one_concurrent_consumer_wins() -> None:
+    store = PreviewTokenStore()
+    token = await store.create(staged())
+    results = await asyncio.gather(*(store.consume(token) for _ in range(10)), return_exceptions=True)
+    assert sum(isinstance(value, StagedMutation) for value in results) == 1
+    assert sum(isinstance(value, CapabilityError) for value in results) == 9
+    assert len(store) == 0
 
-    @pytest.mark.asyncio()
-    async def test_consume_returns_payload_and_removes(self) -> None:
-        """consume() returns the payload and removes the token from the store."""
-        store = PreviewTokenStore(ttl_seconds=300)
-        payload = {"table": "incident", "sys_id": "abc"}
-        token = await store.create(payload)
 
-        result = await store.consume(token)
-        assert result is not None
-        assert result["table"] == "incident"
+async def test_entry_capacity_and_expiry_reclamation() -> None:
+    store = PreviewTokenStore(max_size=1)
+    with patch("servicenow_mcp.capabilities.mutations.store.time.monotonic", return_value=1000):
+        await store.create(staged())
+        with pytest.raises(CapabilityError, match="capacity"):
+            await store.create(staged())
+    with patch("servicenow_mcp.capabilities.mutations.store.time.monotonic", return_value=1301):
+        assert await store.create(staged())
+    assert len(store) == 1
+    await store.clear()
+    assert len(store) == store.retained_payload_bytes == 0
 
-        # Token should be gone now
-        assert await store.get(token) is None
 
-    @pytest.mark.asyncio()
-    async def test_consume_returns_none_for_expired_token(self) -> None:
-        """consume() returns None for an expired token (mocked clock)."""
-        fake_time = 1000.0
-        with patch(
-            "servicenow_mcp.state.time.monotonic",
-            side_effect=lambda: fake_time,
-        ):
-            store = PreviewTokenStore(ttl_seconds=60)
-            token = await store.create({"table": "incident"})
+async def test_exact_retained_byte_capacity() -> None:
+    size = retained_bytes(staged())
+    store = PreviewTokenStore(max_bytes=size)
+    token = await store.create(staged())
+    assert store.retained_payload_bytes == size
+    with pytest.raises(CapabilityError, match="capacity"):
+        await store.create(staged())
+    await store.consume(token)
+    assert await store.create(staged())
+    too_small = PreviewTokenStore(max_bytes=size - 1)
+    with pytest.raises(CapabilityError, match="capacity"):
+        await too_small.create(staged())
 
-        # Advance time past TTL
-        with patch("servicenow_mcp.state.time.monotonic", return_value=fake_time + 61):
-            result = await store.consume(token)
 
-        assert result is None
-
-    @pytest.mark.asyncio()
-    async def test_get_returns_payload_before_ttl_expires(self) -> None:
-        """get() returns the payload when the TTL has not yet expired (mocked clock)."""
-        fake_time = 1000.0
-        with patch(
-            "servicenow_mcp.state.time.monotonic",
-            side_effect=lambda: fake_time,
-        ):
-            store = PreviewTokenStore(ttl_seconds=60)
-            token = await store.create({"table": "incident", "key": "value"})
-
-        # Advance time but stay within TTL
-        with patch("servicenow_mcp.state.time.monotonic", return_value=fake_time + 59):
-            result = await store.get(token)
-
-        assert result is not None
-        assert result["table"] == "incident"
-
-    @pytest.mark.asyncio()
-    async def test_consume_at_exact_boundary(self) -> None:
-        """consume() at exact TTL boundary is NOT expired (uses > not >=)."""
-        fake_time = 1000.0
-        with patch(
-            "servicenow_mcp.state.time.monotonic",
-            side_effect=lambda: fake_time,
-        ):
-            store = PreviewTokenStore(ttl_seconds=60)
-            token = await store.create({"table": "incident"})
-
-        # Advance time to exactly TTL — _is_expired uses >, so 60 == 60 is NOT expired
-        with patch("servicenow_mcp.state.time.monotonic", return_value=fake_time + 60):
-            result_at_boundary = await store.consume(token)
-
-        assert result_at_boundary is not None
-
-    @pytest.mark.asyncio()
-    async def test_store_max_size(self) -> None:
-        """create() raises RuntimeError when max_size is reached and no entries are expired."""
-        store = PreviewTokenStore(ttl_seconds=300, max_size=3)
-        await store.create({"table": "incident"})
-        await store.create({"table": "problem"})
-        await store.create({"table": "change_request"})
-
-        with pytest.raises(RuntimeError, match=r"^Preview token store is full$"):
-            await store.create({"table": "kb_knowledge"})
-
-    @pytest.mark.asyncio()
-    async def test_sweep_expired_on_create(self) -> None:
-        """create() sweeps expired entries first, allowing new tokens when space is freed."""
-        fake_time = 1000.0
-        with patch("servicenow_mcp.state.time.monotonic", return_value=fake_time):
-            store = PreviewTokenStore(ttl_seconds=60, max_size=2)
-            await store.create({"table": "incident"})
-            await store.create({"table": "problem"})
-
-        # Advance time past TTL — expired entries should be swept on next create()
-        with patch("servicenow_mcp.state.time.monotonic", return_value=fake_time + 61):
-            token = await store.create({"table": "change_request"})
-            result = await store.get(token)
-
-        assert result is not None
-        assert result["table"] == "change_request"
-
-    async def test_concurrent_consumers_get_payload_once(self) -> None:
-        """A preview token can be applied by only one concurrent consumer."""
-        store = PreviewTokenStore()
-        payload = {"table": "incident"}
-        token = await store.create(payload)
-
-        results = await asyncio.gather(*(store.consume(token) for _ in range(10)))
-
-        assert results.count(payload) == 1
-        assert results.count(None) == 9
-        assert len(store) == 0
+def test_default_staging_bounds() -> None:
+    store = PreviewTokenStore()
+    assert store.ttl_seconds == 300
+    assert store.max_size == 1000
+    assert store.max_bytes == 64 * 1024 * 1024

@@ -116,32 +116,32 @@ PKCE verifiers, passwords, client secrets, callback URLs, or personal data to
 fixtures or logs. Unit tests isolate dotenv loading and stub authorization.
 Their network guard rejects remote connections and browser access.
 
-## Follow the existing tool pattern
+## Add a capability and its MCP adapter
 
-Tool groups live in `src/servicenow_mcp/tools/`. Each group has a
-`register_tools` function. Bootstrap supplies the dependencies that function
-declares by name. See [[Architecture]] for the available names.
+Implement operation validation, platform reads, and result assembly in `src/servicenow_mcp/capabilities/`.
+Capabilities return typed results or raise curated application errors.
+They do not import MCP or serialize responses.
+Platform metadata owns shared dictionaries, choices, and caches.
+Bootstrap owns application resources and explicitly registers selected groups.
 
-The project uses MCP SDK v2's `MCPServer` from `mcp.server`. Register a tool
-with `@mcp.tool()` and the project's `@tool_handler`. The handler adds
-diagnostics and returns a JSON error response when a tool fails.
+Adapters live in `src/servicenow_mcp/mcp/tools/`.
+Declare native inputs, enumerated actions, typed outputs, complete descriptions, and truthful annotations.
+Use `@tool_handler` for diagnostics and native error translation.
+Object inputs must remain objects on the wire.
+Tests must exercise the real MCP dispatcher because direct SDK calls omit middleware.
 
-Tool functions return JSON strings. Parse the result before asserting its
-contents. This test fragment assumes `tools` contains the registered functions:
+For behavioral tests, inject platform clients or use mocked HTTP:
 
 ```python
-import json
-
-result = json.loads(await tools["my_tool"](param="value"))
-assert result["status"] == "success"
+result = await server.call_tool("query", {"table": "incident", "fields": ["number"]})
+assert not result.is_error
+assert result.structured_content["status"] == "success"
 ```
 
-Use `await mcp.list_tools()` for tool listing and schema checks.
-Tests can construct `MCPServer`, register a group, and inject the same named
-dependencies as bootstrap. Existing tool tests show that pattern.
-
-The supported live connection uses stdio, the local connection between the AI
-app and server.
+Check input, output, and annotation snapshots in `tests/fixtures/native_tool_schemas.json`.
+Import-boundary tests reject transport dependencies in capability, policy, and metadata modules.
+Mutation tests must show that preview performs no upstream write and one token permits at most one mutation request.
+Test expiry, retained payload bounds, authorization changes, policy changes, stale state, and unknown outcomes.
 
 ### Python conventions
 
@@ -183,6 +183,4 @@ The publish job builds the package and publishes it to PyPI.
 `RELEASE_PLEASE_TOKEN`, `PYPI_TOKEN`, and `CODECOV_TOKEN` are GitHub secrets.
 Keep their values out of files and logs.
 
-For reviewed follow-up work, see
-[refactoring opportunities](https://github.com/Xerrion/servicenow-platform-mcp/blob/main/docs/refactoring-opportunities.md).
 For diagnostics, use [[Telemetry]].

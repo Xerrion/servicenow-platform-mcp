@@ -6,10 +6,10 @@ import httpx2
 import pytest
 
 from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.client import ServiceNowClient
+from servicenow_mcp.capabilities.audit._audit_counts import fetch_field_counts
 from servicenow_mcp.config import Settings
 from servicenow_mcp.errors import ServiceNowMCPError
-from servicenow_mcp.tools._audit_counts import fetch_field_counts
+from servicenow_mcp.platform.client import ServiceNowClient
 from tests._mock_transport import http_mock
 
 

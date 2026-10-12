@@ -5,7 +5,7 @@ from collections.abc import Awaitable, Callable
 
 import pytest
 
-from servicenow_mcp.metadata_cache import AsyncMetadataCache
+from servicenow_mcp.platform.metadata.cache import AsyncMetadataCache
 from servicenow_mcp.telemetry import CacheName, HttpTelemetry
 
 

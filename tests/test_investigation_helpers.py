@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from servicenow_mcp.investigation_helpers import (
+from servicenow_mcp.capabilities.investigations.helpers import (
     build_investigation_result,
     fetch_and_explain,
     parse_element_id,
@@ -21,15 +21,17 @@ class TestParseIntParam:
 
     def test_returns_parsed_integer_when_present(self) -> None:
         """Returns the integer value when key exists and is numeric."""
-        assert parse_int_param({"limit": "42"}, "limit", 20) == 42
+        assert parse_int_param({"limit": 42}, "limit", 20) == 42
 
     def test_returns_default_when_key_missing(self) -> None:
         """Falls back to default when the key is absent."""
         assert parse_int_param({}, "limit", 20) == 20
 
-    def test_returns_default_for_non_numeric_string(self) -> None:
-        """Falls back to default when the value cannot be parsed as int."""
-        assert parse_int_param({"limit": "abc"}, "limit", 20) == 20
+    def test_rejects_non_integer_input(self) -> None:
+        from servicenow_mcp.capabilities.contracts import CapabilityError
+
+        with pytest.raises(CapabilityError, match="must be an integer"):
+            parse_int_param({"limit": "abc"}, "limit", 20)
 
     def test_returns_default_when_value_is_none(self) -> None:
         """Falls back to default when the value is explicitly None."""
@@ -37,11 +39,11 @@ class TestParseIntParam:
 
     def test_handles_zero(self) -> None:
         """Correctly parses zero as a valid integer."""
-        assert parse_int_param({"limit": "0"}, "limit", 20) == 0
+        assert parse_int_param({"limit": 0}, "limit", 20) == 0
 
     def test_handles_negative_values(self) -> None:
         """Correctly parses negative integers."""
-        assert parse_int_param({"limit": "-5"}, "limit", 20) == -5
+        assert parse_int_param({"limit": -5}, "limit", 20) == -5
 
     def test_handles_integer_value_directly(self) -> None:
         """Handles an already-integer value without conversion issues."""
@@ -144,9 +146,9 @@ class TestFetchAndExplain:
     """Tests for fetch_and_explain()."""
 
     @pytest.mark.asyncio()
-    @patch("servicenow_mcp.investigation_helpers.check_table_access")
-    @patch("servicenow_mcp.investigation_helpers.mask_sensitive_fields")
-    @patch("servicenow_mcp.investigation_helpers.validate_identifier")
+    @patch("servicenow_mcp.capabilities.investigations.helpers.check_table_access")
+    @patch("servicenow_mcp.capabilities.investigations.helpers.mask_sensitive_fields")
+    @patch("servicenow_mcp.capabilities.investigations.helpers.validate_identifier")
     async def test_returns_correct_structure(
         self,
         _mock_validate: AsyncMock,
@@ -179,9 +181,9 @@ class TestFetchAndExplain:
         assert result["record"] is test_record
 
     @pytest.mark.asyncio()
-    @patch("servicenow_mcp.investigation_helpers.check_table_access")
-    @patch("servicenow_mcp.investigation_helpers.mask_sensitive_fields")
-    @patch("servicenow_mcp.investigation_helpers.validate_identifier")
+    @patch("servicenow_mcp.capabilities.investigations.helpers.check_table_access")
+    @patch("servicenow_mcp.capabilities.investigations.helpers.mask_sensitive_fields")
+    @patch("servicenow_mcp.capabilities.investigations.helpers.validate_identifier")
     async def test_calls_validate_identifier_with_sys_id(
         self,
         mock_validate: AsyncMock,
@@ -203,9 +205,9 @@ class TestFetchAndExplain:
         mock_validate.assert_called_once_with("abc123")
 
     @pytest.mark.asyncio()
-    @patch("servicenow_mcp.investigation_helpers.check_table_access")
-    @patch("servicenow_mcp.investigation_helpers.mask_sensitive_fields")
-    @patch("servicenow_mcp.investigation_helpers.validate_identifier")
+    @patch("servicenow_mcp.capabilities.investigations.helpers.check_table_access")
+    @patch("servicenow_mcp.capabilities.investigations.helpers.mask_sensitive_fields")
+    @patch("servicenow_mcp.capabilities.investigations.helpers.validate_identifier")
     async def test_calls_check_table_access_with_table(
         self,
         _mock_validate: AsyncMock,
@@ -227,9 +229,9 @@ class TestFetchAndExplain:
         mock_check.assert_called_once_with("incident")
 
     @pytest.mark.asyncio()
-    @patch("servicenow_mcp.investigation_helpers.check_table_access")
-    @patch("servicenow_mcp.investigation_helpers.mask_sensitive_fields")
-    @patch("servicenow_mcp.investigation_helpers.validate_identifier")
+    @patch("servicenow_mcp.capabilities.investigations.helpers.check_table_access")
+    @patch("servicenow_mcp.capabilities.investigations.helpers.mask_sensitive_fields")
+    @patch("servicenow_mcp.capabilities.investigations.helpers.validate_identifier")
     async def test_calls_mask_sensitive_fields_on_record(
         self,
         _mock_validate: AsyncMock,
@@ -255,9 +257,9 @@ class TestFetchAndExplain:
         assert result["record"] is masked_record
 
     @pytest.mark.asyncio()
-    @patch("servicenow_mcp.investigation_helpers.check_table_access")
-    @patch("servicenow_mcp.investigation_helpers.mask_sensitive_fields")
-    @patch("servicenow_mcp.investigation_helpers.validate_identifier")
+    @patch("servicenow_mcp.capabilities.investigations.helpers.check_table_access")
+    @patch("servicenow_mcp.capabilities.investigations.helpers.mask_sensitive_fields")
+    @patch("servicenow_mcp.capabilities.investigations.helpers.validate_identifier")
     async def test_calls_build_explanation_with_masked_record(
         self,
         _mock_validate: AsyncMock,
@@ -289,9 +291,9 @@ class TestFetchAndExplain:
         assert received_records[0] is masked_record
 
     @pytest.mark.asyncio()
-    @patch("servicenow_mcp.investigation_helpers.check_table_access")
-    @patch("servicenow_mcp.investigation_helpers.mask_sensitive_fields")
-    @patch("servicenow_mcp.investigation_helpers.validate_identifier")
+    @patch("servicenow_mcp.capabilities.investigations.helpers.check_table_access")
+    @patch("servicenow_mcp.capabilities.investigations.helpers.mask_sensitive_fields")
+    @patch("servicenow_mcp.capabilities.investigations.helpers.validate_identifier")
     async def test_joins_explanation_parts_with_spaces(
         self,
         _mock_validate: AsyncMock,

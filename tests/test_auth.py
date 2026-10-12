@@ -15,10 +15,10 @@ import pytest
 from pydantic import SecretStr
 
 from servicenow_mcp.auth import AccessToken, OAuthPKCEProvider, _parse_token, create_auth
-from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
 from servicenow_mcp.errors import AuthError
 from servicenow_mcp.oauth_callback import _callback_result, receive_authorization_code
+from servicenow_mcp.platform.client import ServiceNowClient
 from tests._mock_transport import http_mock
 
 
@@ -65,7 +65,7 @@ async def test_query_401_then_reauthorize_on_same_loopback_port(settings: Settin
     """A rejected token requires new browser authorization on the next tool call."""
     from mcp.server import MCPServer
 
-    from servicenow_mcp.tools.query import register_tools
+    from servicenow_mcp.mcp.tools.query import register_tools
     from tests.helpers import decode_response, get_tool_functions
 
     settings.servicenow_oauth_redirect_uri = redirect_uri
@@ -101,7 +101,7 @@ async def test_query_401_then_reauthorize_on_same_loopback_port(settings: Settin
     register_tools(server, settings, provider)
     query = get_tool_functions(server)["query"]
     with patch("servicenow_mcp.oauth_callback.asyncio.to_thread", side_effect=browser):
-        first = decode_response(await query(table="incident", fields="sys_id"))
+        first = decode_response(await query(table="incident", fields=["sys_id"]))
         assert first["status"] == "error"
         assert "authorize again" in str(first["error"])
         assert "REST request (HTTP 401)" in str(first["error"])
@@ -111,7 +111,7 @@ async def test_query_401_then_reauthorize_on_same_loopback_port(settings: Settin
         assert api_route.call_count == 1
         with pytest.raises(ConnectionRefusedError):
             await asyncio.open_connection("127.0.0.1", urlsplit(redirect_uri).port)
-        second = decode_response(await query(table="incident", fields="sys_id"))
+        second = decode_response(await query(table="incident", fields=["sys_id"]))
         assert second["status"] == "success", second
     assert token_route.call_count == 2
     assert api_route.call_count == 2
@@ -916,14 +916,14 @@ async def test_oversized_and_replayed_callbacks_do_not_replace_code(redirect_uri
 async def test_auth_failure_keeps_tool_error_envelope(settings: Settings) -> None:
     from mcp.server import MCPServer
 
-    from servicenow_mcp.tools.query import register_tools
+    from servicenow_mcp.mcp.tools.query import register_tools
     from tests.helpers import decode_response, get_tool_functions
 
     provider = OAuthPKCEProvider(settings)
     server = MCPServer("test")
     register_tools(server, settings, provider)
     with patch.object(provider, "_authorize", side_effect=AuthError("Authorization denied")):
-        result = decode_response(await get_tool_functions(server)["query"](table="incident", fields="sys_id"))
+        result = decode_response(await get_tool_functions(server)["query"](table="incident", fields=["sys_id"]))
     assert result["status"] == "error"
     assert result["data"] is None
     assert "correlation_id" not in result

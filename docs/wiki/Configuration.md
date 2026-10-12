@@ -18,7 +18,7 @@ SERVICENOW_ENV=prod
 Replace the instance address and public client ID with your administrator's values.
 The client ID identifies the OAuth application. It is not a client secret.
 
-Set the package explicitly. Its default is `full`, which includes write tools.
+Set the package explicitly. Its default is `readonly`.
 `SERVICENOW_ENV=prod` blocks local writes even when those tools load.
 The instance URL selects the instance. The environment label does not detect
 whether that instance is production.
@@ -61,8 +61,8 @@ is not a valid scope value.
 
 | Variable | Default | Accepted value and purpose |
 | --- | --- | --- |
-| `MCP_TOOL_PACKAGE` | `full` | A preset package or comma-separated group names. See [[Tool-Packages]]. |
-| `SERVICENOW_ENV` | `dev` | An environment label. `prod` and `production`, ignoring case, block local writes. |
+| `MCP_TOOL_PACKAGE` | `readonly` | A preset package or comma-separated group names. See [[Tool-Packages]]. |
+| `SERVICENOW_ENV` | `prod` | `dev` and `test` permit mutations. `prod` and `production`, ignoring case, block them. Unknown values fail startup. |
 
 Use `readonly` or a smaller read package for ordinary ITSM work.
 Enabling a tool does not grant permission to use its ServiceNow resources.
@@ -131,33 +131,14 @@ attempts token renewal or authorization as needed.
 A rejected refresh grant returns to browser authorization.
 Connection or malformed-response failures preserve the refresh token for a later attempt.
 
-### Remove old authentication settings
-
-Remove `SERVICENOW_USERNAME`, `SERVICENOW_PASSWORD`, and `SERVICENOW_API_KEY`
-from every configuration source. Non-empty values fail startup.
-There is no Basic Auth or API-key fallback.
-
-Remove stale `SERVICENOW_OAUTH_CLIENT_SECRET` values too.
-The server ignores that setting and never uses a client secret.
-Do not store tokens, authorization codes, or browser callback data in configuration files.
-
 ## REST API access policies
 
 A successful OAuth sign-in does not establish access to every REST resource.
-An older policy that requires API keys can reject an OAuth Bearer request.
-An administrator inspecting the failed response may see `WWW-Authenticate: API_KEY`.
-That scheme does not appear in the tool's sanitized error evidence.
-
-For an approved policy migration:
-
-1. Identify the policy for the failed resource and HTTP method.
-2. Adjust only that policy to allow the intended OAuth Bearer requests.
-3. Preserve unrelated policies and restrictions.
-4. Test a small read with the intended user.
-5. Retire an obsolete API-key requirement only within the approved migration scope.
-
-Do not disable global protection or add an API key to this server.
+An administrator must permit the intended OAuth bearer authorization on each required resource and HTTP method.
 Table permissions, field permissions, and record visibility remain separate checks.
+Preserve unrelated policies and restrictions.
+Do not disable global protection.
+Do not store tokens, authorization codes, or browser callback data in configuration files.
 
 ## Troubleshooting
 

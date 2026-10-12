@@ -24,8 +24,8 @@ class Settings(BaseSettings):
     servicenow_oauth_scope: str = "useraccount"
     servicenow_oauth_redirect_uri: str = "http://127.0.0.1:8765/oauth/callback"
     servicenow_oauth_timeout_seconds: int = 180
-    mcp_tool_package: str = "full"
-    servicenow_env: str = "dev"
+    mcp_tool_package: str = "readonly"
+    servicenow_env: str = "prod"
     max_row_limit: int = 100
     large_table_names_csv: str = _DEFAULT_LARGE_TABLES
     httpx_timeout_seconds: float = 30.0
@@ -67,7 +67,7 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_auth_credentials(self) -> "Settings":
-        """Reject legacy credentials instead of silently falling back from OAuth."""
+        """Reject authentication settings unsupported by public OAuth."""
         if (
             self.servicenow_api_key.get_secret_value()
             or self.servicenow_username
@@ -158,6 +158,14 @@ class Settings(BaseSettings):
             raise ValueError(f"Invalid mcp_tool_package: {e}") from e
         return v
 
+    @field_validator("servicenow_env")
+    @classmethod
+    def validate_environment(cls, value: str) -> str:
+        normalized = value.lower()
+        if normalized not in {"dev", "test", "prod", "production"}:
+            raise ValueError("Environment must be dev, test, or prod.")
+        return "prod" if normalized == "production" else normalized
+
     @cached_property
     def large_table_names(self) -> frozenset[str]:
         """Parse comma-separated large table names into a frozenset."""
@@ -166,4 +174,4 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         """Return True if the environment is production."""
-        return self.servicenow_env.lower() in {"prod", "production"}
+        return self.servicenow_env.lower() not in {"dev", "test"}

@@ -9,11 +9,12 @@ import pytest
 from pydantic import SecretStr
 
 from servicenow_mcp.auth import AccessToken, OAuthPKCEProvider
-from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
 from servicenow_mcp.errors import AuthError
-from servicenow_mcp.tool_errors import safe_tool_call
+from servicenow_mcp.mcp.errors import safe_tool_call
+from servicenow_mcp.platform.client import ServiceNowClient
 from tests._mock_transport import http_mock
+from tests.helpers import decode_response
 
 
 BASE_URL = "https://test.service-now.com"
@@ -40,7 +41,7 @@ async def test_safe_evidence_reaches_tool_error_without_replay(settings: Setting
             await client.query_records("incident", "short_description=private")
             return "unreachable"
 
-        result = json.loads(await safe_tool_call(call))
+        result = decode_response(await safe_tool_call(call))
 
     assert result["status"] == "error"
     message = result["error"]["message"]
@@ -280,7 +281,7 @@ def test_phrase_shaped_access_token_is_not_echoed(settings: Settings) -> None:
 
 
 def test_diagnostics_do_not_log_raw_response(settings: Settings, caplog: pytest.LogCaptureFixture) -> None:
-    with patch("servicenow_mcp._client_transport.set_sentry_context") as context:
+    with patch("servicenow_mcp.platform._client_transport.set_sentry_context") as context:
         message = _error(
             settings,
             httpx2.Response(

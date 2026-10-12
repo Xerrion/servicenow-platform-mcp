@@ -66,7 +66,7 @@ Use the instance's HTTPS address without a page path, query string, or credentia
 Keep any existing server entries when adding this configuration.
 
 Each example selects `readonly` and blocks writes with `SERVICENOW_ENV=prod`.
-The server otherwise defaults to `full`, which includes write tools.
+The server defaults to `readonly` and production protection.
 The environment setting controls local write protection. It does not select
 an instance or detect whether that instance is production.
 
@@ -81,7 +81,9 @@ Save this as `.mcp.json` in the top-level folder you open in your AI app:
   "mcpServers": {
     "servicenow-platform": {
       "command": "uvx",
-      "args": ["servicenow-platform-mcp"],
+      "args": [
+        "servicenow-platform-mcp"
+      ],
       "env": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_OAUTH_CLIENT_ID": "your-public-client-id",
@@ -112,7 +114,10 @@ Add this configuration to `opencode.json` in your project:
   "mcp": {
     "servicenow-platform": {
       "type": "local",
-      "command": ["uvx", "servicenow-platform-mcp"],
+      "command": [
+        "uvx",
+        "servicenow-platform-mcp"
+      ],
       "enabled": true,
       "environment": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
@@ -141,7 +146,9 @@ This is a server entry, not a complete client configuration:
 ```json
 {
   "command": "uvx",
-  "args": ["servicenow-platform-mcp"],
+  "args": [
+    "servicenow-platform-mcp"
+  ],
   "env": {
     "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
     "SERVICENOW_OAUTH_CLIENT_ID": "your-public-client-id",
@@ -186,10 +193,10 @@ Use a smaller custom package when you need fewer tools.
 | Record changes, attachment changes, or catalog actions | A custom package with the required groups, or `full` |
 | Check that the server starts without contacting ServiceNow | `none` |
 
-**Set the package explicitly. The default is `full`.**
+The package defaults to `readonly`.
 Package selection does not grant ServiceNow access.
-Catalog browsing and ordering share the `service_catalog` group, which is
-absent from `readonly`.
+Catalog browsing is available in `readonly` through `service_catalog`.
+Orders and cart changes require the separate `service_catalog_write` group.
 
 The [package guide](docs/wiki/Tool-Packages.md) lists each group and its purpose.
 The [tool reference](docs/wiki/Tool-Reference.md) describes exact actions and inputs.
@@ -207,11 +214,10 @@ SERVICENOW_ENV=dev
 Confirm that `SERVICENOW_INSTANCE_URL` identifies the intended non-production instance.
 Changing `SERVICENOW_ENV` does not change that URL. Restart the server after changing settings.
 
-Record writes offer previews, but callers can request immediate changes.
-The server does not enforce human approval. Ask the app to show a preview and
-wait for your approval before applying a record change.
-
-Attachment changes and catalog orders apply directly.
+Every mutation requires a family preview followed by `mutation_apply`.
+Ask the app to show the target, summary, and limitations before application.
+The server does not enforce human approval.
+Attachment changes, catalog orders, and cart changes use the same preview/apply process.
 Review the [change guidance](docs/wiki/Instance-Development.md) and
 [safety limits](docs/wiki/Safety-and-Policy.md) before enabling those tools.
 
@@ -241,7 +247,10 @@ Adapt the entry to your app's configuration format:
 ```json
 {
   "command": "uv",
-  "args": ["run", "servicenow-platform-mcp"],
+  "args": [
+    "run",
+    "servicenow-platform-mcp"
+  ],
   "cwd": "/absolute/path/to/servicenow-platform-mcp",
   "env": {
     "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
@@ -298,9 +307,9 @@ A valid OAuth token does not prove permission to use a specific API resource.
 A rejected REST request is not replayed automatically. Retry the read after
 correcting access. The next request attempts token renewal or authorization when needed.
 
-For an old policy that requires API keys, follow the
-[narrow policy migration](docs/wiki/Configuration.md#rest-api-access-policies).
-Do not add an API key or disable unrelated policies.
+Check the intended resource and HTTP method in the
+[REST access policy guidance](docs/wiki/Configuration.md#rest-api-access-policies).
+Preserve unrelated policies and restrictions.
 
 ### Tools or settings do not match your configuration
 

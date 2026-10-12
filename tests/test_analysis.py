@@ -10,7 +10,7 @@ from mcp.server import MCPServer
 
 from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.config import Settings
-from servicenow_mcp.tools.analysis import register_tools
+from servicenow_mcp.mcp.tools.analysis import register_tools
 from tests._mock_transport import http_mock
 from tests.helpers import decode_response, get_tool_functions
 
@@ -556,7 +556,7 @@ async def test_journal_history_rejects_invalid_or_denied_input(
             action="journal_history",
             table="incident",
             sys_id=SYS_ID,
-            fields_csv="value^ORname=task",
+            fields=["value^ORname=task"],
         )
     )
     assert invalid["status"] == "error"

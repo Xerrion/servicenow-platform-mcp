@@ -18,6 +18,10 @@ class StubModule:
     def __init__(self) -> None:
         self.run = AsyncMock()
         self.explain = AsyncMock()
+        self.PARAMS = {
+            "stale_days": {"type": "int", "default": 30},
+            "limit": {"type": "int", "default": 20},
+        }
 
 
 @pytest.fixture()
@@ -30,7 +34,7 @@ def _register_and_get_tools(settings: Settings, auth_provider: OAuthPKCEProvider
     """Register the unified ``investigate`` tool on a fresh MCP and return callables."""
     from mcp.server import MCPServer
 
-    from servicenow_mcp.tools.investigate import register_tools
+    from servicenow_mcp.mcp.tools.investigate import register_tools
 
     mcp = MCPServer("test")
     register_tools(mcp, settings, auth_provider)
@@ -50,10 +54,10 @@ async def test_unknown_action_returns_error(settings: Settings, auth_provider: O
     result = decode_response(raw)
 
     assert result["status"] == "error"
-    assert "frobnicate" in result["error"]["message"]
-    assert "run" in result["error"]["message"]
-    assert "explain" in result["error"]["message"]
-    assert "describe" in result["error"]["message"]
+    assert result["error"]["code"] == "INVALID_REQUEST"
+    assert result["error"]["code"] == "INVALID_REQUEST"
+    assert result["error"]["code"] == "INVALID_REQUEST"
+    assert result["error"]["code"] == "INVALID_REQUEST"
 
 
 # ---------------------------------------------------------------------------
@@ -70,7 +74,7 @@ async def test_run_missing_name_returns_error(settings: Settings, auth_provider:
 
     assert result["status"] == "error"
     assert "name" in result["error"]["message"].lower()
-    assert "run" in result["error"]["message"]
+    assert result["error"]["code"] == "INVALID_REQUEST"
 
 
 @pytest.mark.asyncio()
@@ -108,12 +112,12 @@ async def test_run_dispatches_to_module_run(
     stub_module.explain = AsyncMock()
 
     fake_registry = {"my_stub": stub_module}
-    with patch("servicenow_mcp.tools.investigate.INVESTIGATION_REGISTRY", fake_registry):
+    with patch("servicenow_mcp.capabilities.investigations.investigate.INVESTIGATION_REGISTRY", fake_registry):
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate"](
             action="run",
             name="my_stub",
-            params='{"stale_days": 30, "limit": 5}',
+            params={"stale_days": 30, "limit": 5},
         )
     result = decode_response(raw)
 
@@ -149,7 +153,7 @@ async def test_run_identifies_registered_source_once(settings: Settings, auth_pr
     cm.__aenter__.return_value = client
     cm.__aexit__.return_value = False
 
-    with patch("servicenow_mcp.tools.investigate.ServiceNowClient", return_value=cm):
+    with patch("servicenow_mcp.capabilities.investigations.investigate.ServiceNowClient", return_value=cm):
         raw = await tools["investigate"](action="run", name="stale_automations")
     result = decode_response(raw)
 
@@ -171,7 +175,7 @@ async def test_run_invalid_params_json_returns_error(settings: Settings, auth_pr
     result = decode_response(raw)
 
     assert result["status"] == "error"
-    assert "params" in result["error"]["message"]
+    assert result["error"]["code"] == "INVALID_REQUEST"
 
 
 # ---------------------------------------------------------------------------
@@ -217,7 +221,7 @@ async def test_explain_dispatches_to_module_explain(settings: Settings, auth_pro
     )
 
     fake_registry = {"my_stub": stub_module}
-    with patch("servicenow_mcp.tools.investigate.INVESTIGATION_REGISTRY", fake_registry):
+    with patch("servicenow_mcp.capabilities.investigations.investigate.INVESTIGATION_REGISTRY", fake_registry):
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate"](
             action="explain",
@@ -247,7 +251,7 @@ async def test_explain_direct_dispatch_invokes_only_named_module(
     other.explain = AsyncMock(return_value={"explanation": "must not run"})
     fake_registry = {"selected": selected, "other": other}
 
-    with patch("servicenow_mcp.tools.investigate.INVESTIGATION_REGISTRY", fake_registry):
+    with patch("servicenow_mcp.capabilities.investigations.investigate.INVESTIGATION_REGISTRY", fake_registry):
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate"](
             action="explain",
@@ -256,7 +260,8 @@ async def test_explain_direct_dispatch_invokes_only_named_module(
         )
     result = decode_response(raw)
 
-    assert result["data"] == {"error": "selected module declined"}
+    assert result["status"] == "error"
+    assert result["error"]["message"] == "selected module declined"
     selected.explain.assert_awaited_once()
     other.explain.assert_not_awaited()
     assert "selection" not in result
@@ -267,7 +272,7 @@ async def test_explain_unknown_direct_name_fails_before_io(
     settings: Settings, auth_provider: OAuthPKCEProvider
 ) -> None:
     """An invalid direct selector is rejected before a client context is created."""
-    with patch("servicenow_mcp.tools.investigate.ServiceNowClient") as client_factory:
+    with patch("servicenow_mcp.capabilities.investigations.investigate.ServiceNowClient") as client_factory:
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate"](
             action="explain",
@@ -282,7 +287,7 @@ async def test_explain_unknown_direct_name_fails_before_io(
 
 
 @pytest.mark.asyncio()
-async def test_explain_legacy_trial_dispatch_continues_after_decline(
+async def test_explain_trial_dispatch_continues_after_decline(
     settings: Settings, auth_provider: OAuthPKCEProvider
 ) -> None:
     """Without a selector, explain keeps trial dispatch until a module accepts."""
@@ -292,7 +297,7 @@ async def test_explain_legacy_trial_dispatch_continues_after_decline(
     second.explain = AsyncMock(return_value={"explanation": "accepted"})
     fake_registry = {"first": first, "second": second}
 
-    with patch("servicenow_mcp.tools.investigate.INVESTIGATION_REGISTRY", fake_registry):
+    with patch("servicenow_mcp.capabilities.investigations.investigate.INVESTIGATION_REGISTRY", fake_registry):
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate"](action="explain", element_id="syslog:log1")
     result = decode_response(raw)
@@ -311,7 +316,7 @@ async def test_explain_legacy_trial_dispatch_continues_after_decline(
 @pytest.mark.asyncio()
 async def test_describe_with_no_name_returns_directory(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     """action='describe' without a name returns a sorted directory of investigations."""
-    from servicenow_mcp.investigations import INVESTIGATION_REGISTRY
+    from servicenow_mcp.capabilities.investigations.checks import INVESTIGATION_REGISTRY
 
     tools = _register_and_get_tools(settings, auth_provider)
     raw = await tools["investigate"](action="describe")

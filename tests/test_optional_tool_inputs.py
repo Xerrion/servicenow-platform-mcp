@@ -13,7 +13,7 @@ from mcp.types import CallToolResult
 from servicenow_mcp.config import Settings
 from servicenow_mcp.server import create_mcp_server
 from tests._mock_transport import http_mock
-from tests.helpers import decode_response, get_registered_tools
+from tests.helpers import decode_response, get_registered_tools, get_tool_functions
 
 
 BASE_URL = "https://test.service-now.com"
@@ -23,14 +23,15 @@ REQUIRED = {
     "list_tool_packages": [],
     "query": ["table"],
     "describe": [],
-    "record_write": ["action"],
-    "record_apply": ["preview_token"],
+    "record_preview": ["action", "table"],
+    "mutation_apply": ["preview_token"],
     "record_read": ["table"],
     "attachment": ["action"],
-    "attachment_write": ["action"],
+    "attachment_preview": ["action"],
     "investigate": ["action"],
     "resolve_choice": ["table", "field"],
     "service_catalog": ["action"],
+    "service_catalog_preview": ["action"],
     "analysis": ["action"],
     "audit": ["action"],
     "flow": ["action"],
@@ -42,7 +43,7 @@ REQUIRED = {
 @pytest.fixture()
 async def server(settings: Settings) -> AsyncIterator[MCPServer]:
     """Use production registration while keeping configuration and HTTP isolated."""
-    with patch("servicenow_mcp.server.Settings", return_value=settings):
+    with patch("servicenow_mcp.bootstrap.stdio.Settings", return_value=settings):
         mcp = create_mcp_server()
     async with mcp._lowlevel_server.lifespan(mcp._lowlevel_server):
         yield mcp
@@ -54,12 +55,12 @@ async def _call(server: MCPServer, tool: str, arguments: dict[str, Any], *, fill
     if fill_null:
         schema = (await get_registered_tools(server))[tool].input_schema
         optional = {name: None for name in schema["properties"] if name not in schema.get("required", [])}
-    result = await server.call_tool(tool, {**optional, **arguments})
+    result = await get_tool_functions(server)[tool](**{**optional, **arguments})
     assert isinstance(result, CallToolResult)
     assert result.result_type == "complete"
-    assert not result.is_error
+    assert result.is_error is (result.structured_content["status"] == "error")
     assert isinstance(result.structured_content, dict)
-    return decode_response(result.structured_content["result"])
+    return decode_response(result)
 
 
 async def test_all_optional_schema_inputs_are_nullable_and_omittable(server: MCPServer) -> None:
@@ -82,14 +83,13 @@ async def test_all_optional_schema_inputs_are_nullable_and_omittable(server: MCP
         for parameter in parameters:
             assert schemas[tool].input_schema["properties"][parameter]["default"] is None
     for tool, parameter, default in [
-        ("record_write", "preview", True),
         ("query", "limit", 20),
         ("query", "offset", 0),
         ("query", "display_values", False),
         ("describe", "field_limit", 25),
         ("code_search", "action", "search"),
-        ("investigate", "params", "{}"),
-        ("attachment_write", "content_type", "application/octet-stream"),
+        ("investigate", "params", None),
+        ("attachment_preview", "content_type", "application/octet-stream"),
     ]:
         assert schemas[tool].input_schema["properties"][parameter]["default"] == default
 
@@ -103,18 +103,18 @@ async def test_create_needs_no_sys_id_and_null_keeps_preview_default(
     http_mock.get(f"{TABLE_URL}/sys_db_object").respond(200, json={"result": []})
     payload = {"short_description": "Optional input regression", "assigned_to": None, "active": False}
     created = http_mock.post(f"{TABLE_URL}/sc_req_item").respond(200, json={"result": {"sys_id": SYS_ID, **payload}})
-    args: dict[str, Any] = {"action": "create", "table": "sc_req_item", "data": json.dumps(payload)}
-    if commit:
-        args["preview"] = False
-    response = await _call(server, "record_write", args, fill_null=fill_null)
+    args: dict[str, Any] = {"action": "create", "table": "sc_req_item", "data": payload}
+    response = await _call(server, "record_preview", args, fill_null=fill_null)
     assert response["status"] == "success"
     if commit:
+        response = await _call(server, "mutation_apply", {"preview_token": response["data"]["preview_token"]})
+        assert response["status"] == "success"
         assert created.call_count == 1
         assert json.loads(created.calls.last.request.content) == payload
         assert created.calls.last.request.headers["content-type"] == "application/json"
     else:
         assert response["data"]["preview_token"]
-        assert response["data"]["preview"]["data"] == payload
+        assert response["data"]["summary"]["data"] == payload
         assert not created.called
         assert all(call.request.method == "GET" for call in http_mock.calls)
 
@@ -146,17 +146,17 @@ async def test_history_needs_no_irrelevant_fields_and_keeps_window_and_limit_def
 @pytest.mark.parametrize(
     ("tool", "arguments", "error"),
     [
-        ("record_write", {"action": "create", "table": "incident"}, "data is required"),
-        ("record_write", {"action": "update", "table": "incident", "data": "{}"}, "sys_id is required"),
+        ("record_preview", {"action": "create", "table": "incident"}, "data"),
+        ("record_preview", {"action": "update", "table": "incident", "data": {}}, "sys_id"),
         ("audit", {"action": "history", "table": "incident"}, "sys_id is required"),
-        ("audit", {"action": "check_fields", "table": "incident"}, "fields_csv must list"),
+        ("audit", {"action": "check_fields", "table": "incident"}, "fields must list"),
         ("record_read", {"table": "incident"}, "exactly one of sys_id or name"),
-        ("attachment_write", {"action": "upload"}, "table is required"),
-        ("service_catalog", {"action": "item_get"}, "sys_id is required"),
+        ("attachment_preview", {"action": "upload"}, "table"),
+        ("service_catalog", {"action": "item_get"}, "sys_id"),
         ("code_search", {}, "'term' is required"),
         ("query", {"table": "incident"}, "fields is required"),
         ("describe", {"table": "incident", "field_limit": 0}, "field_limit must be between"),
-        ("code_search", {"action": ""}, "Unknown action"),
+        ("code_search", {"action": ""}, "schema"),
     ],
 )
 async def test_null_does_not_bypass_action_requirements_or_explicit_values(
@@ -180,7 +180,7 @@ async def test_null_does_not_bypass_action_requirements_or_explicit_values(
         ("resolve_choice", {"table": "incident", "field": "state"}),
         ("service_catalog", {"action": "items_list"}),
         ("analysis", {"action": "journal_history", "table": "incident", "sys_id": SYS_ID}),
-        ("audit", {"action": "check_fields", "table": "incident", "fields_csv": "state"}),
+        ("audit", {"action": "check_fields", "table": "incident", "fields": ["state"]}),
         ("flow", {"action": "list_triggers"}),
         ("code_search", {"term": "current.update"}),
     ],
@@ -218,10 +218,11 @@ async def test_optional_inputs_reach_all_read_tool_handlers(
 
 @pytest.mark.parametrize("fill_null", [False, True])
 async def test_attachment_upload_null_content_type_uses_default(server: MCPServer, fill_null: bool) -> None:
+    http_mock.get(f"{TABLE_URL}/incident/{SYS_ID}").respond(200, json={"result": {"sys_id": SYS_ID}})
     route = http_mock.post(f"{BASE_URL}/api/now/attachment/file").respond(200, json={"result": {"sys_id": SYS_ID}})
     response = await _call(
         server,
-        "attachment_write",
+        "attachment_preview",
         {
             "action": "upload",
             "table": "incident",
@@ -231,6 +232,9 @@ async def test_attachment_upload_null_content_type_uses_default(server: MCPServe
         },
         fill_null=fill_null,
     )
+    assert response["status"] == "success"
+    assert not route.called
+    response = await _call(server, "mutation_apply", {"preview_token": response["data"]["preview_token"]})
     assert response["status"] == "success"
     assert route.calls.last.request.headers["content-type"] == "application/octet-stream"
     assert route.calls.last.request.content == b"test"

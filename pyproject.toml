@@ -21,7 +21,8 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Application Frameworks",
 ]
 dependencies = [
-    "mcp>=2.1.1",
+    "mcp>=2.2.0,<3",
+    "jsonschema>=4.26.0,<5",
     "httpx2>=2.12.0,<3",
     "pydantic>=2.13.5",
     "pydantic-settings>=2.15.0",

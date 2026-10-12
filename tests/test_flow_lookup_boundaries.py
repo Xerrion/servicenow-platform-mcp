@@ -5,10 +5,10 @@ import pytest
 from mcp.server import MCPServer
 
 from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
 from servicenow_mcp.errors import ServerError, ServiceNowMCPError
-from servicenow_mcp.tools.flow import register_tools
+from servicenow_mcp.mcp.tools.flow import register_tools
+from servicenow_mcp.platform.client import ServiceNowClient
 from tests._mock_transport import http_mock
 from tests.helpers import decode_response, get_tool_functions
 

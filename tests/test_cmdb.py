@@ -9,9 +9,9 @@ from mcp.types import CallToolResult
 
 from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.config import Settings
-from servicenow_mcp.tools.cmdb import register_tools
+from servicenow_mcp.mcp.tools.cmdb import register_tools
 from tests._mock_transport import http_mock
-from tests.helpers import decode_response
+from tests.helpers import decode_response, get_tool_functions
 
 
 BASE = "https://test.service-now.com/api/now/cmdb"
@@ -21,11 +21,11 @@ SYS_ID = "a" * 32
 async def _call(settings: Settings, **arguments: Any) -> dict[str, Any]:
     server = MCPServer("cmdb-test")
     register_tools(server, settings, OAuthPKCEProvider(settings))
-    result = await server.call_tool("cmdb", arguments)
+    result = await get_tool_functions(server)["cmdb"](**arguments)
     assert isinstance(result, CallToolResult)
-    assert not result.is_error
+    assert result.is_error is (result.structured_content["status"] == "error")
     assert isinstance(result.structured_content, dict)
-    return decode_response(result.structured_content["result"])
+    return decode_response(result)
 
 
 @pytest.mark.parametrize("null_defaults", [False, True])

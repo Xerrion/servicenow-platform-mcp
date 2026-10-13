@@ -1,7 +1,7 @@
 """Policy engine for query safety, deny lists, field masking and write gating."""
 
 import re
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any
@@ -14,7 +14,7 @@ _mutation_policy: ContextVar[Callable[[], None] | None] = ContextVar("mutation_p
 
 
 @contextmanager
-def require_mutation_policy(check: Callable[[], None]) -> Iterator[None]:
+def require_mutation_policy(check: Callable[[], None]) -> Generator[None]:
     """Recheck a staged command's policy when obtaining request headers."""
     token = _mutation_policy.set(check)
     try:

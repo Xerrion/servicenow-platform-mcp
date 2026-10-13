@@ -6,7 +6,7 @@ import hashlib
 import re
 import secrets
 import time
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import ClassVar
@@ -25,7 +25,7 @@ _required_generation: ContextVar[int | None] = ContextVar("required_authorizatio
 
 
 @contextmanager
-def require_authorization_generation(generation: int) -> Iterator[None]:
+def require_authorization_generation(generation: int) -> Generator[None]:
     """Prevent a staged command from obtaining headers under a different grant."""
     token = _required_generation.set(generation)
     try:

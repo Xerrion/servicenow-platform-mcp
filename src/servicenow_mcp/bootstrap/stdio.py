@@ -1,7 +1,7 @@
 """Compose the local ServiceNow server with explicit capability dependencies."""
 
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from urllib.parse import urlparse
 
@@ -65,7 +65,7 @@ def create_mcp_server(settings: Settings | None = None) -> NativeMCPServer:
     )
 
     @asynccontextmanager
-    async def lifespan(_server: NativeMCPServer) -> AsyncIterator[None]:
+    async def lifespan(_server: NativeMCPServer) -> AsyncGenerator[None]:
         try:
             yield
         finally:

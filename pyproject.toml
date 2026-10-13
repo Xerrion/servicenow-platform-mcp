@@ -65,7 +65,7 @@ dev = [
     "ruff>=0.16.10",
     "pytest-cov>=6.0.0",
     "basedpyright>=1.40.2",
-    "ty>=0.0.84",
+    "ty>=0.0.86",
 ]
 
 [tool.ruff]

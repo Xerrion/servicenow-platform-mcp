@@ -53,3 +53,5 @@ Thumbs.db
 .zed
 
 docs/ServiceNowDocs/
+
+.playwright-mcp/

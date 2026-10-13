@@ -29,6 +29,22 @@
   previously repeated the same value or was null for unresolved references.
   Masking, raw reference IDs, pagination, and completeness indicators are preserved.
 
+## [3.0.0](https://github.com/Xerrion/servicenow-platform-mcp/compare/v2.1.2...v3.0.0) (2026-10-13)
+
+
+### ⚠ BREAKING CHANGES
+
+* introduce native capability architecture ([#209](https://github.com/Xerrion/servicenow-platform-mcp/issues/209))
+
+### Features
+
+* introduce native capability architecture ([#209](https://github.com/Xerrion/servicenow-platform-mcp/issues/209)) ([8cc69f1](https://github.com/Xerrion/servicenow-platform-mcp/commit/8cc69f1229b8fa8f81b77ec00de718dbdc4293da))
+
+
+### Documentation
+
+* clarify ITSM and ServiceNow development workflows ([#202](https://github.com/Xerrion/servicenow-platform-mcp/issues/202)) ([5bcb83b](https://github.com/Xerrion/servicenow-platform-mcp/commit/5bcb83b29ab5b30aee07cabaa8df974881c47126))
+
 ## [2.1.2](https://github.com/Xerrion/servicenow-platform-mcp/compare/v2.1.1...v2.1.2) (2026-10-03)
 
 

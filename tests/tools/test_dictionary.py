@@ -433,7 +433,9 @@ class TestCache:
         client_factory = cast("ServiceNowClientProvider", ClientContext)
         registry = DictionaryRegistry(settings, auth_provider, client_factory)
         with patch("servicenow_mcp.platform.metadata._dictionary.resolve_chain", new_callable=AsyncMock) as resolver:
-            resolver.return_value = ["incident"]
+            from servicenow_mcp.platform.metadata._dictionary_models import TableInheritance
+
+            resolver.return_value = TableInheritance(tables=["incident"], complete=True)
             assert await registry.get_chain("incident") == ["incident"]
             assert await registry.get_chain("incident") == ["incident"]
             resolver.assert_awaited_once()

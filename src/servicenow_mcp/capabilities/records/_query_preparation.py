@@ -157,12 +157,12 @@ async def validate_query_fields(
     encoded_query: str,
     dictionary: DictionaryRegistry,
 ) -> list[str]:
-    """Return an advisory warning for query fields absent from the table."""
-    candidates = extract_query_fields(encoded_query)
+    """Report unresolved schema paths without interpreting hidden metadata as invalid."""
+    candidates = [path for path in extract_query_fields(encoded_query) if path not in _UNIVERSAL_FIELDS]
     if not candidates:
         return []
     try:
-        known = await dictionary.get_fields(table, candidates)
+        resolutions = await dictionary.get_query_field_paths(table, candidates)
     except Exception as exc:
         reason = (
             f"HTTP timeout ({timeout_phase(exc)})"
@@ -180,15 +180,18 @@ async def validate_query_fields(
             )
         ]
 
-    known_names = {entry.name for entry in known}
-    unknown = [name for name in candidates if name not in known_names and name not in _UNIVERSAL_FIELDS]
-    if not unknown:
+    unverified = [entry for entry in resolutions if entry.status == "unverified"]
+    if not unverified:
         return []
+    details = ". ".join(f"{entry.path}: {entry.reason or 'metadata did not resolve this path'}" for entry in unverified)
+    trace = current_tool_trace()
+    trace_note = f" trace_id={trace.trace_id}" if trace else ""
+    logger.warning("Query field validation incomplete:%s unverified_paths=%d", trace_note, len(unverified))
     return [
         (
-            f"Query references field(s) not found on table '{table}': {', '.join(unknown)}. "
-            "ServiceNow silently ignores conditions on unknown fields, so the result is "
-            "NOT filtered by them. Verify the field names against the table dictionary."
+            f"Query field path(s) remain unverified for table '{table}': {details}.{trace_note} "
+            "Missing metadata does not prove a field is invalid. ServiceNow may ignore invalid conditions "
+            "and broaden the query. Verify these paths before trusting the result."
         )
     ]
 

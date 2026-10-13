@@ -583,14 +583,17 @@ class TestExtractQueryFields:
             ("active=true^ORstate=2", ["active", "state"]),
             ("short_descriptionLIKEfoo", ["short_description"]),
             ("descriptionISEMPTY", ["description"]),
-            ("assigned_to.name=Bob", ["assigned_to"]),
+            ("assigned_to.name=Bob", ["assigned_to.name"]),
+            ("assigned_to.email=one^caller_id.email=two", ["assigned_to.email", "caller_id.email"]),
+            ("assigned_to.email=one^assigned_to.name=two", ["assigned_to.email", "assigned_to.name"]),
+            ("ORDERBYDESCassigned_to.email", ["assigned_to.email"]),
             ("state=1^ORDERBYDESCsys_created_on", ["state", "sys_created_on"]),
             ("priority=1^NQstate=2", ["priority", "state"]),
             ("state=1^priority=2^state=3", ["state", "priority"]),
         ],
     )
-    def test_extracts_root_fields(self, encoded_query: str, expected: list[str]) -> None:
-        """Root field names are pulled out, deduped, and order-preserved."""
+    def test_extracts_field_paths(self, encoded_query: str, expected: list[str]) -> None:
+        """Complete paths are deduplicated and order-preserved."""
         from servicenow_mcp.capabilities.records._query_parsing import extract_query_fields
 
         assert extract_query_fields(encoded_query) == expected
@@ -602,7 +605,7 @@ class TestExtractQueryFields:
 
 
 class TestFieldValidation:
-    """Unknown fields in encoded_query produce a warning, not a hard error."""
+    """Unresolved fields produce factual warnings without claiming invalidity."""
 
     def _stub_dictionary(
         self,
@@ -610,22 +613,26 @@ class TestFieldValidation:
         auth_provider: OAuthPKCEProvider,
         field_names: list[str],
     ) -> Any:
-        from servicenow_mcp.platform.metadata._dictionary import DictionaryField, DictionaryRegistry
+        from servicenow_mcp.platform.metadata._dictionary import DictionaryRegistry
+        from servicenow_mcp.platform.metadata._dictionary_models import FieldPathResolution
 
         dictionary = DictionaryRegistry(settings, auth_provider)
-        fields = [
-            DictionaryField(name=name, internal_type="string", attributes="", inherited_from=None)
-            for name in field_names
-        ]
-        dictionary.get_fields = AsyncMock(  # type: ignore[method-assign]
-            side_effect=lambda _table, names: [field for field in fields if field.name in names]
+        dictionary.get_query_field_paths = AsyncMock(  # type: ignore[method-assign]
+            side_effect=lambda _table, names: [
+                FieldPathResolution(
+                    path=name,
+                    status="valid" if name in field_names else "unverified",
+                    reason=None if name in field_names else "field was not visible in dictionary metadata",
+                )
+                for name in names
+            ]
         )
         dictionary.get_all_fields = AsyncMock(side_effect=AssertionError("broad metadata lookup"))  # type: ignore[method-assign]
         return dictionary
 
     @pytest.mark.asyncio()
-    async def test_unknown_field_warns(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-        """A filter on a non-existent column warns that results are unfiltered."""
+    async def test_missing_field_is_unverified(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+        """A missing dictionary row does not prove that the filter was dropped."""
         http_mock.get(f"{BASE_URL}/api/now/table/u_custom").mock(
             return_value=httpx2.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
         )
@@ -639,7 +646,9 @@ class TestFieldValidation:
 
         assert result["status"] == "success"
         warnings = result.get("warnings", [])
-        assert any("name" in w and "not found" in w for w in warnings)
+        assert any("name" in w and "unverified" in w for w in warnings)
+        assert "does not prove a field is invalid" in warnings[0]
+        assert "NOT filtered" not in warnings[0]
         assert len(warnings) == 1
 
     @pytest.mark.asyncio()
@@ -666,7 +675,7 @@ class TestFieldValidation:
         from servicenow_mcp.platform.metadata._dictionary import DictionaryRegistry
 
         dictionary = DictionaryRegistry(settings, auth_provider)
-        dictionary.get_fields = AsyncMock(side_effect=RuntimeError("boom"))  # type: ignore[method-assign]
+        dictionary.get_query_field_paths = AsyncMock(side_effect=RuntimeError("boom"))  # type: ignore[method-assign]
 
         tools = _register_and_get_tools(settings, auth_provider, dictionary=dictionary)
         raw = await tools["query"](table="u_custom", encoded_query="name=Vinklubben", fields=["u_member"])

@@ -132,8 +132,8 @@ def parse_group_fields(group_by: list[str] | None) -> list[str]:
 
 
 def extract_query_fields(encoded_query: str) -> list[str]:
-    """Extract unique root field names from supported encoded-query clauses."""
-    roots: list[str] = []
+    """Extract unique complete field paths from supported encoded-query clauses."""
+    fields: list[str] = []
     seen: set[str] = set()
     for raw_clause in encoded_query.split("^"):
         if not raw_clause:
@@ -141,11 +141,10 @@ def extract_query_fields(encoded_query: str) -> list[str]:
         token = _extract_clause_field(raw_clause)
         if not token:
             continue
-        root = token.split(".", 1)[0]
-        if root not in seen:
-            seen.add(root)
-            roots.append(root)
-    return roots
+        if token not in seen:
+            seen.add(token)
+            fields.append(token)
+    return fields
 
 
 def join_query(existing: str, fragment: str) -> str:

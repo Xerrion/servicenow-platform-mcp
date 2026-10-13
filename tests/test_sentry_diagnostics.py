@@ -16,10 +16,10 @@ from sentry_sdk.transport import Transport
 import servicenow_mcp.sentry as sentry_mod
 from servicenow_mcp._http_diagnostics import request_diagnostics, response_diagnostics
 from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.client import ServiceNowClient, ServiceNowClientFactory
 from servicenow_mcp.config import Settings
-from servicenow_mcp.decorators import tool_handler
 from servicenow_mcp.errors import ServiceNowMCPError
+from servicenow_mcp.mcp.handlers import tool_handler
+from servicenow_mcp.platform.client import ServiceNowClient, ServiceNowClientFactory
 from servicenow_mcp.sentry import sentry_tool_scope, set_sentry_context
 from servicenow_mcp.telemetry import HttpTelemetry, TelemetryAsyncClient
 from tests.helpers import decode_response
@@ -199,7 +199,9 @@ async def test_tool_context_includes_positional_defaults_and_redaction(sentry_ev
     async def query(table: str, encoded_query: str, limit: int = 20, resolve_labels: str | None = None) -> str:
         raise ServiceNowMCPError("Pagination not supported", status_code=400)
 
-    result = decode_response(await query("alm_asset", "private-query", resolve_labels="private-label"))
+    result = decode_response(
+        await query("alm_asset", "private-query", resolve_labels=[{"field": "private-label", "label": ""}])
+    )
 
     assert result["status"] == "error"
     assert len(sentry_events) == 1
@@ -380,7 +382,7 @@ def test_http_failure_context_uses_the_actual_request(settings: Settings) -> Non
     )
     client = ServiceNowClient(settings, OAuthPKCEProvider(settings))
     with (
-        patch("servicenow_mcp._client_transport.set_sentry_context") as context,
+        patch("servicenow_mcp.platform._client_transport.set_sentry_context") as context,
         pytest.raises(ServiceNowMCPError, match="Pagination not supported"),
     ):
         client._raise_for_status(response)

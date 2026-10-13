@@ -4,9 +4,9 @@ import pytest
 from mcp.server import MCPServer
 
 from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
-from servicenow_mcp.tools.cmdb import register_tools
+from servicenow_mcp.mcp.tools.cmdb import register_tools
+from servicenow_mcp.platform.client import ServiceNowClient
 from tests.helpers import decode_response, get_tool_functions
 
 
@@ -118,7 +118,7 @@ class TestDomainCmdb:
             result = await client.aggregate(
                 table="cmdb_ci",
                 query="",
-                group_by="sys_class_name",
+                group_by=["sys_class_name"],
             )
         assert result is not None
 
@@ -128,6 +128,6 @@ class TestDomainCmdb:
             result = await client.aggregate(
                 table="cmdb_ci",
                 query="",
-                group_by="operational_status",
+                group_by=["operational_status"],
             )
         assert result is not None

@@ -9,10 +9,10 @@ import pytest
 from mcp.server import MCPServer
 
 from servicenow_mcp.auth import OAuthPKCEProvider
+from servicenow_mcp.capabilities.investigations.checks import INVESTIGATION_REGISTRY
+from servicenow_mcp.capabilities.investigations.checks.slow_transactions import PERFORMANCE_TABLES
 from servicenow_mcp.config import Settings
-from servicenow_mcp.investigations import INVESTIGATION_REGISTRY
-from servicenow_mcp.investigations.slow_transactions import PERFORMANCE_TABLES
-from servicenow_mcp.tools.investigate import register_tools
+from servicenow_mcp.mcp.tools.investigate import register_tools
 from tests._mock_transport import http_mock
 from tests.helpers import decode_response, get_tool_functions
 
@@ -66,9 +66,16 @@ def _mock_platform(*, missing_tables: tuple[str, ...] = ()) -> None:
 @pytest.mark.parametrize("name", list(INVESTIGATION_REGISTRY))
 async def test_registered_investigations_compute_real_findings(settings: Settings, name: str) -> None:
     _mock_platform()
-    response = await _invoke(
-        settings, name, params=json.dumps({"table": "incident", "hours": 6, "limit": 20, "stale_days": 30})
-    )
+    parameters = {
+        "stale_automations": {"stale_days": 30, "limit": 20},
+        "deprecated_apis": {"limit": 20},
+        "table_health": {"table": "incident", "hours": 6},
+        "acl_conflicts": {"table": "incident"},
+        "error_analysis": {"hours": 6, "limit": 20},
+        "slow_transactions": {"hours": 6, "limit": 20},
+        "performance_bottlenecks": {"hours": 6, "limit": 20},
+    }
+    response = await _invoke(settings, name, params=parameters[name])
     assert response["status"] == "success"
     data = response["data"]
     assert data["investigation"] == name
@@ -156,7 +163,7 @@ async def test_real_explanations_accept_their_documented_identifiers(
 
 async def test_filtered_slow_transaction_search_reports_only_attempted_tables(settings: Settings) -> None:
     _mock_platform()
-    response = await _invoke(settings, "slow_transactions", params='{"categories":"slow_query","hours":2}')
+    response = await _invoke(settings, "slow_transactions", params={"categories": ["slow_query"], "hours": 2})
     assert response["data"]["tables_queried"] == ["sys_query_pattern"]
     assert response["data"]["finding_count"] == 1
 
@@ -173,7 +180,7 @@ async def test_investigation_timeout_is_reported_instead_of_hidden(settings: Set
 
 async def test_missing_optional_performance_table_marks_result_incomplete(settings: Settings) -> None:
     _mock_platform(missing_tables=("sys_query_pattern",))
-    response = await _invoke(settings, "slow_transactions", params='{"categories":"slow_query,slow_script"}')
+    response = await _invoke(settings, "slow_transactions", params={"categories": ["slow_query", "slow_script"]})
     assert response["status"] == "success"
     assert response["data"]["finding_count"] == 1
     assert response["data"]["complete"] is False

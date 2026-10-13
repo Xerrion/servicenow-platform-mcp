@@ -11,9 +11,9 @@ from mcp.server import MCPServer
 
 from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.config import Settings
-from servicenow_mcp.tools._audit import attribute_has_no_audit
-from servicenow_mcp.tools._dictionary import DictionaryRegistry
-from servicenow_mcp.tools.audit import register_tools
+from servicenow_mcp.mcp.tools.audit import register_tools
+from servicenow_mcp.platform.metadata._dictionary import DictionaryRegistry
+from servicenow_mcp.platform.metadata.audit import attribute_has_no_audit
 from tests._mock_transport import http_mock
 from tests.helpers import decode_response, get_tool_functions
 
@@ -206,7 +206,7 @@ async def test_unknown_action_returns_error(
     raw = await tools["audit"](action="nope")
     result = decode_response(raw)
     assert result["status"] == "error"
-    assert "Unknown action" in result["error"]["message"]
+    assert result["error"]["code"] == "INVALID_REQUEST"
 
 
 @pytest.mark.asyncio()
@@ -467,7 +467,7 @@ async def test_check_fields_returns_per_field_verdicts(settings: Settings, auth_
         )
     )
     tools = _register_and_get_tools(settings, auth_provider)
-    raw = await tools["audit"](action="check_fields", table="incident", fields_csv="business_service,description")
+    raw = await tools["audit"](action="check_fields", table="incident", fields=["business_service", "description"])
     result = decode_response(raw)
     assert result["status"] == "success"
     data = result["data"]
@@ -491,9 +491,9 @@ async def test_check_fields_returns_per_field_verdicts(settings: Settings, auth_
 
 @pytest.mark.asyncio()
 async def test_check_fields_rejects_empty_list(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-    """An empty fields_csv list is rejected with a structured error."""
+    """An empty fields list is rejected with a structured error."""
     tools = _register_and_get_tools(settings, auth_provider)
-    raw = await tools["audit"](action="check_fields", table="incident", fields_csv="")
+    raw = await tools["audit"](action="check_fields", table="incident", fields=[])
     result = decode_response(raw)
     assert result["status"] == "error"
     assert "at least one field" in result["error"]["message"]
@@ -503,8 +503,8 @@ async def test_check_fields_rejects_empty_list(settings: Settings, auth_provider
 async def test_check_fields_rejects_over_max(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     """Requesting more than the configured max yields an error before any I/O."""
     tools = _register_and_get_tools(settings, auth_provider)
-    fields_csv = ",".join(f"f{i}" for i in range(51))
-    raw = await tools["audit"](action="check_fields", table="incident", fields_csv=fields_csv)
+    fields = [f"f{i}" for i in range(51)]
+    raw = await tools["audit"](action="check_fields", table="incident", fields=fields)
     result = decode_response(raw)
     assert result["status"] == "error"
     assert "At most 50" in result["error"]["message"]
@@ -638,7 +638,7 @@ async def test_history_explicit_since_overrides_window(settings: Settings, auth_
 @pytest.mark.asyncio()
 async def test_flush_table_clears_field_config_cache(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
     """``flush('incident')`` makes a changed field configuration visible immediately."""
-    from servicenow_mcp.tools._audit import AuditRegistry
+    from servicenow_mcp.platform.metadata.audit import AuditRegistry
 
     http_mock.get(SYS_DB_URL).mock(
         side_effect=_make_sys_db_handler(
@@ -680,8 +680,8 @@ async def test_field_config_hit_precedes_client_creation(settings: Settings, aut
     from typing import cast
     from unittest.mock import AsyncMock
 
-    from servicenow_mcp.client import ServiceNowClientProvider
-    from servicenow_mcp.tools._audit import AuditRegistry, FieldAudit
+    from servicenow_mcp.platform.client import ServiceNowClientProvider
+    from servicenow_mcp.platform.metadata.audit import AuditRegistry, FieldAudit
 
     dictionary = DictionaryRegistry(settings, auth_provider)
     dictionary.get_chain = AsyncMock(side_effect=AssertionError("dictionary called"))  # type: ignore[method-assign]

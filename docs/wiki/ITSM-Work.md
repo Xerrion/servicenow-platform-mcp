@@ -79,7 +79,7 @@ Creating a ticket, adding a work note, or changing an assignment needs write too
 Ask your administrator to enable the required tools for a development or test instance first.
 Read [[Safety-and-Policy]] for the controls that apply to writes.
 
-Record writes default to a preview, but callers can request immediate writes.
+Record changes require `record_preview` followed by `mutation_apply`.
 The server does not enforce human approval. Use this review process for a record change:
 
 1. Ask the app to read the current ticket.
@@ -108,11 +108,10 @@ If a preview expires, prepare and review a new preview before applying it.
 ## Catalog orders and attachment changes
 
 Catalog ordering is separate from reading request records.
-The `service_catalog` group includes both browsing and ordering and is absent from `readonly`.
-It is available through `full` or a custom package that includes that group.
+`service_catalog` provides browsing in `readonly`.
+The separate `service_catalog_write` group provides order and cart previews.
 
-Catalog orders, cart changes, attachment uploads, and attachment deletions apply directly.
-They do not use record previews.
+Catalog orders, cart changes, attachment uploads, and deletions require their family preview followed by `mutation_apply`.
 Check the target, requested item or file, and intended action before authorizing these operations.
 
 Use [[Tool-Packages]] to choose the available tools.

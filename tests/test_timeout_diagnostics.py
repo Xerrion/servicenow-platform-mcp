@@ -11,10 +11,13 @@ import pytest
 from mcp.server import MCPServer
 
 from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.client import ServiceNowClientFactory
+from servicenow_mcp.capabilities.contracts import CapabilityResult
+from servicenow_mcp.capabilities.contracts import result as operation_result
 from servicenow_mcp.config import Settings
-from servicenow_mcp.decorators import tool_handler
-from servicenow_mcp.response import format_response
+from servicenow_mcp.mcp.handlers import tool_handler
+from servicenow_mcp.mcp.tools.query import register_tools
+from servicenow_mcp.platform.client import ServiceNowClientFactory
+from servicenow_mcp.platform.metadata._dictionary import DictionaryRegistry
 from servicenow_mcp.telemetry import (
     HttpTelemetry,
     TelemetryAsyncClient,
@@ -22,8 +25,6 @@ from servicenow_mcp.telemetry import (
     current_tool_trace,
     trace_tool_call,
 )
-from servicenow_mcp.tools._dictionary import DictionaryRegistry
-from servicenow_mcp.tools.query import register_tools
 from tests.helpers import decode_response, get_tool_functions
 
 
@@ -55,7 +56,7 @@ async def test_timeout_error_is_correlated_and_redacted(
     )
 
     @tool_handler
-    async def query() -> str:
+    async def query() -> CapabilityResult:
         raise error_type("private_exception", request=request)
 
     result = decode_response(await query())
@@ -87,7 +88,7 @@ async def test_timeout_error_is_correlated_and_redacted(
 )
 async def test_metadata_timeout_does_not_blame_target_query(path: str, operation: str) -> None:
     @tool_handler
-    async def describe() -> str:
+    async def describe() -> CapabilityResult:
         raise httpx2.ReadTimeout("private", request=httpx2.Request("GET", f"https://test.service-now.com{path}"))
 
     error = decode_response(await describe())["error"]
@@ -101,7 +102,7 @@ async def test_write_timeout_warns_about_unknown_remote_outcome(method: str) -> 
     attempts = 0
 
     @tool_handler
-    async def record_write() -> str:
+    async def record_write() -> CapabilityResult:
         nonlocal attempts
         attempts += 1
         raise httpx2.ReadTimeout(
@@ -129,11 +130,11 @@ async def test_parallel_tools_keep_separate_traces(settings: Settings, caplog: p
         factory = ServiceNowClientFactory(settings, OAuthPKCEProvider(settings), transport)
 
         @tool_handler
-        async def query(sys_id: str) -> str:
+        async def query(sys_id: str) -> CapabilityResult:
             async with factory() as client:
                 await client.get_record("incident", sys_id)
                 await client.get_record("incident", sys_id)
-            return format_response(data=None)
+            return operation_result(data=None)
 
         results = await asyncio.gather(query("a" * 32), query("b" * 32))
 
@@ -166,10 +167,10 @@ async def test_upstream_timeout_matches_http_failure_log(settings: Settings, cap
         factory = ServiceNowClientFactory(settings, OAuthPKCEProvider(settings), transport)
 
         @tool_handler
-        async def query() -> str:
+        async def query() -> CapabilityResult:
             async with factory() as client:
                 await client.query_records("sys_dictionary", fields=["element"])
-            return format_response(data=None)
+            return operation_result(data=None)
 
         error = decode_response(await query())["error"]
 
@@ -198,10 +199,10 @@ async def test_cancellation_is_not_reported_as_upstream_timeout(
         factory = ServiceNowClientFactory(settings, OAuthPKCEProvider(settings), transport)
 
         @tool_handler
-        async def query() -> str:
+        async def query() -> CapabilityResult:
             async with factory() as client:
                 await client.query_records("incident")
-            return format_response(data=None)
+            return operation_result(data=None)
 
         task = asyncio.create_task(query())
         try:
@@ -234,7 +235,7 @@ async def test_skipped_metadata_timeout_warns_with_trace(settings: Settings, cap
         with patch.object(dictionary, "get_fields", new=AsyncMock(side_effect=httpx2.ReadTimeout("private_exception"))):
             result = decode_response(
                 await get_tool_functions(mcp)["query"](
-                    table="incident", encoded_query="number=synthetic", fields="number"
+                    table="incident", encoded_query="number=synthetic", fields=["number"]
                 )
             )
 

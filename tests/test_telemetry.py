@@ -11,8 +11,8 @@ import pytest
 from mcp.server import MCPServer
 
 from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.client import ServiceNowClient, ServiceNowClientFactory
 from servicenow_mcp.config import Settings
+from servicenow_mcp.platform.client import ServiceNowClient, ServiceNowClientFactory
 from servicenow_mcp.telemetry import HttpTelemetry, TelemetryAsyncClient
 from tests.helpers import decode_response, get_tool_functions
 
@@ -53,7 +53,7 @@ async def test_owned_client_closes_transport(settings: Settings, auth_provider: 
     """A directly constructed client closes the transport it creates."""
     transport = AsyncMock(spec=httpx2.AsyncClient)
 
-    with patch("servicenow_mcp._client_transport.httpx2.AsyncClient", return_value=transport):
+    with patch("servicenow_mcp.platform._client_transport.httpx2.AsyncClient", return_value=transport):
         async with ServiceNowClient(settings, auth_provider):
             pass
 
@@ -144,7 +144,7 @@ async def test_repeated_tool_calls_share_one_transport(
     auth_provider: OAuthPKCEProvider,
 ) -> None:
     """Separate MCP tool calls use the same server-provided HTTP transport."""
-    from servicenow_mcp.tools.query import register_tools
+    from servicenow_mcp.mcp.tools.query import register_tools
 
     telemetry = HttpTelemetry()
     transport = TelemetryAsyncClient(
@@ -164,8 +164,8 @@ async def test_repeated_tool_calls_share_one_transport(
     register_tools(mcp, settings, auth_provider, client_factory=factory)
     query = get_tool_functions(mcp)["query"]
 
-    first = decode_response(await query(table="incident", encoded_query="active=true", fields="number"))
-    second = decode_response(await query(table="incident", encoded_query="active=true", fields="number"))
+    first = decode_response(await query(table="incident", encoded_query="active=true", fields=["number"]))
+    second = decode_response(await query(table="incident", encoded_query="active=true", fields=["number"]))
 
     assert first["status"] == "success"
     assert second["status"] == "success"
@@ -217,7 +217,7 @@ async def test_mcp_server_lifespan_closes_shared_transport_once_on_exception() -
     transport = TelemetryAsyncClient(telemetry=HttpTelemetry(), is_shared_pool=True)
     with (
         patch.dict("os.environ", env, clear=True),
-        patch("servicenow_mcp.server.TelemetryAsyncClient", return_value=transport),
+        patch("servicenow_mcp.bootstrap.stdio.TelemetryAsyncClient", return_value=transport),
     ):
         mcp = create_mcp_server()
 

@@ -28,7 +28,7 @@ def _register_and_get_tools(settings: Settings, auth_provider: OAuthPKCEProvider
     """Register the unified ``code_search`` tool on a fresh MCP and return callables."""
     from mcp.server import MCPServer
 
-    from servicenow_mcp.tools.code_search import register_tools
+    from servicenow_mcp.mcp.tools.code_search import register_tools
 
     mcp = MCPServer("test")
     register_tools(mcp, settings, auth_provider)
@@ -44,7 +44,7 @@ class TestCodeSearch:
         """The MCP schema exposes only callable inputs."""
         from mcp.server import MCPServer
 
-        from servicenow_mcp.tools.code_search import register_tools
+        from servicenow_mcp.mcp.tools.code_search import register_tools
 
         mcp = MCPServer("test")
         register_tools(mcp, settings, auth_provider)

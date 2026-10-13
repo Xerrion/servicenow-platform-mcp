@@ -11,7 +11,7 @@ language. The app chooses the tools and supplies their inputs.
 | Inspect attachments or configuration items | `attachment`, `cmdb` |
 | Understand scripts, flows, or instance issues | `code_search`, `flow`, `investigate` |
 | Browse the catalog or place an order | `service_catalog` |
-| Create, update, or delete records and attachments | `record_write`, `record_apply`, `attachment_write` |
+| Create, update, or delete records and attachments | `record_preview`, `mutation_apply`, `attachment_preview` |
 
 The configured tool package determines which tools your app can use.
 See [[Tool-Packages]] for availability and [[Safety-and-Policy]] for access and write controls.
@@ -32,11 +32,11 @@ values from your instance.
 | Field | A value on a record, such as `short_description` or `assigned_to`. |
 | `sys_id` | A record's internal identifier, containing 32 hexadecimal characters. It differs from a ticket number such as `INC0012345`. |
 | Encoded query | A ServiceNow filter string, such as `active=true^priority=1`. Copy one from a ServiceNow list filter. |
-| JSON string | Text containing JSON. Inputs such as `data`, `params`, and `variables` need this text, not a nested JSON object. |
+| Native object | A JSON object supplied directly to `data`, `params`, or `variables`. |
 
 Omit optional inputs you do not need. Top-level JSON `null` uses the same
 behavior as omission. Explicit `false`, `0`, and empty strings retain each
-tool's documented behavior. A `null` inside `record_write.data` remains a field value.
+tool's documented behavior. A `null` inside `record_preview.data` remains a field value.
 
 Common ITSM tables:
 
@@ -71,15 +71,15 @@ Use `query` to list records, read one record by `sys_id`, or calculate totals.
 | --- | --- |
 | `table` | Required table name. |
 | `encoded_query` | Optional encoded filter. Omitted, null, and empty filters mean no filter. |
-| `fields` | Comma-separated field names. Required for lists. `*` requests all masked fields. `sys_id` is always included. |
+| `fields` | Native array of field names. Required for lists. `*` requests all masked fields. `sys_id` is always included. |
 | `sys_id` | Read one exact record. Without `fields`, returns `sys_id,sys_updated_on`. |
 | `limit` | Rows per list page. Default 20. Range 1 to `MAX_ROW_LIMIT`. |
 | `offset` | Starting row for a list page. Default 0. |
 | `order_by` | Field to sort by. Prefix `-` for descending order, such as `-sys_created_on`. |
 | `display_values` | Default `false`. Set `true` to request ServiceNow display values for reference and choice fields. |
-| `aggregate` | Comma-separated `count`, `avg:<field>`, `sum:<field>`, `min:<field>`, or `max:<field>`. Returns totals instead of records. |
-| `group_by` | Comma-separated grouping fields. Requires `aggregate`. |
-| `resolve_labels` | Comma-separated `field=choice_key` pairs. Resolves supported choices and adds them to the filter. See `resolve_choice`. |
+| `aggregate` | Native array of `{operation:"count"}` or `{operation:"avg",field:"reopen_count"}` objects. Returns totals instead of records. |
+| `group_by` | Native array of grouping fields. Requires `aggregate`. |
+| `resolve_labels` | Native array of `{field, label}` objects. Resolves supported choices and adds them to the filter. See `resolve_choice`. |
 
 Arguments for `query`:
 
@@ -87,7 +87,12 @@ Arguments for `query`:
 {
   "table": "incident",
   "encoded_query": "active=true",
-  "fields": "number,short_description,priority,assigned_to",
+  "fields": [
+    "number",
+    "short_description",
+    "priority",
+    "assigned_to"
+  ],
   "order_by": "priority",
   "display_values": true,
   "limit": 10
@@ -100,7 +105,12 @@ For a ticket number, query its `number` field first:
 {
   "table": "incident",
   "encoded_query": "number=INC0012345",
-  "fields": "number,short_description,state,sys_updated_on",
+  "fields": [
+    "number",
+    "short_description",
+    "state",
+    "sys_updated_on"
+  ],
   "limit": 1
 }
 ```
@@ -113,8 +123,14 @@ Arguments for `query`:
 {
   "table": "incident",
   "encoded_query": "active=true",
-  "aggregate": "count",
-  "group_by": "assignment_group"
+  "aggregate": [
+    {
+      "operation": "count"
+    }
+  ],
+  "group_by": [
+    "assignment_group"
+  ]
 }
 ```
 
@@ -137,7 +153,7 @@ the returned field structure. The server does not add a `_display` object.
 | `table` | Required table name. |
 | `sys_id` | Exact record identifier. Supply this or `name`, never both. |
 | `name` | Matches the record's actual `name` field. Missing or ambiguous matches return an error. |
-| `fields` | Optional comma-separated field names. Default returns compact identity/update fields and discovered script fields. `*` returns the full masked record. |
+| `fields` | Optional native array of field names. Default returns compact identity/update fields and discovered script fields. `*` returns the full masked record. |
 
 Arguments for `record_read`:
 
@@ -168,7 +184,7 @@ To read a ticket, use `query` with `encoded_query="number=INC0012345"` to find i
 
 | Input | Use |
 | --- | --- |
-| `fields` | Optional comma-separated field names. Omit for an alphabetical page. `*` requests all fields. |
+| `fields` | Optional native array of field names. Omit for an alphabetical page. `*` requests all fields. |
 | `field_offset` | Starting field for default pages. Default 0. |
 | `field_limit` | Fields per default page. Default 25. Range 1 to 100. |
 | `verbose` | Default `false`. Set `true` for dictionary rows with specific noisy metadata keys removed. |
@@ -180,7 +196,10 @@ Arguments for `describe`:
 ```json
 {
   "table": "incident",
-  "fields": "state,assigned_to",
+  "fields": [
+    "state",
+    "assigned_to"
+  ],
   "include_docs": true
 }
 ```
@@ -247,11 +266,11 @@ come from different tools.
 | Action | Required inputs | Optional inputs |
 | --- | --- | --- |
 | `ritm_variables` | `sys_id` of an `sc_req_item` record | `limit`, `offset` |
-| `journal_history` | `table`, `sys_id` | `fields_csv`, `since`, `window_days`, `limit`, `offset` |
+| `journal_history` | `table`, `sys_id` | `fields`, `since`, `window_days`, `limit`, `offset` |
 | `describe` | None | None. Returns action contracts without contacting ServiceNow. |
 
 `limit` defaults to `MAX_ROW_LIMIT` and is capped by it. `offset` defaults to 0.
-For journal history, `fields_csv` defaults to `comments,work_notes`.
+For journal history, `fields` defaults to `["comments","work_notes"]`.
 It accepts only `comments`, `work_notes`, and `close_notes` that dictionary
 metadata confirms are journal fields. `window_days` defaults to 90.
 `since` must use `YYYY-MM-DD` and overrides `window_days`.
@@ -293,7 +312,7 @@ and the supporting journal or catalog-answer tables.
 | Action | Required inputs | Optional inputs and result |
 | --- | --- | --- |
 | `check_field` | `table`, `field` | `window_days`. Checks field/table settings and recent audit activity. |
-| `check_fields` | `table`, `fields_csv` | `window_days`. Checks 1 to 50 fields with shared activity counts. |
+| `check_fields` | `table`, `fields` | `window_days`. Checks 1 to 50 fields with shared activity counts. |
 | `check_table` | `table` | Returns table settings and fields with different audit settings. |
 | `history` | `table`, `sys_id` | `since`, `window_days`, `limit`. Returns masked field-change entries. |
 | `describe` | None | Returns action contracts without contacting ServiceNow. |
@@ -304,7 +323,11 @@ Arguments for `audit`:
 {
   "action": "check_fields",
   "table": "incident",
-  "fields_csv": "state,priority,assigned_to",
+  "fields": [
+    "state",
+    "priority",
+    "assigned_to"
+  ],
   "window_days": 30
 }
 ```
@@ -352,7 +375,7 @@ Arguments for `attachment`, after replacing the identifier:
 
 `list` returns at most 100 attachments. It has no continuation input.
 Its reported pagination total is the number returned, not a global count.
-Downloads are limited to 10 MiB. Uploads and deletions use `attachment_write`.
+Downloads are limited to 10 MiB. Uploads and deletions use `attachment_preview`.
 
 ## Inspect configuration items
 
@@ -442,7 +465,16 @@ Arguments for `flow`, after replacing the example name:
 {
   "action": "contract",
   "name": "New starter",
-  "sections": "flow,published_state,inputs,outputs,stages,triggers,steps,warnings",
+  "sections": [
+    "flow",
+    "published_state",
+    "inputs",
+    "outputs",
+    "stages",
+    "triggers",
+    "steps",
+    "warnings"
+  ],
   "section_limit": 50
 }
 ```
@@ -499,13 +531,13 @@ endpoint or the opaque compiled snapshot cache.
 | Action | Required inputs | Optional inputs and result |
 | --- | --- | --- |
 | `describe` | None | `name` selects one investigation's parameter contract. Omit it to list investigations. |
-| `run` | `name` | `params`, a JSON object string. Default `"{}"`. Runs the named investigation. |
+| `run` | `name` | `params`, a native object. Default `{}`. Runs the named investigation. |
 | `explain` | `element_id` | `name` directly selects an investigation. Explains a finding from a previous run. |
 
 | Investigation | Parameters inside `params` |
 | --- | --- |
 | `error_analysis` | `hours` (default 24), optional `source` substring, `limit` (default 100 log entries). |
-| `slow_transactions` | `hours` (default 24), `limit` (default 20 per table), optional comma-separated `categories`. |
+| `slow_transactions` | `hours` (default 24), `limit` (default 20 per table), optional native `categories` array. |
 | `table_health` | Required `table`. Optional `hours`. Omitted `hours` includes all history. |
 | `acl_conflicts` | Required `table`. |
 | `performance_bottlenecks` | Optional `hours`, omitted for all history. `limit` defaults to 20 per category. |
@@ -518,7 +550,10 @@ Arguments for `investigate`:
 {
   "action": "run",
   "name": "error_analysis",
-  "params": "{\"hours\":24,\"limit\":50}"
+  "params": {
+    "hours": 24,
+    "limit": 50
+  }
 }
 ```
 
@@ -543,137 +578,123 @@ Timeouts and unexpected failures return errors.
 
 ### `service_catalog`
 
-This tool requires `full` or a custom package containing `service_catalog`.
-It is absent from `readonly`. The group combines browsing and ordering.
-Order and cart mutations apply directly, without record previews.
+Catalog reads are available in `readonly` and the `service_catalog` group.
 
 | Action | Required inputs | Optional inputs or result |
 | --- | --- | --- |
-| `catalogs_list` | None | `text`, `limit`. Lists catalogs. |
+| `catalogs_list` | None | `text`, `limit`. |
 | `catalog_get` | Catalog `sys_id` | Reads one catalog. |
-| `categories_list` | `catalog_sys_id` | `limit`, `offset`, `top_level_only`. Lists categories in that catalog. |
+| `categories_list` | `catalog_sys_id` | `limit`, `offset`, `top_level_only`. |
 | `category_get` | Category `sys_id` | Reads one category. |
-| `items_list` | None | `text`, `catalog`, `category`, `limit`, `offset`. Lists items. |
+| `items_list` | None | `text`, `catalog`, `category`, `limit`, `offset`. |
 | `item_get` | Item `sys_id` | Reads one item. |
-| `item_variables` | Item `sys_id` | Reads the item's variable definitions. |
+| `item_variables` | Item `sys_id` | Reads variable definitions. |
 | `cart_get` | None | Reads the current cart. |
-| `order_now` | `item_sys_id` | Optional `variables` JSON object string. Places an order directly. |
-| `add_to_cart` | `item_sys_id` | Optional `variables` JSON object string. Changes the cart directly. |
-| `cart_submit` | None | Submits the cart directly. |
-| `cart_checkout` | None | Checks out the cart directly. |
 
-For list actions, `limit` defaults to 20. Category and item lists use `offset`,
-which defaults to 0. `top_level_only` defaults to `false`.
-`catalog` and `category` are identifier filters for item lists.
-Omitted, null, and empty `text`, `catalog`, and `category` filters are not sent
-to ServiceNow.
-
-Arguments for `service_catalog`:
+`limit` defaults to 20. `offset` defaults to 0.
+Omitted, null, and empty text or identifier filters are not sent upstream.
 
 ```json
-{
-  "action": "items_list",
-  "text": "laptop",
-  "limit": 10
-}
+{"action":"items_list","text":"laptop","limit":10}
 ```
 
-Before ordering, read `item_variables` and use the returned variable names.
-The following is an argument template for a direct order. Replace the item
-identifier and example variable with actual values. Instance rules determine
-which answers the item requires.
+### `service_catalog_preview`
+
+The `service_catalog_write` group enables catalog mutation previews.
+Read `item_variables` before preparing an order.
+
+| Action | Required inputs | Optional inputs |
+| --- | --- | --- |
+| `order_now`, `add_to_cart` | `item_sys_id` | `variables`, a native object. |
+| `cart_submit`, `cart_checkout` | None | No item or variables. Uses the current cart. |
 
 ```json
 {
   "action": "order_now",
   "item_sys_id": "<32-character catalog item sys_id>",
-  "variables": "{\"business_justification\":\"Replacement for a damaged laptop\"}"
+  "variables": {"business_justification": "Replace a damaged laptop"}
 }
 ```
 
+Preview reads item definitions or the cart without changing ServiceNow.
+It cannot simulate fulfillment, guarantee prices, or predict every server-side validation.
+Apply the reviewed token with `mutation_apply`.
+Detectable item or cart changes require a new preview.
+
 ## Change records and attachments
 
-Start on a development or test instance. Write tools, local write settings,
-and ServiceNow permissions must allow the requested change.
-See [[Safety-and-Policy]] before enabling writes.
-Record writes default to previews, but callers can request immediate writes.
-The server does not require human approval. State your review requirement in
-the request before the app prepares a change.
+Every mutation requires a preview followed by `mutation_apply`.
+The intended non-production instance, local policy, enabled group, and ServiceNow permissions must permit the operation.
+The server does not enforce human approval.
 
-> Preview adding this work note to INC0012345: 'Waiting for the caller to
-> confirm the fix.' Show the proposed change and wait for my approval.
+### `record_preview`
 
-### `record_write`
-
-| Action | Required inputs | Result with the default preview |
+| Action | Required inputs | Review summary |
 | --- | --- | --- |
-| `create` | `table`, `data`. Omit `sys_id`. | Stages a new record. |
-| `update` | `table`, `sys_id`, `data` | Stages changes to supplied fields. Omitted fields stay unchanged. |
-| `delete` | `table`, `sys_id` | Stages deletion. |
-
-`data` is a JSON object string mapping field names to values.
-It can contain multiple script or markup fields. The maximum is 256 KiB of
-UTF-8 JSON, including field names and escaping. Supply complete script values.
-The tool does not read local script files or check JavaScript syntax.
-
-`preview` defaults to `true`. Omit it to receive `data.preview_token`.
-Setting `preview=false` requests an immediate write.
-
-Arguments for `record_write`, after finding and replacing the incident identifier:
+| `create` | `table`, native `data` object. Omit `sys_id`. | Proposed field values. |
+| `update` | `table`, `sys_id`, native `data` object | Field differences. |
+| `delete` | `table`, `sys_id`. Omit `data`. | Masked deletion snapshot. |
 
 ```json
 {
   "action": "update",
   "table": "incident",
   "sys_id": "<32-character incident sys_id>",
-  "data": "{\"work_notes\":\"Waiting for the caller to confirm the fix.\"}"
+  "data": {"work_notes": "Waiting for the caller to confirm the fix."}
 }
 ```
 
-The tool checks supplied XML fields against inherited dictionary metadata.
-These fields require non-empty strings containing well-formed XML.
-It checks mandatory fields for creates before staging or writing, and again
-when applying. Child definitions take precedence. Metadata request errors
-block writes. Fields hidden by dictionary access rules cannot receive local
-validation. These checks do not replace testing on the instance.
+The compact UTF-8 JSON representation is limited to 256 KiB and depth 32.
+Null, false, zero, empty arrays, and empty objects retain their meanings.
+Omitted update fields stay unchanged.
+Supply complete script or markup values.
+The tool does not read local script files or check JavaScript syntax.
 
-### `record_apply`
+Inherited dictionary metadata identifies XML fields and mandatory create fields.
+XML values must be non-empty, well-formed strings.
+Child declarations take precedence. Metadata request errors block mutations.
+Apply refreshes relevant metadata and repeats the checks.
+Dictionary fields hidden by ACLs cannot receive local validation.
 
-After reviewing a record preview, supply its `preview_token` to `record_apply`:
-
-```json
-{
-  "preview_token": "<token returned by record_write>"
-}
-```
-
-Previews remain in server memory for five minutes. Restarting the server
-removes them. Each token is consumed once, even if applying the change fails.
-Request a new preview after expiration, restart, or a failed apply.
-
-A preview does not reserve the record or check for intervening changes when
-applied. Read the current record before reviewing a change. After applying it,
-check the saved result in ServiceNow and test changed behavior.
-
-### `attachment_write`
+### `attachment_preview`
 
 | Action | Required inputs | Optional inputs |
 | --- | --- | --- |
 | `upload` | `table`, `table_sys_id`, `file_name`, `content_base64` | `content_type`, default `application/octet-stream`. |
 | `delete` | Attachment `sys_id` | None. |
 
-Uploads are limited to 10 MiB of decoded file content.
-`content_base64` must contain complete base64-encoded file bytes.
-`content_type` is the file's MIME type, such as `application/pdf`.
-Both actions apply directly. They do not use `record_write` previews or
-`record_apply`. Identify the attachment or parent record before requesting a change.
+Upload content must contain complete base64 file bytes.
+The decoded content limit is 10 MiB.
+The summary includes metadata, size, and digest, never file contents.
+Deletion resolves the actual owning record from attachment metadata.
+Apply checks ownership and detectable metadata changes again.
+
+### `mutation_apply`
+
+Every enabled mutation group registers this shared tool once.
+Supply the reviewed preview's token:
+
+```json
+{"preview_token":"<token returned by the preview>"}
+```
+
+Preview results contain `family`, `action`, `preview_token`, `expires_in_seconds`, `summary`, and `limitations`.
+Tokens remain in memory for 300 seconds and disappear on restart.
+The store permits 1,000 entries and 64 MiB of retained payloads.
+An apply attempt consumes a token on success, rejection, cancellation, or failure.
+Application checks the enabled family, environment, instance, authorization, policy, and detectable state changes.
+State checks and the upstream mutation are not atomic.
+Browser reauthorization requires a new preview.
+An unknown remote outcome requires checking ServiceNow before another mutation.
+No mutation is automatically replayed.
+A preview token does not establish human approval.
 
 ## Interpret results and incomplete reads
 
-Operational tools return JSON strings with `status` and `data`.
-Errors include `error`. Responses can also contain `pagination`, non-empty
-`warnings`, and non-empty `truncation`. They omit `selection` metadata.
-`list_tool_packages` returns the package registry directly.
+Successful native structured results contain `status` and `data`.
+Failures set MCP `isError=true` and include `error.code` and a safe `error.message`.
+Responses can also contain `pagination`, non-empty `warnings`, and non-empty `truncation`.
+`list_tool_packages` returns its registry in `data`.
 
 Check the specific tool's continuation contract:
 

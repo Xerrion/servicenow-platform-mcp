@@ -34,7 +34,7 @@ For a read-only deployment, combine these controls:
 4. Use ServiceNow roles and record or field rules that permit the intended reads.
 
 Policies depend on the instance and selected resources.
-For an old policy that requires API keys, follow [[Configuration]]'s narrow migration procedure.
+The intended resources must permit OAuth bearer authorization.
 
 ## Local write protection
 
@@ -48,43 +48,54 @@ The setting does not detect whether the configured instance is production.
 Check `SERVICENOW_INSTANCE_URL` separately before enabling development changes.
 Local write protection allows reads.
 
-Tool selection is a separate control. The default package is `full`, which
-includes write tools. Set `MCP_TOOL_PACKAGE=readonly` explicitly for read-only work.
-See [[Tool-Packages]] for custom packages.
+Tool selection is a separate control.
+The default package is `readonly` and the default environment is `prod`.
+Only explicit `dev` or `test` settings permit mutations.
+Unknown environment labels fail startup.
 
-## Review record changes
+## Review and apply changes
 
-Record writes default to a preview, but a caller can request an immediate write.
+Every mutation requires a preview followed by `mutation_apply`.
 The server does not enforce human approval.
-For the intended review process:
 
-1. Read the current record and confirm the target instance.
-2. Request a preview of the proposed changes.
-3. Review the record, field values, and any script differences.
-4. Apply the preview only after approval.
-5. Read the result and test any changed behavior in ServiceNow.
+1. Read the current state and confirm the instance.
+2. Request a family preview.
+3. Review the target, masked values, digest or differences, and limitations.
+4. Apply its token only after the required approval.
+5. Check the saved result in ServiceNow.
 
-`record_write` returns a `preview_token` for a preview.
-`record_apply` uses that token. Previews stay in memory, expire after five minutes,
-and disappear on restart. An apply attempt consumes the token even if the change fails.
+`record_preview`, `attachment_preview`, and `service_catalog_preview` make no upstream mutation.
+They return a summary, `preview_token`, expiry, and limitations.
+`mutation_apply` atomically consumes the token before execution.
+It checks the enabled family, environment, instance, authorization generation, policy, and detectable state changes.
+Metadata errors block record mutations.
+Record application refreshes relevant dictionary metadata.
 
-A preview does not reserve the record or detect intervening changes.
-If the record changes before application, read it again and prepare a new preview.
-After a failed apply, check the current record before retrying.
+Previews stay in memory for 300 seconds.
+The store accepts at most 1,000 entries and 64 MiB of retained payloads.
+Attachment content counts once as decoded bytes.
+Consumption, expiration, and shutdown reclaim capacity.
+The byte budget is not a limit on total process memory.
+Tokens and command payloads never persist to disk.
 
-`preview=false` requests an immediate record change.
-Attachment upload or deletion, catalog orders, and cart changes also apply directly.
-They do not use record preview tokens.
+Browser reauthorization invalidates earlier previews. Token refresh alone does not.
+Apply cannot authorize again in the browser and continue with an existing token.
+Updates, deletions, and catalog application reject detectable state changes and require a new preview.
+These checks are read-before-write checks, not atomic comparisons.
+Preview does not reserve the target.
+Catalog preview does not simulate fulfillment or guarantee prices.
 
-See [[Instance-Development]] for an example of reviewing a script change.
+An apply attempt consumes its token on success, rejection, cancellation, or failure.
+No mutation is replayed automatically.
+On an unknown remote outcome, check ServiceNow before preparing another mutation.
 
 ## Script and markup validation
 
-`record_write.data` is a JSON string containing field-value pairs.
+`record_preview.data` is a native JSON object containing field-value pairs.
 Supply the complete new value for each script or markup field.
 Fields omitted from an update stay unchanged. The server does not load local script files.
 
-The total UTF-8 JSON input limit is 256 KiB, including field names and escaping.
+The compact UTF-8 JSON representation has a size limit is 256 KiB, including field names and escaping. The depth limit is 32.
 For dictionary-confirmed `xml` fields, values must be non-empty, well-formed XML strings.
 The metadata lookup follows bounded table inheritance, with child declarations taking precedence.
 

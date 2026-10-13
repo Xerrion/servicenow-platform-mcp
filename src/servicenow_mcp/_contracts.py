@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, SerializerFunctionWrapHandler, model
 
 
 class ContractModel(BaseModel):
-    """Owned response structure that dumps to the legacy dict shape.
+    """Owned response structure that dumps to the native dictionary shape.
 
     Field declaration order is the output key order. Fields named in
     ``omit_when_none`` are dropped at their own model level when None; every
@@ -26,5 +26,5 @@ class ContractModel(BaseModel):
         return payload
 
     def to_payload(self) -> dict[str, Any]:
-        """Return the legacy dict shape for response serialization."""
+        """Return the native dictionary shape for response serialization."""
         return self.model_dump(mode="python", round_trip=True)

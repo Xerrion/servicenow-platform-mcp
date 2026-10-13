@@ -1,123 +1,45 @@
 """Tests for utility functions."""
 
-import json
 from unittest.mock import AsyncMock
 
 import httpx2
 import pytest
 
+from servicenow_mcp.capabilities.contracts import result as operation_result
 from servicenow_mcp.errors import ForbiddenError
+from servicenow_mcp.mcp.errors import safe_tool_call
+from servicenow_mcp.mcp.outputs import error_result
 from servicenow_mcp.query_builder import ServiceNowQuery
-from servicenow_mcp.response import format_response, serialize
-from servicenow_mcp.tool_errors import safe_tool_call
 from servicenow_mcp.validation import resolve_ref_value, sanitize_query_value, validate_identifier, validate_sys_id
 from tests.helpers import decode_response
 
 
-# A lone surrogate has no UTF-8 encoding, so JSON serialization must fail.
-_UNENCODABLE = "\ud800"
-
-
-class TestFormatResponse:
-    """Test response formatting."""
-
-    def test_success_envelope(self) -> None:
-        raw = format_response(data={"key": "value"})
-        resp = decode_response(raw)
-
-        assert resp["status"] == "success"
-        assert "correlation_id" not in resp
-        assert resp["data"] == {"key": "value"}
-
-    def test_error_envelope(self) -> None:
-        raw = format_response(
-            data=None,
-            status="error",
-            error="Something went wrong",
-        )
-        resp = decode_response(raw)
-
-        assert resp["status"] == "error"
-        assert resp["error"] == {"message": "Something went wrong"}
-
-    def test_pagination_included(self) -> None:
-        raw = format_response(
-            data=[],
-            pagination={"offset": 0, "limit": 100, "total": 250},
-        )
-        resp = decode_response(raw)
-
-        assert resp["pagination"]["total"] == 250
-
-    def test_warnings_included(self) -> None:
-        raw = format_response(
-            data={},
-            warnings=["Limit capped at 100"],
-        )
-        resp = decode_response(raw)
-
-        assert "Limit capped at 100" in resp["warnings"]
-
-    def test_empty_metadata_omitted_without_pruning_data(self) -> None:
-        data = {"empty": "", "missing": None, "zero": 0, "disabled": False, "items": [], "selection": {}}
-        resp = decode_response(format_response(data=data, warnings=[], truncation={}))
-
-        assert resp == {"status": "success", "data": data}
-
-    def test_error_and_continuation_metadata_preserved(self) -> None:
-        envelope = {
-            "data": None,
-            "status": "error",
-            "error": {"message": "Access denied"},
-            "pagination": {"offset": 0, "limit": 5, "total": 20},
-            "truncation": {"canvas": {"continuation": "Re-run with section_limit greater than 5."}},
-            "warnings": ["Results truncated", "ACLs limit completeness", "Narrow the filter"],
+class TestNativeResults:
+    def test_success_and_metadata_omissions(self):
+        data = {"empty": "", "missing": None, "zero": 0, "disabled": False, "items": []}
+        assert operation_result(data=data, warnings=[], truncation={}).to_payload() == {
+            "status": "success",
+            "data": data,
         }
-        resp = decode_response(
-            format_response(
-                data=envelope["data"],
-                status="error",
-                error={"message": "Access denied"},
-                pagination={"offset": 0, "limit": 5, "total": 20},
-                truncation={"canvas": {"continuation": "Re-run with section_limit greater than 5."}},
-                warnings=["Results truncated", "ACLs limit completeness", "Narrow the filter"],
-            )
+
+    def test_pagination_and_completeness_metadata(self):
+        value = operation_result(
+            data=[],
+            pagination={"offset": 0, "limit": 5, "total": 20},
+            warnings=["Results incomplete"],
+            truncation={"nodes": {"continuation": "Read another page"}},
         )
-        assert resp == envelope
+        assert value.to_payload()["pagination"] == {"offset": 0, "limit": 5, "total": 20}
+        assert value.to_payload()["warnings"] == ["Results incomplete"]
 
-
-class TestSerialize:
-    """Test serialize function with JSON output and error-envelope fallback."""
-
-    def test_serialize_returns_json_by_default(self) -> None:
-        """A serializable payload returns parseable JSON output."""
-        result = serialize({"key": "value"})
-        parsed = decode_response(result)
-        assert parsed["key"] == "value"
-
-    def test_serialize_falls_back_to_error_envelope_on_json_failure(self) -> None:
-        """An unserializable payload returns the error envelope without leaking data."""
-        result = serialize({"key": "value", "bad": _UNENCODABLE})
-
-        parsed = json.loads(result)
-        assert parsed["status"] == "error"
-        assert parsed["error"] == {"message": "Serialization failed"}
-        # Original data must NOT appear in the output.
-        assert "value" not in result
-
-    def test_serialize_fallback_does_not_promote_record_correlation_id(self) -> None:
-        """Serialization failures do not copy record fields into the envelope."""
-        result = serialize({"correlation_id": "record-value", "k": "v", "bad": _UNENCODABLE})
-
-        parsed = json.loads(result)
-        assert parsed["status"] == "error"
-        assert "correlation_id" not in parsed
-        assert parsed["error"] == {"message": "Serialization failed"}
-
-    def test_serialize_fallback_omits_correlation_id_when_absent(self) -> None:
-        """When the input has no correlation_id, the envelope must not invent one."""
-        parsed = json.loads(serialize({"key": "value", "bad": _UNENCODABLE}))
-        assert "correlation_id" not in parsed
+    def test_native_error_is_not_success(self):
+        value = error_result("Access denied", "FORBIDDEN")
+        assert value.is_error
+        assert value.structured_content == {
+            "status": "error",
+            "data": None,
+            "error": {"code": "FORBIDDEN", "message": "Access denied"},
+        }
 
 
 class TestServiceNowQuery:
@@ -632,7 +554,7 @@ class TestValidationErrorTranslation:
             Probe.model_validate({"secret_field": "private-input-value"})
             return ""
 
-        with patch("servicenow_mcp.tool_errors.sentry_capture") as capture:
+        with patch("servicenow_mcp.mcp.errors.sentry_capture") as capture:
             result = await safe_tool_call(fn)
         parsed = decode_response(result)
         message = parsed["error"]["message"]

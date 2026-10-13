@@ -11,9 +11,9 @@ from mcp.server import MCPServer
 
 from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.config import Settings
-from servicenow_mcp.tools.service_catalog import register_tools
+from servicenow_mcp.mcp.tools.service_catalog import register_tools
 from tests._mock_transport import http_mock
-from tests.helpers import decode_response, get_tool_functions
+from tests.helpers import decode_response, get_tool_functions, preview_and_apply, register_mutations
 
 
 BASE_URL = "https://test.service-now.com"
@@ -35,6 +35,9 @@ def _register_and_get_tools(settings: Settings, auth_provider: OAuthPKCEProvider
     """Register the unified service_catalog tool on a fresh MCP and return callables."""
     mcp = MCPServer("test")
     register_tools(mcp, settings, auth_provider)
+    register_mutations(mcp, settings, auth_provider, frozenset({"catalog"}))
+    http_mock.get(f"{SC_BASE}/items/{ITEM_SYS_ID}").respond(200, json={"result": {"sys_id": ITEM_SYS_ID}})
+    http_mock.get(f"{SC_BASE}/items/{ITEM_SYS_ID}/variables").respond(200, json={"result": []})
     return get_tool_functions(mcp)
 
 
@@ -248,12 +251,7 @@ class TestItemsList:
 
         tools = _register_and_get_tools(settings, auth_provider)
         await tools["service_catalog"](
-            action="items_list",
-            text="laptop",
-            catalog="cat123",
-            category="categ456",
-            limit=10,
-            offset=5,
+            action="items_list", text="laptop", catalog="cat123", category="categ456", limit=10, offset=5
         )
 
         url = str(http_mock.calls.last.request.url)
@@ -335,7 +333,9 @@ class TestOrderNow:
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        result = decode_response(await tools["service_catalog"](action="order_now", item_sys_id=ITEM_SYS_ID))
+        result = decode_response(
+            await preview_and_apply(tools, "service_catalog_preview", action="order_now", item_sys_id=ITEM_SYS_ID)
+        )
 
         assert result["status"] == "success"
         assert result["data"]["number"] == "REQ0010001"
@@ -349,7 +349,13 @@ class TestOrderNow:
 
         tools = _register_and_get_tools(settings, auth_provider)
         result = decode_response(
-            await tools["service_catalog"](action="order_now", item_sys_id=ITEM_SYS_ID, variables='{"urgency": "1"}')
+            await preview_and_apply(
+                tools,
+                "service_catalog_preview",
+                action="order_now",
+                item_sys_id=ITEM_SYS_ID,
+                variables={"urgency": "1"},
+            )
         )
 
         assert result["status"] == "success"
@@ -362,7 +368,9 @@ class TestOrderNow:
     async def test_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: OAuthPKCEProvider) -> None:
         """Production blocks the write before HTTP."""
         tools = _register_and_get_tools(prod_settings, prod_auth_provider)
-        result = decode_response(await tools["service_catalog"](action="order_now", item_sys_id=ITEM_SYS_ID))
+        result = decode_response(
+            await preview_and_apply(tools, "service_catalog_preview", action="order_now", item_sys_id=ITEM_SYS_ID)
+        )
 
         assert result["status"] == "error"
         assert "production" in result["error"]["message"].lower()
@@ -372,7 +380,9 @@ class TestOrderNow:
         """An item_sys_id that is not a 32-char hex string is rejected before any HTTP call."""
         tools = _register_and_get_tools(settings, auth_provider)
         result = decode_response(
-            await tools["service_catalog"](action="order_now", item_sys_id="not valid; DROP TABLE")
+            await preview_and_apply(
+                tools, "service_catalog_preview", action="order_now", item_sys_id="not valid; DROP TABLE"
+            )
         )
 
         assert result["status"] == "error"
@@ -395,7 +405,9 @@ class TestAddToCart:
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        result = decode_response(await tools["service_catalog"](action="add_to_cart", item_sys_id=ITEM_SYS_ID))
+        result = decode_response(
+            await preview_and_apply(tools, "service_catalog_preview", action="add_to_cart", item_sys_id=ITEM_SYS_ID)
+        )
 
         assert result["status"] == "success"
         assert result["data"]["cart_item_id"] == "ci123"
@@ -409,10 +421,12 @@ class TestAddToCart:
 
         tools = _register_and_get_tools(settings, auth_provider)
         result = decode_response(
-            await tools["service_catalog"](
+            await preview_and_apply(
+                tools,
+                "service_catalog_preview",
                 action="add_to_cart",
                 item_sys_id=ITEM_SYS_ID,
-                variables='{"quantity": "2"}',
+                variables={"quantity": "2"},
             )
         )
 
@@ -426,7 +440,9 @@ class TestAddToCart:
     async def test_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: OAuthPKCEProvider) -> None:
         """Production blocks add-to-cart."""
         tools = _register_and_get_tools(prod_settings, prod_auth_provider)
-        result = decode_response(await tools["service_catalog"](action="add_to_cart", item_sys_id=ITEM_SYS_ID))
+        result = decode_response(
+            await preview_and_apply(tools, "service_catalog_preview", action="add_to_cart", item_sys_id=ITEM_SYS_ID)
+        )
 
         assert result["status"] == "error"
         assert "production" in result["error"]["message"].lower()
@@ -435,7 +451,9 @@ class TestAddToCart:
     async def test_invalid_item_sys_id_rejected(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """An item_sys_id that is not a 32-char hex string is rejected before any HTTP call."""
         tools = _register_and_get_tools(settings, auth_provider)
-        result = decode_response(await tools["service_catalog"](action="add_to_cart", item_sys_id="bad; DROP"))
+        result = decode_response(
+            await preview_and_apply(tools, "service_catalog_preview", action="add_to_cart", item_sys_id="bad; DROP")
+        )
 
         assert result["status"] == "error"
         assert len(http_mock.calls) == 0
@@ -482,6 +500,7 @@ class TestCartSubmit:
     @pytest.mark.asyncio()
     async def test_submit_cart(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """Submit the cart (writes succeed in dev)."""
+        http_mock.get(f"{SC_BASE}/cart").respond(200, json={"result": {"items": []}})
         http_mock.post(f"{SC_BASE}/cart/submit_order").mock(
             return_value=Response(
                 200,
@@ -490,7 +509,7 @@ class TestCartSubmit:
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        result = decode_response(await tools["service_catalog"](action="cart_submit"))
+        result = decode_response(await preview_and_apply(tools, "service_catalog_preview", action="cart_submit"))
 
         assert result["status"] == "success"
         assert result["data"]["request_number"] == "REQ0010001"
@@ -499,7 +518,7 @@ class TestCartSubmit:
     async def test_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: OAuthPKCEProvider) -> None:
         """Production blocks cart submission."""
         tools = _register_and_get_tools(prod_settings, prod_auth_provider)
-        result = decode_response(await tools["service_catalog"](action="cart_submit"))
+        result = decode_response(await preview_and_apply(tools, "service_catalog_preview", action="cart_submit"))
 
         assert result["status"] == "error"
         assert "production" in result["error"]["message"].lower()
@@ -516,6 +535,7 @@ class TestCartCheckout:
     @pytest.mark.asyncio()
     async def test_checkout(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """Two-step checkout (writes succeed in dev)."""
+        http_mock.get(f"{SC_BASE}/cart").respond(200, json={"result": {"items": []}})
         http_mock.post(f"{SC_BASE}/cart/checkout").mock(
             return_value=Response(
                 200,
@@ -524,7 +544,7 @@ class TestCartCheckout:
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        result = decode_response(await tools["service_catalog"](action="cart_checkout"))
+        result = decode_response(await preview_and_apply(tools, "service_catalog_preview", action="cart_checkout"))
 
         assert result["status"] == "success"
         assert result["data"]["request_number"] == "REQ0010002"
@@ -533,7 +553,7 @@ class TestCartCheckout:
     async def test_blocked_in_prod(self, prod_settings: Settings, prod_auth_provider: OAuthPKCEProvider) -> None:
         """Production blocks checkout."""
         tools = _register_and_get_tools(prod_settings, prod_auth_provider)
-        result = decode_response(await tools["service_catalog"](action="cart_checkout"))
+        result = decode_response(await preview_and_apply(tools, "service_catalog_preview", action="cart_checkout"))
 
         assert result["status"] == "error"
         assert "production" in result["error"]["message"].lower()
@@ -549,16 +569,13 @@ class TestActionDispatch:
 
     @pytest.mark.asyncio()
     async def test_unknown_action(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-        """An unrecognized action yields an error envelope listing all valid actions."""
+        """An unrecognized action fails before platform requests."""
         tools = _register_and_get_tools(settings, auth_provider)
         result = decode_response(await tools["service_catalog"](action="bogus"))
 
         assert result["status"] == "error"
-        message = result["error"]["message"].lower()
-        assert "unknown action" in message
-        # Sample a few valid action names that should be enumerated in the error.
-        for action_name in ("catalogs_list", "order_now", "cart_checkout"):
-            assert action_name in result["error"]["message"]
+        assert result["error"]["code"] == "INVALID_REQUEST"
+        assert not http_mock.calls
 
     @pytest.mark.asyncio()
     @pytest.mark.parametrize(
@@ -590,4 +607,4 @@ class TestActionDispatch:
         result = decode_response(await tools["service_catalog"](action=action))
 
         assert result["status"] == "error"
-        assert "item_sys_id" in result["error"]["message"]
+        assert result["error"]["code"] == "INVALID_REQUEST"

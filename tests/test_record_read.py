@@ -10,7 +10,7 @@ import pytest
 
 from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.config import Settings
-from servicenow_mcp.tools._dictionary import DictionaryField, DictionaryRegistry, ScriptField
+from servicenow_mcp.platform.metadata._dictionary import DictionaryField, DictionaryRegistry, ScriptField
 from tests._mock_transport import http_mock
 from tests.helpers import decode_response, get_tool_functions
 
@@ -35,7 +35,7 @@ def _register_and_get_tools(
     """Register the unified ``record_read`` tool on a fresh MCP and return callables."""
     from mcp.server import MCPServer
 
-    from servicenow_mcp.tools.record_read import register_tools
+    from servicenow_mcp.mcp.tools.record_read import register_tools
 
     mcp = MCPServer("test")
     register_tools(mcp, settings, auth_provider, dictionary=dictionary)
@@ -97,7 +97,7 @@ class TestArgumentValidation:
 class TestSysIdLookup:
     """Happy/error paths when ``sys_id`` is supplied."""
 
-    @pytest.mark.parametrize("fields", ["", "correlation_id", "*"])
+    @pytest.mark.parametrize("fields", [[], ["correlation_id"], "*"])
     async def test_envelope_omits_selection_metadata(
         self, settings: Settings, auth_provider: OAuthPKCEProvider, fields: str
     ) -> None:
@@ -170,7 +170,7 @@ class TestSysIdLookup:
         )
 
         tools = _register_and_get_tools(settings, auth_provider, dictionary=dictionary)
-        raw = await tools["record_read"](table="sys_script", sys_id=SYS_ID_BR, fields="password")
+        raw = await tools["record_read"](table="sys_script", sys_id=SYS_ID_BR, fields=["password"])
         result = decode_response(raw)
         assert result["status"] == "success"
         assert result["data"]["record"]["password"] == "***MASKED***"  # NOSONAR
@@ -199,7 +199,7 @@ class TestSysIdLookup:
     ) -> None:
         dictionary = _stub_dictionary(settings, auth_provider, ["sys_id", "name"])
         tools = _register_and_get_tools(settings, auth_provider, dictionary=dictionary)
-        result = decode_response(await tools["record_read"](table="sys_script", sys_id=SYS_ID_BR, fields="missing"))
+        result = decode_response(await tools["record_read"](table="sys_script", sys_id=SYS_ID_BR, fields=["missing"]))
 
         assert result["status"] == "error"
         assert "Unknown field" in result["error"]["message"]
@@ -210,7 +210,7 @@ class TestSysIdLookup:
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
-        result = decode_response(await tools["record_read"](table="sys_script", sys_id=SYS_ID_BR, fields="bad-field"))
+        result = decode_response(await tools["record_read"](table="sys_script", sys_id=SYS_ID_BR, fields=["bad-field"]))
 
         assert result["status"] == "error"
         assert "Invalid field projection" in result["error"]["message"]

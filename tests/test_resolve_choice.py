@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock
 import pytest
 
 from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.choices import ChoiceRegistry
 from servicenow_mcp.config import Settings
+from servicenow_mcp.platform.metadata.choices import ChoiceRegistry
 from servicenow_mcp.policy import DENIED_TABLES
 from tests.helpers import decode_response, get_tool_functions
 
@@ -26,7 +26,7 @@ def _register_and_get_tools(
     """Register the unified ``resolve_choice`` tool on a fresh MCP and return callables."""
     from mcp.server import MCPServer
 
-    from servicenow_mcp.tools.resolve_choice import register_tools
+    from servicenow_mcp.mcp.tools.resolve_choice import register_tools
 
     mcp = MCPServer("test")
     register_tools(mcp, choices=choices)

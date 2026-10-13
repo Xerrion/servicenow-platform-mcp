@@ -12,19 +12,10 @@ from tests.helpers import get_registered_tools, get_tool_names
 
 pytestmark = pytest.mark.integration
 
-# Expected tool counts per preset under the unified tool surface (Phase 3b).
-# Counts include the always-registered ``list_tool_packages`` tool.
-#
-# Group -> tool count:
-#   query (1), describe (1), record_write (2: record_write + record_apply),
-#   record_read (1), attachment (1), attachment_write (1),
-#   investigate (1), resolve_choice (1), service_catalog (1), analysis (1), audit (1),
-#   flow (1), code_search (1), cmdb (1).
+# Counts include discovery and one shared apply tool for selected mutation groups.
 EXPECTED_TOOL_COUNTS: dict[str, int] = {
-    # full preset: 1 always-on plus 15 package tools.
-    "full": 16,
-    # readonly preset: 1 always-on plus 11 package tools.
-    "readonly": 12,
+    "full": 17,
+    "readonly": 13,
     # core_readonly preset: 1 always-on plus query, describe, and attachment.
     "core_readonly": 4,
     # none preset: only list_tool_packages.
@@ -113,14 +104,15 @@ class TestPackageLoading:
             "list_tool_packages",
             "query",
             "describe",
-            "record_write",
-            "record_apply",
+            "record_preview",
+            "mutation_apply",
             "record_read",
             "attachment",
-            "attachment_write",
+            "attachment_preview",
             "investigate",
             "resolve_choice",
             "service_catalog",
+            "service_catalog_preview",
             "analysis",
             "audit",
             "flow",
@@ -133,7 +125,7 @@ class TestPackageLoading:
         ("package_name", "expected_tools"),
         [
             ("attachment", {"list_tool_packages", "attachment"}),
-            ("attachment_write", {"list_tool_packages", "attachment_write"}),
+            ("attachment_write", {"list_tool_packages", "attachment_preview", "mutation_apply"}),
         ],
     )
     async def test_attachment_groups_load_independently(

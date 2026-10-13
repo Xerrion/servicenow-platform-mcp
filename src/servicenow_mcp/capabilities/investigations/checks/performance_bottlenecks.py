@@ -1,0 +1,195 @@
+"""Investigation: find performance bottlenecks — heavy automation, frequent jobs, long flows."""
+
+from collections import Counter
+from typing import Any, Final
+
+from servicenow_mcp.capabilities.investigations.checks._models import ParamSpec, RecordFinding, param_specs
+from servicenow_mcp.capabilities.investigations.helpers import (
+    build_investigation_result,
+    parse_element_id,
+    parse_int_param,
+)
+from servicenow_mcp.platform.client import ServiceNowClient
+from servicenow_mcp.policy import (
+    INTERNAL_QUERY_LIMIT,
+    check_table_access,
+    mask_sensitive_fields,
+)
+from servicenow_mcp.query_builder import ServiceNowQuery
+from servicenow_mcp.validation import validate_identifier
+
+
+HEAVY_AUTOMATION_THRESHOLD = 10
+
+
+PARAMS: Final[dict[str, dict[str, Any]]] = param_specs(
+    hours=ParamSpec(type="int|None", default=None, description="Lookback window in hours; omit to query all history."),
+    limit=ParamSpec(type="int", default=20, description="Max findings per category."),
+)
+
+
+async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any]:
+    """Find performance bottlenecks across the instance.
+
+    Checks:
+    - Tables with excessive active business rules (>10 = heavy_automation)
+    - Frequently-running scheduled jobs
+    - Long-running flow contexts
+
+    Params:
+        hours: Optional lookback period in hours (default None, queries all).
+        limit: Maximum findings per category (default 20).
+    """
+    limit = parse_int_param(params, "limit", 20)
+    raw_hours = params.get("hours")
+    hours: int | None = None
+    if raw_hours is not None:
+        hours = max(1, parse_int_param(params, "hours", 24))
+    findings: list[dict[str, Any]] = []
+
+    # 1. Active BRs grouped by collection (table)
+    check_table_access("sys_script")
+    q = ServiceNowQuery().equals("active", "true")
+    if hours is not None:
+        q.hours_ago("sys_updated_on", hours)
+    br_result = await client.query_records(
+        "sys_script",
+        q.build(),
+        fields=["sys_id", "name", "collection", "active"],
+        limit=INTERNAL_QUERY_LIMIT,
+    )
+    br_records = [mask_sensitive_fields(r) for r in br_result["records"]]
+
+    # Count BRs per table
+    table_counts: Counter[str] = Counter()
+    for br in br_records:
+        table_counts[br.get("collection", "")] += 1
+
+    for table_name, count in table_counts.most_common(limit):
+        if count > HEAVY_AUTOMATION_THRESHOLD:
+            findings.append(
+                RecordFinding(
+                    category="heavy_automation",
+                    element_id=table_name,
+                    name=table_name,
+                    detail=f"Table '{table_name}' has {count} active business rules (threshold: {HEAVY_AUTOMATION_THRESHOLD})",
+                    br_count=count,
+                ).to_payload()
+            )
+
+    # 2. Frequent scheduled jobs
+    check_table_access("sysauto_script")
+    sj_query = ServiceNowQuery().equals("active", "true")
+    if hours is not None:
+        sj_query.hours_ago("sys_updated_on", hours)
+    sj_result = await client.query_records(
+        "sysauto_script",
+        sj_query.build(),
+        fields=[
+            "sys_id",
+            "name",
+            "run_type",
+            "run_dayofweek",
+            "sys_updated_on",
+        ],
+        limit=limit,
+    )
+    for rec in sj_result["records"]:
+        masked_rec = mask_sensitive_fields(rec)
+        findings.append(
+            RecordFinding(
+                category="frequent_job",
+                element_id=f"sysauto_script:{masked_rec.get('sys_id', '')}",
+                name=masked_rec.get("name", ""),
+                detail=f"Active scheduled job: {masked_rec.get('name', '')}",
+                run_type=masked_rec.get("run_type", ""),
+            ).to_payload()
+        )
+
+    # 3. Long-running flows (still IN_PROGRESS)
+    check_table_access("sys_flow_context")
+    flow_query = ServiceNowQuery().equals("state", "IN_PROGRESS")
+    if hours is not None:
+        flow_query.hours_ago("sys_created_on", hours)
+    flow_result = await client.query_records(
+        "sys_flow_context",
+        flow_query.build(),
+        fields=["sys_id", "name", "state", "sys_created_on"],
+        limit=limit,
+    )
+    for rec in flow_result["records"]:
+        masked_rec = mask_sensitive_fields(rec)
+        findings.append(
+            RecordFinding(
+                category="long_running_flow",
+                element_id=f"sys_flow_context:{masked_rec.get('sys_id', '')}",
+                name=masked_rec.get("name", ""),
+                detail=f"Flow in progress since {masked_rec.get('sys_created_on', '')}",
+            ).to_payload()
+        )
+
+    return build_investigation_result(
+        "performance_bottlenecks",
+        findings,
+        params={"hours": hours, "limit": limit},
+    )
+
+
+async def explain(client: ServiceNowClient, element_id: str) -> dict[str, Any]:
+    """Provide rich context for a performance bottleneck finding.
+
+    element_id can be "table:sys_id" or just a table name (for heavy_automation).
+    """
+    if ":" in element_id:
+        try:
+            table, sys_id = parse_element_id(element_id)
+            validate_identifier(table)
+            validate_identifier(sys_id)
+        except ValueError as e:
+            return {"error": str(e)}
+
+        check_table_access(table)
+        record = mask_sensitive_fields(await client.get_record(table, sys_id))
+        explanation_parts = [
+            f"Record from '{table}': {record.get('name', '')}.",
+            "This record is flagged as a potential performance bottleneck.",
+            "Review its configuration and execution frequency.",
+        ]
+        return {
+            "element": element_id,
+            "explanation": " ".join(explanation_parts),
+            "record": record,
+        }
+    # element_id is a table name (heavy_automation category)
+    try:
+        validate_identifier(element_id)
+    except ValueError as e:
+        return {"error": str(e)}
+
+    check_table_access(element_id)
+    stats_result = await client.aggregate(element_id, query="")
+    record_count = int(stats_result.get("stats", {}).get("count", 0))
+
+    check_table_access("sys_script")
+
+    br_query = ServiceNowQuery().equals("collection", element_id).equals("active", "true").build()
+    br_result = await client.query_records(
+        "sys_script",
+        br_query,
+        fields=["sys_id", "name", "when"],
+        limit=INTERNAL_QUERY_LIMIT,
+    )
+    br_count = len(br_result["records"])
+
+    explanation_parts = [
+        f"Table '{element_id}' has {br_count} active business rules and {record_count} records.",
+        f"Tables with more than {HEAVY_AUTOMATION_THRESHOLD} business rules can cause performance issues.",
+        "Consider consolidating or disabling unnecessary rules.",
+    ]
+
+    return {
+        "element": element_id,
+        "explanation": " ".join(explanation_parts),
+        "record_count": record_count,
+        "br_count": br_count,
+    }

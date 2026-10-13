@@ -8,9 +8,9 @@ import pytest
 from httpx2 import Response
 
 from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.choices import ChoiceRegistry, _group_choice_records, _merge_with_defaults
-from servicenow_mcp.client import ServiceNowClientProvider
 from servicenow_mcp.config import Settings
+from servicenow_mcp.platform.client import ServiceNowClientProvider
+from servicenow_mcp.platform.metadata.choices import ChoiceRegistry, _group_choice_records, _merge_with_defaults
 from tests._mock_transport import http_mock
 
 

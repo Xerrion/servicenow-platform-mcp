@@ -1,6 +1,6 @@
 [project]
 name = "servicenow-platform-mcp"
-version = "2.1.2"
+version = "3.0.0"
 description = "A comprehensive MCP server for ServiceNow - platform introspection, ITSM workflows, CMDB operations, change intelligence, debugging, investigations, and documentation generation."
 readme = "README.md"
 license = "MIT"
@@ -21,7 +21,8 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Application Frameworks",
 ]
 dependencies = [
-    "mcp>=2.3.0",
+    "mcp>=2.3.0,<3",
+    "jsonschema>=4.26.0,<5",
     "httpx2>=2.12.0,<3",
     "pydantic>=2.13.5",
     "pydantic-settings>=2.15.0",

@@ -1,272 +1,74 @@
-"""Tests for MCP server entry point."""
+"""Local application construction, safe defaults, and command startup."""
 
-import importlib
-import json
 from pathlib import Path
-from types import ModuleType
-from typing import Any
 from unittest.mock import patch
 
 import pytest
 
+from servicenow_mcp.bootstrap.stdio import create_mcp_server
 from servicenow_mcp.config import Settings
-from tests.helpers import get_tool_functions, get_tool_names
+from tests.helpers import decode_response, get_tool_functions, get_tool_names
 
 
-class TestCreateMcpServer:
-    """Test MCP server creation."""
+@pytest.mark.parametrize(("package", "count"), [("none", 1), ("core_readonly", 4), ("readonly", 13), ("full", 17)])
+async def test_presets_register_expected_surface(settings: Settings, package: str, count: int) -> None:
+    settings.mcp_tool_package = package
+    server = create_mcp_server(settings)
+    async with server._lowlevel_server.lifespan(server._lowlevel_server):
+        assert server.name == "servicenow-platform-mcp"
+        assert len(await server.list_tools()) == count
 
-    @pytest.mark.parametrize(
-        ("group", "dependency_names"),
-        [
-            ("query", {"settings", "auth_provider", "choices", "dictionary", "client_factory"}),
-            ("record_read", {"settings", "auth_provider", "dictionary", "client_factory"}),
-            ("attachment", {"settings", "auth_provider", "client_factory"}),
-            ("resolve_choice", {"choices"}),
-        ],
-    )
-    async def test_loader_injects_only_declared_dependencies(
-        self, group: str, dependency_names: set[str], settings: Settings
-    ) -> None:
-        """Different registration signatures receive the same server-owned dependencies."""
-        from servicenow_mcp.server import create_mcp_server
 
-        settings.mcp_tool_package = group
-        module = importlib.import_module(f"servicenow_mcp.tools.{group}")
-        with (
-            patch("servicenow_mcp.server.Settings", return_value=settings),
-            patch.object(module, "register_tools", autospec=True, side_effect=module.register_tools) as register,
-        ):
-            mcp = create_mcp_server()
-
-        async with mcp._lowlevel_server.lifespan(mcp._lowlevel_server):
-            register.assert_called_once()
-            assert set(register.call_args.kwargs) == {"mcp", *dependency_names}
-            assert register.call_args.kwargs["mcp"] is mcp
-            if "settings" in dependency_names:
-                assert register.call_args.kwargs["settings"] is settings
-            assert group in await get_tool_names(mcp)
-
-    async def test_creates_server_with_name(self) -> None:
-        """Server has the expected name."""
-        from servicenow_mcp.server import create_mcp_server
-
-        env = {
+async def test_safe_default_server_exposes_no_mutations() -> None:
+    with patch.dict(
+        "os.environ",
+        {
             "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
             "SERVICENOW_OAUTH_CLIENT_ID": "test-client",
-            "SERVICENOW_OAUTH_SCOPE": "useraccount",
-            "MCP_TOOL_PACKAGE": "none",
-        }
-        with patch.dict("os.environ", env, clear=True):
-            mcp_server = create_mcp_server()
-
-        assert mcp_server.name == "servicenow-platform-mcp"
-
-    async def test_server_has_list_tool_packages_tool(self) -> None:
-        """Server always registers the list_tool_packages tool."""
-        from servicenow_mcp.server import create_mcp_server
-
-        env = {
-            "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
-            "SERVICENOW_OAUTH_CLIENT_ID": "test-client",
-            "SERVICENOW_OAUTH_SCOPE": "useraccount",
-            "MCP_TOOL_PACKAGE": "none",
-        }
-        with patch.dict("os.environ", env, clear=True):
-            mcp_server = create_mcp_server()
-
-        # The tool manager should have the list_tool_packages tool
-        tool_names = await get_tool_names(mcp_server)
-        assert "list_tool_packages" in tool_names
-
-    async def test_server_loads_core_readonly_tools(self) -> None:
-        """When using core_readonly package, core read-only tools are registered."""
-        from servicenow_mcp.server import create_mcp_server
-
-        env = {
-            "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
-            "SERVICENOW_OAUTH_CLIENT_ID": "test-client",
-            "SERVICENOW_OAUTH_SCOPE": "useraccount",
-            "MCP_TOOL_PACKAGE": "core_readonly",
-        }
-        with patch.dict("os.environ", env, clear=True):
-            mcp_server = create_mcp_server()
-
-        tool_names = await get_tool_names(mcp_server)
-        assert "describe" in tool_names
-        assert "query" in tool_names
-        assert "attachment" in tool_names
-        assert "attachment_write" not in tool_names
-        assert "code_search" not in tool_names
-
-    async def test_readonly_includes_attachment_read_tools_but_not_write_tools(self) -> None:
-        """readonly includes attachment reads and excludes all attachment and record writes."""
-        from servicenow_mcp.server import create_mcp_server
-
-        env = {
-            "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
-            "SERVICENOW_OAUTH_CLIENT_ID": "test-client",
-            "SERVICENOW_OAUTH_SCOPE": "useraccount",
-            "MCP_TOOL_PACKAGE": "readonly",
-        }
-        with patch.dict("os.environ", env, clear=True):
-            mcp_server = create_mcp_server()
-
-        tool_names = await get_tool_names(mcp_server)
-        assert "attachment" in tool_names
-        assert "attachment_write" not in tool_names
-        assert "code_search" in tool_names
-        assert "record_write" not in tool_names
-        assert "record_apply" not in tool_names
-
-    async def test_full_includes_attachment_read_and_write_tools(self) -> None:
-        """full package includes both attachment read and write tools."""
-        from servicenow_mcp.server import create_mcp_server
-
-        env = {
-            "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
-            "SERVICENOW_OAUTH_CLIENT_ID": "test-client",
-            "SERVICENOW_OAUTH_SCOPE": "useraccount",
-            "MCP_TOOL_PACKAGE": "full",
-        }
-        with patch.dict("os.environ", env, clear=True):
-            mcp_server = create_mcp_server()
-
-        tool_names = await get_tool_names(mcp_server)
-        assert "attachment" in tool_names
-        assert "attachment_write" in tool_names
-        assert "analysis" in tool_names
-        assert "code_search" in tool_names
-        assert len(tool_names) == 16
-
-    @pytest.mark.parametrize(
-        ("package_name", "expected_tools"),
-        [
-            ("attachment", {"list_tool_packages", "attachment"}),
-            ("attachment_write", {"list_tool_packages", "attachment_write"}),
-        ],
-    )
-    async def test_custom_attachment_groups_are_separate(self, package_name: str, expected_tools: set[str]) -> None:
-        """Custom attachment groups expose only the selected capability."""
-        from servicenow_mcp.server import create_mcp_server
-
-        env = {
-            "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
-            "SERVICENOW_OAUTH_CLIENT_ID": "test-client",
-            "SERVICENOW_OAUTH_SCOPE": "useraccount",
-            "MCP_TOOL_PACKAGE": package_name,
-        }
-        with patch.dict("os.environ", env, clear=True):
-            mcp_server = create_mcp_server()
-
-        assert set(await get_tool_names(mcp_server)) == expected_tools
-
-    @pytest.mark.parametrize("group", ["code_search", "cmdb"])
-    async def test_custom_package_can_load_independent_inspection_tool(self, group: str) -> None:
-        """Code Search and CMDB groups can each be loaded independently."""
-        from servicenow_mcp.server import create_mcp_server
-
-        env = {
-            "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
-            "SERVICENOW_OAUTH_CLIENT_ID": "test-client",
-            "SERVICENOW_OAUTH_SCOPE": "useraccount",
-            "MCP_TOOL_PACKAGE": group,
-        }
-        with patch.dict("os.environ", env, clear=True):
-            mcp_server = create_mcp_server()
-
-        tool_names = await get_tool_names(mcp_server)
-        assert tool_names == ["list_tool_packages", group]
-
-    async def test_none_package_has_only_list_packages(self) -> None:
-        """'none' package only has the list_tool_packages tool."""
-        from servicenow_mcp.server import create_mcp_server
-
-        env = {
-            "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
-            "SERVICENOW_OAUTH_CLIENT_ID": "test-client",
-            "SERVICENOW_OAUTH_SCOPE": "useraccount",
-            "MCP_TOOL_PACKAGE": "none",
-        }
-        with patch.dict("os.environ", env, clear=True):
-            mcp_server = create_mcp_server()
-
-        tool_names = await get_tool_names(mcp_server)
-        assert tool_names == ["list_tool_packages"]
-
-    async def test_list_tool_packages_tool_returns_package_data(self) -> None:
-        """Calling list_tool_packages returns serialized package registry."""
-        from servicenow_mcp.server import create_mcp_server
-
-        env = {
-            "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
-            "SERVICENOW_OAUTH_CLIENT_ID": "test-client",
-            "SERVICENOW_OAUTH_SCOPE": "useraccount",
-            "MCP_TOOL_PACKAGE": "none",
-        }
-        with patch.dict("os.environ", env, clear=True):
-            mcp_server = create_mcp_server()
-
-        tools = get_tool_functions(mcp_server)
-        raw = tools["list_tool_packages"]()
-        result = json.loads(raw)
-
-        assert isinstance(result, dict)
-        assert "full" in result
-        assert "none" in result
-        assert "core_readonly" in result
-        assert result["none"] == []
-        assert "query" in result["core_readonly"]
-
-    async def test_import_error_during_tool_loading_is_handled(self) -> None:
-        """Server still starts when a tool group module fails to import."""
-        from servicenow_mcp.server import create_mcp_server
-
-        original_import = importlib.import_module
-
-        def mock_import(name: str, *args: Any, **kwargs: Any) -> ModuleType:
-            if name == "servicenow_mcp.tools.query":
-                raise ImportError("fake import error")
-            return original_import(name, *args, **kwargs)
-
-        env = {
-            "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
-            "SERVICENOW_OAUTH_CLIENT_ID": "test-client",
-            "SERVICENOW_OAUTH_SCOPE": "useraccount",
-            "MCP_TOOL_PACKAGE": "core_readonly",
-        }
-        with (
-            patch.dict("os.environ", env, clear=True),
-            patch("servicenow_mcp.server.importlib.import_module", side_effect=mock_import),
-        ):
-            mcp_server = create_mcp_server()
-
-        tool_names = await get_tool_names(mcp_server)
-        # The query tool should not be registered due to the import failure.
-        assert "query" not in tool_names
-        # Other tool groups should still load successfully.
-        assert "list_tool_packages" in tool_names
-        assert "describe" in tool_names
+        },
+        clear=True,
+    ):
+        settings = Settings(_env_file=None)
+    assert settings.mcp_tool_package == "readonly"
+    assert settings.is_production
+    server = create_mcp_server(settings)
+    async with server._lowlevel_server.lifespan(server._lowlevel_server):
+        names = await get_tool_names(server)
+    assert "service_catalog" in names
+    assert not {"record_preview", "attachment_preview", "service_catalog_preview", "mutation_apply"} & set(names)
 
 
-class TestMain:
-    """Test server process startup."""
+async def test_discovery_is_native_and_does_not_authorize(settings: Settings) -> None:
+    settings.mcp_tool_package = "none"
+    server = create_mcp_server(settings)
+    async with server._lowlevel_server.lifespan(server._lowlevel_server):
+        value = await get_tool_functions(server)["list_tool_packages"]()
+    assert not value.is_error
+    packages = decode_response(value)["data"]
+    assert packages["none"] == []
+    assert packages["core_readonly"] == ["query", "describe", "attachment"]
 
-    def test_missing_instance_url_reports_secret_safe_configuration_error(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Startup identifies the missing setting without exposing other inputs."""
-        from servicenow_mcp.server import main
 
-        sentry_dsn_marker = "sentry-dsn-must-not-appear"
-        monkeypatch.chdir(tmp_path)
-        with (
-            patch.dict("os.environ", {"SENTRY_DSN": sentry_dsn_marker}, clear=True),
-            pytest.raises(SystemExit) as exc_info,
-        ):
-            main()
+def test_missing_configuration_is_secret_safe(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from servicenow_mcp.server import main
 
-        message = str(exc_info.value)
-        assert "SERVICENOW_INSTANCE_URL: Field required" in message
-        assert ".env/.env.local in the working directory" in message
-        assert sentry_dsn_marker not in message
+    monkeypatch.chdir(tmp_path)
+    marker = "private-dsn-marker"
+    with patch.dict("os.environ", {"SENTRY_DSN": marker}, clear=True), pytest.raises(SystemExit) as failure:
+        main()
+    assert "SERVICENOW_INSTANCE_URL: Field required" in str(failure.value)
+    assert ".env/.env.local in the working directory" in str(failure.value)
+    assert marker not in str(failure.value)
+
+
+@pytest.mark.parametrize("value", ["", "deev", "staging", "private-sensitive-value"])
+def test_unknown_environment_cannot_enable_mutations(value: str) -> None:
+    from pydantic import ValidationError
+
+    with patch.dict("os.environ", {}, clear=True), pytest.raises(ValidationError, match="Environment must"):
+        Settings(
+            servicenow_instance_url="https://test.service-now.com",
+            servicenow_oauth_client_id="test-client",
+            servicenow_env=value,
+            _env_file=None,
+        )

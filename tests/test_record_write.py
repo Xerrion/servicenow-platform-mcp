@@ -10,14 +10,14 @@ import httpx2
 import pytest
 
 from servicenow_mcp.auth import OAuthPKCEProvider
+from servicenow_mcp.capabilities.contracts import MAX_JSON_PAYLOAD_BYTES
+from servicenow_mcp.capabilities.mutations.store import PreviewTokenStore
+from servicenow_mcp.capabilities.records._artifact import validate_ui_macro_xml
 from servicenow_mcp.config import Settings
+from servicenow_mcp.platform.metadata._dictionary import DictionaryRegistry
 from servicenow_mcp.policy import DENIED_TABLES
-from servicenow_mcp.state import PreviewTokenStore
-from servicenow_mcp.tools._artifact import validate_ui_macro_xml
-from servicenow_mcp.tools._dictionary import DictionaryRegistry
-from servicenow_mcp.tools._payload import MAX_JSON_PAYLOAD_BYTES
 from tests._mock_transport import http_mock
-from tests.helpers import decode_response, get_tool_functions
+from tests.helpers import decode_response, get_tool_functions, preview_and_apply
 
 
 BASE_URL = "https://test.service-now.com"
@@ -42,13 +42,13 @@ def _register_and_get_tools(settings: Settings, auth_provider: OAuthPKCEProvider
     """Register the unified record_write tools on a fresh MCP and return callables."""
     from mcp.server import MCPServer
 
-    from servicenow_mcp.tools.record_write import register_tools
+    from tests.helpers import register_mutations
 
     mcp = MCPServer("test")
     dictionary = AsyncMock(spec=DictionaryRegistry)
     dictionary.get_fields.return_value = []
     dictionary.get_chain.side_effect = lambda table: [table]
-    register_tools(mcp, settings, auth_provider, dictionary=dictionary)
+    register_mutations(mcp, settings, auth_provider, frozenset({"records"}), dictionary=dictionary)
     return get_tool_functions(mcp)
 
 
@@ -63,69 +63,61 @@ class TestActionDispatch:
     @pytest.mark.asyncio()
     async def test_unknown_action_returns_error(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_write"](action="frobnicate", table="incident")
+        raw = await tools["record_preview"](action="frobnicate", table="incident")
         result = decode_response(raw)
         assert result["status"] == "error"
-        assert "frobnicate" in result["error"]["message"]
+        assert result["error"]["code"] == "INVALID_REQUEST"
 
     @pytest.mark.asyncio()
     async def test_create_action_requires_data(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_write"](action="create", table="incident")
+        raw = await tools["record_preview"](action="create", table="incident")
         result = decode_response(raw)
         assert result["status"] == "error"
-        assert "data is required" in result["error"]["message"]
+        assert "data" in result["error"]["message"]
 
     @pytest.mark.asyncio()
     async def test_create_with_sys_id_returns_error(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_write"](
-            action="create",
-            table="incident",
-            sys_id=SYS_ID_INC001,
-            data=json.dumps({"short_description": "x"}),
+        raw = await tools["record_preview"](
+            action="create", table="incident", sys_id=SYS_ID_INC001, data={"short_description": "x"}
         )
         result = decode_response(raw)
         assert result["status"] == "error"
-        assert "sys_id must be empty" in result["error"]["message"]
+        assert "sys_id" in result["error"]["message"]
 
     @pytest.mark.asyncio()
     async def test_update_requires_sys_id_and_data(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
 
-        raw = await tools["record_write"](action="update", table="incident", data=json.dumps({"state": "2"}))
-        assert decode_response(raw)["error"]["message"].startswith("sys_id is required")
+        raw = await tools["record_preview"](action="update", table="incident", data={"state": "2"})
+        assert decode_response(raw)["error"]["message"].find("sys_id") >= 0
 
-        raw = await tools["record_write"](action="update", table="incident", sys_id=SYS_ID_INC001)
-        assert decode_response(raw)["error"]["message"].startswith("data is required")
+        raw = await tools["record_preview"](action="update", table="incident", sys_id=SYS_ID_INC001)
+        assert decode_response(raw)["error"]["message"].find("data") >= 0
 
     @pytest.mark.asyncio()
     async def test_delete_with_data_returns_error(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_write"](
-            action="delete",
-            table="incident",
-            sys_id=SYS_ID_INC001,
-            data=json.dumps({"x": 1}),
-        )
+        raw = await tools["record_preview"](action="delete", table="incident", sys_id=SYS_ID_INC001, data={"x": 1})
         result = decode_response(raw)
         assert result["status"] == "error"
-        assert "data must be empty" in result["error"]["message"]
+        assert "data" in result["error"]["message"]
 
     @pytest.mark.asyncio()
     async def test_missing_table_returns_error(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_write"](action="create", data=json.dumps({"x": 1}))
+        raw = await tools["record_preview"](action="create", data={"x": 1})
         result = decode_response(raw)
         assert result["status"] == "error"
-        assert "table is required" in result["error"]["message"]
+        assert result["error"]["code"] == "INVALID_REQUEST"
 
     @pytest.mark.asyncio()
     async def test_oversized_data_payload_rejected_before_token_creation(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
         """Oversized JSON returns an error without allocating a preview token."""
-        from servicenow_mcp.tools import record_write as record_write_module
+        from servicenow_mcp.capabilities.mutations import store as record_write_module
 
         # Patch PreviewTokenStore.create to detect any token-allocation attempt.
         # If the cap fires correctly, this never runs.
@@ -140,13 +132,9 @@ class TestActionDispatch:
         with patch.object(record_write_module.PreviewTokenStore, "create", _spy_create):
             tools = _register_and_get_tools(settings, auth_provider)
             oversized_value = "x" * (MAX_JSON_PAYLOAD_BYTES + 1)
-            payload = json.dumps({"short_description": oversized_value})
-            assert len(payload.encode("utf-8")) > MAX_JSON_PAYLOAD_BYTES
-            raw = await tools["record_write"](
-                action="create",
-                table="incident",
-                data=payload,
-            )
+            payload = {"short_description": oversized_value}
+            assert len(json.dumps(payload).encode("utf-8")) > MAX_JSON_PAYLOAD_BYTES
+            raw = await tools["record_preview"](action="create", table="incident", data=payload)
 
         result = decode_response(raw)
         assert result["status"] == "error"
@@ -169,16 +157,14 @@ class TestStandardRecordWrite:
         metadata = http_mock.get(METADATA_URL).respond(200, content=b"", headers={"Content-Type": "text/html"})
         tools = _register_and_get_tools(settings, auth_provider)
         with patch.object(PreviewTokenStore, "create", new_callable=AsyncMock) as create_token:
-            raw = await tools["record_write"](
+            raw = await tools["record_preview"](
                 action="create",
                 table="clone_profile_preservers",
-                data=json.dumps(
-                    {
-                        "profile": "daf3eaf4c3a707105cf89fcd2b01311c",
-                        "preserver": "bdbe6ad30f0133002a56657eef767e07",
-                        "source_table": "clone_profile",
-                    }
-                ),
+                data={
+                    "profile": "daf3eaf4c3a707105cf89fcd2b01311c",
+                    "preserver": "bdbe6ad30f0133002a56657eef767e07",
+                    "source_table": "clone_profile",
+                },
             )
 
         result = decode_response(raw)
@@ -192,7 +178,7 @@ class TestStandardRecordWrite:
 
     @pytest.mark.asyncio()
     @pytest.mark.parametrize("body", [b"", b"<html>private response</html>"], ids=["empty", "malformed"])
-    async def test_create_direct_non_json_response_returns_context(
+    async def test_create_apply_non_json_response_returns_context(
         self, settings: Settings, auth_provider: OAuthPKCEProvider, body: bytes
     ) -> None:
         http_mock.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
@@ -200,8 +186,8 @@ class TestStandardRecordWrite:
             201, content=body, headers={"Content-Type": "text/html"}
         )
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_write"](
-            action="create", table="incident", data=json.dumps({"short_description": "Test"}), preview=False
+        raw = await preview_and_apply(
+            tools, "record_preview", action="create", table="incident", data={"short_description": "Test"}
         )
 
         result = decode_response(raw)
@@ -215,16 +201,19 @@ class TestStandardRecordWrite:
         assert mutation.call_count == 1
 
     @pytest.mark.asyncio()
-    async def test_update_direct_empty_response_warns_before_retry(
+    async def test_update_apply_empty_response_warns_before_retry(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
+        http_mock.get(f"{BASE_URL}/api/now/table/incident/{SYS_ID_INC001}").respond(
+            200, json={"result": {"sys_id": SYS_ID_INC001, "state": "1"}}
+        )
         http_mock.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
         mutation = http_mock.patch(f"{BASE_URL}/api/now/table/incident/{SYS_ID_INC001}").respond(200, content=b"")
         tools = _register_and_get_tools(settings, auth_provider)
 
         result = decode_response(
-            await tools["record_write"](
-                action="update", table="incident", sys_id=SYS_ID_INC001, data='{"state":"2"}', preview=False
+            await preview_and_apply(
+                tools, "record_preview", action="update", table="incident", sys_id=SYS_ID_INC001, data={"state": "2"}
             )
         )
 
@@ -236,14 +225,14 @@ class TestStandardRecordWrite:
 
     @pytest.mark.asyncio()
     @pytest.mark.parametrize("status_code", [200, 201])
-    async def test_create_direct_non_object_json_response_warns_before_retry(
+    async def test_create_apply_non_object_json_response_warns_before_retry(
         self, settings: Settings, auth_provider: OAuthPKCEProvider, status_code: int
     ) -> None:
         http_mock.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
         mutation = http_mock.post(f"{BASE_URL}/api/now/table/incident").respond(status_code, json=[])
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_write"](
-            action="create", table="incident", data=json.dumps({"short_description": "Test"}), preview=False
+        raw = await preview_and_apply(
+            tools, "record_preview", action="create", table="incident", data={"short_description": "Test"}
         )
 
         result = decode_response(raw)
@@ -255,16 +244,19 @@ class TestStandardRecordWrite:
         assert mutation.call_count == 1
 
     @pytest.mark.asyncio()
-    async def test_update_direct_non_object_json_response_warns_before_retry(
+    async def test_update_apply_non_object_json_response_warns_before_retry(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
+        http_mock.get(f"{BASE_URL}/api/now/table/incident/{SYS_ID_INC001}").respond(
+            200, json={"result": {"sys_id": SYS_ID_INC001, "state": "1"}}
+        )
         http_mock.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
         mutation = http_mock.patch(f"{BASE_URL}/api/now/table/incident/{SYS_ID_INC001}").respond(200, json=[])
         tools = _register_and_get_tools(settings, auth_provider)
 
         result = decode_response(
-            await tools["record_write"](
-                action="update", table="incident", sys_id=SYS_ID_INC001, data='{"state":"2"}', preview=False
+            await preview_and_apply(
+                tools, "record_preview", action="update", table="incident", sys_id=SYS_ID_INC001, data={"state": "2"}
             )
         )
 
@@ -278,22 +270,18 @@ class TestStandardRecordWrite:
     async def test_create_preview_returns_token(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         http_mock.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_write"](
-            action="create",
-            table="incident",
-            data=json.dumps({"short_description": "Test", "state": "1"}),
+        raw = await tools["record_preview"](
+            action="create", table="incident", data={"short_description": "Test", "state": "1"}
         )
         result = decode_response(raw)
         assert result["status"] == "success"
         assert result["data"]["action"] == "create"
-        assert result["data"]["table"] == "incident"
+        assert result["data"]["summary"]["table"] == "incident"
         assert "preview_token" in result["data"]
-        assert result["data"]["preview"]["data"]["short_description"] == "Test"
+        assert result["data"]["summary"]["data"]["short_description"] == "Test"
 
     @pytest.mark.asyncio()
-    async def test_create_direct_commits_immediately(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
-    ) -> None:
+    async def test_create_apply_commits_once(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         http_mock.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
         http_mock.post(f"{BASE_URL}/api/now/table/incident").mock(
             return_value=httpx2.Response(
@@ -302,11 +290,8 @@ class TestStandardRecordWrite:
             )
         )
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_write"](
-            action="create",
-            table="incident",
-            data=json.dumps({"short_description": "Test"}),
-            preview=False,
+        raw = await preview_and_apply(
+            tools, "record_preview", action="create", table="incident", data={"short_description": "Test"}
         )
         result = decode_response(raw)
         assert result["status"] == "success"
@@ -319,15 +304,12 @@ class TestStandardRecordWrite:
             return_value=httpx2.Response(200, json={"result": {"sys_id": SYS_ID_INC001, "state": "1"}}),
         )
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_write"](
-            action="update",
-            table="incident",
-            sys_id=SYS_ID_INC001,
-            data=json.dumps({"state": "2"}),
+        raw = await tools["record_preview"](
+            action="update", table="incident", sys_id=SYS_ID_INC001, data={"state": "2"}
         )
         result = decode_response(raw)
         assert result["status"] == "success"
-        diff = result["data"]["preview"]["diff"]
+        diff = result["data"]["summary"]["diff"]
         assert diff["state"] == {"old": "1", "new": "2"}
         assert "preview_token" in result["data"]
 
@@ -346,10 +328,10 @@ class TestStandardRecordWrite:
             ),
         )
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_write"](action="delete", table="incident", sys_id=SYS_ID_INC001)
+        raw = await tools["record_preview"](action="delete", table="incident", sys_id=SYS_ID_INC001)
         result = decode_response(raw)
         assert result["status"] == "success"
-        snap = result["data"]["preview"]["record_snapshot"]
+        snap = result["data"]["summary"]["record_snapshot"]
         assert snap["short_description"] == "doomed"
         assert snap["password"] == "***MASKED***"  # NOSONAR
 
@@ -358,10 +340,8 @@ class TestStandardRecordWrite:
         # Phase 1: preview create
         http_mock.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
         tools = _register_and_get_tools(settings, auth_provider)
-        preview_raw = await tools["record_write"](
-            action="create",
-            table="incident",
-            data=json.dumps({"short_description": "Apply me"}),
+        preview_raw = await tools["record_preview"](
+            action="create", table="incident", data={"short_description": "Apply me"}
         )
         token = decode_response(preview_raw)["data"]["preview_token"]
 
@@ -372,13 +352,13 @@ class TestStandardRecordWrite:
                 json={"result": {"sys_id": "new042", "short_description": "Apply me"}},
             ),
         )
-        raw = await tools["record_apply"](preview_token=token)
+        raw = await tools["mutation_apply"](preview_token=token)
         result = decode_response(raw)
         assert result["status"] == "success"
         assert result["data"]["sys_id"] == "new042"
 
         # Token is single-use - second call must fail.
-        raw2 = await tools["record_apply"](preview_token=token)
+        raw2 = await tools["mutation_apply"](preview_token=token)
         assert decode_response(raw2)["status"] == "error"
 
     @pytest.mark.asyncio()
@@ -389,17 +369,17 @@ class TestStandardRecordWrite:
         mutation = http_mock.post(f"{BASE_URL}/api/now/table/incident").respond(201, content=b"")
         tools = _register_and_get_tools(settings, auth_provider)
         preview = decode_response(
-            await tools["record_write"](action="create", table="incident", data='{"short_description":"Test"}')
+            await tools["record_preview"](action="create", table="incident", data={"short_description": "Test"})
         )
         token = preview["data"]["preview_token"]
 
-        result = decode_response(await tools["record_apply"](preview_token=token))
+        result = decode_response(await tools["mutation_apply"](preview_token=token))
         assert result["status"] == "error"
         assert "Remote outcome unknown" in result["error"]["message"]
         assert "Verify remote outcome before retrying" in result["error"]["message"]
         assert mutation.call_count == 1
 
-        second = decode_response(await tools["record_apply"](preview_token=token))
+        second = decode_response(await tools["mutation_apply"](preview_token=token))
         assert second["status"] == "error"
         assert "Invalid or expired preview token" in second["error"]["message"]
         assert mutation.call_count == 1
@@ -409,7 +389,7 @@ class TestStandardRecordWrite:
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_apply"](preview_token="not-a-real-token")
+        raw = await tools["mutation_apply"](preview_token="not-a-real-token")
         result = decode_response(raw)
         assert result["status"] == "error"
         assert "Invalid or expired" in result["error"]["message"]
@@ -431,14 +411,18 @@ class TestMandatoryFieldValues:
         )
         tools = _register_and_get_tools(settings, auth_provider)
         result = decode_response(
-            await tools["record_write"](action="create", table="incident", data=json.dumps(payload), preview=preview)
+            await (
+                tools["record_preview"](action="create", table="incident", data=payload)
+                if preview
+                else preview_and_apply(tools, "record_preview", action="create", table="incident", data=payload)
+            )
         )
         assert result["status"] == "success"
         if preview:
-            assert result["data"]["preview"]["data"]["active"] is False
-            assert result["data"]["preview"]["data"]["order"] == 0
+            assert result["data"]["summary"]["data"]["active"] is False
+            assert result["data"]["summary"]["data"]["order"] == 0
             assert not mutation.called
-            raw = await tools["record_apply"](preview_token=result["data"]["preview_token"])
+            raw = await tools["mutation_apply"](preview_token=result["data"]["preview_token"])
             assert decode_response(raw)["status"] == "success"
         assert mutation.call_count == 1
         submitted = json.loads(mutation.calls[0].request.content)
@@ -454,13 +438,9 @@ class TestMandatoryFieldValues:
         http_mock.get(METADATA_URL).respond(200, json={"result": [{"element": "name", "mandatory": "true"}]})
         tools = _register_and_get_tools(settings, auth_provider)
         with patch.object(PreviewTokenStore, "create", new_callable=AsyncMock) as create_token:
-            result = decode_response(
-                await tools["record_write"](
-                    action="create", table="incident", data=json.dumps(payload), preview=preview
-                )
-            )
+            result = decode_response(await tools["record_preview"](action="create", table="incident", data=payload))
         assert result["status"] == "error"
-        assert result["data"]["missing_fields"] == ["name"]
+        assert result["error"]["missing_fields"] == ["name"]
         create_token.assert_not_awaited()
         assert all(call.request.method == "GET" for call in http_mock.calls)
 
@@ -475,7 +455,7 @@ class TestInheritedMandatoryFields:
     ) -> None:
         from mcp.server import MCPServer
 
-        from servicenow_mcp.tools.record_write import register_tools
+        from tests.helpers import register_mutations
 
         def objects(request: httpx2.Request) -> httpx2.Response:
             parent = "u_parent" if request.url.params["sysparm_query"] == "name=u_child" else ""
@@ -498,20 +478,20 @@ class TestInheritedMandatoryFields:
             201, json={"result": {"sys_id": SYS_ID_INC001}}
         )
         mcp = MCPServer("test")
-        register_tools(mcp, settings, auth_provider)
+        register_mutations(mcp, settings, auth_provider, frozenset({"records"}))
         with patch.object(PreviewTokenStore, "create", new_callable=AsyncMock, return_value="preview") as create_token:
             result = decode_response(
-                await get_tool_functions(mcp)["record_write"](
-                    action="create", table="u_child", data='{"script":"run();"}', preview=preview
+                await get_tool_functions(mcp)["record_preview"](
+                    action="create", table="u_child", data={"script": "run();"}
                 )
             )
         if child_mandatory == "false":
             assert result["status"] == "success"
-            assert create_token.await_count == int(preview)
-            assert mutation.call_count == int(not preview)
+            assert create_token.await_count == 1
+            assert mutation.call_count == 0
         else:
             assert result["status"] == "error"
-            assert result["data"]["missing_fields"] == ["name"]
+            assert result["error"]["missing_fields"] == ["name"]
             create_token.assert_not_awaited()
             assert not mutation.called
 
@@ -522,7 +502,7 @@ class TestInheritedMandatoryFields:
     ) -> None:
         from mcp.server import MCPServer
 
-        from servicenow_mcp.tools.record_write import register_tools
+        from tests.helpers import register_mutations
 
         def objects(request: httpx2.Request) -> httpx2.Response:
             parent = "u_parent" if request.url.params["sysparm_query"] == "name=u_child" else ""
@@ -536,11 +516,11 @@ class TestInheritedMandatoryFields:
         http_mock.get(f"{BASE_URL}/api/now/table/sys_db_object").mock(side_effect=objects)
         http_mock.get(METADATA_URL).mock(side_effect=fields)
         mcp = MCPServer("test")
-        register_tools(mcp, settings, auth_provider)
+        register_mutations(mcp, settings, auth_provider, frozenset({"records"}))
         with patch.object(PreviewTokenStore, "create", new_callable=AsyncMock) as create_token:
             result = decode_response(
-                await get_tool_functions(mcp)["record_write"](
-                    action="create", table="u_child", data='{"script":"run();"}', preview=preview
+                await get_tool_functions(mcp)["record_preview"](
+                    action="create", table="u_child", data={"script": "run();"}
                 )
             )
         assert result["status"] == "error"
@@ -552,7 +532,7 @@ class TestInheritedMandatoryFields:
     ) -> None:
         from mcp.server import MCPServer
 
-        from servicenow_mcp.tools.record_write import register_tools
+        from tests.helpers import register_mutations
 
         def objects(request: httpx2.Request) -> httpx2.Response:
             parent = "u_parent" if request.url.params["sysparm_query"] == "name=u_child" else ""
@@ -561,9 +541,9 @@ class TestInheritedMandatoryFields:
         http_mock.get(f"{BASE_URL}/api/now/table/sys_db_object").mock(side_effect=objects)
         metadata = http_mock.get(METADATA_URL).respond(200, json={"result": []})
         mcp = MCPServer("test")
-        register_tools(mcp, settings, auth_provider)
+        register_mutations(mcp, settings, auth_provider, frozenset({"records"}))
         tools = get_tool_functions(mcp)
-        preview = decode_response(await tools["record_write"](action="create", table="u_child", data="{}"))
+        preview = decode_response(await tools["record_preview"](action="create", table="u_child", data={}))
 
         def fields(request: httpx2.Request) -> httpx2.Response:
             rows = (
@@ -574,9 +554,9 @@ class TestInheritedMandatoryFields:
             return httpx2.Response(200, json={"result": rows})
 
         metadata.mock(side_effect=fields)
-        result = decode_response(await tools["record_apply"](preview_token=preview["data"]["preview_token"]))
+        result = decode_response(await tools["mutation_apply"](preview_token=preview["data"]["preview_token"]))
         assert result["status"] == "error"
-        assert result["data"]["missing_fields"] == ["name"]
+        assert result["error"]["missing_fields"] == ["name"]
         assert all(call.request.method == "GET" for call in http_mock.calls)
 
 
@@ -592,11 +572,7 @@ class TestPolicyGates:
     async def test_denied_table_returns_error(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         denied = next(iter(DENIED_TABLES))
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_write"](
-            action="create",
-            table=denied,
-            data=json.dumps({"x": 1}),
-        )
+        raw = await tools["record_preview"](action="create", table=denied, data={"x": 1})
         result = decode_response(raw)
         assert result["status"] == "error"
 
@@ -605,11 +581,7 @@ class TestPolicyGates:
         self, prod_settings: Settings, prod_auth_provider: OAuthPKCEProvider
     ) -> None:
         tools = _register_and_get_tools(prod_settings, prod_auth_provider)
-        raw = await tools["record_write"](
-            action="create",
-            table="incident",
-            data=json.dumps({"short_description": "x"}),
-        )
+        raw = await tools["record_preview"](action="create", table="incident", data={"short_description": "x"})
         result = decode_response(raw)
         assert result["status"] == "error"
         assert "production" in result["error"]["message"].lower()
@@ -619,11 +591,8 @@ class TestPolicyGates:
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_write"](
-            action="update",
-            table="incident",
-            sys_id="not-a-real-sys-id",
-            data=json.dumps({"state": "2"}),
+        raw = await tools["record_preview"](
+            action="update", table="incident", sys_id="not-a-real-sys-id", data={"state": "2"}
         )
         result = decode_response(raw)
         assert result["status"] == "error"

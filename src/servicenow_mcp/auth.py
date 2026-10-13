@@ -6,6 +6,9 @@ import hashlib
 import re
 import secrets
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import ClassVar
 from urllib.parse import urlencode
 
@@ -16,6 +19,19 @@ from servicenow_mcp._json import JSON
 from servicenow_mcp.config import Settings
 from servicenow_mcp.errors import AuthError
 from servicenow_mcp.oauth_callback import receive_authorization_code
+
+
+_required_generation: ContextVar[int | None] = ContextVar("required_authorization_generation", default=None)
+
+
+@contextmanager
+def require_authorization_generation(generation: int) -> Iterator[None]:
+    """Prevent a staged command from obtaining headers under a different grant."""
+    token = _required_generation.set(generation)
+    try:
+        yield
+    finally:
+        _required_generation.reset(token)
 
 
 class AccessToken(BaseModel):
@@ -86,23 +102,42 @@ class OAuthPKCEProvider:
         self._settings: Settings = settings
         self._token: AccessToken | None = None
         self._lock: asyncio.Lock = asyncio.Lock()
+        self._generation = 0
+
+    @property
+    def authorization_generation(self) -> int:
+        return self._generation
 
     async def get_headers(self) -> dict[str, str]:
         """Return Bearer headers, refreshing or authorizing when necessary."""
         async with self._lock:
+            expected = _required_generation.get()
+            if expected is not None and (expected != self._generation or self._token is None):
+                raise AuthError("Authorization changed. Create a new preview before applying a mutation.")
             if self._token is None:
                 self._token = await self._authorize()
+                self._generation += 1
             elif time.monotonic() >= self._token.expires_at:
                 refresh_token = self._token.refresh_token
                 if refresh_token is None:
+                    if expected is not None:
+                        raise AuthError(
+                            "Browser authorization is required. Authorize on a read, then create a new preview."
+                        )
                     self._token = None
                     self._token = await self._authorize()
+                    self._generation += 1
                 else:
                     try:
                         self._token = await self._refresh(refresh_token.get_secret_value())
                     except _RefreshRejected:
                         self._token = None
+                        if expected is not None:
+                            raise AuthError(
+                                "Authorization expired. Authorize on a read, then create a new preview."
+                            ) from None
                         self._token = await self._authorize()
+                        self._generation += 1
             if time.monotonic() >= self._token.expires_at:
                 self._token = None
                 raise AuthError("OAuth token expired during authorization. Call the tool again to authorize.")

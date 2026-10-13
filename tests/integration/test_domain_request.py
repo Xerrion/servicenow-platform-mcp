@@ -3,8 +3,8 @@
 import pytest
 
 from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
+from servicenow_mcp.platform.client import ServiceNowClient
 
 
 pytestmark = pytest.mark.integration

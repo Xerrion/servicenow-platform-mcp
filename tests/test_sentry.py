@@ -103,7 +103,7 @@ class TestSetupSentry:
             setup_sentry(settings)
 
         call_kwargs = mock_init.call_args[1]
-        assert call_kwargs["environment"] == "production"
+        assert call_kwargs["environment"] == "prod"
 
     def test_idempotency(self) -> None:
         """Calling setup_sentry twice only initializes once."""
@@ -365,8 +365,8 @@ class TestSetSentryContextIntegration:
         env = {**_TEST_ENV, "MCP_TOOL_PACKAGE": "none"}
         with (
             patch.dict("os.environ", env, clear=True),
-            patch("servicenow_mcp.server.setup_sentry"),
-            patch("servicenow_mcp.server.set_sentry_context") as mock_ctx,
+            patch("servicenow_mcp.bootstrap.stdio.setup_sentry"),
+            patch("servicenow_mcp.bootstrap.stdio.set_sentry_context") as mock_ctx,
         ):
             from servicenow_mcp.server import create_mcp_server
 
@@ -383,15 +383,15 @@ class TestSetSentryContextIntegration:
 
     async def test_tool_handler_sets_tool_context(self) -> None:
         """tool_handler retains tool context and tags without an internal ID."""
-        from servicenow_mcp.decorators import tool_handler
+        from servicenow_mcp.mcp.handlers import tool_handler
 
         @tool_handler
         async def my_tool(table: str) -> str:
             return '{"status": "success"}'
 
         with (
-            patch("servicenow_mcp.decorators.set_sentry_context") as mock_ctx,
-            patch("servicenow_mcp.decorators.set_sentry_tag") as mock_tag,
+            patch("servicenow_mcp.mcp.handlers.set_sentry_context") as mock_ctx,
+            patch("servicenow_mcp.mcp.handlers.set_sentry_tag") as mock_tag,
         ):
             await my_tool(table="incident")
             assert mock_ctx.call_count == 2
@@ -412,8 +412,8 @@ class TestSetSentryContextIntegration:
         import httpx2
 
         from servicenow_mcp.auth import OAuthPKCEProvider
-        from servicenow_mcp.client import ServiceNowClient
         from servicenow_mcp.errors import ServerError
+        from servicenow_mcp.platform.client import ServiceNowClient
 
         mock_request = httpx2.Request("GET", "https://test.service-now.com/api/now/table/incident?limit=10")
         mock_response = httpx2.Response(500, request=mock_request, json={"error": {"message": "Server error"}})
@@ -422,7 +422,7 @@ class TestSetSentryContextIntegration:
         auth = OAuthPKCEProvider(settings)
         client = ServiceNowClient(settings, auth)
 
-        with patch("servicenow_mcp._client_transport.set_sentry_context") as mock_ctx:
+        with patch("servicenow_mcp.platform._client_transport.set_sentry_context") as mock_ctx:
             with pytest.raises(ServerError):
                 client._raise_for_status(mock_response)
             mock_ctx.assert_called_once_with(

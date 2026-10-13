@@ -9,8 +9,8 @@ from typing import Any
 
 import pytest
 
-from servicenow_mcp.tools import _flow_values
-from servicenow_mcp.tools._flow_values import decode_values, looks_compressed
+from servicenow_mcp.capabilities.flows import _flow_values
+from servicenow_mcp.capabilities.flows._flow_values import decode_values, looks_compressed
 
 
 def _encode(payload: Any) -> str:

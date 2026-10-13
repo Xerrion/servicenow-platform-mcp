@@ -177,7 +177,7 @@ class TestSettings:
         with patch.dict("os.environ", env, clear=True):
             settings = Settings(_env_file=None)
 
-        assert settings.mcp_tool_package == "full"
+        assert settings.mcp_tool_package == "readonly"
 
     def test_custom_mcp_tool_package(self) -> None:
         """MCP_TOOL_PACKAGE can be overridden."""
@@ -197,7 +197,7 @@ class TestSettings:
         with patch.dict("os.environ", env, clear=True):
             settings = Settings(_env_file=None)
 
-        assert settings.servicenow_env == "dev"
+        assert settings.servicenow_env == "prod"
 
     def test_default_max_row_limit(self) -> None:
         """MAX_ROW_LIMIT defaults to 100."""

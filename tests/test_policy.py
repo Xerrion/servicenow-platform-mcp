@@ -1,7 +1,5 @@
 """Tests for policy engine."""
 
-import json
-
 import pytest
 
 from servicenow_mcp.config import Settings
@@ -297,39 +295,23 @@ class TestGateWrite:
 
         assert gate_write("incident", settings) is None
 
-    def test_denied_table_returns_envelope(self, settings: Settings) -> None:
-        """A deny-listed table returns a serialized error envelope (no raise)."""
+    def test_denied_table_raises_policy_error(self, settings: Settings) -> None:
         from servicenow_mcp.policy import gate_write
 
-        result = gate_write("sys_user_has_password", settings)
-        assert isinstance(result, str)
-        decoded = json.loads(result)
-        assert decoded["status"] == "error"
-        assert "denied" in decoded["error"]["message"]
-        assert "correlation_id" not in decoded
+        with pytest.raises(PolicyError, match="denied"):
+            gate_write("sys_user_has_password", settings)
 
-    def test_production_returns_error_envelope(self, prod_settings: Settings) -> None:
-        """Production environment returns a serialized error envelope."""
+    def test_production_raises_policy_error(self, prod_settings: Settings) -> None:
         from servicenow_mcp.policy import gate_write
 
-        result = gate_write("incident", prod_settings)
-        assert isinstance(result, str)
-        decoded = json.loads(result)
-        assert decoded["status"] == "error"
-        # Error strings are serialized via format_response as {"message": "..."}
-        assert "production" in decoded["error"]["message"]
-        assert "correlation_id" not in decoded
+        with pytest.raises(PolicyError, match="production"):
+            gate_write("incident", prod_settings)
 
-    def test_invalid_identifier_returns_envelope(self, settings: Settings) -> None:
-        """Invalid table identifiers return an error envelope rather than raising."""
+    def test_invalid_identifier_raises(self, settings: Settings) -> None:
         from servicenow_mcp.policy import gate_write
 
-        result = gate_write("bad table name!", settings)
-        assert isinstance(result, str)
-        decoded = json.loads(result)
-        assert decoded["status"] == "error"
-        assert "Invalid table identifier" in decoded["error"]["message"]
-        assert "correlation_id" not in decoded
+        with pytest.raises(ValueError, match="Invalid identifier"):
+            gate_write("bad table name!", settings)
 
 
 class TestMaskRecordDispatch:

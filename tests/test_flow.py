@@ -33,7 +33,7 @@ def _register_and_get_tools(
     auth_provider: OAuthPKCEProvider,
 ) -> dict[str, Any]:
     """Register the unified ``flow`` tool on a fresh MCP and return callables."""
-    from servicenow_mcp.tools.flow import register_tools
+    from servicenow_mcp.mcp.tools.flow import register_tools
 
     mcp = MCPServer("test")
     register_tools(mcp, settings, auth_provider)
@@ -54,7 +54,7 @@ def _patch_client(client: AsyncMock) -> Any:
     cm.__aenter__ = AsyncMock(return_value=client)
     cm.__aexit__ = AsyncMock(return_value=False)
     factory = MagicMock(return_value=cm)
-    return patch("servicenow_mcp.tools.flow.ServiceNowClient", factory)
+    return patch("servicenow_mcp.capabilities.flows.flow.ServiceNowClient", factory)
 
 
 def _encode_values(payload: Any) -> str:
@@ -252,7 +252,7 @@ async def test_inspect_compact_default_omits_optional_detail_requests(
 
 
 @pytest.mark.parametrize("action", ["inspect", "contract"])
-@pytest.mark.parametrize("sections", ["", "warnings"])
+@pytest.mark.parametrize("sections", [[], ["warnings"]])
 @pytest.mark.parametrize("spoke_field", ["category", "sys_scope"])
 @pytest.mark.asyncio()
 async def test_selected_warnings_fetch_spoke_metadata_without_action_schema(
@@ -284,7 +284,7 @@ async def test_selected_warnings_fetch_spoke_metadata_without_action_schema(
 
 
 @pytest.mark.parametrize("action", ["inspect", "contract"])
-@pytest.mark.parametrize("sections", ["", "warnings"])
+@pytest.mark.parametrize("sections", [[], ["warnings"]])
 @pytest.mark.asyncio()
 async def test_selected_warnings_disclose_spoke_beyond_probe(
     settings: Settings,
@@ -349,7 +349,7 @@ async def test_warning_dependency_below_cap_recommends_larger_section_limit(
         raw = await tools["flow"](
             action="inspect",
             sys_id=SYS_ID_FLOW,
-            sections="warnings",
+            sections=["warnings"],
             section_limit=2,
         )
     result = decode_response(raw)
@@ -382,7 +382,7 @@ async def test_warning_truncation_identifies_every_saturated_dependency(
         raw = await tools["flow"](
             action="inspect",
             sys_id=SYS_ID_FLOW,
-            sections="warnings",
+            sections=["warnings"],
             section_limit=2,
         )
     result = decode_response(raw)
@@ -412,7 +412,7 @@ async def test_warning_truncation_discloses_missing_action_type_metadata(
     tools = _register_and_get_tools(settings, auth_provider)
 
     with _patch_client(client):
-        raw = await tools["flow"](action="inspect", sys_id=SYS_ID_FLOW, sections="warnings")
+        raw = await tools["flow"](action="inspect", sys_id=SYS_ID_FLOW, sections=["warnings"])
     result = decode_response(raw)
 
     truncation = result["truncation"]["warnings"]
@@ -437,7 +437,7 @@ async def test_node_section_discloses_missing_action_type_metadata(
     tools = _register_and_get_tools(settings, auth_provider)
 
     with _patch_client(client):
-        raw = await tools["flow"](action=action, sys_id=SYS_ID_FLOW, sections=section)
+        raw = await tools["flow"](action=action, sys_id=SYS_ID_FLOW, sections=[section])
     result = decode_response(raw)
 
     truncation = result["truncation"][section]
@@ -462,7 +462,7 @@ async def test_trigger_section_discloses_record_condition_dependency_cap(
         raw = await tools["flow"](
             action="inspect",
             sys_id=SYS_ID_FLOW,
-            sections="triggers",
+            sections=["triggers"],
             section_limit=1001,
         )
     result = decode_response(raw)
@@ -479,8 +479,8 @@ async def test_inspect_invalid_section_fails_before_service_now_io(
 ) -> None:
     """An invalid selector is rejected before a ServiceNow client is opened."""
     tools = _register_and_get_tools(settings, auth_provider)
-    with patch("servicenow_mcp.tools.flow.ServiceNowClient") as client_factory:
-        raw = await tools["flow"](action="inspect", sys_id=SYS_ID_FLOW, sections="unknown")
+    with patch("servicenow_mcp.capabilities.flows.flow.ServiceNowClient") as client_factory:
+        raw = await tools["flow"](action="inspect", sys_id=SYS_ID_FLOW, sections=["unknown"])
     result = decode_response(raw)
 
     assert result["status"] == "error"
@@ -500,7 +500,7 @@ async def test_inspect_explicit_sections_fetch_dependencies_once_and_only_when_n
         raw = await tools["flow"](
             action="inspect",
             sys_id=SYS_ID_FLOW,
-            sections="structural_summary,canvas",
+            sections=["structural_summary", "canvas"],
         )
     result = decode_response(raw)
 
@@ -546,7 +546,7 @@ async def test_inspect_section_limit_discloses_truncation_and_continuation(
         raw = await tools["flow"](
             action="inspect",
             sys_id=SYS_ID_FLOW,
-            sections="canvas",
+            sections=["canvas"],
             section_limit=2,
         )
     result = decode_response(raw)
@@ -564,8 +564,8 @@ async def test_inspect_section_limit_discloses_truncation_and_continuation(
 @pytest.mark.parametrize(
     ("action", "sections", "node_section"),
     [
-        ("inspect", "canvas,warnings", "canvas"),
-        ("contract", "steps,warnings", "steps"),
+        ("inspect", ["canvas", "warnings"], "canvas"),
+        ("contract", ["steps", "warnings"], "steps"),
         ("inspect", "*", "canvas"),
         ("contract", "*", "steps"),
     ],
@@ -672,7 +672,7 @@ async def test_node_truncation_at_max_names_direct_query_paths(
         raw = await tools["flow"](
             action=action,
             sys_id=SYS_ID_FLOW,
-            sections=section,
+            sections=[section],
             section_limit=settings.max_row_limit + 50,
         )
     result = decode_response(raw)
@@ -703,7 +703,7 @@ async def test_structural_summary_truncation_at_max_names_all_truncated_sources(
         raw = await tools["flow"](
             action=action,
             sys_id=SYS_ID_FLOW,
-            sections="structural_summary",
+            sections=["structural_summary"],
             section_limit=settings.max_row_limit + 50,
         )
     result = decode_response(raw)
@@ -730,7 +730,7 @@ async def test_warning_truncation_at_max_names_complete_direct_query_sequence(
         raw = await tools["flow"](
             action="inspect",
             sys_id=SYS_ID_FLOW,
-            sections="warnings",
+            sections=["warnings"],
             section_limit=settings.max_row_limit,
         )
     result = decode_response(raw)
@@ -784,7 +784,7 @@ async def test_row_section_truncation_at_max_names_direct_query_path(
         raw = await tools["flow"](
             action="inspect",
             sys_id=SYS_ID_FLOW,
-            sections=section,
+            sections=[section],
             section_limit=settings.max_row_limit + 50,
         )
     result = decode_response(raw)
@@ -822,7 +822,7 @@ async def test_v1_section_truncation_names_direct_query_sequence(
         raw = await tools["flow"](
             action="inspect",
             sys_id=SYS_ID_FLOW,
-            sections=section,
+            sections=[section],
             section_limit=settings.max_row_limit + 50,
         )
     result = decode_response(raw)
@@ -856,7 +856,7 @@ async def test_v1_variable_values_disclose_saturated_action_dependency(
         raw = await tools["flow"](
             action="inspect",
             sys_id=SYS_ID_FLOW,
-            sections="v1_variable_values",
+            sections=["v1_variable_values"],
             section_limit=2,
         )
     result = decode_response(raw)
@@ -893,7 +893,7 @@ async def test_inspect_canvas_only_decodes_nodes_without_warning_dependencies(
     client = _make_client_mock(**kwargs)
 
     with _patch_client(client):
-        raw = await tools["flow"](action="inspect", sys_id=SYS_ID_FLOW, sections="canvas")
+        raw = await tools["flow"](action="inspect", sys_id=SYS_ID_FLOW, sections=["canvas"])
     result = decode_response(raw)
 
     assert result["data"]["canvas"][0]["values_decoded"] == [{"name": "x", "value": "y"}]
@@ -1160,7 +1160,7 @@ async def test_flow_stages_include_root_and_snapshot_provenance(
 
     with _patch_client(client):
         result = decode_response(
-            await tools["flow"](action=action, sys_id=SYS_ID_FLOW, sections="stages", section_limit=25)
+            await tools["flow"](action=action, sys_id=SYS_ID_FLOW, sections=["stages"], section_limit=25)
         )
 
     stages = result["data"]["stages"]
@@ -1200,7 +1200,7 @@ async def test_flow_stages_empty_and_shared_snapshot_are_normalized(
     tools = _register_and_get_tools(settings, auth_provider)
 
     with _patch_client(client):
-        result = decode_response(await tools["flow"](action=action, sys_id=SYS_ID_FLOW, sections="stages"))
+        result = decode_response(await tools["flow"](action=action, sys_id=SYS_ID_FLOW, sections=["stages"]))
 
     stages = result["data"]["stages"]
     assert stages["sources"] == [
@@ -1812,7 +1812,7 @@ async def test_unknown_action_returns_error(settings: Settings, auth_provider: O
     result = decode_response(raw)
 
     assert result["status"] == "error"
-    assert "bogus" in result["error"]["message"]
+    assert result["error"]["code"] == "INVALID_REQUEST"
 
 
 @pytest.mark.asyncio()

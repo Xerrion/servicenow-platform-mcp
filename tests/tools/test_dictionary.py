@@ -1,4 +1,4 @@
-"""Tests for ``servicenow_mcp.tools._dictionary``.
+"""Tests for ``servicenow_mcp.platform.metadata._dictionary``.
 
 Covers the registry's super_class walk, type filter, attribute heuristic,
 exclusion list, cycle/depth guards, and per-table cache. The registry talks to
@@ -16,14 +16,14 @@ import httpx2
 import pytest
 
 from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.client import ServiceNowClientProvider
 from servicenow_mcp.config import Settings
-from servicenow_mcp.telemetry import CacheName, HttpTelemetry
-from servicenow_mcp.tools._dictionary import (
+from servicenow_mcp.platform.client import ServiceNowClientProvider
+from servicenow_mcp.platform.metadata._dictionary import (
     DictionaryField,
     DictionaryRegistry,
 )
-from servicenow_mcp.tools._dictionary_classification import attributes_admit_heuristic
+from servicenow_mcp.platform.metadata._dictionary_classification import attributes_admit_heuristic
+from servicenow_mcp.telemetry import CacheName, HttpTelemetry
 from tests._mock_transport import http_mock
 
 
@@ -432,7 +432,7 @@ class TestCache:
 
         client_factory = cast("ServiceNowClientProvider", ClientContext)
         registry = DictionaryRegistry(settings, auth_provider, client_factory)
-        with patch("servicenow_mcp.tools._dictionary.resolve_chain", new_callable=AsyncMock) as resolver:
+        with patch("servicenow_mcp.platform.metadata._dictionary.resolve_chain", new_callable=AsyncMock) as resolver:
             resolver.return_value = ["incident"]
             assert await registry.get_chain("incident") == ["incident"]
             assert await registry.get_chain("incident") == ["incident"]

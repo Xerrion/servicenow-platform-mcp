@@ -131,7 +131,9 @@ Save this configuration as `.mcp.json` in the top-level folder you open in your 
   "mcpServers": {
     "servicenow-platform": {
       "command": "uvx",
-      "args": ["servicenow-platform-mcp"],
+      "args": [
+        "servicenow-platform-mcp"
+      ],
       "env": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_OAUTH_CLIENT_ID": "your-public-client-id",
@@ -160,7 +162,10 @@ Add this to `opencode.json` in your project:
   "mcp": {
     "servicenow-platform": {
       "type": "local",
-      "command": ["uvx", "servicenow-platform-mcp"],
+      "command": [
+        "uvx",
+        "servicenow-platform-mcp"
+      ],
       "enabled": true,
       "environment": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
@@ -207,8 +212,8 @@ For example, `MCP_TOOL_PACKAGE=query,describe,record_read,record_write`
 enables record inspection and changes. Set `SERVICENOW_ENV=dev` for that
 non-production instance. Restart the server after changing the configuration.
 
-Record writes offer previews, but callers can request immediate changes.
-The server does not enforce human approval. Use this review process for record changes:
+Every record, attachment, and catalog mutation requires preview followed by `mutation_apply`.
+The server does not enforce human approval. Use this review process:
 
 1. Ask the app to read the current record.
 2. Ask for a preview of the proposed change.
@@ -227,15 +232,14 @@ For a script update:
 > explain it. Show a preview with the complete replacement script. Wait for my
 > approval before applying it.
 
-Record writes default to a preview. `record_apply` applies its one-time
-`preview_token`. A caller can also request an immediate write with
-`preview=false`.
-Previews expire after five minutes and disappear when the server restarts.
+`record_preview`, `attachment_preview`, and `service_catalog_preview` return single-use tokens.
+`mutation_apply` consumes a reviewed token and checks policy, authorization, and detectable state changes.
+Tokens expire after 300 seconds and disappear on restart.
+If a remote outcome is unknown, check ServiceNow before creating another preview.
 
-Attachment uploads and deletions, catalog orders, and cart changes apply
-directly. They do not use the record preview workflow.
-Catalog actions require `full` or a custom package containing `service_catalog`.
-That group includes both browsing and ordering. It is absent from `readonly`.
+Catalog browsing is available in `readonly` through `service_catalog`.
+Catalog mutation previews require the `service_catalog_write` group.
+Preview does not simulate fulfillment or guarantee prices.
 
 Script updates replace the complete field value. The server does not check
 JavaScript syntax. Review and test the script before relying on its behavior.
@@ -255,7 +259,7 @@ record access. Tool selection and environment settings are additional local cont
 | `full` | All tools, including record writes, attachment writes, and catalog actions. |
 | `none` | Only `list_tool_packages`, for checking that the server starts. |
 
-**Set this explicitly. The server defaults to `full` when you omit it.**
+The package defaults to `readonly` and the environment defaults to `prod`.
 A package enables tools. It does not grant ServiceNow permissions.
 `list_tool_packages` lists available packages and groups, not the active package.
 For the full inventory and tool inputs, see the [tool reference](docs/wiki/Tool-Reference.md).

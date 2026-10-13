@@ -30,7 +30,7 @@ def _register_and_get_tools(
     """Register the unified ``describe`` tool on a fresh MCP and return callables."""
     from mcp.server import MCPServer
 
-    from servicenow_mcp.tools.describe import register_tools
+    from servicenow_mcp.mcp.tools.describe import register_tools
 
     mcp = MCPServer("test")
     register_tools(mcp, settings, auth_provider)
@@ -182,7 +182,7 @@ class TestDescribe:
 
         tools = _register_and_get_tools(settings, auth_provider)
 
-        raw = await tools["describe"](table="incident", fields="state, priority")
+        raw = await tools["describe"](table="incident", fields=["state", "priority"])
         result = decode_response(raw)
         assert result["status"] == "success"
         names = [f["name"] for f in result["data"]["fields"]]
@@ -200,8 +200,8 @@ class TestDescribe:
 
         from mcp.server import MCPServer
 
-        from servicenow_mcp.tools._dictionary import DictionaryField, DictionaryRegistry
-        from servicenow_mcp.tools.describe import register_tools
+        from servicenow_mcp.mcp.tools.describe import register_tools
+        from servicenow_mcp.platform.metadata._dictionary import DictionaryField, DictionaryRegistry
 
         dictionary = DictionaryRegistry(settings, auth_provider)
         dictionary.get_all_fields = AsyncMock(  # type: ignore[method-assign]
@@ -351,7 +351,7 @@ class TestDescribe:
         """Describe sorts the merged hierarchy and keeps the child declaration."""
         from unittest.mock import AsyncMock
 
-        from servicenow_mcp.tools._dictionary import DictionaryField, DictionaryRegistry
+        from servicenow_mcp.platform.metadata._dictionary import DictionaryField, DictionaryRegistry
 
         dictionary = DictionaryRegistry(settings, auth_provider)
         dictionary.get_all_fields = AsyncMock(  # type: ignore[method-assign]
@@ -374,7 +374,7 @@ class TestDescribe:
         )
         from mcp.server import MCPServer
 
-        from servicenow_mcp.tools.describe import register_tools
+        from servicenow_mcp.mcp.tools.describe import register_tools
 
         mcp = MCPServer("test")
         register_tools(mcp, settings, auth_provider, dictionary=dictionary)
@@ -383,7 +383,7 @@ class TestDescribe:
         with http_mock:
             self._mock_db_object()
             self._mock_choices()
-            result = decode_response(await tools["describe"](table="incident", fields="number,state"))
+            result = decode_response(await tools["describe"](table="incident", fields=["number", "state"]))
 
         fields = {field["name"]: field for field in result["data"]["fields"]}
         assert fields["number"]["inherited_from"] == "task"
@@ -398,7 +398,7 @@ class TestDescribe:
         """Synthetic task-derived schemas expose inherited task fields consistently."""
         from unittest.mock import AsyncMock
 
-        from servicenow_mcp.tools._dictionary import DictionaryField, DictionaryRegistry
+        from servicenow_mcp.platform.metadata._dictionary import DictionaryField, DictionaryRegistry
 
         dictionary = DictionaryRegistry(settings, auth_provider)
         dictionary.get_all_fields = AsyncMock(  # type: ignore[method-assign]
@@ -414,7 +414,7 @@ class TestDescribe:
         )
         from mcp.server import MCPServer
 
-        from servicenow_mcp.tools.describe import register_tools
+        from servicenow_mcp.mcp.tools.describe import register_tools
 
         mcp = MCPServer("test")
         register_tools(mcp, settings, auth_provider, dictionary=dictionary)
@@ -424,7 +424,7 @@ class TestDescribe:
                 return_value=httpx2.Response(200, json={"result": [{"name": table}]})
             )
             self._mock_choices()
-            result = decode_response(await tools["describe"](table=table, fields="number"))
+            result = decode_response(await tools["describe"](table=table, fields=["number"]))
         assert result["data"]["fields"][0]["inherited_from"] == "task"
 
 
@@ -486,7 +486,7 @@ class TestListScriptFields:
         raw = await tools["describe"](action="not_a_real_action")
         result = decode_response(raw)
         assert result["status"] == "error"
-        assert "Unknown describe action" in result["error"]["message"]
+        assert result["error"]["code"] == "INVALID_REQUEST"
 
     @pytest.mark.asyncio()
     async def test_missing_table_without_action_returns_error(
@@ -575,7 +575,7 @@ class TestListTables:
     @pytest.mark.asyncio()
     async def test_truncation_warning(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """Hitting the result cap emits a truncation warning."""
-        from servicenow_mcp.tools.describe import _LIST_TABLES_LIMIT
+        from servicenow_mcp.capabilities.metadata.describe import _LIST_TABLES_LIMIT
 
         rows = [
             {"name": f"t{i:04d}", "label": f"T{i}", "super_class": "", "sys_scope": "Global"}

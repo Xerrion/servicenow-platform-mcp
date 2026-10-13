@@ -9,12 +9,11 @@ import pytest
 from mcp.server import MCPServer
 
 from servicenow_mcp.auth import OAuthPKCEProvider
+from servicenow_mcp.capabilities.contracts import MAX_JSON_PAYLOAD_BYTES
+from servicenow_mcp.capabilities.mutations.store import PreviewTokenStore
 from servicenow_mcp.config import Settings
-from servicenow_mcp.state import PreviewTokenStore
-from servicenow_mcp.tools._payload import MAX_JSON_PAYLOAD_BYTES
-from servicenow_mcp.tools.record_write import register_tools
 from tests._mock_transport import http_mock
-from tests.helpers import decode_response, get_tool_functions
+from tests.helpers import decode_response, get_tool_functions, preview_and_apply, register_mutations
 
 
 BASE_URL = "https://test.service-now.com/api/now/table"
@@ -30,7 +29,7 @@ def auth_provider(settings: Settings) -> OAuthPKCEProvider:
 def _register_and_get_tools(settings: Settings, auth_provider: OAuthPKCEProvider) -> dict[str, Any]:
     """Register write tools on a fresh server and return their callables."""
     mcp = MCPServer("test")
-    register_tools(mcp, settings, auth_provider)
+    register_mutations(mcp, settings, auth_provider, frozenset({"records"}))
     return get_tool_functions(mcp)
 
 
@@ -38,7 +37,7 @@ def _register_and_get_tools(settings: Settings, auth_provider: OAuthPKCEProvider
 def server(settings: Settings) -> MCPServer:
     """Register write tools without reading local credentials."""
     mcp = MCPServer("test")
-    register_tools(mcp, settings, OAuthPKCEProvider(settings))
+    register_mutations(mcp, settings, OAuthPKCEProvider(settings), frozenset({"records"}))
     return mcp
 
 
@@ -56,12 +55,11 @@ class TestInlineRecordWrite:
 
     async def test_write_schema_has_only_inline_input(self, server: MCPServer) -> None:
         schemas = {tool.name: tool for tool in await server.list_tools()}
-        assert set(schemas["record_write"].input_schema["properties"]) == {
+        assert set(schemas["record_preview"].input_schema["properties"]) == {
             "action",
             "table",
             "sys_id",
             "data",
-            "preview",
         }
 
     @pytest.mark.parametrize("action", ["create", "update"])
@@ -74,12 +72,11 @@ class TestInlineRecordWrite:
         tools = _register_and_get_tools(settings, auth_provider)
         with patch.object(PreviewTokenStore, "create", new_callable=AsyncMock) as create_token:
             result = decode_response(
-                await tools["record_write"](
+                await tools["record_preview"](
                     action=action,
                     table="u_custom",
-                    sys_id=SYS_ID if action == "update" else "",
-                    data=json.dumps({"u_markup": content}),
-                    preview=preview,
+                    sys_id=SYS_ID if action == "update" else None,
+                    data={"u_markup": content},
                 )
             )
         assert result["status"] == "error"
@@ -117,7 +114,7 @@ class TestInlineRecordWrite:
             }
         )
         url = f"{BASE_URL}/u_widget" + (f"/{SYS_ID}" if action == "update" else "")
-        if action == "update" and preview:
+        if action == "update":
             http_mock.get(url).respond(
                 200, json={"result": {"sys_id": SYS_ID, "script": "old", "password": "old-secret"}}
             )
@@ -126,33 +123,40 @@ class TestInlineRecordWrite:
         )
         tools = _register_and_get_tools(settings, auth_provider)
         result = decode_response(
-            await tools["record_write"](
-                action=action,
-                table="u_widget",
-                sys_id=SYS_ID if action == "update" else "",
-                data=json.dumps(payload),
-                preview=preview,
+            await (
+                tools["record_preview"](
+                    action=action, table="u_widget", sys_id=SYS_ID if action == "update" else None, data=payload
+                )
+                if preview
+                else preview_and_apply(
+                    tools,
+                    "record_preview",
+                    action=action,
+                    table="u_widget",
+                    sys_id=SYS_ID if action == "update" else None,
+                    data=payload,
+                )
             )
         )
         assert result["status"] == "success"
         assert "test-only-secret" not in json.dumps(result)
         if preview:
             assert not mutation.called
-            section = result["data"]["preview"]["data" if action == "create" else "diff"]
+            section = result["data"]["summary"]["data" if action == "create" else "diff"]
             for key, value in payload.items():
                 actual = section[key] if action == "create" else section[key]["new"]
                 assert actual == ("***MASKED***" if key == "password" else value)
             token = result["data"]["preview_token"]
-            result = decode_response(await tools["record_apply"](preview_token=token))
+            result = decode_response(await tools["mutation_apply"](preview_token=token))
             assert result["status"] == "success"
             assert "test-only-secret" not in json.dumps(result)
-            assert decode_response(await tools["record_apply"](preview_token=token))["status"] == "error"
+            assert decode_response(await tools["mutation_apply"](preview_token=token))["status"] == "error"
         assert mutation.call_count == 1
         assert json.loads(mutation.calls[0].request.content) == payload
         metadata_calls = [call for call in http_mock.calls if call.request.url.path.endswith("/sys_dictionary")]
         for call in metadata_calls:
             assert call.request.url.params["sysparm_fields"] in {"element,internal_type.name", "element,mandatory"}
-        expected_metadata_calls = (3 if preview else 2) if action == "create" else 1
+        expected_metadata_calls = 4 if action == "create" else 2
         assert len(metadata_calls) == expected_metadata_calls
 
     async def test_metadata_only_update_does_not_send_script(
@@ -165,20 +169,15 @@ class TestInlineRecordWrite:
         mutation = http_mock.patch(url).respond(200, json={"result": {**current, "active": False}})
         tools = _register_and_get_tools(settings, auth_provider)
         result = decode_response(
-            await tools["record_write"](
-                action="update",
-                table="sys_script",
-                sys_id=SYS_ID,
-                data='{"active": false}',
-            )
+            await tools["record_preview"](action="update", table="sys_script", sys_id=SYS_ID, data={"active": False})
         )
         assert result["status"] == "success"
-        assert set(result["data"]["preview"]["diff"]) == {"active"}
-        applied = decode_response(await tools["record_apply"](preview_token=result["data"]["preview_token"]))
+        assert set(result["data"]["summary"]["diff"]) == {"active"}
+        applied = decode_response(await tools["mutation_apply"](preview_token=result["data"]["preview_token"]))
         assert applied["data"]["record"]["script"] == current["script"]
         assert json.loads(mutation.calls[0].request.content) == {"active": False}
         metadata_calls = [call for call in http_mock.calls if call.request.url.path.endswith("/sys_dictionary")]
-        assert len(metadata_calls) == 1
+        assert len(metadata_calls) == 2
         assert metadata_calls[0].request.url.params["sysparm_query"] == "name=sys_script^elementINactive^active=true"
         assert metadata_calls[0].request.url.params["sysparm_fields"] == "element,internal_type.name"
 
@@ -187,16 +186,16 @@ class TestInlineRecordWrite:
     async def test_inline_size_limit_precedes_metadata(
         self, settings: Settings, auth_provider: OAuthPKCEProvider, action: str, preview: bool
     ) -> None:
-        payload = json.dumps({"script": "é" * (MAX_JSON_PAYLOAD_BYTES // 2)}, ensure_ascii=False)
-        assert len(payload) < MAX_JSON_PAYLOAD_BYTES < len(payload.encode("utf-8"))
+        payload = {"script": "é" * (MAX_JSON_PAYLOAD_BYTES // 2)}
+        assert (
+            len(json.dumps(payload, ensure_ascii=False))
+            < MAX_JSON_PAYLOAD_BYTES
+            < len(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+        )
         with patch.object(PreviewTokenStore, "create", new_callable=AsyncMock) as create_token:
             result = decode_response(
-                await _register_and_get_tools(settings, auth_provider)["record_write"](
-                    action=action,
-                    table="sys_script",
-                    sys_id=SYS_ID if action == "update" else "",
-                    data=payload,
-                    preview=preview,
+                await _register_and_get_tools(settings, auth_provider)["record_preview"](
+                    action=action, table="sys_script", sys_id=SYS_ID if action == "update" else None, data=payload
                 )
             )
         assert result["status"] == "error"
@@ -205,15 +204,13 @@ class TestInlineRecordWrite:
         assert not http_mock.calls
 
     async def test_inline_size_boundary_is_accepted(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-        overhead = len(json.dumps({"script": ""}).encode("utf-8"))
-        payload = json.dumps({"script": "x" * (MAX_JSON_PAYLOAD_BYTES - overhead)})
-        assert len(payload.encode("utf-8")) == MAX_JSON_PAYLOAD_BYTES
+        overhead = len(json.dumps({"script": ""}, separators=(",", ":")).encode("utf-8"))
+        payload = {"script": "x" * (MAX_JSON_PAYLOAD_BYTES - overhead)}
+        assert len(json.dumps(payload, separators=(",", ":")).encode("utf-8")) == MAX_JSON_PAYLOAD_BYTES
         mock_metadata({"script": "script"})
         result = decode_response(
-            await _register_and_get_tools(settings, auth_provider)["record_write"](
-                action="create",
-                table="sys_script",
-                data=payload,
+            await _register_and_get_tools(settings, auth_provider)["record_preview"](
+                action="create", table="sys_script", data=payload
             )
         )
         assert result["status"] == "success"
@@ -223,10 +220,8 @@ class TestInlineRecordWrite:
         self, settings: Settings, auth_provider: OAuthPKCEProvider, payload: str
     ) -> None:
         result = decode_response(
-            await _register_and_get_tools(settings, auth_provider)["record_write"](
-                action="create",
-                table="sys_script",
-                data=payload,
+            await _register_and_get_tools(settings, auth_provider)["record_preview"](
+                action="create", table="sys_script", data=payload
             )
         )
         assert result["status"] == "error"
@@ -240,10 +235,8 @@ class TestInlineRecordWrite:
         http_mock.get(f"{BASE_URL}/sys_dictionary").respond(status_code, json={"error": {"message": "Unavailable"}})
         with patch.object(PreviewTokenStore, "create", new_callable=AsyncMock) as create_token:
             result = decode_response(
-                await _register_and_get_tools(settings, auth_provider)["record_write"](
-                    action="create",
-                    table="u_custom",
-                    data='{"u_markup":"<root/>"}',
+                await _register_and_get_tools(settings, auth_provider)["record_preview"](
+                    action="create", table="u_custom", data={"u_markup": "<root/>"}
                 )
             )
         assert result["status"] == "error"
@@ -266,12 +259,13 @@ class TestInlineRecordWrite:
         http_mock.get(f"{BASE_URL}/sys_db_object").mock(side_effect=objects)
         http_mock.get(f"{BASE_URL}/sys_dictionary").mock(side_effect=fields)
         result = decode_response(
-            await _register_and_get_tools(settings, auth_provider)["record_write"](
+            await preview_and_apply(
+                _register_and_get_tools(settings, auth_provider),
+                "record_preview",
                 action="update",
                 table="u_child",
                 sys_id=SYS_ID,
-                data='{"u_markup":"<unclosed>"}',
-                preview=False,
+                data={"u_markup": "<unclosed>"},
             )
         )
         assert "not well-formed" in result["error"]["message"]
@@ -281,19 +275,15 @@ class TestInlineRecordWrite:
         mock_metadata({"script": "script"})
         tools = _register_and_get_tools(settings, auth_provider)
         preview = decode_response(
-            await tools["record_write"](
-                action="create",
-                table="sys_script",
-                data='{"script":"run();"}',
-            )
+            await tools["record_preview"](action="create", table="sys_script", data={"script": "run();"})
         )
         settings.servicenow_env = "prod"
-        result = decode_response(await tools["record_apply"](preview_token=preview["data"]["preview_token"]))
+        result = decode_response(await tools["mutation_apply"](preview_token=preview["data"]["preview_token"]))
         assert result["status"] == "error"
         assert "production" in result["error"]["message"].lower()
         assert all(call.request.method == "GET" for call in http_mock.calls)
         assert (
-            decode_response(await tools["record_apply"](preview_token=preview["data"]["preview_token"]))["status"]
+            decode_response(await tools["mutation_apply"](preview_token=preview["data"]["preview_token"]))["status"]
             == "error"
         )
 
@@ -313,13 +303,11 @@ class TestInlineRecordWrite:
         http_mock.get(f"{BASE_URL}/sys_dictionary").mock(side_effect=fields)
         with patch.object(PreviewTokenStore, "create", new_callable=AsyncMock) as create_token:
             result = decode_response(
-                await _register_and_get_tools(settings, auth_provider)["record_write"](
-                    action="create",
-                    table="sys_script",
-                    data='{"script":"run();"}',
+                await _register_and_get_tools(settings, auth_provider)["record_preview"](
+                    action="create", table="sys_script", data={"script": "run();"}
                 )
             )
         assert result["status"] == "error"
-        assert result["data"]["missing_fields"] == ["name"]
+        assert result["error"]["missing_fields"] == ["name"]
         create_token.assert_not_awaited()
         assert all(call.request.method == "GET" for call in http_mock.calls)

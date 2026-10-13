@@ -3,35 +3,96 @@
 import json
 from unittest.mock import patch
 
+import httpx2
 import pytest
+from jsonschema import Draft202012Validator
 from mcp.server import MCPServer
 
 from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.client import ServiceNowClient
+from servicenow_mcp.capabilities.contracts import CapabilityError, CapabilityResult
+from servicenow_mcp.capabilities.contracts import result as operation_result
 from servicenow_mcp.config import Settings
-from servicenow_mcp.decorators import tool_handler
-from servicenow_mcp.response import format_response
-from servicenow_mcp.tools.query import register_tools
-from servicenow_mcp.tools.service_catalog import register_tools as register_catalog_tools
+from servicenow_mcp.errors import ForbiddenError
+from servicenow_mcp.mcp.handlers import tool_handler
+from servicenow_mcp.mcp.tools.query import register_tools
+from servicenow_mcp.mcp.tools.service_catalog import register_tools as register_catalog_tools
+from servicenow_mcp.platform.client import ServiceNowClient
 from tests._mock_transport import http_mock
+from tests.helpers import decode_response
 
 
 BASE_URL = "https://test.service-now.com"
 
 
+@pytest.mark.parametrize(
+    "failure",
+    [
+        None,
+        CapabilityError("Missing fields", missing_fields=["fields"]),
+        ForbiddenError("Policy denied"),
+        httpx2.ReadTimeout("private timeout", request=httpx2.Request("GET", f"{BASE_URL}/api/now/table/incident")),
+        RuntimeError("private failure"),
+    ],
+    ids=["success", "validation", "policy", "upstream", "internal"],
+)
+async def test_tool_results_conform_to_output_schema(failure: Exception | None) -> None:
+    mcp = MCPServer("test")
+
+    @mcp.tool()
+    @tool_handler
+    async def tool() -> CapabilityResult:
+        if failure is not None:
+            raise failure
+        return operation_result(
+            data={"ok": True},
+            pagination={"offset": 0, "limit": 1, "total": 1},
+            warnings=["Incomplete response"],
+            truncation={"limit": 1},
+        )
+
+    schema = (await mcp.list_tools())[0].output_schema
+    assert isinstance(schema, dict)
+    assert schema["type"] == "object"
+    Draft202012Validator.check_schema(schema)
+    validator = Draft202012Validator(schema)
+    response = await mcp.call_tool("tool", {})
+    assert response.is_error is (failure is not None)
+    validator.validate(response.structured_content)
+    assert response.structured_content["status"] == ("success" if failure is None else "error")
+    assert json.loads(response.content[0].text) == response.structured_content
+    if failure is None:
+        assert response.structured_content == {
+            "status": "success",
+            "data": {"ok": True},
+            "pagination": {"offset": 0, "limit": 1, "total": 1},
+            "warnings": ["Incomplete response"],
+            "truncation": {"limit": 1},
+        }
+    for invalid in [
+        {"status": "error", "data": None},
+        {"status": "success", "data": {}, "error": {"code": "INVALID_REQUEST", "message": "Invalid request"}},
+        {"status": "unexpected", "data": None},
+    ]:
+        assert not validator.is_valid(invalid)
+
+
 @pytest.mark.parametrize("should_raise", [False, True])
 async def test_envelopes_have_no_internal_correlation_id(should_raise: bool) -> None:
     @tool_handler
-    async def tool() -> str:
+    async def tool() -> CapabilityResult:
         if should_raise:
             raise RuntimeError("private failure")
-        return format_response(data={"correlation_id": "record-value"})
+        return operation_result(data={"correlation_id": "record-value"})
 
-    with patch("servicenow_mcp.tool_errors.sentry_capture") as capture:
-        response = json.loads(await tool())
+    with patch("servicenow_mcp.mcp.errors.sentry_capture") as capture:
+        response = decode_response(await tool())
     assert "correlation_id" not in response
     if should_raise:
-        assert response == {"status": "error", "data": None, "error": {"message": "Internal error"}}
+        assert response == {
+            "status": "error",
+            "data": None,
+            "error": {"code": "INTERNAL_ERROR", "message": "Internal error"},
+        }
         capture.assert_called_once()
         assert isinstance(capture.call_args.args[0], RuntimeError)
     else:
@@ -45,10 +106,13 @@ async def test_query_schema_has_optional_inputs_without_empty_defaults(settings:
     schema = (await mcp.list_tools())[0].input_schema
     assert schema["required"] == ["table"]
     assert "correlation_id" not in schema["properties"]
-    for name in ("sys_id", "encoded_query", "fields", "order_by", "aggregate", "group_by", "resolve_labels"):
+    for name in ("sys_id", "encoded_query", "order_by"):
         parameter = schema["properties"][name]
         assert parameter["default"] is None
         assert {choice["type"] for choice in parameter["anyOf"]} == {"string", "null"}
+    for name in ("fields", "aggregate", "group_by", "resolve_labels"):
+        assert schema["properties"][name]["default"] is None
+        assert any(branch.get("type") == "array" for branch in schema["properties"][name]["anyOf"])
     assert schema["properties"]["limit"]["default"] == 20
     assert schema["properties"]["offset"]["default"] == 0
     assert schema["properties"]["display_values"]["default"] is False
@@ -56,7 +120,8 @@ async def test_query_schema_has_optional_inputs_without_empty_defaults(settings:
 
 @pytest.mark.parametrize("empty", ["omitted", "", None])
 @pytest.mark.parametrize(
-    "mode", [{"fields": "*"}, {"fields": "correlation_id"}, {"aggregate": "count"}, {"sys_id": "a" * 32}]
+    "mode",
+    [{"fields": "*"}, {"fields": ["correlation_id"]}, {"aggregate": [{"operation": "count"}]}, {"sys_id": "a" * 32}],
 )
 async def test_query_mcp_calls_omit_empty_parameters(
     settings: Settings, empty: str | None, mode: dict[str, str]
@@ -76,10 +141,13 @@ async def test_query_mcp_calls_omit_empty_parameters(
             ("sys_id", "encoded_query", "fields", "order_by", "aggregate", "group_by", "resolve_labels"), empty
         )
     )
+    for name in ("fields", "aggregate", "group_by", "resolve_labels"):
+        if name in optional and optional[name] == "":
+            optional[name] = []
     result = await mcp.call_tool("query", {"table": "incident", **optional, **mode})
     assert result.result_type == "complete"
     assert isinstance(result.structured_content, dict)
-    response = json.loads(result.structured_content["result"])
+    response = result.structured_content
     assert response["status"] == "success"
     assert "correlation_id" not in response
     assert "selection" not in response
@@ -122,13 +190,13 @@ async def test_query_preserves_record_metadata_fields(
     http_mock.get(f"{BASE_URL}/api/now/{path}").respond(200, json={"result": record if is_single else [record]})
     mcp = MCPServer("test")
     register_tools(mcp, settings, OAuthPKCEProvider(settings))
-    arguments = {"table": "incident", "fields": field_name if fields == "explicit" else fields}
+    arguments = {"table": "incident", "fields": [field_name] if fields == "explicit" else fields}
     if is_single:
         arguments["sys_id"] = record["sys_id"]
     result = await mcp.call_tool("query", arguments)
     assert result.result_type == "complete"
     assert isinstance(result.structured_content, dict)
-    response = json.loads(result.structured_content["result"])
+    response = result.structured_content
     assert response["status"] == "success"
     assert "correlation_id" not in response
     assert "selection" not in response
@@ -169,7 +237,7 @@ async def test_catalog_mcp_calls_omit_empty_filters(settings: Settings, empty: s
     result = await mcp.call_tool("service_catalog", {"action": action, **optional})
     assert result.result_type == "complete"
     assert isinstance(result.structured_content, dict)
-    assert json.loads(result.structured_content["result"]) == {"status": "success", "data": []}
+    assert result.structured_content == {"status": "success", "data": []}
     expected = {"sysparm_limit": "20"}
     if action == "items_list":
         expected["sysparm_offset"] = "0"
@@ -190,14 +258,14 @@ async def test_unfiltered_related_reads_omit_empty_queries(settings: Settings) -
         assert dict(route.calls.last.request.url.params) == {"sysparm_display_value": "all", "sysparm_limit": "5"}
 
 
-@pytest.mark.parametrize("fields", [None, ""])
+@pytest.mark.parametrize("fields", [None, []])
 async def test_null_or_empty_list_projection_still_fails_before_io(settings: Settings, fields: str | None) -> None:
     mcp = MCPServer("test")
     register_tools(mcp, settings, OAuthPKCEProvider(settings))
     result = await mcp.call_tool("query", {"table": "incident", "fields": fields})
     assert result.result_type == "complete"
     assert isinstance(result.structured_content, dict)
-    response = json.loads(result.structured_content["result"])
+    response = result.structured_content
     assert response["status"] == "error"
     assert "fields is required" in response["error"]["message"]
     assert not http_mock.calls

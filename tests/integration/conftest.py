@@ -11,8 +11,8 @@ import pytest
 import pytest_asyncio
 
 from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.client import ServiceNowClient
 from servicenow_mcp.config import Settings
+from servicenow_mcp.platform.client import ServiceNowClient
 
 
 # Apply the integration marker to every test in this directory

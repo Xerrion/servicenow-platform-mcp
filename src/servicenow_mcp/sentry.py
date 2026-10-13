@@ -110,7 +110,7 @@ def setup_sentry(settings: Settings) -> None:
         dsn=dsn,
         environment=environment,
         release=_RELEASE,
-        send_default_pii=False,
+        data_collection={"user_info": False},
         include_local_variables=False,
         disabled_integrations=[StdlibIntegration()],
         integrations=integrations,

@@ -82,7 +82,7 @@ class TestSetupSentry:
         call_kwargs = mock_init.call_args[1]
         assert call_kwargs["dsn"] == "https://key@sentry.io/123"
         assert call_kwargs["environment"] == "staging"
-        assert call_kwargs["send_default_pii"] is False
+        assert call_kwargs["data_collection"]["user_info"] is False
         assert call_kwargs["include_local_variables"] is False
         assert [integration.identifier for integration in call_kwargs["disabled_integrations"]] == ["stdlib"]
         assert call_kwargs["integrations"] == []

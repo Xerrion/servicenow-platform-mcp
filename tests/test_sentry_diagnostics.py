@@ -50,7 +50,7 @@ def sentry_events(monkeypatch: pytest.MonkeyPatch) -> Generator[list[dict[str, A
         transport=transport,
         default_integrations=False,
         auto_enabling_integrations=False,
-        send_default_pii=False,
+        data_collection={"user_info": False},
         include_local_variables=False,
         traces_sample_rate=0,
         max_breadcrumbs=50,

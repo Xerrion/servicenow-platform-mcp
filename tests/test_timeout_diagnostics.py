@@ -232,7 +232,9 @@ async def test_skipped_metadata_timeout_warns_with_trace(settings: Settings, cap
         dictionary = DictionaryRegistry(settings, auth, factory)
         mcp = MCPServer("test")
         register_tools(mcp, settings, auth, dictionary=dictionary, client_factory=factory)
-        with patch.object(dictionary, "get_fields", new=AsyncMock(side_effect=httpx2.ReadTimeout("private_exception"))):
+        with patch.object(
+            dictionary, "get_query_field_paths", new=AsyncMock(side_effect=httpx2.ReadTimeout("private_exception"))
+        ):
             result = decode_response(
                 await get_tool_functions(mcp)["query"](
                     table="incident", encoded_query="number=synthetic", fields=["number"]

@@ -144,6 +144,16 @@ filter. See [[Safety-and-Policy]]. Exact-record reads do not require that filter
 `display_values` passes ServiceNow's display-value option through and preserves
 the returned field structure. The server does not add a `_display` object.
 
+Query-field discovery checks complete field paths from supported encoded-query clauses.
+It includes inactive dictionary definitions because ServiceNow still permits queries on those fields.
+Static reference paths resolve each segment against the referenced table.
+The lookup batches selected columns and bounds inheritance, pagination, and reference depth.
+
+Missing or inaccessible definitions, unsupported reference types, and bounded metadata reads produce an unverified warning.
+Missing dictionary visibility does not prove that a field is invalid.
+Field discovery does not establish ACL permission or validate every encoded-query expression.
+The query continues with its original filter. Check warnings before relying on its results.
+
 ### `record_read`
 
 > Read the Business Rule named 'Validate priority'. Explain its script and when it runs.

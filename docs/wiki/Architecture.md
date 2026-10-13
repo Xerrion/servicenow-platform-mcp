@@ -95,6 +95,13 @@ Metadata caches use configurable TTL, bounded LRU storage, and single-flight loa
 They do not cache target records, query results, flows, attachment content, or live audit counts.
 Dictionary inheritance is child-first.
 
+Query schema discovery keeps observed inheritance completion and metadata-read limitations.
+It includes inactive definitions separately from active field and script discovery.
+Reference paths use bounded, batched lookups of each static target table.
+Cached definitions provide positive schema evidence, not proof of access permission.
+Missing metadata remains unverified instead of becoming a nonexistent-field claim.
+Query discovery caches and ancestry invalidate when a table's metadata is flushed.
+
 Flow loading produces an `InspectionSnapshot` containing rows, probe limits, section selections, and dependency completeness.
 `assemble_inspection` projects that evidence without platform I/O.
 Submitted-answer loading similarly feeds `SubmittedVariablesSnapshot` to a pure assembler.

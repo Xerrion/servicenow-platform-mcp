@@ -63,6 +63,8 @@ def register_tools(
                 Omit or pass null for no filter; empty strings are also accepted.
                 Large tables require a recognized date constraint. For sys_audit, prefer
                 tablename plus documentkey when investigating one record.
+                Supported field paths use inactive-aware inherited metadata and static reference checks.
+                Unresolved metadata produces unverified warnings, not proof of invalid fields or ACL access.
             fields: Native array of field projection. List mode requires this argument.
                 ``'*'`` explicitly requests all masked fields. Exact sys_id mode defaults
                 to the compact ``sys_id,sys_updated_on`` projection.

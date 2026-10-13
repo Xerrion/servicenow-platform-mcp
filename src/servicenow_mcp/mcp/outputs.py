@@ -1,10 +1,12 @@
-"""Native error results. Capabilities do not depend on MCP types."""
+"""Native structured results. Capabilities do not depend on MCP types."""
 
 import json
 from typing import Any, ClassVar, Literal
 
 from mcp.types import CallToolResult, TextContent
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, RootModel
+
+from servicenow_mcp.capabilities.contracts import CapabilityResult
 
 
 class ErrorDetail(BaseModel):
@@ -21,6 +23,12 @@ class ErrorResult(BaseModel):
     status: Literal["error"] = "error"
     data: None = None
     error: ErrorDetail
+
+
+class ToolResult(RootModel[CapabilityResult | ErrorResult]):
+    """A native structured success or error envelope."""
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(json_schema_extra={"type": "object"})
 
 
 def error_result(message: str, code: str = "INVALID_REQUEST", **details: Any) -> CallToolResult:

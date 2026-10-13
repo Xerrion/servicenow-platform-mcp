@@ -11,6 +11,7 @@ from mcp.types import CallToolResult
 from servicenow_mcp.capabilities.contracts import CapabilityResult
 from servicenow_mcp.mcp.errors import safe_tool_call
 from servicenow_mcp.mcp.optional_text import nullable_string_signature
+from servicenow_mcp.mcp.outputs import ToolResult
 from servicenow_mcp.sentry import sentry_tool_scope, set_sentry_context, set_sentry_tag
 from servicenow_mcp.telemetry import current_tool_trace, trace_tool_call
 
@@ -119,9 +120,7 @@ def tool_handler(
 
             return await safe_tool_call(_run)
 
-    signature = nullable_string_signature(fn)
-    if signature is not None:
-        # functools.wraps preserves the runtime function object, whose dynamic
-        # signature is consumed by inspect.signature and MCP schema generation.
-        wrapper.__signature__ = signature  # ty: ignore[unresolved-attribute]
+    signature = nullable_string_signature(fn) or input_signature
+    # RootModel publishes both envelopes without the SDK wrapping a bare union in {"result": ...}.
+    wrapper.__signature__ = signature.replace(return_annotation=ToolResult)  # ty: ignore[unresolved-attribute]
     return wrapper

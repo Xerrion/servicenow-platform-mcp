@@ -13,6 +13,7 @@ from servicenow_mcp.capabilities.contracts import CapabilityResult
 from servicenow_mcp.capabilities.contracts import result as operation_result
 from servicenow_mcp.errors import ForbiddenError
 from servicenow_mcp.mcp.handlers import _REDACTED, _redact_args, tool_handler
+from servicenow_mcp.mcp.outputs import ToolResult
 from tests.helpers import decode_response, get_registered_tools
 
 
@@ -44,15 +45,16 @@ class TestToolHandler:
         assert my_tool.__name__ == "my_tool"
         assert my_tool.__doc__ == "My tool docstring."
 
-    def test_preserves_wrapped_function(self) -> None:
-        """Standard functools metadata needs no custom signature override."""
+    def test_publishes_output_contract_and_preserves_wrapped_function(self) -> None:
+        """The SDK sees both envelopes while the capability signature stays intact."""
 
         @tool_handler
         async def my_tool() -> CapabilityResult:
             return operation_result(data=None)
 
         assert inspect.unwrap(my_tool) is not my_tool
-        assert not hasattr(my_tool, "__signature__")
+        assert inspect.signature(my_tool).return_annotation is ToolResult
+        assert inspect.signature(inspect.unwrap(my_tool)).return_annotation is CapabilityResult
 
     @pytest.mark.parametrize("value", [None, "", "null", "false", "123", '"quoted"', '{"field":null}', '[false,0,""]'])
     async def test_nullable_string_survives_mcp_validation(self, value: str | None) -> None:

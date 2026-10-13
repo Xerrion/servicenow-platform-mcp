@@ -39,6 +39,8 @@ async def test_native_wire_validation_and_results(settings: Settings) -> None:
             ]:
                 failure = await session.call_tool("flow", arguments)
                 assert failure.is_error
+                Draft202012Validator(tool.output_schema).validate(failure.structured_content)
+                await session.validate_tool_result("flow", failure)
                 assert failure.structured_content["status"] == "error"
                 assert "private-sensitive-value" not in str(failure)
             assert not http_mock.calls
@@ -72,6 +74,7 @@ async def test_native_objects_and_nested_errors_are_safe_on_wire(settings: Setti
         )
         async with ClientSession(*client_streams) as session:
             await session.initialize()
+            tools = {tool.name: tool for tool in (await session.list_tools()).tools}
             for tool, args in [
                 (
                     "record_preview",
@@ -98,6 +101,8 @@ async def test_native_objects_and_nested_errors_are_safe_on_wire(settings: Setti
             ]:
                 failure = await session.call_tool(tool, args)
                 assert failure.is_error
+                Draft202012Validator(tools[tool].output_schema).validate(failure.structured_content)
+                await session.validate_tool_result(tool, failure)
                 assert "private-sensitive-value" not in str(failure)
             assert not http_mock.calls
         tasks.cancel_scope.cancel()

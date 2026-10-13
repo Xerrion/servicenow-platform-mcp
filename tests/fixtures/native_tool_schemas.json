@@ -8,6 +8,160 @@
     },
     "output": {
       "$defs": {
+        "CapabilityResult": {
+          "additionalProperties": false,
+          "description": "A result with dynamic platform data and explicit completeness metadata.",
+          "properties": {
+            "status": {
+              "const": "success",
+              "default": "success",
+              "title": "Status",
+              "type": "string"
+            },
+            "data": {
+              "$ref": "#/$defs/JsonValue"
+            },
+            "pagination": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Pagination"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "warnings": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Warnings"
+            },
+            "truncation": {
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/JsonValue"
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Truncation"
+            }
+          },
+          "required": [
+            "data"
+          ],
+          "title": "CapabilityResult",
+          "type": "object"
+        },
+        "ErrorDetail": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "title": "Code",
+              "type": "string"
+            },
+            "message": {
+              "title": "Message",
+              "type": "string"
+            },
+            "phase": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Phase"
+            },
+            "operation": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Operation"
+            },
+            "trace_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Trace Id"
+            },
+            "missing_fields": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Missing Fields"
+            }
+          },
+          "required": [
+            "code",
+            "message"
+          ],
+          "title": "ErrorDetail",
+          "type": "object"
+        },
+        "ErrorResult": {
+          "properties": {
+            "status": {
+              "const": "error",
+              "default": "error",
+              "title": "Status",
+              "type": "string"
+            },
+            "data": {
+              "default": null,
+              "title": "Data",
+              "type": "null"
+            },
+            "error": {
+              "$ref": "#/$defs/ErrorDetail"
+            }
+          },
+          "required": [
+            "error"
+          ],
+          "title": "ErrorResult",
+          "type": "object"
+        },
         "JsonValue": {},
         "Pagination": {
           "additionalProperties": false,
@@ -53,64 +207,16 @@
           "type": "object"
         }
       },
-      "additionalProperties": false,
-      "description": "A result with dynamic platform data and explicit completeness metadata.",
-      "properties": {
-        "status": {
-          "const": "success",
-          "default": "success",
-          "title": "Status",
-          "type": "string"
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CapabilityResult"
         },
-        "data": {
-          "$ref": "#/$defs/JsonValue"
-        },
-        "pagination": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Pagination"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "warnings": {
-          "anyOf": [
-            {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Warnings"
-        },
-        "truncation": {
-          "anyOf": [
-            {
-              "additionalProperties": {
-                "$ref": "#/$defs/JsonValue"
-              },
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Truncation"
+        {
+          "$ref": "#/$defs/ErrorResult"
         }
-      },
-      "required": [
-        "data"
       ],
-      "title": "CapabilityResult",
+      "description": "A native structured success or error envelope.",
+      "title": "ToolResult",
       "type": "object"
     },
     "annotations": {
@@ -329,6 +435,160 @@
     },
     "output": {
       "$defs": {
+        "CapabilityResult": {
+          "additionalProperties": false,
+          "description": "A result with dynamic platform data and explicit completeness metadata.",
+          "properties": {
+            "status": {
+              "const": "success",
+              "default": "success",
+              "title": "Status",
+              "type": "string"
+            },
+            "data": {
+              "$ref": "#/$defs/JsonValue"
+            },
+            "pagination": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Pagination"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "warnings": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Warnings"
+            },
+            "truncation": {
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/JsonValue"
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Truncation"
+            }
+          },
+          "required": [
+            "data"
+          ],
+          "title": "CapabilityResult",
+          "type": "object"
+        },
+        "ErrorDetail": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "title": "Code",
+              "type": "string"
+            },
+            "message": {
+              "title": "Message",
+              "type": "string"
+            },
+            "phase": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Phase"
+            },
+            "operation": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Operation"
+            },
+            "trace_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Trace Id"
+            },
+            "missing_fields": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Missing Fields"
+            }
+          },
+          "required": [
+            "code",
+            "message"
+          ],
+          "title": "ErrorDetail",
+          "type": "object"
+        },
+        "ErrorResult": {
+          "properties": {
+            "status": {
+              "const": "error",
+              "default": "error",
+              "title": "Status",
+              "type": "string"
+            },
+            "data": {
+              "default": null,
+              "title": "Data",
+              "type": "null"
+            },
+            "error": {
+              "$ref": "#/$defs/ErrorDetail"
+            }
+          },
+          "required": [
+            "error"
+          ],
+          "title": "ErrorResult",
+          "type": "object"
+        },
         "JsonValue": {},
         "Pagination": {
           "additionalProperties": false,
@@ -374,64 +634,16 @@
           "type": "object"
         }
       },
-      "additionalProperties": false,
-      "description": "A result with dynamic platform data and explicit completeness metadata.",
-      "properties": {
-        "status": {
-          "const": "success",
-          "default": "success",
-          "title": "Status",
-          "type": "string"
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CapabilityResult"
         },
-        "data": {
-          "$ref": "#/$defs/JsonValue"
-        },
-        "pagination": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Pagination"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "warnings": {
-          "anyOf": [
-            {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Warnings"
-        },
-        "truncation": {
-          "anyOf": [
-            {
-              "additionalProperties": {
-                "$ref": "#/$defs/JsonValue"
-              },
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Truncation"
+        {
+          "$ref": "#/$defs/ErrorResult"
         }
-      },
-      "required": [
-        "data"
       ],
-      "title": "CapabilityResult",
+      "description": "A native structured success or error envelope.",
+      "title": "ToolResult",
       "type": "object"
     },
     "annotations": {
@@ -560,6 +772,160 @@
     },
     "output": {
       "$defs": {
+        "CapabilityResult": {
+          "additionalProperties": false,
+          "description": "A result with dynamic platform data and explicit completeness metadata.",
+          "properties": {
+            "status": {
+              "const": "success",
+              "default": "success",
+              "title": "Status",
+              "type": "string"
+            },
+            "data": {
+              "$ref": "#/$defs/JsonValue"
+            },
+            "pagination": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Pagination"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "warnings": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Warnings"
+            },
+            "truncation": {
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/JsonValue"
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Truncation"
+            }
+          },
+          "required": [
+            "data"
+          ],
+          "title": "CapabilityResult",
+          "type": "object"
+        },
+        "ErrorDetail": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "title": "Code",
+              "type": "string"
+            },
+            "message": {
+              "title": "Message",
+              "type": "string"
+            },
+            "phase": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Phase"
+            },
+            "operation": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Operation"
+            },
+            "trace_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Trace Id"
+            },
+            "missing_fields": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Missing Fields"
+            }
+          },
+          "required": [
+            "code",
+            "message"
+          ],
+          "title": "ErrorDetail",
+          "type": "object"
+        },
+        "ErrorResult": {
+          "properties": {
+            "status": {
+              "const": "error",
+              "default": "error",
+              "title": "Status",
+              "type": "string"
+            },
+            "data": {
+              "default": null,
+              "title": "Data",
+              "type": "null"
+            },
+            "error": {
+              "$ref": "#/$defs/ErrorDetail"
+            }
+          },
+          "required": [
+            "error"
+          ],
+          "title": "ErrorResult",
+          "type": "object"
+        },
         "JsonValue": {},
         "Pagination": {
           "additionalProperties": false,
@@ -605,64 +971,16 @@
           "type": "object"
         }
       },
-      "additionalProperties": false,
-      "description": "A result with dynamic platform data and explicit completeness metadata.",
-      "properties": {
-        "status": {
-          "const": "success",
-          "default": "success",
-          "title": "Status",
-          "type": "string"
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CapabilityResult"
         },
-        "data": {
-          "$ref": "#/$defs/JsonValue"
-        },
-        "pagination": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Pagination"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "warnings": {
-          "anyOf": [
-            {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Warnings"
-        },
-        "truncation": {
-          "anyOf": [
-            {
-              "additionalProperties": {
-                "$ref": "#/$defs/JsonValue"
-              },
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Truncation"
+        {
+          "$ref": "#/$defs/ErrorResult"
         }
-      },
-      "required": [
-        "data"
       ],
-      "title": "CapabilityResult",
+      "description": "A native structured success or error envelope.",
+      "title": "ToolResult",
       "type": "object"
     },
     "annotations": {
@@ -733,6 +1051,160 @@
     },
     "output": {
       "$defs": {
+        "CapabilityResult": {
+          "additionalProperties": false,
+          "description": "A result with dynamic platform data and explicit completeness metadata.",
+          "properties": {
+            "status": {
+              "const": "success",
+              "default": "success",
+              "title": "Status",
+              "type": "string"
+            },
+            "data": {
+              "$ref": "#/$defs/JsonValue"
+            },
+            "pagination": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Pagination"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "warnings": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Warnings"
+            },
+            "truncation": {
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/JsonValue"
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Truncation"
+            }
+          },
+          "required": [
+            "data"
+          ],
+          "title": "CapabilityResult",
+          "type": "object"
+        },
+        "ErrorDetail": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "title": "Code",
+              "type": "string"
+            },
+            "message": {
+              "title": "Message",
+              "type": "string"
+            },
+            "phase": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Phase"
+            },
+            "operation": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Operation"
+            },
+            "trace_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Trace Id"
+            },
+            "missing_fields": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Missing Fields"
+            }
+          },
+          "required": [
+            "code",
+            "message"
+          ],
+          "title": "ErrorDetail",
+          "type": "object"
+        },
+        "ErrorResult": {
+          "properties": {
+            "status": {
+              "const": "error",
+              "default": "error",
+              "title": "Status",
+              "type": "string"
+            },
+            "data": {
+              "default": null,
+              "title": "Data",
+              "type": "null"
+            },
+            "error": {
+              "$ref": "#/$defs/ErrorDetail"
+            }
+          },
+          "required": [
+            "error"
+          ],
+          "title": "ErrorResult",
+          "type": "object"
+        },
         "JsonValue": {},
         "Pagination": {
           "additionalProperties": false,
@@ -778,64 +1250,16 @@
           "type": "object"
         }
       },
-      "additionalProperties": false,
-      "description": "A result with dynamic platform data and explicit completeness metadata.",
-      "properties": {
-        "status": {
-          "const": "success",
-          "default": "success",
-          "title": "Status",
-          "type": "string"
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CapabilityResult"
         },
-        "data": {
-          "$ref": "#/$defs/JsonValue"
-        },
-        "pagination": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Pagination"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "warnings": {
-          "anyOf": [
-            {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Warnings"
-        },
-        "truncation": {
-          "anyOf": [
-            {
-              "additionalProperties": {
-                "$ref": "#/$defs/JsonValue"
-              },
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Truncation"
+        {
+          "$ref": "#/$defs/ErrorResult"
         }
-      },
-      "required": [
-        "data"
       ],
-      "title": "CapabilityResult",
+      "description": "A native structured success or error envelope.",
+      "title": "ToolResult",
       "type": "object"
     },
     "annotations": {
@@ -917,6 +1341,160 @@
     },
     "output": {
       "$defs": {
+        "CapabilityResult": {
+          "additionalProperties": false,
+          "description": "A result with dynamic platform data and explicit completeness metadata.",
+          "properties": {
+            "status": {
+              "const": "success",
+              "default": "success",
+              "title": "Status",
+              "type": "string"
+            },
+            "data": {
+              "$ref": "#/$defs/JsonValue"
+            },
+            "pagination": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Pagination"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "warnings": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Warnings"
+            },
+            "truncation": {
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/JsonValue"
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Truncation"
+            }
+          },
+          "required": [
+            "data"
+          ],
+          "title": "CapabilityResult",
+          "type": "object"
+        },
+        "ErrorDetail": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "title": "Code",
+              "type": "string"
+            },
+            "message": {
+              "title": "Message",
+              "type": "string"
+            },
+            "phase": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Phase"
+            },
+            "operation": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Operation"
+            },
+            "trace_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Trace Id"
+            },
+            "missing_fields": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Missing Fields"
+            }
+          },
+          "required": [
+            "code",
+            "message"
+          ],
+          "title": "ErrorDetail",
+          "type": "object"
+        },
+        "ErrorResult": {
+          "properties": {
+            "status": {
+              "const": "error",
+              "default": "error",
+              "title": "Status",
+              "type": "string"
+            },
+            "data": {
+              "default": null,
+              "title": "Data",
+              "type": "null"
+            },
+            "error": {
+              "$ref": "#/$defs/ErrorDetail"
+            }
+          },
+          "required": [
+            "error"
+          ],
+          "title": "ErrorResult",
+          "type": "object"
+        },
         "JsonValue": {},
         "Pagination": {
           "additionalProperties": false,
@@ -962,64 +1540,16 @@
           "type": "object"
         }
       },
-      "additionalProperties": false,
-      "description": "A result with dynamic platform data and explicit completeness metadata.",
-      "properties": {
-        "status": {
-          "const": "success",
-          "default": "success",
-          "title": "Status",
-          "type": "string"
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CapabilityResult"
         },
-        "data": {
-          "$ref": "#/$defs/JsonValue"
-        },
-        "pagination": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Pagination"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "warnings": {
-          "anyOf": [
-            {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Warnings"
-        },
-        "truncation": {
-          "anyOf": [
-            {
-              "additionalProperties": {
-                "$ref": "#/$defs/JsonValue"
-              },
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Truncation"
+        {
+          "$ref": "#/$defs/ErrorResult"
         }
-      },
-      "required": [
-        "data"
       ],
-      "title": "CapabilityResult",
+      "description": "A native structured success or error envelope.",
+      "title": "ToolResult",
       "type": "object"
     },
     "annotations": {
@@ -1094,6 +1624,160 @@
     },
     "output": {
       "$defs": {
+        "CapabilityResult": {
+          "additionalProperties": false,
+          "description": "A result with dynamic platform data and explicit completeness metadata.",
+          "properties": {
+            "status": {
+              "const": "success",
+              "default": "success",
+              "title": "Status",
+              "type": "string"
+            },
+            "data": {
+              "$ref": "#/$defs/JsonValue"
+            },
+            "pagination": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Pagination"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "warnings": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Warnings"
+            },
+            "truncation": {
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/JsonValue"
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Truncation"
+            }
+          },
+          "required": [
+            "data"
+          ],
+          "title": "CapabilityResult",
+          "type": "object"
+        },
+        "ErrorDetail": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "title": "Code",
+              "type": "string"
+            },
+            "message": {
+              "title": "Message",
+              "type": "string"
+            },
+            "phase": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Phase"
+            },
+            "operation": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Operation"
+            },
+            "trace_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Trace Id"
+            },
+            "missing_fields": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Missing Fields"
+            }
+          },
+          "required": [
+            "code",
+            "message"
+          ],
+          "title": "ErrorDetail",
+          "type": "object"
+        },
+        "ErrorResult": {
+          "properties": {
+            "status": {
+              "const": "error",
+              "default": "error",
+              "title": "Status",
+              "type": "string"
+            },
+            "data": {
+              "default": null,
+              "title": "Data",
+              "type": "null"
+            },
+            "error": {
+              "$ref": "#/$defs/ErrorDetail"
+            }
+          },
+          "required": [
+            "error"
+          ],
+          "title": "ErrorResult",
+          "type": "object"
+        },
         "JsonValue": {},
         "Pagination": {
           "additionalProperties": false,
@@ -1139,64 +1823,16 @@
           "type": "object"
         }
       },
-      "additionalProperties": false,
-      "description": "A result with dynamic platform data and explicit completeness metadata.",
-      "properties": {
-        "status": {
-          "const": "success",
-          "default": "success",
-          "title": "Status",
-          "type": "string"
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CapabilityResult"
         },
-        "data": {
-          "$ref": "#/$defs/JsonValue"
-        },
-        "pagination": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Pagination"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "warnings": {
-          "anyOf": [
-            {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Warnings"
-        },
-        "truncation": {
-          "anyOf": [
-            {
-              "additionalProperties": {
-                "$ref": "#/$defs/JsonValue"
-              },
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Truncation"
+        {
+          "$ref": "#/$defs/ErrorResult"
         }
-      },
-      "required": [
-        "data"
       ],
-      "title": "CapabilityResult",
+      "description": "A native structured success or error envelope.",
+      "title": "ToolResult",
       "type": "object"
     },
     "annotations": {
@@ -1241,6 +1877,160 @@
     },
     "output": {
       "$defs": {
+        "CapabilityResult": {
+          "additionalProperties": false,
+          "description": "A result with dynamic platform data and explicit completeness metadata.",
+          "properties": {
+            "status": {
+              "const": "success",
+              "default": "success",
+              "title": "Status",
+              "type": "string"
+            },
+            "data": {
+              "$ref": "#/$defs/JsonValue"
+            },
+            "pagination": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Pagination"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "warnings": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Warnings"
+            },
+            "truncation": {
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/JsonValue"
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Truncation"
+            }
+          },
+          "required": [
+            "data"
+          ],
+          "title": "CapabilityResult",
+          "type": "object"
+        },
+        "ErrorDetail": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "title": "Code",
+              "type": "string"
+            },
+            "message": {
+              "title": "Message",
+              "type": "string"
+            },
+            "phase": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Phase"
+            },
+            "operation": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Operation"
+            },
+            "trace_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Trace Id"
+            },
+            "missing_fields": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Missing Fields"
+            }
+          },
+          "required": [
+            "code",
+            "message"
+          ],
+          "title": "ErrorDetail",
+          "type": "object"
+        },
+        "ErrorResult": {
+          "properties": {
+            "status": {
+              "const": "error",
+              "default": "error",
+              "title": "Status",
+              "type": "string"
+            },
+            "data": {
+              "default": null,
+              "title": "Data",
+              "type": "null"
+            },
+            "error": {
+              "$ref": "#/$defs/ErrorDetail"
+            }
+          },
+          "required": [
+            "error"
+          ],
+          "title": "ErrorResult",
+          "type": "object"
+        },
         "JsonValue": {},
         "Pagination": {
           "additionalProperties": false,
@@ -1286,64 +2076,16 @@
           "type": "object"
         }
       },
-      "additionalProperties": false,
-      "description": "A result with dynamic platform data and explicit completeness metadata.",
-      "properties": {
-        "status": {
-          "const": "success",
-          "default": "success",
-          "title": "Status",
-          "type": "string"
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CapabilityResult"
         },
-        "data": {
-          "$ref": "#/$defs/JsonValue"
-        },
-        "pagination": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Pagination"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "warnings": {
-          "anyOf": [
-            {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Warnings"
-        },
-        "truncation": {
-          "anyOf": [
-            {
-              "additionalProperties": {
-                "$ref": "#/$defs/JsonValue"
-              },
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Truncation"
+        {
+          "$ref": "#/$defs/ErrorResult"
         }
-      },
-      "required": [
-        "data"
       ],
-      "title": "CapabilityResult",
+      "description": "A native structured success or error envelope.",
+      "title": "ToolResult",
       "type": "object"
     },
     "annotations": {
@@ -1477,6 +2219,160 @@
     },
     "output": {
       "$defs": {
+        "CapabilityResult": {
+          "additionalProperties": false,
+          "description": "A result with dynamic platform data and explicit completeness metadata.",
+          "properties": {
+            "status": {
+              "const": "success",
+              "default": "success",
+              "title": "Status",
+              "type": "string"
+            },
+            "data": {
+              "$ref": "#/$defs/JsonValue"
+            },
+            "pagination": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Pagination"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "warnings": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Warnings"
+            },
+            "truncation": {
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/JsonValue"
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Truncation"
+            }
+          },
+          "required": [
+            "data"
+          ],
+          "title": "CapabilityResult",
+          "type": "object"
+        },
+        "ErrorDetail": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "title": "Code",
+              "type": "string"
+            },
+            "message": {
+              "title": "Message",
+              "type": "string"
+            },
+            "phase": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Phase"
+            },
+            "operation": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Operation"
+            },
+            "trace_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Trace Id"
+            },
+            "missing_fields": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Missing Fields"
+            }
+          },
+          "required": [
+            "code",
+            "message"
+          ],
+          "title": "ErrorDetail",
+          "type": "object"
+        },
+        "ErrorResult": {
+          "properties": {
+            "status": {
+              "const": "error",
+              "default": "error",
+              "title": "Status",
+              "type": "string"
+            },
+            "data": {
+              "default": null,
+              "title": "Data",
+              "type": "null"
+            },
+            "error": {
+              "$ref": "#/$defs/ErrorDetail"
+            }
+          },
+          "required": [
+            "error"
+          ],
+          "title": "ErrorResult",
+          "type": "object"
+        },
         "JsonValue": {},
         "Pagination": {
           "additionalProperties": false,
@@ -1522,64 +2418,16 @@
           "type": "object"
         }
       },
-      "additionalProperties": false,
-      "description": "A result with dynamic platform data and explicit completeness metadata.",
-      "properties": {
-        "status": {
-          "const": "success",
-          "default": "success",
-          "title": "Status",
-          "type": "string"
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CapabilityResult"
         },
-        "data": {
-          "$ref": "#/$defs/JsonValue"
-        },
-        "pagination": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Pagination"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "warnings": {
-          "anyOf": [
-            {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Warnings"
-        },
-        "truncation": {
-          "anyOf": [
-            {
-              "additionalProperties": {
-                "$ref": "#/$defs/JsonValue"
-              },
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Truncation"
+        {
+          "$ref": "#/$defs/ErrorResult"
         }
-      },
-      "required": [
-        "data"
       ],
-      "title": "CapabilityResult",
+      "description": "A native structured success or error envelope.",
+      "title": "ToolResult",
       "type": "object"
     },
     "annotations": {
@@ -1699,6 +2547,160 @@
     },
     "output": {
       "$defs": {
+        "CapabilityResult": {
+          "additionalProperties": false,
+          "description": "A result with dynamic platform data and explicit completeness metadata.",
+          "properties": {
+            "status": {
+              "const": "success",
+              "default": "success",
+              "title": "Status",
+              "type": "string"
+            },
+            "data": {
+              "$ref": "#/$defs/JsonValue"
+            },
+            "pagination": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Pagination"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "warnings": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Warnings"
+            },
+            "truncation": {
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/JsonValue"
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Truncation"
+            }
+          },
+          "required": [
+            "data"
+          ],
+          "title": "CapabilityResult",
+          "type": "object"
+        },
+        "ErrorDetail": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "title": "Code",
+              "type": "string"
+            },
+            "message": {
+              "title": "Message",
+              "type": "string"
+            },
+            "phase": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Phase"
+            },
+            "operation": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Operation"
+            },
+            "trace_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Trace Id"
+            },
+            "missing_fields": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Missing Fields"
+            }
+          },
+          "required": [
+            "code",
+            "message"
+          ],
+          "title": "ErrorDetail",
+          "type": "object"
+        },
+        "ErrorResult": {
+          "properties": {
+            "status": {
+              "const": "error",
+              "default": "error",
+              "title": "Status",
+              "type": "string"
+            },
+            "data": {
+              "default": null,
+              "title": "Data",
+              "type": "null"
+            },
+            "error": {
+              "$ref": "#/$defs/ErrorDetail"
+            }
+          },
+          "required": [
+            "error"
+          ],
+          "title": "ErrorResult",
+          "type": "object"
+        },
         "JsonValue": {},
         "Pagination": {
           "additionalProperties": false,
@@ -1744,64 +2746,16 @@
           "type": "object"
         }
       },
-      "additionalProperties": false,
-      "description": "A result with dynamic platform data and explicit completeness metadata.",
-      "properties": {
-        "status": {
-          "const": "success",
-          "default": "success",
-          "title": "Status",
-          "type": "string"
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CapabilityResult"
         },
-        "data": {
-          "$ref": "#/$defs/JsonValue"
-        },
-        "pagination": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Pagination"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "warnings": {
-          "anyOf": [
-            {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Warnings"
-        },
-        "truncation": {
-          "anyOf": [
-            {
-              "additionalProperties": {
-                "$ref": "#/$defs/JsonValue"
-              },
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Truncation"
+        {
+          "$ref": "#/$defs/ErrorResult"
         }
-      },
-      "required": [
-        "data"
       ],
-      "title": "CapabilityResult",
+      "description": "A native structured success or error envelope.",
+      "title": "ToolResult",
       "type": "object"
     },
     "annotations": {
@@ -1923,6 +2877,160 @@
     },
     "output": {
       "$defs": {
+        "CapabilityResult": {
+          "additionalProperties": false,
+          "description": "A result with dynamic platform data and explicit completeness metadata.",
+          "properties": {
+            "status": {
+              "const": "success",
+              "default": "success",
+              "title": "Status",
+              "type": "string"
+            },
+            "data": {
+              "$ref": "#/$defs/JsonValue"
+            },
+            "pagination": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Pagination"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "warnings": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Warnings"
+            },
+            "truncation": {
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/JsonValue"
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Truncation"
+            }
+          },
+          "required": [
+            "data"
+          ],
+          "title": "CapabilityResult",
+          "type": "object"
+        },
+        "ErrorDetail": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "title": "Code",
+              "type": "string"
+            },
+            "message": {
+              "title": "Message",
+              "type": "string"
+            },
+            "phase": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Phase"
+            },
+            "operation": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Operation"
+            },
+            "trace_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Trace Id"
+            },
+            "missing_fields": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Missing Fields"
+            }
+          },
+          "required": [
+            "code",
+            "message"
+          ],
+          "title": "ErrorDetail",
+          "type": "object"
+        },
+        "ErrorResult": {
+          "properties": {
+            "status": {
+              "const": "error",
+              "default": "error",
+              "title": "Status",
+              "type": "string"
+            },
+            "data": {
+              "default": null,
+              "title": "Data",
+              "type": "null"
+            },
+            "error": {
+              "$ref": "#/$defs/ErrorDetail"
+            }
+          },
+          "required": [
+            "error"
+          ],
+          "title": "ErrorResult",
+          "type": "object"
+        },
         "JsonValue": {},
         "Pagination": {
           "additionalProperties": false,
@@ -1968,64 +3076,16 @@
           "type": "object"
         }
       },
-      "additionalProperties": false,
-      "description": "A result with dynamic platform data and explicit completeness metadata.",
-      "properties": {
-        "status": {
-          "const": "success",
-          "default": "success",
-          "title": "Status",
-          "type": "string"
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CapabilityResult"
         },
-        "data": {
-          "$ref": "#/$defs/JsonValue"
-        },
-        "pagination": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Pagination"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "warnings": {
-          "anyOf": [
-            {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Warnings"
-        },
-        "truncation": {
-          "anyOf": [
-            {
-              "additionalProperties": {
-                "$ref": "#/$defs/JsonValue"
-              },
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Truncation"
+        {
+          "$ref": "#/$defs/ErrorResult"
         }
-      },
-      "required": [
-        "data"
       ],
-      "title": "CapabilityResult",
+      "description": "A native structured success or error envelope.",
+      "title": "ToolResult",
       "type": "object"
     },
     "annotations": {
@@ -2176,6 +3236,160 @@
     },
     "output": {
       "$defs": {
+        "CapabilityResult": {
+          "additionalProperties": false,
+          "description": "A result with dynamic platform data and explicit completeness metadata.",
+          "properties": {
+            "status": {
+              "const": "success",
+              "default": "success",
+              "title": "Status",
+              "type": "string"
+            },
+            "data": {
+              "$ref": "#/$defs/JsonValue"
+            },
+            "pagination": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Pagination"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "warnings": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Warnings"
+            },
+            "truncation": {
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/JsonValue"
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Truncation"
+            }
+          },
+          "required": [
+            "data"
+          ],
+          "title": "CapabilityResult",
+          "type": "object"
+        },
+        "ErrorDetail": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "title": "Code",
+              "type": "string"
+            },
+            "message": {
+              "title": "Message",
+              "type": "string"
+            },
+            "phase": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Phase"
+            },
+            "operation": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Operation"
+            },
+            "trace_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Trace Id"
+            },
+            "missing_fields": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Missing Fields"
+            }
+          },
+          "required": [
+            "code",
+            "message"
+          ],
+          "title": "ErrorDetail",
+          "type": "object"
+        },
+        "ErrorResult": {
+          "properties": {
+            "status": {
+              "const": "error",
+              "default": "error",
+              "title": "Status",
+              "type": "string"
+            },
+            "data": {
+              "default": null,
+              "title": "Data",
+              "type": "null"
+            },
+            "error": {
+              "$ref": "#/$defs/ErrorDetail"
+            }
+          },
+          "required": [
+            "error"
+          ],
+          "title": "ErrorResult",
+          "type": "object"
+        },
         "JsonValue": {},
         "Pagination": {
           "additionalProperties": false,
@@ -2221,64 +3435,16 @@
           "type": "object"
         }
       },
-      "additionalProperties": false,
-      "description": "A result with dynamic platform data and explicit completeness metadata.",
-      "properties": {
-        "status": {
-          "const": "success",
-          "default": "success",
-          "title": "Status",
-          "type": "string"
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CapabilityResult"
         },
-        "data": {
-          "$ref": "#/$defs/JsonValue"
-        },
-        "pagination": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Pagination"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "warnings": {
-          "anyOf": [
-            {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Warnings"
-        },
-        "truncation": {
-          "anyOf": [
-            {
-              "additionalProperties": {
-                "$ref": "#/$defs/JsonValue"
-              },
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Truncation"
+        {
+          "$ref": "#/$defs/ErrorResult"
         }
-      },
-      "required": [
-        "data"
       ],
-      "title": "CapabilityResult",
+      "description": "A native structured success or error envelope.",
+      "title": "ToolResult",
       "type": "object"
     },
     "annotations": {
@@ -2376,6 +3542,160 @@
     },
     "output": {
       "$defs": {
+        "CapabilityResult": {
+          "additionalProperties": false,
+          "description": "A result with dynamic platform data and explicit completeness metadata.",
+          "properties": {
+            "status": {
+              "const": "success",
+              "default": "success",
+              "title": "Status",
+              "type": "string"
+            },
+            "data": {
+              "$ref": "#/$defs/JsonValue"
+            },
+            "pagination": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Pagination"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "warnings": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Warnings"
+            },
+            "truncation": {
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/JsonValue"
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Truncation"
+            }
+          },
+          "required": [
+            "data"
+          ],
+          "title": "CapabilityResult",
+          "type": "object"
+        },
+        "ErrorDetail": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "title": "Code",
+              "type": "string"
+            },
+            "message": {
+              "title": "Message",
+              "type": "string"
+            },
+            "phase": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Phase"
+            },
+            "operation": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Operation"
+            },
+            "trace_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Trace Id"
+            },
+            "missing_fields": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Missing Fields"
+            }
+          },
+          "required": [
+            "code",
+            "message"
+          ],
+          "title": "ErrorDetail",
+          "type": "object"
+        },
+        "ErrorResult": {
+          "properties": {
+            "status": {
+              "const": "error",
+              "default": "error",
+              "title": "Status",
+              "type": "string"
+            },
+            "data": {
+              "default": null,
+              "title": "Data",
+              "type": "null"
+            },
+            "error": {
+              "$ref": "#/$defs/ErrorDetail"
+            }
+          },
+          "required": [
+            "error"
+          ],
+          "title": "ErrorResult",
+          "type": "object"
+        },
         "JsonValue": {},
         "Pagination": {
           "additionalProperties": false,
@@ -2421,64 +3741,16 @@
           "type": "object"
         }
       },
-      "additionalProperties": false,
-      "description": "A result with dynamic platform data and explicit completeness metadata.",
-      "properties": {
-        "status": {
-          "const": "success",
-          "default": "success",
-          "title": "Status",
-          "type": "string"
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CapabilityResult"
         },
-        "data": {
-          "$ref": "#/$defs/JsonValue"
-        },
-        "pagination": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Pagination"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "warnings": {
-          "anyOf": [
-            {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Warnings"
-        },
-        "truncation": {
-          "anyOf": [
-            {
-              "additionalProperties": {
-                "$ref": "#/$defs/JsonValue"
-              },
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Truncation"
+        {
+          "$ref": "#/$defs/ErrorResult"
         }
-      },
-      "required": [
-        "data"
       ],
-      "title": "CapabilityResult",
+      "description": "A native structured success or error envelope.",
+      "title": "ToolResult",
       "type": "object"
     },
     "annotations": {
@@ -2572,6 +3844,160 @@
     },
     "output": {
       "$defs": {
+        "CapabilityResult": {
+          "additionalProperties": false,
+          "description": "A result with dynamic platform data and explicit completeness metadata.",
+          "properties": {
+            "status": {
+              "const": "success",
+              "default": "success",
+              "title": "Status",
+              "type": "string"
+            },
+            "data": {
+              "$ref": "#/$defs/JsonValue"
+            },
+            "pagination": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Pagination"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "warnings": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Warnings"
+            },
+            "truncation": {
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/JsonValue"
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Truncation"
+            }
+          },
+          "required": [
+            "data"
+          ],
+          "title": "CapabilityResult",
+          "type": "object"
+        },
+        "ErrorDetail": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "title": "Code",
+              "type": "string"
+            },
+            "message": {
+              "title": "Message",
+              "type": "string"
+            },
+            "phase": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Phase"
+            },
+            "operation": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Operation"
+            },
+            "trace_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Trace Id"
+            },
+            "missing_fields": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Missing Fields"
+            }
+          },
+          "required": [
+            "code",
+            "message"
+          ],
+          "title": "ErrorDetail",
+          "type": "object"
+        },
+        "ErrorResult": {
+          "properties": {
+            "status": {
+              "const": "error",
+              "default": "error",
+              "title": "Status",
+              "type": "string"
+            },
+            "data": {
+              "default": null,
+              "title": "Data",
+              "type": "null"
+            },
+            "error": {
+              "$ref": "#/$defs/ErrorDetail"
+            }
+          },
+          "required": [
+            "error"
+          ],
+          "title": "ErrorResult",
+          "type": "object"
+        },
         "JsonValue": {},
         "Pagination": {
           "additionalProperties": false,
@@ -2617,64 +4043,16 @@
           "type": "object"
         }
       },
-      "additionalProperties": false,
-      "description": "A result with dynamic platform data and explicit completeness metadata.",
-      "properties": {
-        "status": {
-          "const": "success",
-          "default": "success",
-          "title": "Status",
-          "type": "string"
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CapabilityResult"
         },
-        "data": {
-          "$ref": "#/$defs/JsonValue"
-        },
-        "pagination": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Pagination"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "warnings": {
-          "anyOf": [
-            {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Warnings"
-        },
-        "truncation": {
-          "anyOf": [
-            {
-              "additionalProperties": {
-                "$ref": "#/$defs/JsonValue"
-              },
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Truncation"
+        {
+          "$ref": "#/$defs/ErrorResult"
         }
-      },
-      "required": [
-        "data"
       ],
-      "title": "CapabilityResult",
+      "description": "A native structured success or error envelope.",
+      "title": "ToolResult",
       "type": "object"
     },
     "annotations": {
@@ -2742,6 +4120,160 @@
     },
     "output": {
       "$defs": {
+        "CapabilityResult": {
+          "additionalProperties": false,
+          "description": "A result with dynamic platform data and explicit completeness metadata.",
+          "properties": {
+            "status": {
+              "const": "success",
+              "default": "success",
+              "title": "Status",
+              "type": "string"
+            },
+            "data": {
+              "$ref": "#/$defs/JsonValue"
+            },
+            "pagination": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Pagination"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "warnings": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Warnings"
+            },
+            "truncation": {
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/JsonValue"
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Truncation"
+            }
+          },
+          "required": [
+            "data"
+          ],
+          "title": "CapabilityResult",
+          "type": "object"
+        },
+        "ErrorDetail": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "title": "Code",
+              "type": "string"
+            },
+            "message": {
+              "title": "Message",
+              "type": "string"
+            },
+            "phase": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Phase"
+            },
+            "operation": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Operation"
+            },
+            "trace_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Trace Id"
+            },
+            "missing_fields": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Missing Fields"
+            }
+          },
+          "required": [
+            "code",
+            "message"
+          ],
+          "title": "ErrorDetail",
+          "type": "object"
+        },
+        "ErrorResult": {
+          "properties": {
+            "status": {
+              "const": "error",
+              "default": "error",
+              "title": "Status",
+              "type": "string"
+            },
+            "data": {
+              "default": null,
+              "title": "Data",
+              "type": "null"
+            },
+            "error": {
+              "$ref": "#/$defs/ErrorDetail"
+            }
+          },
+          "required": [
+            "error"
+          ],
+          "title": "ErrorResult",
+          "type": "object"
+        },
         "JsonValue": {},
         "Pagination": {
           "additionalProperties": false,
@@ -2787,64 +4319,16 @@
           "type": "object"
         }
       },
-      "additionalProperties": false,
-      "description": "A result with dynamic platform data and explicit completeness metadata.",
-      "properties": {
-        "status": {
-          "const": "success",
-          "default": "success",
-          "title": "Status",
-          "type": "string"
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CapabilityResult"
         },
-        "data": {
-          "$ref": "#/$defs/JsonValue"
-        },
-        "pagination": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Pagination"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "warnings": {
-          "anyOf": [
-            {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Warnings"
-        },
-        "truncation": {
-          "anyOf": [
-            {
-              "additionalProperties": {
-                "$ref": "#/$defs/JsonValue"
-              },
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Truncation"
+        {
+          "$ref": "#/$defs/ErrorResult"
         }
-      },
-      "required": [
-        "data"
       ],
-      "title": "CapabilityResult",
+      "description": "A native structured success or error envelope.",
+      "title": "ToolResult",
       "type": "object"
     },
     "annotations": {
@@ -2948,6 +4432,160 @@
     },
     "output": {
       "$defs": {
+        "CapabilityResult": {
+          "additionalProperties": false,
+          "description": "A result with dynamic platform data and explicit completeness metadata.",
+          "properties": {
+            "status": {
+              "const": "success",
+              "default": "success",
+              "title": "Status",
+              "type": "string"
+            },
+            "data": {
+              "$ref": "#/$defs/JsonValue"
+            },
+            "pagination": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Pagination"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "warnings": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Warnings"
+            },
+            "truncation": {
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/JsonValue"
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Truncation"
+            }
+          },
+          "required": [
+            "data"
+          ],
+          "title": "CapabilityResult",
+          "type": "object"
+        },
+        "ErrorDetail": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "title": "Code",
+              "type": "string"
+            },
+            "message": {
+              "title": "Message",
+              "type": "string"
+            },
+            "phase": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Phase"
+            },
+            "operation": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Operation"
+            },
+            "trace_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Trace Id"
+            },
+            "missing_fields": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Missing Fields"
+            }
+          },
+          "required": [
+            "code",
+            "message"
+          ],
+          "title": "ErrorDetail",
+          "type": "object"
+        },
+        "ErrorResult": {
+          "properties": {
+            "status": {
+              "const": "error",
+              "default": "error",
+              "title": "Status",
+              "type": "string"
+            },
+            "data": {
+              "default": null,
+              "title": "Data",
+              "type": "null"
+            },
+            "error": {
+              "$ref": "#/$defs/ErrorDetail"
+            }
+          },
+          "required": [
+            "error"
+          ],
+          "title": "ErrorResult",
+          "type": "object"
+        },
         "JsonValue": {},
         "Pagination": {
           "additionalProperties": false,
@@ -2993,64 +4631,16 @@
           "type": "object"
         }
       },
-      "additionalProperties": false,
-      "description": "A result with dynamic platform data and explicit completeness metadata.",
-      "properties": {
-        "status": {
-          "const": "success",
-          "default": "success",
-          "title": "Status",
-          "type": "string"
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CapabilityResult"
         },
-        "data": {
-          "$ref": "#/$defs/JsonValue"
-        },
-        "pagination": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Pagination"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "warnings": {
-          "anyOf": [
-            {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Warnings"
-        },
-        "truncation": {
-          "anyOf": [
-            {
-              "additionalProperties": {
-                "$ref": "#/$defs/JsonValue"
-              },
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Truncation"
+        {
+          "$ref": "#/$defs/ErrorResult"
         }
-      },
-      "required": [
-        "data"
       ],
-      "title": "CapabilityResult",
+      "description": "A native structured success or error envelope.",
+      "title": "ToolResult",
       "type": "object"
     },
     "annotations": {
@@ -3114,6 +4704,160 @@
     },
     "output": {
       "$defs": {
+        "CapabilityResult": {
+          "additionalProperties": false,
+          "description": "A result with dynamic platform data and explicit completeness metadata.",
+          "properties": {
+            "status": {
+              "const": "success",
+              "default": "success",
+              "title": "Status",
+              "type": "string"
+            },
+            "data": {
+              "$ref": "#/$defs/JsonValue"
+            },
+            "pagination": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Pagination"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "warnings": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Warnings"
+            },
+            "truncation": {
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/JsonValue"
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Truncation"
+            }
+          },
+          "required": [
+            "data"
+          ],
+          "title": "CapabilityResult",
+          "type": "object"
+        },
+        "ErrorDetail": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "title": "Code",
+              "type": "string"
+            },
+            "message": {
+              "title": "Message",
+              "type": "string"
+            },
+            "phase": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Phase"
+            },
+            "operation": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Operation"
+            },
+            "trace_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Trace Id"
+            },
+            "missing_fields": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Missing Fields"
+            }
+          },
+          "required": [
+            "code",
+            "message"
+          ],
+          "title": "ErrorDetail",
+          "type": "object"
+        },
+        "ErrorResult": {
+          "properties": {
+            "status": {
+              "const": "error",
+              "default": "error",
+              "title": "Status",
+              "type": "string"
+            },
+            "data": {
+              "default": null,
+              "title": "Data",
+              "type": "null"
+            },
+            "error": {
+              "$ref": "#/$defs/ErrorDetail"
+            }
+          },
+          "required": [
+            "error"
+          ],
+          "title": "ErrorResult",
+          "type": "object"
+        },
         "JsonValue": {},
         "Pagination": {
           "additionalProperties": false,
@@ -3159,64 +4903,16 @@
           "type": "object"
         }
       },
-      "additionalProperties": false,
-      "description": "A result with dynamic platform data and explicit completeness metadata.",
-      "properties": {
-        "status": {
-          "const": "success",
-          "default": "success",
-          "title": "Status",
-          "type": "string"
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CapabilityResult"
         },
-        "data": {
-          "$ref": "#/$defs/JsonValue"
-        },
-        "pagination": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Pagination"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "warnings": {
-          "anyOf": [
-            {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Warnings"
-        },
-        "truncation": {
-          "anyOf": [
-            {
-              "additionalProperties": {
-                "$ref": "#/$defs/JsonValue"
-              },
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Truncation"
+        {
+          "$ref": "#/$defs/ErrorResult"
         }
-      },
-      "required": [
-        "data"
       ],
-      "title": "CapabilityResult",
+      "description": "A native structured success or error envelope.",
+      "title": "ToolResult",
       "type": "object"
     },
     "annotations": {
@@ -3244,6 +4940,160 @@
     },
     "output": {
       "$defs": {
+        "CapabilityResult": {
+          "additionalProperties": false,
+          "description": "A result with dynamic platform data and explicit completeness metadata.",
+          "properties": {
+            "status": {
+              "const": "success",
+              "default": "success",
+              "title": "Status",
+              "type": "string"
+            },
+            "data": {
+              "$ref": "#/$defs/JsonValue"
+            },
+            "pagination": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Pagination"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "warnings": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Warnings"
+            },
+            "truncation": {
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/JsonValue"
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Truncation"
+            }
+          },
+          "required": [
+            "data"
+          ],
+          "title": "CapabilityResult",
+          "type": "object"
+        },
+        "ErrorDetail": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "title": "Code",
+              "type": "string"
+            },
+            "message": {
+              "title": "Message",
+              "type": "string"
+            },
+            "phase": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Phase"
+            },
+            "operation": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Operation"
+            },
+            "trace_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Trace Id"
+            },
+            "missing_fields": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Missing Fields"
+            }
+          },
+          "required": [
+            "code",
+            "message"
+          ],
+          "title": "ErrorDetail",
+          "type": "object"
+        },
+        "ErrorResult": {
+          "properties": {
+            "status": {
+              "const": "error",
+              "default": "error",
+              "title": "Status",
+              "type": "string"
+            },
+            "data": {
+              "default": null,
+              "title": "Data",
+              "type": "null"
+            },
+            "error": {
+              "$ref": "#/$defs/ErrorDetail"
+            }
+          },
+          "required": [
+            "error"
+          ],
+          "title": "ErrorResult",
+          "type": "object"
+        },
         "JsonValue": {},
         "Pagination": {
           "additionalProperties": false,
@@ -3289,64 +5139,16 @@
           "type": "object"
         }
       },
-      "additionalProperties": false,
-      "description": "A result with dynamic platform data and explicit completeness metadata.",
-      "properties": {
-        "status": {
-          "const": "success",
-          "default": "success",
-          "title": "Status",
-          "type": "string"
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CapabilityResult"
         },
-        "data": {
-          "$ref": "#/$defs/JsonValue"
-        },
-        "pagination": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Pagination"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "warnings": {
-          "anyOf": [
-            {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Warnings"
-        },
-        "truncation": {
-          "anyOf": [
-            {
-              "additionalProperties": {
-                "$ref": "#/$defs/JsonValue"
-              },
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Truncation"
+        {
+          "$ref": "#/$defs/ErrorResult"
         }
-      },
-      "required": [
-        "data"
       ],
-      "title": "CapabilityResult",
+      "description": "A native structured success or error envelope.",
+      "title": "ToolResult",
       "type": "object"
     },
     "annotations": {

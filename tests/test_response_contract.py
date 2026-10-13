@@ -1,14 +1,18 @@
 """Regression coverage for compact envelopes and optional query inputs."""
 
+import json
 from unittest.mock import patch
 
+import httpx2
 import pytest
+from jsonschema import Draft202012Validator
 from mcp.server import MCPServer
 
 from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.capabilities.contracts import CapabilityResult
+from servicenow_mcp.capabilities.contracts import CapabilityError, CapabilityResult
 from servicenow_mcp.capabilities.contracts import result as operation_result
 from servicenow_mcp.config import Settings
+from servicenow_mcp.errors import ForbiddenError
 from servicenow_mcp.mcp.handlers import tool_handler
 from servicenow_mcp.mcp.tools.query import register_tools
 from servicenow_mcp.mcp.tools.service_catalog import register_tools as register_catalog_tools
@@ -18,6 +22,58 @@ from tests.helpers import decode_response
 
 
 BASE_URL = "https://test.service-now.com"
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        None,
+        CapabilityError("Missing fields", missing_fields=["fields"]),
+        ForbiddenError("Policy denied"),
+        httpx2.ReadTimeout("private timeout", request=httpx2.Request("GET", f"{BASE_URL}/api/now/table/incident")),
+        RuntimeError("private failure"),
+    ],
+    ids=["success", "validation", "policy", "upstream", "internal"],
+)
+async def test_tool_results_conform_to_output_schema(failure: Exception | None) -> None:
+    mcp = MCPServer("test")
+
+    @mcp.tool()
+    @tool_handler
+    async def tool() -> CapabilityResult:
+        if failure is not None:
+            raise failure
+        return operation_result(
+            data={"ok": True},
+            pagination={"offset": 0, "limit": 1, "total": 1},
+            warnings=["Incomplete response"],
+            truncation={"limit": 1},
+        )
+
+    schema = (await mcp.list_tools())[0].output_schema
+    assert isinstance(schema, dict)
+    assert schema["type"] == "object"
+    Draft202012Validator.check_schema(schema)
+    validator = Draft202012Validator(schema)
+    response = await mcp.call_tool("tool", {})
+    assert response.is_error is (failure is not None)
+    validator.validate(response.structured_content)
+    assert response.structured_content["status"] == ("success" if failure is None else "error")
+    assert json.loads(response.content[0].text) == response.structured_content
+    if failure is None:
+        assert response.structured_content == {
+            "status": "success",
+            "data": {"ok": True},
+            "pagination": {"offset": 0, "limit": 1, "total": 1},
+            "warnings": ["Incomplete response"],
+            "truncation": {"limit": 1},
+        }
+    for invalid in [
+        {"status": "error", "data": None},
+        {"status": "success", "data": {}, "error": {"code": "INVALID_REQUEST", "message": "Invalid request"}},
+        {"status": "unexpected", "data": None},
+    ]:
+        assert not validator.is_valid(invalid)
 
 
 @pytest.mark.parametrize("should_raise", [False, True])

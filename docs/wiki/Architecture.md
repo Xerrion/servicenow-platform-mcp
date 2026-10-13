@@ -46,7 +46,8 @@ Constraint failures return safe messages without the rejected values.
 
 Capabilities return Pydantic results or raise curated application errors.
 Dynamic ServiceNow fields remain JSON-value mappings.
-Successful `structuredContent` validates against the published output schema and contains `status` and `data`.
+Each tool's output schema accepts native success and error envelopes.
+All `structuredContent` validates against that schema and contains `status` and `data`.
 Optional pagination, warnings, and truncation describe incomplete results.
 Failures set MCP `isError=true` and include a stable error code and safe message.
 Text and structured errors contain the same information.

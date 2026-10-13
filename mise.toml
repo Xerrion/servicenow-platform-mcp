@@ -20,8 +20,8 @@ description = "Format and auto-fix with ruff"
 run = ["uv run ruff format .", "uv run ruff check --fix ."]
 
 [tasks.typecheck]
-description = "Run ty type checks (same scope as CI)"
-run = "uv run ty check src/"
+description = "Run strict ty checks on source and tests (same scope as CI)"
+run = "uv run ty check"
 
 [tasks.test]
 description = "Run offline tests with coverage"

@@ -4,6 +4,7 @@ from typing import Any
 
 import httpx2
 import pytest
+from pydantic import JsonValue
 
 from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.config import Settings
@@ -551,7 +552,7 @@ class TestServiceNowClientAggregate:
             await client.aggregate(
                 "incident",
                 "active=true",
-                group_by=["priority"],
+                group_by="priority",
                 order_by="count",
                 having="count>5",
             )
@@ -645,6 +646,34 @@ class TestServiceNowClientDeleteRecord:
 
 class TestServiceNowClientErrorHandling:
     """Test error mapping for various HTTP status codes."""
+
+    @pytest.mark.parametrize(
+        ("payload", "expected"),
+        [
+            ({"error": {"message": "Upstream error"}}, "Upstream error"),
+            ({"error": {"message": ""}}, ""),
+            ({"error": {"message": None}}, "Default error"),
+            ({"error": {"message": 42}}, "Default error"),
+            ({"error": {"message": {"detail": "invalid"}}}, "Default error"),
+            ({"error": {"detail": "no message"}}, "Default error"),
+            ({"error": ["message"]}, "Default error"),
+            ({"error": None}, "Default error"),
+            ({}, "Default error"),
+            ([], "Default error"),
+            ("error", "Default error"),
+        ],
+    )
+    def test_error_message_requires_a_string(self, payload: JsonValue, expected: str) -> None:
+        from servicenow_mcp.platform.client import ServiceNowClient
+
+        response = httpx2.Response(500, json=payload)
+        assert ServiceNowClient._extract_error_message(response, "Default error") == expected
+
+    def test_non_json_error_body_uses_default_message(self) -> None:
+        from servicenow_mcp.platform.client import ServiceNowClient
+
+        response = httpx2.Response(500, content=b"not JSON")
+        assert ServiceNowClient._extract_error_message(response, "Default error") == "Default error"
 
     @pytest.mark.asyncio()
     async def test_403_raises_forbidden_error(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:

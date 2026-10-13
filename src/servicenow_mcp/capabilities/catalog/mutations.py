@@ -1,5 +1,7 @@
 """Catalog previews observe existing state without changing an order or cart."""
 
+from typing import Any
+
 from servicenow_mcp.capabilities.contracts import CapabilityError
 from servicenow_mcp.capabilities.mutations.models import CatalogCommand, fingerprint
 from servicenow_mcp.platform.client import ServiceNowClient
@@ -12,7 +14,7 @@ def target_table(command: CatalogCommand) -> str:
     return "sc_cart_item" if command.action == "add_to_cart" else "sc_request"
 
 
-async def preview(command: CatalogCommand, client: ServiceNowClient) -> tuple[dict, str]:
+async def preview(command: CatalogCommand, client: ServiceNowClient) -> tuple[dict[str, Any], str]:
     if command.action in {"order_now", "add_to_cart"}:
         item = await client.sc_get_item(command.item_sys_id or "")
         definitions = await client.sc_get_item_variables(command.item_sys_id or "")

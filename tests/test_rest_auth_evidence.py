@@ -2,6 +2,7 @@
 
 import json
 import time
+from typing import Never
 from unittest.mock import patch
 
 import httpx2
@@ -37,9 +38,9 @@ async def test_safe_evidence_reaches_tool_error_without_replay(settings: Setting
     )
     async with ServiceNowClient(settings, provider) as client:
 
-        async def call() -> str:
+        async def call() -> Never:
             await client.query_records("incident", "short_description=private")
-            return "unreachable"
+            raise AssertionError("Expected query_records to reject the response")
 
         result = decode_response(await safe_tool_call(call))
 

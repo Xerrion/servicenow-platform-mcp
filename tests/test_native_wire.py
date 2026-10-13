@@ -27,8 +27,10 @@ async def test_native_wire_validation_and_results(settings: Settings) -> None:
             await session.initialize()
             tools = (await session.list_tools()).tools
             tool = next(tool for tool in tools if tool.name == "flow")
+            assert isinstance(tool.output_schema, dict)
             success = await session.call_tool("flow", {"action": "describe"})
             assert not success.is_error
+            assert isinstance(success.structured_content, dict)
             Draft202012Validator(tool.output_schema).validate(success.structured_content)
             assert "actions" in success.structured_content["data"]
             for arguments in [
@@ -39,6 +41,7 @@ async def test_native_wire_validation_and_results(settings: Settings) -> None:
             ]:
                 failure = await session.call_tool("flow", arguments)
                 assert failure.is_error
+                assert isinstance(failure.structured_content, dict)
                 Draft202012Validator(tool.output_schema).validate(failure.structured_content)
                 await session.validate_tool_result("flow", failure)
                 assert failure.structured_content["status"] == "error"
@@ -101,7 +104,10 @@ async def test_native_objects_and_nested_errors_are_safe_on_wire(settings: Setti
             ]:
                 failure = await session.call_tool(tool, args)
                 assert failure.is_error
-                Draft202012Validator(tools[tool].output_schema).validate(failure.structured_content)
+                assert isinstance(failure.structured_content, dict)
+                schema = tools[tool].output_schema
+                assert isinstance(schema, dict)
+                Draft202012Validator(schema).validate(failure.structured_content)
                 await session.validate_tool_result(tool, failure)
                 assert "private-sensitive-value" not in str(failure)
             assert not http_mock.calls

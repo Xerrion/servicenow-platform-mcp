@@ -63,7 +63,11 @@ async def _resolve_record_sys_id(
         raise CapabilityError(f"No record found with name={name!r} on table {table!r}.")
     if len(records) > 1:
         raise CapabilityError(f"Ambiguous name={name!r} on table {table!r}: multiple records match.")
-    return records[0]["sys_id"]
+    resolved_sys_id = records[0].get("sys_id")
+    if not isinstance(resolved_sys_id, str):
+        raise CapabilityError(f"Record lookup on table {table!r} did not return a string sys_id.")
+    validate_sys_id(resolved_sys_id)
+    return resolved_sys_id
 
 
 def _build_update_diff(

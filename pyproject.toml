@@ -64,7 +64,6 @@ dev = [
     "pytest-asyncio>=1.3.0",
     "ruff>=0.16.10",
     "pytest-cov>=6.0.0",
-    "basedpyright>=1.40.2",
     "ty>=0.0.86",
 ]
 
@@ -134,15 +133,18 @@ indent-style = "space"
 [tool.ty.environment]
 python-version = "3.12"
 
-[tool.basedpyright]
-pythonVersion = "3.12"
-reportAny = false
-reportExplicitAny = false
-reportUnusedCallResult = false
-reportUnusedFunction = false
-reportPrivateUsage = false
-reportUnknownMemberType = false
-reportUnknownArgumentType = false
-reportUnknownVariableType = false
-reportUnknownLambdaType = false
-reportImplicitStringConcatenation = false
+[tool.ty.src]
+include = ["src", "tests"]
+
+[tool.ty.rules]
+dynamic-function-decorator-return = "error"
+missing-type-argument = "error"
+missing-override-decorator = "error"
+possibly-missing-attribute = "error"
+possibly-unresolved-reference = "error"
+redundant-cast = "error"
+unsound-return-statement = "error"
+unused-ignore-comment = "error"
+
+[tool.ty.terminal]
+error-on-warning = true

@@ -7,6 +7,8 @@ import httpx2
 import pytest
 from jsonschema import Draft202012Validator
 from mcp.server import MCPServer
+from mcp.types import CallToolResult, TextContent
+from pydantic import JsonValue
 
 from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.capabilities.contracts import CapabilityError, CapabilityResult
@@ -56,9 +58,12 @@ async def test_tool_results_conform_to_output_schema(failure: Exception | None) 
     Draft202012Validator.check_schema(schema)
     validator = Draft202012Validator(schema)
     response = await mcp.call_tool("tool", {})
+    assert isinstance(response, CallToolResult)
     assert response.is_error is (failure is not None)
+    assert isinstance(response.structured_content, dict)
     validator.validate(response.structured_content)
     assert response.structured_content["status"] == ("success" if failure is None else "error")
+    assert isinstance(response.content[0], TextContent)
     assert json.loads(response.content[0].text) == response.structured_content
     if failure is None:
         assert response.structured_content == {
@@ -124,17 +129,19 @@ async def test_query_schema_has_optional_inputs_without_empty_defaults(settings:
     [{"fields": "*"}, {"fields": ["correlation_id"]}, {"aggregate": [{"operation": "count"}]}, {"sys_id": "a" * 32}],
 )
 async def test_query_mcp_calls_omit_empty_parameters(
-    settings: Settings, empty: str | None, mode: dict[str, str]
+    settings: Settings, empty: str | None, mode: dict[str, JsonValue]
 ) -> None:
     is_single = "sys_id" in mode
     is_aggregate = "aggregate" in mode
     path = "stats/incident" if is_aggregate else "table/incident"
     if is_single:
-        path += "/" + mode["sys_id"]
+        sys_id = mode["sys_id"]
+        assert isinstance(sys_id, str)
+        path += "/" + sys_id
     route = http_mock.get(f"{BASE_URL}/api/now/{path}").respond(200, json={"result": {} if is_single else []})
     mcp = MCPServer("test")
     register_tools(mcp, settings, OAuthPKCEProvider(settings))
-    optional = (
+    optional: dict[str, JsonValue] = (
         {}
         if empty == "omitted"
         else dict.fromkeys(
@@ -259,7 +266,9 @@ async def test_unfiltered_related_reads_omit_empty_queries(settings: Settings) -
 
 
 @pytest.mark.parametrize("fields", [None, []])
-async def test_null_or_empty_list_projection_still_fails_before_io(settings: Settings, fields: str | None) -> None:
+async def test_null_or_empty_list_projection_still_fails_before_io(
+    settings: Settings, fields: list[str] | None
+) -> None:
     mcp = MCPServer("test")
     register_tools(mcp, settings, OAuthPKCEProvider(settings))
     result = await mcp.call_tool("query", {"table": "incident", "fields": fields})

@@ -36,13 +36,13 @@ starting. Preserve changes that belong to other work.
 4. Run the checks below from the repository's top-level folder.
 5. Review the diff before creating a pull request.
 
-| Command | What it checks |
-| --- | --- |
-| `uv run ruff check .` | Python style and common code errors. |
-| `uv run ruff format --check .` | Whether Python files use the project's formatting. |
-| `uv run ty check src/` | Whether source code uses types consistently. |
-| `uv run pytest` | The default offline tests, with coverage. |
-| `uv build` | Whether the package can be built for distribution. |
+| Command                        | What it checks                                                                 |
+| ------------------------------ | ------------------------------------------------------------------------------ |
+| `uv run ruff check .`          | Python style and common code errors.                                           |
+| `uv run ruff format --check .` | Whether Python files use the project's formatting.                             |
+| `uv run ty check`              | Strict type checks for source code and tests, including integration test code. |
+| `uv run pytest`                | The default offline tests, with coverage.                                      |
+| `uv build`                     | Whether the package can be built for distribution.                             |
 
 Use `uv run ruff format .` to format changed Python files.
 If you already use `mise`, `mise run check` runs the lint, type, and offline test
@@ -59,13 +59,13 @@ implementation. Python tests do not check whether instructions are accurate.
 Start with the file closest to your change. Run the default suite before
 submitting a code change.
 
-| Command | Scope |
-| --- | --- |
-| `uv run pytest tests/test_query.py` | One test file. |
-| `uv run pytest tests/test_query.py::TestQueryMode::test_query_mode_returns_records` | One existing test. |
-| `uv run pytest -k "keyword"` | Tests whose names match the keyword. |
-| `uv run pytest --no-cov` | Offline tests without coverage collection. |
-| `uv run coverage report -m` | Lines missed by the previous coverage run. |
+| Command                                                                             | Scope                                      |
+| ----------------------------------------------------------------------------------- | ------------------------------------------ |
+| `uv run pytest tests/test_query.py`                                                 | One test file.                             |
+| `uv run pytest tests/test_query.py::TestQueryMode::test_query_mode_returns_records` | One existing test.                         |
+| `uv run pytest -k "keyword"`                                                        | Tests whose names match the keyword.       |
+| `uv run pytest --no-cov`                                                            | Offline tests without coverage collection. |
+| `uv run coverage report -m`                                                         | Lines missed by the previous coverage run. |
 
 Coverage shows which source statements the tests executed. A high percentage
 does not prove that behavior meets requirements. Test meaningful results, failure behavior,
@@ -151,8 +151,13 @@ Ruff controls formatting and lint rules. The source targets Python 3.12, uses
 Add type hints to function signatures, including `-> None` where appropriate.
 Use forms such as `str | None` and `dict[str, Any]`. Function and variable names
 use `snake_case`. Class names use `PascalCase`. Constants use `UPPER_SNAKE_CASE`.
-The supported type check is `uv run ty check src/`, with Python 3.12 as its target.
+The supported type check is `uv run ty check`, with Python 3.12 as its target.
+`pyproject.toml` selects `src/` and `tests/`, including integration test code;
+checking these files does not run live tests. It also enables stricter checks for
+generic type arguments, return types, overrides, unresolved references and
+attributes, redundant casts, and unused ignore comments. Warnings fail the check.
 The development dependencies and lockfile select the tool version.
+Zed uses `ty` for Python type checking and Ruff for linting and formatting.
 
 ## Submit the change
 
@@ -168,11 +173,11 @@ tests. Update the affected user guide or tool reference when behavior changes.
 GitHub's continuous integration (CI) repeats checks on pushes to `main` and
 pull requests targeting `main`:
 
-| Job | Checks |
-| --- | --- |
-| Lint | Ruff lint and formatting. |
-| Type check | `ty` against `src/`. |
-| Test | Offline tests on Python 3.12, 3.13, and 3.14. |
+| Job        | Checks                                          |
+| ---------- | ----------------------------------------------- |
+| Lint       | Ruff lint and formatting.                       |
+| Type check | Strict `ty` checks against `src/` and `tests/`. |
+| Test       | Offline tests on Python 3.12, 3.13, and 3.14.   |
 
 The Python 3.12 job uploads coverage to Codecov. A new push cancels the older
 CI run for that branch. All checks must pass before merge.

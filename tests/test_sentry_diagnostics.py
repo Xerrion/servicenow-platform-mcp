@@ -3,7 +3,7 @@
 import asyncio
 import json
 from collections.abc import Generator
-from typing import Any
+from typing import Any, Never, override
 from unittest.mock import patch
 
 import httpx2
@@ -34,6 +34,7 @@ class _MemoryTransport(Transport):
         super().__init__()
         self.events: list[dict[str, Any]] = []
 
+    @override
     def capture_envelope(self, envelope: Envelope) -> None:
         for item in envelope.items:
             event = item.get_event()
@@ -196,7 +197,7 @@ def test_phrase_shaped_credentials_veto_response_text() -> None:
 
 async def test_tool_context_includes_positional_defaults_and_redaction(sentry_events: list[dict[str, Any]]) -> None:
     @tool_handler
-    async def query(table: str, encoded_query: str, limit: int = 20, resolve_labels: str | None = None) -> str:
+    async def query(table: str, encoded_query: str, limit: int = 20, resolve_labels: str | None = None) -> Never:
         raise ServiceNowMCPError("Pagination not supported", status_code=400)
 
     result = decode_response(
@@ -232,14 +233,14 @@ async def test_concurrent_tools_restore_parent_and_keep_separate_error_context(
     ready = asyncio.Event()
 
     @tool_handler
-    async def query() -> str:
+    async def query() -> Never:
         set_sentry_context("http", {"owner": "query"})
         ready.set()
         await asyncio.sleep(0)
         raise ServiceNowMCPError("Pagination not supported")
 
     @tool_handler
-    async def describe() -> str:
+    async def describe() -> Never:
         await ready.wait()
         raise ServiceNowMCPError("Resource not found")
 
@@ -285,11 +286,11 @@ async def test_failed_request_has_correlated_history_and_actual_controls(
         factory = ServiceNowClientFactory(settings, OAuthPKCEProvider(settings), transport)
 
         @tool_handler
-        async def query(table: str, encoded_query: str) -> str:
+        async def query(table: str, encoded_query: str) -> Never:
             async with factory() as client:
                 await client.query_records("sys_dictionary", fields=["element"], limit=1)
                 await client.query_records(table, encoded_query, fields=["sys_id"], limit=100)
-            return "unreachable"
+            raise AssertionError("Expected query_records to reject the response")
 
         result = decode_response(await query(table="alm_asset", encoded_query="123TEXTQUERY321=private-search"))
 
@@ -355,7 +356,7 @@ async def test_http_history_is_capped_at_fifty_requests(
         factory = ServiceNowClientFactory(settings, OAuthPKCEProvider(settings), transport)
 
         @tool_handler
-        async def query() -> str:
+        async def query() -> Never:
             async with factory() as client:
                 for _ in range(60):
                     await client.query_records("sys_dictionary", fields=["element"], limit=1)

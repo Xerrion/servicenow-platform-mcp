@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import httpx2
 import pytest
+from pydantic import JsonValue
 
 from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.capabilities.records._query_preparation import validate_query_fields
@@ -33,7 +34,7 @@ def root_tables(parents: dict[str, str] | None = None) -> None:
     http_mock.get(OBJECTS).mock(side_effect=respond)
 
 
-def fields_by_table(definitions: dict[str, list[dict]]) -> None:
+def fields_by_table(definitions: dict[str, list[dict[str, JsonValue]]]) -> None:
     def respond(request: httpx2.Request) -> httpx2.Response:
         query = request.url.params["sysparm_query"].split("^ORDERBY", 1)[0]
         table, selection = query.split("^elementIN")
@@ -50,7 +51,9 @@ def fields_by_table(definitions: dict[str, list[dict]]) -> None:
     http_mock.get(DICTIONARY).mock(side_effect=respond)
 
 
-def column(name: str, kind: str = "string", reference: str | dict | None = None) -> dict:
+def column(
+    name: str, kind: str = "string", reference: str | dict[str, JsonValue] | None = None
+) -> dict[str, JsonValue]:
     return {"element": name, "internal_type.name": kind, "reference": reference}
 
 
@@ -67,6 +70,7 @@ async def test_inactive_field_is_queryable_without_changing_active_discovery(set
     assert await metadata.get_fields("incident", ["u_retired"]) == []
     result = await metadata.get_query_field_paths("incident", ["u_retired"])
     assert result[0].status == "valid"
+    assert result[0].field is not None
     assert result[0].field.metadata["active"] == "false"
     assert await validate_query_fields("incident", "u_retired=one", metadata) == []
 
@@ -155,11 +159,14 @@ async def test_known_reference_root_does_not_hide_an_unverified_terminal_field(s
         (column("assigned_to", "reference", "sys_user"), "assigned_to.missing", "not visible"),
     ],
 )
-async def test_unresolved_paths_remain_unverified(settings: Settings, field, path: str, reason: str) -> None:
+async def test_unresolved_paths_remain_unverified(
+    settings: Settings, field: dict[str, JsonValue], path: str, reason: str
+) -> None:
     root_tables()
     fields_by_table({"incident": [field], "sys_user": [column("email")]})
     result = (await registry(settings).get_query_field_paths("incident", [path]))[0]
     assert result.status == "unverified"
+    assert result.reason is not None
     assert reason in result.reason
 
 
@@ -167,7 +174,9 @@ async def test_unresolved_paths_remain_unverified(settings: Settings, field, pat
     "object_row",
     [None, {}, {"super_class.name": ""}, {"super_class": {"value": "a" * 32}}, {"super_class": {"display_value": ""}}],
 )
-async def test_missing_table_or_parent_metadata_is_not_a_root(settings: Settings, object_row) -> None:
+async def test_missing_table_or_parent_metadata_is_not_a_root(
+    settings: Settings, object_row: dict[str, JsonValue] | None
+) -> None:
     http_mock.get(OBJECTS).respond(200, json={"result": [] if object_row is None else [object_row]})
     fields_by_table({})
     metadata = registry(settings)
@@ -176,6 +185,7 @@ async def test_missing_table_or_parent_metadata_is_not_a_root(settings: Settings
     assert inheritance.reason in {"table_not_visible", "parent_not_visible"}
     result = (await metadata.get_query_field_paths("incident", ["missing"]))[0]
     assert result.status == "unverified"
+    assert result.reason is not None
     assert "inheritance was incomplete" in result.reason.lower()
 
 
@@ -241,11 +251,12 @@ async def test_bounded_dictionary_pages_do_not_claim_completeness(settings: Sett
 
 
 @pytest.mark.parametrize("response", [{"result": [{"reference": "sys_user"}]}, {"result": {}}])
-async def test_malformed_metadata_is_explicitly_incomplete(settings: Settings, response) -> None:
+async def test_malformed_metadata_is_explicitly_incomplete(settings: Settings, response: dict[str, JsonValue]) -> None:
     root_tables()
     http_mock.get(DICTIONARY).respond(200, json=response)
     result = await registry(settings).get_query_field_paths("incident", ["assigned_to.email"])
     assert result[0].status == "unverified"
+    assert result[0].reason is not None
     assert "incomplete" in result[0].reason
 
 
@@ -253,7 +264,9 @@ async def test_malformed_metadata_is_explicitly_incomplete(settings: Settings, r
     "failure",
     [httpx2.ReadTimeout("private marker"), httpx2.Response(403, json={"error": {"message": "private marker"}})],
 )
-async def test_reference_metadata_failure_does_not_erase_other_positive_evidence(settings: Settings, failure) -> None:
+async def test_reference_metadata_failure_does_not_erase_other_positive_evidence(
+    settings: Settings, failure: httpx2.ReadTimeout | httpx2.Response
+) -> None:
     root_tables()
     fields_by_table({"incident": [column("assigned_to", "reference", "sys_user"), column("short_description")]})
 
@@ -284,6 +297,7 @@ async def test_reference_traversal_is_bounded(settings: Settings) -> None:
     fields_by_table({"incident": [column("parent", "reference", "incident")]})
     result = await registry(settings).get_query_field_paths("incident", [".".join(["parent"] * 9)])
     assert result[0].status == "unverified"
+    assert result[0].reason is not None
     assert "depth bound" in result[0].reason
     assert http_mock.routes[-1].call_count == 1
 

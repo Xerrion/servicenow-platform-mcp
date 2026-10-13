@@ -1,6 +1,7 @@
 """Native JSON payload boundaries preserve values and reject unsafe objects."""
 
 import pytest
+from pydantic import JsonValue
 
 from servicenow_mcp.capabilities.contracts import (
     MAX_JSON_DEPTH,
@@ -10,8 +11,8 @@ from servicenow_mcp.capabilities.contracts import (
 )
 
 
-def nested(depth: int) -> dict:
-    value = {}
+def nested(depth: int) -> dict[str, JsonValue]:
+    value: dict[str, JsonValue] = {}
     for _ in range(depth - 1):
         value = {"k": value}
     return value

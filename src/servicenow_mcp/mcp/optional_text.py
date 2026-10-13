@@ -2,7 +2,7 @@
 
 import inspect
 from collections.abc import Callable
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 from pydantic import ValidatorFunctionWrapHandler, WrapValidator
 
@@ -11,7 +11,7 @@ def _validate_nullable_string(value: Any, handler: ValidatorFunctionWrapHandler)
     """Accept explicit null; let Pydantic validate every non-null value as text."""
     if value is None:
         return None
-    return handler(value)
+    return cast("str", handler(value))
 
 
 _NullableString = Annotated[

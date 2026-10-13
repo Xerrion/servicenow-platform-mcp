@@ -22,8 +22,13 @@ async def test_owned_command_consumes_once() -> None:
     value = staged()
     store = PreviewTokenStore()
     token = await store.create(value)
-    value.command.data["nested"]["value"] = 2
+    assert isinstance(value.command, RecordCommand)
+    assert value.command.data is not None
+    nested = value.command.data["nested"]
+    assert isinstance(nested, dict)
+    nested["value"] = 2
     consumed = await store.consume(token)
+    assert isinstance(consumed.command, RecordCommand)
     assert consumed.command.data == {"nested": {"value": 1}}
     assert len(store) == store.retained_payload_bytes == 0
     with pytest.raises(CapabilityError, match="Invalid or expired"):

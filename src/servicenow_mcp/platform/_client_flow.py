@@ -4,6 +4,7 @@ from typing import Any
 
 import httpx2
 
+from servicenow_mcp.capabilities.contracts import CapabilityError
 from servicenow_mcp.errors import NotFoundError, ServiceNowMCPError
 from servicenow_mcp.platform._client_transport import ServiceNowRequestClient
 from servicenow_mcp.policy import INTERNAL_QUERY_LIMIT
@@ -13,6 +14,34 @@ from servicenow_mcp.validation import resolve_ref_value, sanitize_query_value, v
 
 class FlowDesignerApiClient(ServiceNowRequestClient):
     """Implement Flow Designer record discovery and bounded joins."""
+
+    async def studio_request(
+        self, resource: str, *, data: dict[str, Any] | None = None, create: bool = False
+    ) -> dict[str, Any]:
+        """Use the observed, undocumented Studio contract without retries or browser credentials."""
+        if resource.startswith("flow/"):
+            validate_sys_id(resource.removeprefix("flow/"))
+        elif resource.startswith("action/action_types/"):
+            validate_sys_id(resource.removeprefix("action/action_types/"))
+        elif resource != "flow" or data is None:
+            raise ValueError("Unsupported Studio resource.")
+        method = "GET" if data is None else "POST" if create else "PUT"
+        params = {"param_only_properties": "true", "sysparm_transaction_scope": data["scope"]} if create and data else None
+        response = await self._ensure_client().request(
+            method,
+            f"{self._settings.servicenow_instance_url}/api/now/processflow/{resource}",
+            headers=await self._headers(),
+            params=params,
+            **({"json": data} if data is not None else {}),
+        )
+        self._raise_for_status(response)
+        result = self._extract_json_result(response)
+        if response.status_code != 200 or not isinstance(result, dict) or result.get("errorCode") not in (0, None):
+            raise CapabilityError("Studio did not establish success. Check the remote flow before retrying.", "UNKNOWN_OUTCOME")
+        value = result.get("data")
+        if not isinstance(value, dict) or not value.get("id"):
+            raise CapabilityError("Studio response is incomplete. Check the remote flow before retrying.", "UNKNOWN_OUTCOME")
+        return value
 
     def _raise_for_flow_read_status(self, response: httpx2.Response) -> None:
         """Require a completed Table API response for a Flow Designer read."""

@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import servicenow_mcp.sentry as sentry_mod
+from servicenow_mcp.capabilities.contracts import CapabilityResult
 from servicenow_mcp.sentry import (
     capture_exception,
     set_sentry_context,
@@ -386,8 +387,8 @@ class TestSetSentryContextIntegration:
         from servicenow_mcp.mcp.handlers import tool_handler
 
         @tool_handler
-        async def my_tool(table: str) -> str:
-            return '{"status": "success"}'
+        async def my_tool(table: str) -> CapabilityResult:
+            return CapabilityResult(data=None)
 
         with (
             patch("servicenow_mcp.mcp.handlers.set_sentry_context") as mock_ctx,

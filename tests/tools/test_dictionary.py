@@ -443,7 +443,7 @@ class TestCache:
 
     @pytest.mark.asyncio()
     async def test_same_table_field_load_is_single_flight(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self, settings: Settings, auth_provider: OAuthPKCEProvider, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Concurrent calls for one table share dictionary metadata loading."""
         registry = DictionaryRegistry(settings, auth_provider)
@@ -457,7 +457,7 @@ class TestCache:
             await gate.wait()
             return []
 
-        registry.get_all_fields = load  # type: ignore[method-assign]
+        monkeypatch.setattr(registry, "get_all_fields", load)
         first = asyncio.create_task(registry.get_script_fields("incident"))
         second = asyncio.create_task(registry.get_script_fields("incident"))
         await asyncio.sleep(0)

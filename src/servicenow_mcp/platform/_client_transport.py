@@ -95,7 +95,7 @@ class ServiceNowRequestClient:
         try:
             payload = JSON.validate_json(response.content)
         except ValidationError:
-            if response.request.method in {"POST", "PATCH"}:
+            if response.request.method in {"POST", "PUT", "PATCH"}:
                 raise ServerError(
                     f"Invalid JSON response from {response.request.method} {response.request.url.path} "
                     f"(HTTP {response.status_code}). Remote outcome unknown; the write may have completed. "
@@ -107,7 +107,7 @@ class ServiceNowRequestClient:
                 "this does not establish an ACL denial."
             ) from None
         if not isinstance(payload, dict):
-            if response.request.method in {"POST", "PATCH"}:
+            if response.request.method in {"POST", "PUT", "PATCH"}:
                 raise ServerError(
                     f"Unexpected JSON response from {response.request.method} {response.request.url.path} "
                     f"(HTTP {response.status_code}). Remote outcome unknown; the write may have completed. "
@@ -116,7 +116,7 @@ class ServiceNowRequestClient:
             raise ServerError(
                 f"Unexpected JSON response from {response.request.url.path}: expected an object with 'result'."
             )
-        if "result" not in payload and response.request.method in {"POST", "PATCH"}:
+        if "result" not in payload and response.request.method in {"POST", "PUT", "PATCH"}:
             raise ServerError(
                 "Mutation response is missing result. Remote outcome unknown. Check ServiceNow before another preview. The request was not replayed."
             )
@@ -218,8 +218,12 @@ class ServiceNowRequestClient:
         """Extract a ServiceNow error message when the response shape permits it."""
         try:
             body = JSON.validate_json(response.content)
-            if "error" in body and "message" in body["error"]:
-                return body["error"]["message"]
+            if isinstance(body, dict):
+                error = body.get("error")
+                if isinstance(error, dict):
+                    message = error.get("message")
+                    if isinstance(message, str):
+                        return message
         except Exception:
             logger.debug("Could not parse ServiceNow error body", exc_info=True)
         return default

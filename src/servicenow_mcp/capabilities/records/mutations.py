@@ -1,5 +1,7 @@
 """Record mutation previews, dictionary checks, and one-request execution."""
 
+from typing import Any
+
 from servicenow_mcp.capabilities.contracts import CapabilityError
 from servicenow_mcp.capabilities.mutations.models import RecordCommand, fingerprint
 from servicenow_mcp.capabilities.records._artifact import validate_ui_macro_xml
@@ -33,7 +35,7 @@ async def validate_metadata(command: RecordCommand, client: ServiceNowClient, di
 
 async def preview(
     command: RecordCommand, client: ServiceNowClient, dictionary: DictionaryRegistry
-) -> tuple[dict, str | None]:
+) -> tuple[dict[str, Any], str | None]:
     await validate_metadata(command, client, dictionary)
     summary = {"table": command.table, "sys_id": command.sys_id}
     if command.action == "create":
@@ -51,7 +53,7 @@ async def preview(
 
 async def apply(
     command: RecordCommand, expected: str | None, client: ServiceNowClient, dictionary: DictionaryRegistry
-) -> dict:
+) -> dict[str, Any]:
     dictionary.flush(command.table)
     await validate_metadata(command, client, dictionary)
     if command.action != "create":

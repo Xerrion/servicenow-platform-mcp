@@ -11,6 +11,7 @@ import pytest
 
 from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.capabilities.contracts import MAX_JSON_PAYLOAD_BYTES
+from servicenow_mcp.capabilities.mutations.models import StagedMutation
 from servicenow_mcp.capabilities.mutations.store import PreviewTokenStore
 from servicenow_mcp.capabilities.records._artifact import validate_ui_macro_xml
 from servicenow_mcp.config import Settings
@@ -121,11 +122,11 @@ class TestActionDispatch:
 
         # Patch PreviewTokenStore.create to detect any token-allocation attempt.
         # If the cap fires correctly, this never runs.
-        created_tokens: list[Any] = []
+        created_tokens: list[StagedMutation] = []
 
         original_create = record_write_module.PreviewTokenStore.create
 
-        async def _spy_create(self: Any, payload: dict[str, Any]) -> str:
+        async def _spy_create(self: PreviewTokenStore, payload: StagedMutation) -> str:
             created_tokens.append(payload)
             return await original_create(self, payload)
 

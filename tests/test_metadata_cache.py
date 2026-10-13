@@ -10,7 +10,9 @@ from servicenow_mcp.telemetry import CacheName, HttpTelemetry
 
 
 def _counter(snapshot: HttpTelemetry, name: CacheName, field: str) -> int:
-    return getattr(snapshot.snapshot().metadata_caches[name.value], field)
+    value = getattr(snapshot.snapshot().metadata_caches[name.value], field)
+    assert isinstance(value, int)
+    return value
 
 
 @pytest.mark.asyncio()

@@ -3,6 +3,7 @@
 import hashlib
 import json
 import re
+import uuid
 from typing import Annotated, ClassVar, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
@@ -158,7 +159,45 @@ class CatalogCommand(Command):
         return self
 
 
-MutationCommand = Annotated[RecordCommand | AttachmentCommand | CatalogCommand, Field(discriminator="family")]
+class FlowCommand(Command):
+    family: Literal["flows"] = "flows"
+    action: Literal["create", "add_action"]
+    sys_id: str | None = None
+    name: str | None = None
+    scope: str | None = None
+    description: str | None = Field(default=None, repr=False)
+    action_type_sys_id: str | None = None
+    inputs: dict[str, JsonValue] | None = Field(default=None, repr=False)
+    instance_id: str = Field(default_factory=lambda: uuid.uuid4().hex)
+    ui_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+
+    @model_validator(mode="after")
+    def check_action(self) -> Self:
+        if self.action == "create":
+            if not self.name or not self.name.strip() or len(self.name) > 255 or not self.scope:
+                raise CapabilityError("create requires name (1-255 characters) and explicit scope sys_id or global.")
+            if self.scope != "global":
+                validate_sys_id(self.scope)
+            if any(v is not None for v in (self.sys_id, self.action_type_sys_id, self.inputs)):
+                raise CapabilityError("create does not accept sys_id, action_type_sys_id, or inputs.")
+            if self.description is not None and len(self.description) > 4000:
+                raise CapabilityError("description exceeds 4000 characters.")
+        else:
+            if not self.sys_id or not self.action_type_sys_id:
+                raise CapabilityError("add_action requires sys_id and action_type_sys_id.")
+            validate_sys_id(self.sys_id)
+            validate_sys_id(self.action_type_sys_id)
+            if any(v is not None for v in (self.name, self.scope, self.description)):
+                raise CapabilityError("add_action does not accept name, scope, or description.")
+            validate_payload(self.inputs or {}, field_name="inputs")
+            if any(not isinstance(v, str | bool | int | float | type(None)) for v in (self.inputs or {}).values()):
+                raise CapabilityError("inputs supports only static scalar values.")
+            if any(isinstance(v, str) and "{{" in v for v in (self.inputs or {}).values()):
+                raise CapabilityError("Data pills and scripts are not supported by draft authoring.")
+        return self
+
+
+MutationCommand = Annotated[RecordCommand | AttachmentCommand | CatalogCommand | FlowCommand, Field(discriminator="family")]
 
 
 class StagedMutation(Command):
@@ -170,7 +209,7 @@ class StagedMutation(Command):
 
 
 class MutationPreview(BaseModel):
-    family: Literal["records", "attachments", "catalog"]
+    family: Literal["records", "attachments", "catalog", "flows"]
     action: str
     preview_token: str
     expires_in_seconds: int

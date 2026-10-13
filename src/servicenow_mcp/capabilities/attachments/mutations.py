@@ -1,6 +1,7 @@
 """Attachment review and apply-time ownership checks."""
 
 import hashlib
+from typing import Any
 
 from servicenow_mcp.capabilities.attachments.common import (
     ensure_attachment_size_within_limit,
@@ -12,7 +13,7 @@ from servicenow_mcp.platform.client import ServiceNowClient
 from servicenow_mcp.policy import check_table_access, mask_sensitive_fields
 
 
-async def preview(command: AttachmentCommand, client: ServiceNowClient) -> tuple[dict, str, str | None]:
+async def preview(command: AttachmentCommand, client: ServiceNowClient) -> tuple[dict[str, Any], str, str | None]:
     if command.action == "upload":
         ensure_attachment_size_within_limit(command.content or b"", operation="upload")
         await client.get_record(command.table or "", command.table_sys_id or "", fields=["sys_id"])
@@ -34,7 +35,9 @@ async def preview(command: AttachmentCommand, client: ServiceNowClient) -> tuple
     return mask_sensitive_fields(metadata), table, fingerprint(metadata)
 
 
-async def apply(command: AttachmentCommand, table: str, expected: str | None, client: ServiceNowClient) -> dict:
+async def apply(
+    command: AttachmentCommand, table: str, expected: str | None, client: ServiceNowClient
+) -> dict[str, Any]:
     if command.action == "upload":
         await client.get_record(table, command.table_sys_id or "", fields=["sys_id"])
         ensure_attachment_size_within_limit(command.content or b"", operation="upload")

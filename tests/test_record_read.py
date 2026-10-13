@@ -274,6 +274,26 @@ class TestNameLookup:
         assert result["status"] == "error"
         assert "No record found" in result["error"]["message"]
 
+    @pytest.mark.parametrize(
+        "record",
+        [{}, {"sys_id": None}, {"sys_id": 42}, {"sys_id": {"value": SYS_ID_BR}}, {"sys_id": ""}, {"sys_id": "invalid"}],
+    )
+    async def test_name_lookup_rejects_missing_or_invalid_sys_id(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider, record: dict[str, Any]
+    ) -> None:
+        dictionary = _stub_dictionary(settings, auth_provider, ["sys_id", "name"])
+        http_mock.get(f"{BASE_URL}/api/now/table/sys_script").respond(
+            200, json={"result": [record]}, headers={"X-Total-Count": "1"}
+        )
+        tools = _register_and_get_tools(settings, auth_provider, dictionary=dictionary)
+
+        result = decode_response(await tools["record_read"](table="sys_script", name="BR1"))
+
+        assert result["status"] == "error"
+        assert "sys_id" in result["error"]["message"]
+        assert len(http_mock.calls) == 1
+        assert http_mock.calls.last.request.url.path.endswith("/sys_script")
+
     @pytest.mark.asyncio()
     async def test_name_ambiguous_returns_error(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         dictionary = _stub_dictionary(settings, auth_provider, ["sys_id", "name"])

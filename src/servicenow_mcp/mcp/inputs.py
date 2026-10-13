@@ -2,7 +2,7 @@
 
 import inspect
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, override
 
 from jsonschema import Draft202012Validator
 from mcp.server import MCPServer
@@ -51,6 +51,7 @@ class NativeMCPServer(MCPServer):
         middleware = RawInputMiddleware(self.list_tools, self._input_models)
         super().__init__(*args, middleware=[middleware], **kwargs)
 
+    @override
     def add_tool(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> None:
         signature = inspect.signature(fn, eval_str=True)
         fields: dict[str, Any] = {
@@ -70,6 +71,7 @@ class NativeMCPServer(MCPServer):
         )
         super().add_tool(fn, *args, **kwargs)
 
+    @override
     async def list_tools(self) -> list[Any]:
         tools = await super().list_tools()
         for tool in tools:

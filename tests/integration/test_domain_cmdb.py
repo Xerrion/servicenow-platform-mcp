@@ -118,7 +118,7 @@ class TestDomainCmdb:
             result = await client.aggregate(
                 table="cmdb_ci",
                 query="",
-                group_by=["sys_class_name"],
+                group_by="sys_class_name",
             )
         assert result is not None
 
@@ -128,6 +128,6 @@ class TestDomainCmdb:
             result = await client.aggregate(
                 table="cmdb_ci",
                 query="",
-                group_by=["operational_status"],
+                group_by="operational_status",
             )
         assert result is not None

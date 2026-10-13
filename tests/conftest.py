@@ -67,7 +67,9 @@ def prod_auth_provider(prod_settings: Settings) -> OAuthPKCEProvider:
 def _isolate_unit_settings(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
     """Do not load developer credentials or telemetry settings in unit tests."""
     if "integration" not in request.node.path.parts:
-        monkeypatch.setitem(Settings.model_config, "env_file", None)
+        model_config = Settings.model_config.copy()
+        model_config["env_file"] = None
+        monkeypatch.setattr(Settings, "model_config", model_config)
 
 
 @pytest.fixture(autouse=True)

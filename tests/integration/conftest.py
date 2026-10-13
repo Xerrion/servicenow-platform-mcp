@@ -44,7 +44,8 @@ async def incident_sys_id(live_settings: Settings, live_auth: OAuthPKCEProvider)
     records = result["records"]
     if not records:
         return None
-    return records[0].get("sys_id", "")
+    sys_id = records[0].get("sys_id")
+    return sys_id if isinstance(sys_id, str) else None
 
 
 @pytest_asyncio.fixture(scope="session")
@@ -60,7 +61,8 @@ async def update_set_sys_id(live_settings: Settings, live_auth: OAuthPKCEProvide
     records = result["records"]
     if not records:
         return None
-    return records[0].get("sys_id", "")
+    sys_id = records[0].get("sys_id")
+    return sys_id if isinstance(sys_id, str) else None
 
 
 @pytest_asyncio.fixture(scope="session")
@@ -76,7 +78,8 @@ async def business_rule_sys_id(live_settings: Settings, live_auth: OAuthPKCEProv
     records = result["records"]
     if not records:
         return None
-    return records[0].get("sys_id", "")
+    sys_id = records[0].get("sys_id")
+    return sys_id if isinstance(sys_id, str) else None
 
 
 @pytest_asyncio.fixture(scope="session")
@@ -92,7 +95,8 @@ async def change_request_sys_id(live_settings: Settings, live_auth: OAuthPKCEPro
     records = result["records"]
     if not records:
         return None
-    return records[0].get("sys_id", "")
+    sys_id = records[0].get("sys_id")
+    return sys_id if isinstance(sys_id, str) else None
 
 
 @pytest_asyncio.fixture(scope="session")
@@ -108,7 +112,8 @@ async def cmdb_ci_sys_id(live_settings: Settings, live_auth: OAuthPKCEProvider) 
     records = result["records"]
     if not records:
         return None
-    return records[0].get("sys_id", "")
+    sys_id = records[0].get("sys_id")
+    return sys_id if isinstance(sys_id, str) else None
 
 
 @pytest_asyncio.fixture(scope="session")
@@ -124,7 +129,8 @@ async def problem_sys_id(live_settings: Settings, live_auth: OAuthPKCEProvider) 
     records = result["records"]
     if not records:
         return None
-    return records[0].get("sys_id", "")
+    sys_id = records[0].get("sys_id")
+    return sys_id if isinstance(sys_id, str) else None
 
 
 @pytest_asyncio.fixture(scope="session")
@@ -140,7 +146,8 @@ async def sc_request_sys_id(live_settings: Settings, live_auth: OAuthPKCEProvide
     records = result["records"]
     if not records:
         return None
-    return records[0].get("sys_id", "")
+    sys_id = records[0].get("sys_id")
+    return sys_id if isinstance(sys_id, str) else None
 
 
 @pytest_asyncio.fixture(scope="session")
@@ -156,4 +163,5 @@ async def kb_article_sys_id(live_settings: Settings, live_auth: OAuthPKCEProvide
     records = result["records"]
     if not records:
         return None
-    return records[0].get("sys_id", "")
+    sys_id = records[0].get("sys_id")
+    return sys_id if isinstance(sys_id, str) else None

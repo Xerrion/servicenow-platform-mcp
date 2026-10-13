@@ -1,5 +1,6 @@
 """Tests for utility functions."""
 
+from typing import Never
 from unittest.mock import AsyncMock
 
 import httpx2
@@ -283,16 +284,17 @@ class TestSafeToolCall:
 
     async def test_success_passthrough(self) -> None:
         """Successful fn return passes through unchanged."""
-        fn = AsyncMock(return_value='{"status": "ok"}')
+        expected = operation_result(data={"status": "ok"})
+        fn = AsyncMock(return_value=expected)
 
         result = await safe_tool_call(fn)
-        assert result == '{"status": "ok"}'
+        assert result is expected
 
     async def test_acl_error_returns_acl_envelope(self) -> None:
         """ACLError is caught and formatted as ACL denial."""
         from servicenow_mcp.errors import ACLError
 
-        async def fn() -> str:
+        async def fn() -> Never:
             raise ACLError("ACL blocked incident")
 
         result = await safe_tool_call(fn)
@@ -306,7 +308,7 @@ class TestSafeToolCall:
     async def test_forbidden_error_returns_forbidden_envelope(self) -> None:
         """ForbiddenError is caught and formatted as generic forbidden."""
 
-        async def fn() -> str:
+        async def fn() -> Never:
             raise ForbiddenError("insufficient role")
 
         result = await safe_tool_call(fn)
@@ -327,7 +329,7 @@ class TestSafeToolCall:
         their own arms with verbose messages — see the curated-error tests.
         """
 
-        async def fn() -> str:
+        async def fn() -> Never:
             raise RuntimeError("something broke")
 
         result = await safe_tool_call(fn)
@@ -340,7 +342,7 @@ class TestSafeToolCall:
         assert "correlation_id" not in parsed
 
     async def test_get_timeout_returns_query_narrowing_advice(self) -> None:
-        async def fn() -> str:
+        async def fn() -> Never:
             raise httpx2.ReadTimeout(
                 "private request details",
                 request=httpx2.Request("GET", "https://test.service-now.com/api/now/table/incident"),
@@ -370,7 +372,7 @@ class TestSafeToolCall:
         timeout_type: type[httpx2.TimeoutException],
         phase: str,
     ) -> None:
-        async def fn() -> str:
+        async def fn() -> Never:
             raise timeout_type(
                 "private request details",
                 request=httpx2.Request(method, "https://test.service-now.com/api/now/table/incident"),
@@ -387,7 +389,7 @@ class TestSafeToolCall:
         assert "private request details" not in message
 
     async def test_timeout_without_request_has_no_query_advice(self) -> None:
-        async def fn() -> str:
+        async def fn() -> Never:
             raise httpx2.PoolTimeout("private request details")
 
         message = decode_response(await safe_tool_call(fn))["error"]["message"]
@@ -550,9 +552,9 @@ class TestValidationErrorTranslation:
         class Probe(BaseModel):
             secret_field: int
 
-        async def fn() -> str:
+        async def fn() -> Never:
             Probe.model_validate({"secret_field": "private-input-value"})
-            return ""
+            raise AssertionError("Expected Probe validation to fail")
 
         with patch("servicenow_mcp.mcp.errors.sentry_capture") as capture:
             result = await safe_tool_call(fn)

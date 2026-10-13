@@ -3,7 +3,7 @@
 import logging
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
-from typing import Any, Protocol, cast
+from typing import Any, Protocol, cast, override
 from unittest.mock import AsyncMock, patch
 
 import httpx2
@@ -24,6 +24,7 @@ class _CloseTrackingAsyncClient(httpx2.AsyncClient):
         super().__init__(**kwargs)
         self.close_count = 0
 
+    @override
     async def aclose(self) -> None:
         """Count and perform one close call."""
         self.close_count += 1

@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from enum import StrEnum
 from time import perf_counter
-from typing import Any, ClassVar, Literal
+from typing import Any, ClassVar, Literal, override
 from uuid import uuid4
 
 import httpx2
@@ -277,6 +277,7 @@ class TelemetryAsyncClient(httpx2.AsyncClient):
         self._telemetry = telemetry
         self._is_shared_pool = is_shared_pool
 
+    @override
     async def send(self, request: httpx2.Request, **kwargs: Any) -> httpx2.Response:
         """Send one request and record safe operational measurements."""
         trace = current_tool_trace()

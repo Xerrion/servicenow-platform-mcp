@@ -38,12 +38,12 @@ settings or retrying the request.
 
 A decorated tool returns these fields when an HTTP request times out:
 
-| Error field | Meaning |
-| --- | --- |
-| `code` | `UPSTREAM_TIMEOUT`. A ServiceNow HTTP wait exceeded its timeout. |
-| `phase` | `connect`, `read`, `write`, `pool`, or `unknown`. |
-| `operation` | A fixed operation label, such as `records` or `dictionary`. |
-| `trace_id` | The local tool invocation ID used in the diagnostic logs. |
+| Error field | Meaning                                                          |
+| ----------- | ---------------------------------------------------------------- |
+| `code`      | `UPSTREAM_TIMEOUT`. A ServiceNow HTTP wait exceeded its timeout. |
+| `phase`     | `connect`, `read`, `write`, `pool`, or `unknown`.                |
+| `operation` | A fixed operation label, such as `records` or `dictionary`.      |
+| `trace_id`  | The local tool invocation ID used in the diagnostic logs.        |
 
 A timeout without a request object reports `operation=unknown`.
 The server does not replay timeout errors.
@@ -58,12 +58,12 @@ Do not treat such a response as proof that the server checked every filter field
 
 Each decorated tool invocation has a random `trace_id`. The logs contain:
 
-| Event | Evidence |
-| --- | --- |
-| Tool start and finish | Tool name, total duration, outcome, and count of HTTP requests started. |
-| Authorization start and finish | Duration, including authorization lock and browser waits. |
-| HTTP start and finish | Request number, operation, method, duration, response size, and available HTTP status. |
-| HTTP failure or cancellation | Duration, outcome, and timeout phase. |
+| Event                          | Evidence                                                                               |
+| ------------------------------ | -------------------------------------------------------------------------------------- |
+| Tool start and finish          | Tool name, total duration, outcome, and count of HTTP requests started.                |
+| Authorization start and finish | Duration, including authorization lock and browser waits.                              |
+| HTTP start and finish          | Request number, operation, method, duration, response size, and available HTTP status. |
+| HTTP failure or cancellation   | Duration, outcome, and timeout phase.                                                  |
 
 Operation labels identify `dictionary`, `table_metadata`, `choices`,
 `documentation`, `records`, `aggregate`, `attachment`, and `other`.
@@ -121,12 +121,12 @@ that invocation. The event transaction name identifies the tool without renaming
 a shared MCP span. Tool scopes remove inherited request contexts and breadcrumbs.
 Server and aggregate cache contexts remain available.
 
-| Context | Contents |
-| --- | --- |
-| `server` | Instance hostname, configured environment, production flag, and selected package. |
-| `tool` | Tool name and redacted arguments, including positional inputs and declared defaults. |
-| `tool_trace` | Local trace ID, elapsed duration, and HTTP request count. |
-| `http_request` | Latest completed or failed HTTP attempt. |
+| Context          | Contents                                                                                                               |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `server`         | Instance hostname, configured environment, production flag, and selected package.                                      |
+| `tool`           | Tool name and redacted arguments, including positional inputs and declared defaults.                                   |
+| `tool_trace`     | Local trace ID, elapsed duration, and HTTP request count.                                                              |
+| `http_request`   | Latest completed or failed HTTP attempt.                                                                               |
 | HTTP breadcrumbs | A bounded history of operation, method, request number, timing, status or timeout phase, response size, and pool mode. |
 
 HTTP errors also set the indexed tags `http.status_code` and `http.operation`.
@@ -157,7 +157,7 @@ separate existing policy.
 
 Sentry configuration uses:
 
-- `send_default_pii=False` and no local-variable capture.
+- `data_collection=False` and no local-variable capture.
 - A package-derived release string, with `servicenow-platform-mcp@unknown` as the fallback.
 - The MCP integration when the installed SDK provides it.
 - `traces_sample_rate=0.1` and profiling disabled.
@@ -171,12 +171,12 @@ Keep any new request evidence within the existing allowlists and limits.
 
 The local shared HTTP client records fixed-size counters and totals:
 
-| Measurement | What it counts |
-| --- | --- |
+| Measurement                             | What it counts                                              |
+| --------------------------------------- | ----------------------------------------------------------- |
 | Started, completed, and failed requests | Separate counts for request progress and transport failure. |
-| `http_error_count` | Received HTTP responses with status 400 or higher. |
-| Response bytes and duration | Downloaded bytes and total request duration. |
-| Shared-pool requests | Requests using the local server's shared connection pool. |
+| `http_error_count`                      | Received HTTP responses with status 400 or higher.          |
+| Response bytes and duration             | Downloaded bytes and total request duration.                |
+| Shared-pool requests                    | Requests using the local server's shared connection pool.   |
 
 `failed_request_count` includes transport failures and cancellation.
 It excludes received HTTP error responses. For example, HTTP 400 counts as a
@@ -202,15 +202,15 @@ preview tokens, and audit row counts. See [[Architecture]] for cache lifetimes.
 
 Use the public helpers in `servicenow_mcp.sentry`:
 
-| Helper | Purpose |
-| --- | --- |
-| `setup_sentry(settings)` | Initialize once when configured. |
-| `capture_exception(exc)` | Report an exception when reporting is active. |
-| `set_sentry_tag(key, value)` | Add an indexed search tag. |
-| `set_sentry_context(key, data)` | Add structured context. |
-| `sentry_tool_scope(tool)` | Isolate tool evidence and error attribution. |
-| `add_sentry_breadcrumb(category, data)` | Add curated request history. |
-| `shutdown_sentry()` | Flush pending reports and close the client. |
+| Helper                                  | Purpose                                       |
+| --------------------------------------- | --------------------------------------------- |
+| `setup_sentry(settings)`                | Initialize once when configured.              |
+| `capture_exception(exc)`                | Report an exception when reporting is active. |
+| `set_sentry_tag(key, value)`            | Add an indexed search tag.                    |
+| `set_sentry_context(key, data)`         | Add structured context.                       |
+| `sentry_tool_scope(tool)`               | Isolate tool evidence and error attribution.  |
+| `add_sentry_breadcrumb(category, data)` | Add curated request history.                  |
+| `shutdown_sentry()`                     | Flush pending reports and close the client.   |
 
 The autouse fixture in `tests/conftest.py` resets Sentry initialization state.
 Unit tests also block remote Sentry initialization. They do not send real events.

@@ -29,7 +29,7 @@ dependencies = [
     "python-dotenv>=1.2.4",
     "uvicorn>=0.54.0",
     "starlette>=1.7.0",
-    "sentry-sdk>=2.71.0",
+    "sentry-sdk>=2.72.0",
 ]
 
 [project.urls]

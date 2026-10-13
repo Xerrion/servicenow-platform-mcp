@@ -82,7 +82,7 @@ access with their own ServiceNow account.
 
 The supported connection runs locally on your computer. Your AI app starts
 the server using **stdio**, a local connection between the two programs.
-You need Python 3.12 or later, [uv](https://docs.astral.sh/uv/getting-started/installation/),
+You need Python 3.14 or later, [uv](https://docs.astral.sh/uv/getting-started/installation/),
 and an AI app that can start local MCP servers.
 
 ### 1. Prepare OAuth in ServiceNow

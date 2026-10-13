@@ -91,7 +91,7 @@ def validate_payload(
             raise CapabilityError(f"{field_name} contains a non-JSON value")
     try:
         encoded = json.dumps(raw, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode("utf-8")
-    except (ValueError, UnicodeError):
+    except ValueError, UnicodeError:
         raise CapabilityError(f"{field_name} contains an invalid JSON value") from None
     if len(encoded) > max_bytes:
         raise CapabilityError(f"{field_name} exceeds maximum size of {max_bytes} bytes")

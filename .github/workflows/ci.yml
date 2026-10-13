@@ -55,7 +55,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.12", "3.13", "3.14"]
+        python-version: ["3.14", "3.15"]
     env:
       # Overrides the mise.toml Python pin for the uv-managed venv.
       UV_PYTHON: ${{ matrix.python-version }}
@@ -76,7 +76,7 @@ jobs:
         run: mise run test
 
       - name: Upload coverage
-        if: matrix.python-version == '3.12'
+        if: matrix.python-version == '3.14'
         uses: codecov/codecov-action@v6
         with:
           files: coverage.xml

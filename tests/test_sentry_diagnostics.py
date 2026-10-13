@@ -42,7 +42,7 @@ class _MemoryTransport(Transport):
 
 
 @pytest.fixture()
-def sentry_events(monkeypatch: pytest.MonkeyPatch) -> Generator[list[dict[str, Any]], None, None]:
+def sentry_events(monkeypatch: pytest.MonkeyPatch) -> Generator[list[dict[str, Any]]]:
     """Exercise the actual SDK event pipeline with an in-memory-only transport."""
     transport = _MemoryTransport()
     client = Client(

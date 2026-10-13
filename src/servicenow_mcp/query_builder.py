@@ -53,40 +53,40 @@ class ServiceNowQuery:
     def __init__(self) -> None:
         self._parts: list[str] = []
 
-    def equals(self, field: str, value: str) -> "ServiceNowQuery":
+    def equals(self, field: str, value: str) -> ServiceNowQuery:
         """Add ``field=value`` condition."""
         validate_identifier(field)
         value = sanitize_query_value(value)
         self._parts.append(f"{field}={value}")
         return self
 
-    def greater_or_equal(self, field: str, value: str) -> "ServiceNowQuery":
+    def greater_or_equal(self, field: str, value: str) -> ServiceNowQuery:
         """Add ``field>=value`` condition."""
         validate_identifier(field)
         value = sanitize_query_value(value)
         self._parts.append(f"{field}>={value}")
         return self
 
-    def like(self, field: str, value: str) -> "ServiceNowQuery":
+    def like(self, field: str, value: str) -> ServiceNowQuery:
         """Add ``fieldLIKEvalue`` condition."""
         validate_identifier(field)
         value = sanitize_query_value(value)
         self._parts.append(f"{field}LIKE{value}")
         return self
 
-    def is_empty(self, field: str) -> "ServiceNowQuery":
+    def is_empty(self, field: str) -> ServiceNowQuery:
         """Add ``fieldISEMPTY`` condition."""
         validate_identifier(field)
         self._parts.append(f"{field}ISEMPTY")
         return self
 
-    def is_not_empty(self, field: str) -> "ServiceNowQuery":
+    def is_not_empty(self, field: str) -> ServiceNowQuery:
         """Add ``fieldISNOTEMPTY`` condition."""
         validate_identifier(field)
         self._parts.append(f"{field}ISNOTEMPTY")
         return self
 
-    def hours_ago(self, field: str, hours: int) -> "ServiceNowQuery":
+    def hours_ago(self, field: str, hours: int) -> ServiceNowQuery:
         """Add ``field>=javascript:gs.hoursAgoStart(hours)`` condition.
 
         Args:
@@ -100,7 +100,7 @@ class ServiceNowQuery:
         self._parts.append(f"{field}>=javascript:gs.hoursAgoStart({hours})")
         return self
 
-    def older_than_days(self, field: str, days: int) -> "ServiceNowQuery":
+    def older_than_days(self, field: str, days: int) -> ServiceNowQuery:
         """Add ``field<=javascript:gs.daysAgoEnd(days)`` condition for records before the cutoff.
 
         Args:
@@ -114,7 +114,7 @@ class ServiceNowQuery:
         self._parts.append(f"{field}<=javascript:gs.daysAgoEnd({days})")
         return self
 
-    def in_list(self, field: str, values: list[str]) -> "ServiceNowQuery":
+    def in_list(self, field: str, values: list[str]) -> ServiceNowQuery:
         """Add ``fieldINvalue1,value2,...`` condition.
 
         Args:
@@ -126,7 +126,7 @@ class ServiceNowQuery:
         self._parts.append(f"{field}IN{sanitized}")
         return self
 
-    def new_query(self) -> "ServiceNowQuery":
+    def new_query(self) -> ServiceNowQuery:
         """Append ``^NQ`` to start a new OR-filter group.
 
         ServiceNow's ``^NQ`` operator acts as a top-level OR between
@@ -136,7 +136,7 @@ class ServiceNowQuery:
         self._parts.append("NQ")
         return self
 
-    def or_condition(self, field: str, operator: str, value: str) -> "ServiceNowQuery":
+    def or_condition(self, field: str, operator: str, value: str) -> ServiceNowQuery:
         """Append an OR condition: ``^ORfield<OPERATOR>value``.
 
         Args:
@@ -151,7 +151,7 @@ class ServiceNowQuery:
         self._parts.append(f"OR{field}{operator}{value}")
         return self
 
-    def or_equals(self, field: str, value: str) -> "ServiceNowQuery":
+    def or_equals(self, field: str, value: str) -> ServiceNowQuery:
         """Convenience: append ``^ORfield=value``.
 
         Args:
@@ -160,7 +160,7 @@ class ServiceNowQuery:
         """
         return self.or_condition(field, "=", value)
 
-    def or_starts_with(self, field: str, value: str) -> "ServiceNowQuery":
+    def or_starts_with(self, field: str, value: str) -> ServiceNowQuery:
         """Convenience: append ``^ORfieldSTARTSWITHvalue``.
 
         Args:
@@ -169,7 +169,7 @@ class ServiceNowQuery:
         """
         return self.or_condition(field, "STARTSWITH", value)
 
-    def order_by(self, field: str, descending: bool = False) -> "ServiceNowQuery":
+    def order_by(self, field: str, descending: bool = False) -> ServiceNowQuery:
         """Append an ``ORDERBY`` or ``ORDERBYDESC`` directive.
 
         Args:

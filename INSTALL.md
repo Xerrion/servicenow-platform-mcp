@@ -14,7 +14,7 @@ The signed-in user's ServiceNow permissions control record access.
 
 You need:
 
-- Python 3.12 or later and [uv](https://docs.astral.sh/uv/getting-started/installation/).
+- Python 3.14 or later and [uv](https://docs.astral.sh/uv/getting-started/installation/).
 - An AI app that can start local MCP servers, such as VS Code with GitHub Copilot, Claude Code, or OpenCode.
 - Your ServiceNow instance's HTTPS address, such as `https://your-instance.service-now.com`.
 - A public OAuth application's client ID, prepared by your ServiceNow administrator.
@@ -225,6 +225,8 @@ Review the [change guidance](docs/wiki/Instance-Development.md) and
 
 Use a checkout when you need repository changes or want to contribute to the MCP server.
 The published-package setup above is sufficient for normal use.
+
+The checkout selects Python 3.15 for local development. Python 3.14 remains the minimum supported version.
 
 1. Clone the repository:
 

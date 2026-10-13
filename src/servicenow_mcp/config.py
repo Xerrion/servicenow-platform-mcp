@@ -66,7 +66,7 @@ class Settings(BaseSettings):
         return v.rstrip("/")
 
     @model_validator(mode="after")
-    def validate_auth_credentials(self) -> "Settings":
+    def validate_auth_credentials(self) -> Settings:
         """Reject authentication settings unsupported by public OAuth."""
         if (
             self.servicenow_api_key.get_secret_value()

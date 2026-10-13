@@ -18,7 +18,7 @@ from tests._mock_transport import http_mock
 
 
 @pytest.fixture(autouse=True)
-def _disable_sentry_capture() -> Generator[None, None, None]:
+def _disable_sentry_capture() -> Generator[None]:
     """Prevent Sentry from capturing exceptions during tests.
 
     Resets the module-level ``_initialized`` flag so that
@@ -71,7 +71,7 @@ def _isolate_unit_settings(request: pytest.FixtureRequest, monkeypatch: pytest.M
 
 
 @pytest.fixture(autouse=True)
-def _stub_user_authorization(request: pytest.FixtureRequest) -> Generator[None, None, None]:
+def _stub_user_authorization(request: pytest.FixtureRequest) -> Generator[None]:
     """Keep unit tests offline; authentication and integration tests use the real provider."""
     if request.node.path.name == "test_auth.py" or "integration" in request.node.path.parts:
         yield
@@ -156,7 +156,7 @@ def _fail_closed_network(request: pytest.FixtureRequest, monkeypatch: pytest.Mon
 
 
 @pytest.fixture(autouse=True)
-def _mock_http(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
+def _mock_http(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
     """Route every default httpx2 transport through ``http_mock``; unmatched requests fail the test.
 
     Tests marked ``real_http`` keep the real transport for loopback TLS and proxy fixtures.

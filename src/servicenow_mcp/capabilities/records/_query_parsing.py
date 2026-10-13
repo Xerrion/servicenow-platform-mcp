@@ -42,7 +42,7 @@ class LabelPair(BaseModel):
     label: str
 
     @model_validator(mode="after")
-    def check_field(self) -> "LabelPair":
+    def check_field(self) -> LabelPair:
         validate_identifier(self.field)
         if not self.label:
             raise ValueError("A choice label must not be empty.")
@@ -55,7 +55,7 @@ class AggregateOperation(BaseModel):
     field: str | None = None
 
     @model_validator(mode="after")
-    def check_operation(self) -> "AggregateOperation":
+    def check_operation(self) -> AggregateOperation:
         if self.operation == "count":
             if self.field is not None:
                 raise ValueError("count must not specify a field.")

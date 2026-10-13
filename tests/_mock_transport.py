@@ -59,10 +59,10 @@ class Route:
     def call_count(self) -> int:
         return self.calls.call_count
 
-    def respond(self, status_code: int = 200, **kwargs: Any) -> "Route":
+    def respond(self, status_code: int = 200, **kwargs: Any) -> Route:
         return self.mock(return_value=httpx2.Response(status_code, **kwargs))
 
-    def mock(self, *, return_value: httpx2.Response | None = None, side_effect: SideEffect | None = None) -> "Route":
+    def mock(self, *, return_value: httpx2.Response | None = None, side_effect: SideEffect | None = None) -> Route:
         self.return_value = return_value
         self.side_effect = iter(side_effect) if isinstance(side_effect, list) else side_effect
         return self
@@ -112,7 +112,7 @@ class HTTPMock:
         self.calls: CallList = CallList()
         self.unexpected: list[httpx2.Request] = []
 
-    def __enter__(self) -> "HTTPMock":
+    def __enter__(self) -> HTTPMock:
         return self
 
     def __exit__(self, *_exc: object) -> None:

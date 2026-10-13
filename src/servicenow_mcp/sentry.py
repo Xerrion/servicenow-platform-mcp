@@ -75,7 +75,7 @@ _initialized: bool = False
 # ---------------------------------------------------------------------------
 
 
-def setup_sentry(settings: "Settings") -> None:
+def setup_sentry(settings: Settings) -> None:
     """Initialize Sentry error tracking with the configured DSN.
 
     No-ops when sentry-sdk is not installed or ``settings.sentry_dsn``
@@ -173,13 +173,13 @@ def set_sentry_context(key: str, data: dict[str, Any]) -> None:
 
 
 @contextmanager
-def sentry_tool_scope(tool: str) -> Generator[None, None, None]:
+def sentry_tool_scope(tool: str) -> Generator[None]:
     """Isolate tool evidence and attribute error events without renaming shared spans."""
     if not HAS_SENTRY or not _initialized:
         yield
         return
 
-    def identify_tool(event: "Event", _hint: "Hint") -> "Event":
+    def identify_tool(event: Event, _hint: Hint) -> Event:
         event["transaction"] = f"tools/call {tool}"
         return event
 

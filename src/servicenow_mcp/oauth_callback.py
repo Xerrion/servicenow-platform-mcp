@@ -52,7 +52,7 @@ def _callback_result(request: bytes, redirect_uri: str, state: str) -> str | Aut
         if not code or not code.isascii() or any(ord(char) < 33 or ord(char) == 127 for char in code):
             return AuthError("ServiceNow callback did not contain a valid authorization code.")
         return code
-    except (ValueError, UnicodeDecodeError):
+    except ValueError, UnicodeDecodeError:
         return None
 
 
@@ -87,7 +87,7 @@ async def receive_authorization_code(
                     + body
                 )
                 await writer.drain()
-        except (TimeoutError, ConnectionError, asyncio.IncompleteReadError, asyncio.LimitOverrunError):
+        except TimeoutError, ConnectionError, asyncio.IncompleteReadError, asyncio.LimitOverrunError:
             # Incomplete or oversized local requests must not consume the pending grant.
             return
         finally:
@@ -116,7 +116,7 @@ async def receive_authorization_code(
             await server.start_serving()
             try:
                 is_opened = await asyncio.to_thread(webbrowser.open, authorization_url, new=1)
-            except (webbrowser.Error, OSError):
+            except webbrowser.Error, OSError:
                 raise AuthError("Cannot open the local browser for ServiceNow authorization.") from None
             if not is_opened:
                 raise AuthError("Cannot open the local browser for ServiceNow authorization.")

@@ -41,11 +41,18 @@ class MutationCoordinator:
         production_write_blocked(self.settings)
         if command.family not in self.families:
             raise CapabilityError("This mutation family is not enabled.", "MUTATION_DISABLED")
-        table = (
-            command.table if isinstance(command, RecordCommand | AttachmentCommand) else catalog.target_table(command)
-        )
+        if isinstance(command, RecordCommand | AttachmentCommand):
+            table = command.table
+        elif isinstance(command, CatalogCommand):
+            table = catalog.target_table(command)
+        else:
+            raise CapabilityError("This mutation family is not supported.", "MUTATION_DISABLED")
         if table or owning_table:
             gate_write(table or owning_table or "", self.settings)
+        if isinstance(command, CatalogCommand) and owning_table:
+            gate_write(owning_table, self.settings)
+        if isinstance(command, CatalogCommand) and command.action in {"cart_empty", "checkout_guide"}:
+            gate_write("sc_cart_item", self.settings)
 
     def _apply_gate(self, staged: StagedMutation) -> None:
         self._gate(staged.command, staged.owning_table)
@@ -63,9 +70,15 @@ class MutationCoordinator:
                     table = command.table
                 elif isinstance(command, AttachmentCommand):
                     summary, table, expected = await attachments.preview(command, client)
-                else:
+                elif isinstance(command, CatalogCommand):
                     summary, expected = await catalog.preview(command, client)
-                    table = catalog.target_table(command)
+                    table = (
+                        summary["target_table"]
+                        if command.action == "submit_producer"
+                        else catalog.target_table(command)
+                    )
+                else:
+                    raise CapabilityError("This mutation family is not supported.", "MUTATION_DISABLED")
         self._gate(command, table)
         token = await self.store.create(
             StagedMutation(
@@ -81,8 +94,11 @@ class MutationCoordinator:
             "State checks and the upstream mutation are not atomic.",
         ]
         if isinstance(command, CatalogCommand):
-            limitations.append(
-                "Preview does not simulate fulfillment, guarantee prices, or predict all server-side validation."
+            limitations.extend(
+                [
+                    "Preview does not execute producer scripts or guide rules.",
+                    "Preview cannot predict fulfillment, prices, routing, or all server-side validation.",
+                ]
             )
         data = MutationPreview(
             family=command.family,
@@ -107,9 +123,14 @@ class MutationCoordinator:
                     value = await records.apply(command, staged.fingerprint, client, self.dictionary)
                 elif isinstance(command, AttachmentCommand):
                     value = await attachments.apply(command, staged.owning_table or "", staged.fingerprint, client)
-                else:
+                elif isinstance(command, CatalogCommand):
                     value = await catalog.apply(command, staged.fingerprint, client)
-        if value is None or value == {} or value == [] or (isinstance(value, dict) and "error" in value):
+                else:
+                    raise CapabilityError("This mutation family is not supported.", "MUTATION_DISABLED")
+        empty_guide = isinstance(command, CatalogCommand) and command.action == "submit_guide" and value == []
+        if not empty_guide and (
+            value is None or value == {} or value == [] or (isinstance(value, dict) and "error" in value)
+        ):
             raise CapabilityError(
                 "Mutation response did not establish success. Remote outcome is unknown. Check ServiceNow before another preview.",
                 "UNKNOWN_OUTCOME",

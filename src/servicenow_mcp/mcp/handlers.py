@@ -47,6 +47,11 @@ _SENSITIVE_ARG_KEYS: frozenset[str] = frozenset(
         "text",
         "term",
         "resolve_labels",
+        "item_type",
+        "items",
+        "also_request_for",
+        "requested_for",
+        "user_sys_id",
     }
 )
 

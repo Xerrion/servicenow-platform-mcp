@@ -33,7 +33,7 @@ Use the AI app's tool list to check the actual registered surface.
 | `flow` | Inspect Flow Designer configuration and stored values. |
 | `code_search` | Search scripts or inspect search coverage. |
 | `cmdb` | Read CIs, relationships, and class metadata. |
-| `service_catalog` | Browse catalogs, categories, items, variables, and the cart. |
+| `service_catalog` | Browse catalogs, categories, items, variables, carts, wish lists, and delegation checks. |
 
 ## Mutation groups
 
@@ -41,7 +41,7 @@ Use the AI app's tool list to check the actual registered surface.
 | --- | --- |
 | `record_write` | `record_preview` for create, update, and delete. |
 | `attachment_write` | `attachment_preview` for upload and delete. |
-| `service_catalog_write` | `service_catalog_preview` for orders and cart changes. |
+| `service_catalog_write` | `service_catalog_preview` for orders, record producers, order guides, wish lists, and cart changes. |
 
 Selecting any mutation group registers `mutation_apply` exactly once.
 Application rejects commands from families that are not enabled.

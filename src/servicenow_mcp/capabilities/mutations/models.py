@@ -2,10 +2,17 @@
 
 import hashlib
 import json
+import re
 from typing import Annotated, ClassVar, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
+from servicenow_mcp.capabilities.catalog.contracts import (
+    CatalogMutationAction,
+    CatalogView,
+    validate_api_version,
+    validate_users,
+)
 from servicenow_mcp.capabilities.contracts import CapabilityError, validate_payload
 from servicenow_mcp.validation import validate_identifier, validate_sys_id
 
@@ -73,20 +80,81 @@ class AttachmentCommand(Command):
 
 class CatalogCommand(Command):
     family: Literal["catalog"] = "catalog"
-    action: Literal["order_now", "add_to_cart", "cart_submit", "cart_checkout"]
+    action: CatalogMutationAction
     item_sys_id: str | None = None
     variables: dict[str, JsonValue] | None = Field(default=None, repr=False)
+    quantity: int | None = Field(default=None, strict=True, ge=0)
+    requested_for: str | None = None
+    also_request_for: list[str] | None = Field(default=None, repr=False)
+    cart_item_id: str | None = None
+    cart_sys_id: str | None = None
+    items: list[dict[str, JsonValue]] | None = Field(default=None, repr=False)
+    view: CatalogView | None = None
+    api_version: str | None = None
 
     @model_validator(mode="after")
     def check_action(self) -> Self:
-        if self.action in {"order_now", "add_to_cart"}:
+        validate_api_version(self.api_version)
+        item_actions = {
+            "order_now",
+            "add_to_cart",
+            "submit_producer",
+            "add_to_wishlist",
+            "checkout_guide",
+            "submit_guide",
+        }
+        allowed = {"api_version"}
+        if self.action in item_actions:
+            allowed.add("item_sys_id")
             if not self.item_sys_id:
                 raise CapabilityError("This action requires item_sys_id.")
-            validate_sys_id(self.item_sys_id)
-            if self.variables is not None:
-                validate_payload(self.variables, field_name="variables", validate_keys=False)
-        elif self.item_sys_id is not None or self.variables is not None:
-            raise CapabilityError("Cart submit and checkout accept no item or variables.")
+        if self.action in {"order_now", "add_to_cart", "cart_item_update"}:
+            allowed.update({"variables", "quantity"})
+        if self.action in {"order_now", "add_to_cart"}:
+            allowed.update({"requested_for", "also_request_for"})
+        if self.action in {"submit_producer", "submit_guide"}:
+            allowed.add("variables")
+        if self.action == "submit_producer":
+            allowed.add("view")
+        if self.action == "add_to_wishlist":
+            allowed.add("quantity")
+        if self.action == "checkout_guide":
+            allowed.add("items")
+            if self.items is None:
+                raise CapabilityError("checkout_guide requires items.")
+        if self.action in {"cart_item_update", "cart_item_delete"}:
+            allowed.add("cart_item_id")
+            if self.cart_item_id is None:
+                raise CapabilityError("This action requires cart_item_id.")
+        if self.action == "cart_item_update" and self.quantity is None:
+            raise CapabilityError("cart_item_update requires quantity.")
+        if self.action == "cart_empty":
+            allowed.add("cart_sys_id")
+            if self.cart_sys_id is None:
+                raise CapabilityError("cart_empty requires cart_sys_id.")
+        for name, value in self.model_dump(exclude={"family", "action"}).items():
+            if value is not None and name not in allowed:
+                raise CapabilityError(f"{name} is not accepted by this catalog action.")
+        for value in (self.item_sys_id, self.cart_item_id, self.cart_sys_id, self.requested_for):
+            if value is not None:
+                validate_sys_id(value)
+        validate_users(self.also_request_for, max_users=50)
+        if self.variables is not None:
+            validate_payload(self.variables, field_name="variables", validate_keys=False)
+        if self.items is not None:
+            validate_payload({"items": self.items}, field_name="items", validate_keys=False)
+            for item in self.items:
+                item_id = item.get("sys_id")
+                if set(item) - {"sys_id", "sysparm_quantity", "variables"} or not isinstance(item_id, str):
+                    raise CapabilityError(
+                        "Each guide item requires sys_id and accepts only sysparm_quantity and variables."
+                    )
+                validate_sys_id(item_id)
+                quantity = item.get("sysparm_quantity", "1")
+                if not isinstance(quantity, str) or not re.fullmatch(r"[0-9]+", quantity) or int(quantity) <= 0:
+                    raise CapabilityError("Guide item sysparm_quantity must be a positive integer string.")
+                if "variables" in item and not isinstance(item["variables"], dict):
+                    raise CapabilityError("Guide item variables must be an object.")
         return self
 
 

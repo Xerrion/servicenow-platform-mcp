@@ -50,7 +50,7 @@ def current_tool_trace() -> ToolTrace | None:
 
 
 @contextmanager
-def trace_tool_call(tool: str) -> Generator[None, None, None]:
+def trace_tool_call(tool: str) -> Generator[None]:
     """Trace a tool's total duration and preserve cancellation and nested context."""
     trace = ToolTrace(trace_id=str(uuid4()), tool=tool)
     token = _tool_trace.set(trace)
@@ -78,7 +78,7 @@ def trace_tool_call(tool: str) -> Generator[None, None, None]:
 
 
 @contextmanager
-def trace_authorization_wait() -> Generator[None, None, None]:
+def trace_authorization_wait() -> Generator[None]:
     """Measure header authorization, including lock and browser waits, without inputs."""
     trace = current_tool_trace()
     trace_id = trace.trace_id if trace else "-"

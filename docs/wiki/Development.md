@@ -9,7 +9,8 @@ You do not need a Python checkout for either task.
 
 ## Prepare a local copy
 
-You need Git, Python 3.12 or later, and `uv`. The default tests run offline.
+You need Git and `uv`. The checkout selects Python 3.15 for local development.
+Python 3.14 is the minimum supported version. The default tests run offline.
 They do not need a ServiceNow account or OAuth configuration.
 
 Run these commands in a terminal:
@@ -145,13 +146,13 @@ Test expiry, retained payload bounds, authorization changes, policy changes, sta
 
 ### Python conventions
 
-Ruff controls formatting and lint rules. The source targets Python 3.12, uses
+Ruff controls formatting and lint rules. The source targets Python 3.14, uses
 120-character lines, double quotes, and absolute imports.
 
 Add type hints to function signatures, including `-> None` where appropriate.
 Use forms such as `str | None` and `dict[str, Any]`. Function and variable names
 use `snake_case`. Class names use `PascalCase`. Constants use `UPPER_SNAKE_CASE`.
-The supported type check is `uv run ty check src/`, with Python 3.12 as its target.
+The supported type check is `uv run ty check src/`, with Python 3.14 as its target.
 The development dependencies and lockfile select the tool version.
 
 ## Submit the change
@@ -172,9 +173,9 @@ pull requests targeting `main`:
 | --- | --- |
 | Lint | Ruff lint and formatting. |
 | Type check | `ty` against `src/`. |
-| Test | Offline tests on Python 3.12, 3.13, and 3.14. |
+| Test | Offline tests on Python 3.14 and 3.15. |
 
-The Python 3.12 job uploads coverage to Codecov. A new push cancels the older
+The Python 3.14 job uploads coverage to Codecov. A new push cancels the older
 CI run for that branch. All checks must pass before merge.
 
 Release automation uses `release-please`. Conventional commits update a release

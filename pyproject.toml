@@ -4,7 +4,7 @@ version = "3.0.0"
 description = "A comprehensive MCP server for ServiceNow - platform introspection, ITSM workflows, CMDB operations, change intelligence, debugging, investigations, and documentation generation."
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 authors = [
     { name = "Lasse Nielsen", email = "lasse@xerrion.dk" },
 ]
@@ -14,9 +14,8 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
     "Topic :: System :: Systems Administration",
     "Topic :: Software Development :: Libraries :: Application Frameworks",
 ]
@@ -24,8 +23,12 @@ dependencies = [
     "mcp>=2.3.0,<3",
     "jsonschema>=4.26.0,<5",
     "httpx2>=2.12.0,<3",
-    "pydantic>=2.13.5",
+    "pydantic>=2.14.1",
     "pydantic-settings>=2.15.0",
+    # Python 3.15 needs the newer Windows extension wheels.
+    "pywin32>=312; sys_platform == 'win32' and python_version >= '3.15'",
+    # Older rpds-py releases cannot build on Python 3.15.
+    "rpds-py>=2026.9.1; python_version >= '3.15'",
     "python-dotenv>=1.2.4",
     "uvicorn>=0.54.0",
     "starlette>=1.7.0",
@@ -70,7 +73,7 @@ dev = [
 
 [tool.ruff]
 line-length = 120
-target-version = "py312"
+target-version = "py314"
 src = ["src", "tests"]
 
 [tool.ruff.lint]
@@ -132,10 +135,10 @@ quote-style = "double"
 indent-style = "space"
 
 [tool.ty.environment]
-python-version = "3.12"
+python-version = "3.14"
 
 [tool.basedpyright]
-pythonVersion = "3.12"
+pythonVersion = "3.14"
 reportAny = false
 reportExplicitAny = false
 reportUnusedCallResult = false

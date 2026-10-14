@@ -94,7 +94,7 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
                         sys_created_on=masked_rec.get("sys_created_on", ""),
                     ).to_payload()
                 )
-        except (NotFoundError, ForbiddenError):
+        except NotFoundError, ForbiddenError:
             warnings.append(f"Table {table_name} is unavailable or inaccessible; findings are incomplete.")
 
     return build_investigation_result(

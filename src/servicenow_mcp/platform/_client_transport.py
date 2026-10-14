@@ -127,7 +127,7 @@ class ServiceNowRequestClient:
         """Parse X-Total-Count, defaulting to zero when absent or invalid."""
         try:
             return int(response.headers.get("X-Total-Count", "0"))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return 0
 
     def _raise_for_status(self, response: httpx2.Response) -> None:

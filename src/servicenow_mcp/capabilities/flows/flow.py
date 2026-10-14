@@ -1322,7 +1322,7 @@ def _safe_int(value: str) -> int:
     """Best-effort int conversion for sorting; non-numeric sorts last."""
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return 10**9
 
 

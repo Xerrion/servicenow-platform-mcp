@@ -113,7 +113,7 @@ class MutationPreview(BaseModel):
 def fingerprint(value: JsonValue) -> str:
     try:
         encoded = json.dumps(value, sort_keys=True, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode()
-    except (TypeError, ValueError, UnicodeError):
+    except TypeError, ValueError, UnicodeError:
         raise CapabilityError("Cannot establish the current state for this mutation.") from None
     return hashlib.sha256(encoded).hexdigest()
 

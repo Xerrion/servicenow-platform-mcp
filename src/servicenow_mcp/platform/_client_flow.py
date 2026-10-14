@@ -184,7 +184,7 @@ class FlowDesignerApiClient(ServiceNowRequestClient):
         rows = self._extract_json_result(response)
         try:
             total = int(response.headers["X-Total-Count"])
-        except (KeyError, ValueError):
+        except KeyError, ValueError:
             total = None
         if total is not None and total < len(rows):
             total = None

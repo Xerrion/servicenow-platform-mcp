@@ -592,17 +592,30 @@ Catalog reads are available in `readonly` and the `service_catalog` group.
 
 | Action | Required inputs | Optional inputs or result |
 | --- | --- | --- |
-| `catalogs_list` | None | `text`, `limit`. |
-| `catalog_get` | Catalog `sys_id` | Reads one catalog. |
-| `categories_list` | `catalog_sys_id` | `limit`, `offset`, `top_level_only`. |
-| `category_get` | Category `sys_id` | Reads one category. |
-| `items_list` | None | `text`, `catalog`, `category`, `limit`, `offset`. |
-| `item_get` | Item `sys_id` | Reads one item. |
-| `item_variables` | Item `sys_id` | Reads variable definitions. |
+| `catalogs_list` | None | `text`, `limit`, `view`. |
+| `catalog_get` | Catalog `sys_id` | `view`. Reads one catalog. |
+| `categories_list` | `catalog_sys_id` | `limit`, `offset`, `top_level_only`, `view`. |
+| `category_get` | Category `sys_id` | `view`. Reads one category. |
+| `items_list` | None | `text`, `catalog`, `category`, `limit`, `offset`, `item_type`, `view`. |
+| `item_get` | Item `sys_id` | `view`. Reads one item. |
+| `item_variables` | Item `sys_id` | `view`. Reads variable definitions. |
 | `cart_get` | None | Reads the current cart. |
+| `delivery_address` | `user_sys_id` | Returns a masked address result. |
+| `delegation` | `item_sys_id`, `user_sys_id` | Checks acquisition rights. |
+| `wishlist_get` | None | Reads the current wish list. |
+| `wishlist_item_get` | `cart_item_id` | Reads one wish list item. |
+| `get_invalid_delegated_users` | `item_sys_id`, `also_request_for` | Sends user sys_ids as a comma-separated string. Masks each returned name while preserving the `invalidUsers` array length. |
+| `variable_display_value` | Variable `sys_id`, record `value` sys_id | Returns a masked display value. |
 
 `limit` defaults to 20. `offset` defaults to 0.
 Omitted, null, and empty text or identifier filters are not sent upstream.
+All actions accept `api_version`, such as `v1`. Omit it for the default endpoint URL.
+`view` accepts `desktop`, `mobile`, or `both`. `item_type` maps to `sysparm_type` unchanged.
+The two lookup actions use documented read-only POST endpoints. They do not require a mutation preview.
+Catalog masking checks sensitive keys, common personal fields, and variable names and labels before returning answer fields.
+Variable maps use observed labels for the associated item. Answers without usable label metadata are masked.
+Preview summaries and apply responses use masked copies. Apply sends the original submitted values.
+It cannot identify personal data embedded in arbitrary free text.
 
 ```json
 {"action":"items_list","text":"laptop","limit":10}
@@ -615,7 +628,14 @@ Read `item_variables` before preparing an order.
 
 | Action | Required inputs | Optional inputs |
 | --- | --- | --- |
-| `order_now`, `add_to_cart` | `item_sys_id` | `variables`, a native object. |
+| `order_now`, `add_to_cart` | `item_sys_id` | `variables`, `quantity`, `requested_for`, `also_request_for`. |
+| `submit_producer` | Producer `item_sys_id` | `variables`, `view`. Executes the producer during apply only. |
+| `add_to_wishlist` | `item_sys_id` | `quantity`. |
+| `submit_guide` | Guide `item_sys_id` | `variables`. An empty result list is valid. |
+| `checkout_guide` | Guide `item_sys_id`, `items` | Each item accepts `sys_id`, `sysparm_quantity`, and native `variables`. |
+| `cart_item_update` | `cart_item_id`, `quantity` | `variables`. |
+| `cart_item_delete` | `cart_item_id` | Deletes one cart item. |
+| `cart_empty` | `cart_sys_id` | Can empty and delete the cart, subject to ServiceNow roles. |
 | `cart_submit`, `cart_checkout` | None | No item or variables. Uses the current cart. |
 
 ```json
@@ -627,9 +647,22 @@ Read `item_variables` before preparing an order.
 ```
 
 Preview reads item definitions or the cart without changing ServiceNow.
-It cannot simulate fulfillment, guarantee prices, or predict every server-side validation.
+It cannot simulate fulfillment, producer scripts, routing, prices, or every server-side validation.
 Apply the reviewed token with `mutation_apply`.
 Detectable item or cart changes require a new preview.
+All actions accept `api_version`. `quantity` is a non-negative integer.
+`also_request_for` accepts 1-50 user sys_ids. Guide quantities are positive integer strings.
+The existing empty `order_now` and `add_to_cart` payloads remain unchanged when no inputs are supplied.
+Supply `quantity` explicitly when the instance requires it.
+
+For record producers, use `submit_producer`. `order_now` orders catalog items.
+Preview also reads the producer's target table, update timestamp, scripts, and template.
+Those reads require Table API access to `sc_cat_item_producer`. Producer scripts stay out of the preview summary.
+The target table must pass local policy at preview and apply.
+Missing target metadata blocks submission. No direct record creation occurs.
+Guide checkout requires both request-table and cart-item-table policy to permit writes.
+
+See [Service Catalog API coverage](../service-catalog-api.md) for endpoint coverage and documentation gaps.
 
 ## Change records and attachments
 

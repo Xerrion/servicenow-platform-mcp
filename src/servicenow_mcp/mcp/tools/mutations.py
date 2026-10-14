@@ -11,6 +11,7 @@ from servicenow_mcp.capabilities.attachments.common import (
     decode_content_base64,
     ensure_attachment_size_within_limit,
 )
+from servicenow_mcp.capabilities.catalog.contracts import CatalogMutationAction, CatalogView
 from servicenow_mcp.capabilities.contracts import CapabilityResult
 from servicenow_mcp.capabilities.mutations.coordinator import MutationCoordinator
 from servicenow_mcp.capabilities.mutations.models import AttachmentCommand, CatalogCommand, RecordCommand
@@ -89,19 +90,50 @@ def register_tools(mcp: MCPServer, coordinator: MutationCoordinator) -> None:
         @mcp.tool(annotations=PREVIEW_ANNOTATIONS)
         @tool_handler
         async def service_catalog_preview(
-            action: Literal["order_now", "add_to_cart", "cart_submit", "cart_checkout"],
+            action: CatalogMutationAction,
             item_sys_id: str | None = None,
             variables: dict[str, JsonValue] | None = None,
+            quantity: int | None = None,
+            requested_for: str | None = None,
+            also_request_for: list[str] | None = None,
+            cart_item_id: str | None = None,
+            cart_sys_id: str | None = None,
+            items: list[dict[str, JsonValue]] | None = None,
+            view: CatalogView | None = None,
+            api_version: str | None = None,
         ) -> CapabilityResult:
             """Preview a catalog or cart mutation using read endpoints only.
 
-            order_now and add_to_cart require item_sys_id and accept a native variables object.
-            cart_submit and cart_checkout use the current cart and accept no item or variables.
-            Preview cannot simulate fulfillment or guarantee prices.
+            order_now and add_to_cart require item_sys_id. They accept variables, quantity,
+            requested_for, and also_request_for (1-50 user sys_ids).
+            submit_producer requires item_sys_id and accepts variables and view. It creates a record
+            through the producer endpoint during apply. Preview never executes producer scripts.
+            add_to_wishlist requires item_sys_id and accepts quantity.
+            submit_guide requires item_sys_id and accepts variables.
+            checkout_guide requires item_sys_id and items: [{sys_id, sysparm_quantity, variables}].
+            Each guide quantity is a positive integer string. variables is a native object.
+            cart_item_update requires cart_item_id and quantity. It accepts variables.
+            cart_item_delete requires cart_item_id. cart_empty requires cart_sys_id.
+            cart_empty can delete the cart and its contents, subject to ServiceNow roles.
+            cart_submit and cart_checkout accept no item or variables.
+            quantity is a non-negative integer. api_version optionally selects a version such as v1.
+            Preview cannot simulate fulfillment, producer routing, or guarantee prices.
             Apply the single-use preview_token with mutation_apply. Detectable state changes require a new preview.
             """
             return await coordinator.preview(
-                CatalogCommand(action=action, item_sys_id=item_sys_id, variables=variables)
+                CatalogCommand(
+                    action=action,
+                    item_sys_id=item_sys_id,
+                    variables=variables,
+                    quantity=quantity,
+                    requested_for=requested_for,
+                    also_request_for=also_request_for,
+                    cart_item_id=cart_item_id,
+                    cart_sys_id=cart_sys_id,
+                    items=items,
+                    view=view,
+                    api_version=api_version,
+                )
             )
 
     @mcp.tool(annotations=APPLY_ANNOTATIONS)

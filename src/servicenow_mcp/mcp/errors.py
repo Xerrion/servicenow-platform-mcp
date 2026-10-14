@@ -17,7 +17,7 @@ from servicenow_mcp.validation_errors import safe_validation_error
 
 logger = logging.getLogger(__name__)
 
-_MUTATION_METHODS = frozenset({"POST", "PATCH", "DELETE"})
+_MUTATION_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 _TIMEOUT_ACTIONS = {
     "connect": "connecting",
     "pool": "waiting for a connection",

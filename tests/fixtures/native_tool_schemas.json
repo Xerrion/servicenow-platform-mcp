@@ -2108,7 +2108,13 @@
             "items_list",
             "item_get",
             "item_variables",
-            "cart_get"
+            "cart_get",
+            "delivery_address",
+            "delegation",
+            "wishlist_get",
+            "wishlist_item_get",
+            "get_invalid_delegated_users",
+            "variable_display_value"
           ],
           "title": "Action",
           "type": "string"
@@ -2208,6 +2214,110 @@
           ],
           "default": false,
           "title": "Top Level Only"
+        },
+        "view": {
+          "anyOf": [
+            {
+              "enum": [
+                "desktop",
+                "mobile",
+                "both"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "View"
+        },
+        "item_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Item Type"
+        },
+        "user_sys_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "User Sys Id"
+        },
+        "item_sys_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Item Sys Id"
+        },
+        "cart_item_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cart Item Id"
+        },
+        "also_request_for": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Also Request For"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        },
+        "api_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Api Version"
         }
       },
       "required": [
@@ -4662,7 +4772,14 @@
             "order_now",
             "add_to_cart",
             "cart_submit",
-            "cart_checkout"
+            "cart_checkout",
+            "submit_producer",
+            "add_to_wishlist",
+            "checkout_guide",
+            "submit_guide",
+            "cart_item_update",
+            "cart_item_delete",
+            "cart_empty"
           ],
           "title": "Action",
           "type": "string"
@@ -4693,6 +4810,116 @@
           ],
           "default": null,
           "title": "Variables"
+        },
+        "quantity": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quantity"
+        },
+        "requested_for": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Requested For"
+        },
+        "also_request_for": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Also Request For"
+        },
+        "cart_item_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cart Item Id"
+        },
+        "cart_sys_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cart Sys Id"
+        },
+        "items": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": {
+                  "$ref": "#/$defs/JsonValue"
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Items"
+        },
+        "view": {
+          "anyOf": [
+            {
+              "enum": [
+                "desktop",
+                "mobile",
+                "both"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "View"
+        },
+        "api_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Api Version"
         }
       },
       "required": [

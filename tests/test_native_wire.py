@@ -1,6 +1,7 @@
 """Exercise native contracts through the actual MCP protocol dispatcher."""
 
 import json
+import os
 from pathlib import Path
 
 import anyio
@@ -60,6 +61,8 @@ async def test_native_schema_snapshot(settings: Settings) -> None:
         for tool in tools
     }
     path = Path(__file__).parent / "fixtures/native_tool_schemas.json"
+    if os.environ.get("UPDATE_TOOL_SCHEMAS") == "1":
+        path.write_text(json.dumps(snapshot, indent=2) + "\n")
     assert snapshot == json.loads(path.read_text())
 
 

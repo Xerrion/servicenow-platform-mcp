@@ -29,6 +29,27 @@
   previously repeated the same value or was null for unresolved references.
   Masking, raw reference IDs, pagination, and completeness indicators are preserved.
 
+## [3.0.0](https://github.com/Xerrion/servicenow-platform-mcp/compare/v3.0.0...v3.0.0) (2026-10-14)
+
+
+### ⚠ BREAKING CHANGES
+
+* Python 3.12 and 3.13 are no longer supported.
+
+### Features
+
+* extend staged Service Catalog API support ([#214](https://github.com/Xerrion/servicenow-platform-mcp/issues/214)) ([e5f4daa](https://github.com/Xerrion/servicenow-platform-mcp/commit/e5f4daa7b129f329e9444ad5572819f52c9eb16a))
+
+
+### Bug Fixes
+
+* improve query field metadata discovery ([#211](https://github.com/Xerrion/servicenow-platform-mcp/issues/211)) ([3604fb8](https://github.com/Xerrion/servicenow-platform-mcp/commit/3604fb8ab934446994dce3dd6be689ab5150110d))
+
+
+### Miscellaneous Chores
+
+* require Python 3.14 and use 3.15 locally ([#213](https://github.com/Xerrion/servicenow-platform-mcp/issues/213)) ([f6b0888](https://github.com/Xerrion/servicenow-platform-mcp/commit/f6b08881e6a49d9faae5beeee7a870e648ce0acd))
+
 ## [3.0.0](https://github.com/Xerrion/servicenow-platform-mcp/compare/v2.1.2...v3.0.0) (2026-10-13)
 
 

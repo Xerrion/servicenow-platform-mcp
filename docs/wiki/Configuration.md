@@ -48,6 +48,7 @@ tool needs instance data.
 | `SERVICENOW_OAUTH_SCOPE`           | `useraccount`                          | One or more enabled OAuth scope tokens, separated by single spaces.                                                |
 | `SERVICENOW_OAUTH_REDIRECT_URI`    | `http://127.0.0.1:8765/oauth/callback` | The exact registered callback URL. Use `127.0.0.1`, port `1024` to `65535`, and `/oauth/callback`.                 |
 | `SERVICENOW_OAUTH_TIMEOUT_SECONDS` | `180`                                  | Browser authorization wait in seconds. Allowed range: `1` to `600`.                                                |
+| `SERVICENOW_OAUTH_CACHE`           | `memory`                               | `memory` or `os`. Opt-in native OS refresh-token storage, without plaintext fallback.                              |
 
 The callback cannot use `localhost`, another path, query parameters, or fragments.
 If you change its port, register the complete new URL in ServiceNow too.
@@ -116,20 +117,64 @@ The server supports public OAuth authorization-code flow with PKCE S256.
 It uses no client secret. The installation guide describes the required
 ServiceNow application and callback.
 
-The first outbound ServiceNow request opens the browser.
+The first outbound ServiceNow request opens the browser unless an enabled OS cache supplies a usable refresh grant.
 Users authorize with the account whose roles and access rules should apply.
 The public client ID identifies the application, not a separate service account.
 
-Access tokens, refresh tokens, and expiry stay in process memory.
+Access tokens, refresh tokens, and expiry stay in process memory by default.
 Requests send the access token in a Bearer header, never in the URL.
-The server renews an expired token when it can. A restart loses the tokens
+The server renews an expired token when it can. In `memory` mode, a restart loses the tokens
 and requires browser authorization again.
 
 A rejected REST request is not replayed automatically.
 A REST 401 expires the matching access token. The next outbound request
 attempts token renewal or authorization as needed.
-A rejected refresh grant returns to browser authorization.
+A rejected refresh grant removes the matching observed cache entry, if enabled, before browser authorization on a read.
+Held previews cannot trigger a different browser grant or load a different cached account.
 Connection or malformed-response failures preserve the refresh token for a later attempt.
+
+## Optional OS OAuth cache
+
+Set `SERVICENOW_OAUTH_CACHE=os` in the environment of the server you start, or in its local configuration file.
+Complete one normal OAuth browser login with that setting enabled. An already running memory-only server does not populate the cache.
+Later local stdio processes can refresh through the normal public-client token endpoint without another browser login.
+There is no token export tool, file cache, cookie reuse, or copying from an existing process.
+
+The server selects these native backends directly through `keyring`:
+
+- macOS: the current OS user's default Keychain.
+- Windows: Credential Manager (`WinVaultKeyring`), with local-machine persistence under the current OS user.
+- Linux: an existing, unlocked default Secret Service collection, with the D-Bus session and Secret Service available.
+
+Automatic backend discovery, third-party plugins, chainers, and `KEYRING_PROPERTY_*` overrides are not used.
+No plaintext backend is accepted. Missing, locked, denied, or unavailable stores return a sanitized `AuthError` without fallback.
+Linux never creates or unlocks a collection. macOS may require normal Keychain access permission for the Python executable.
+
+Only the refresh token and bounded record metadata are stored. Access tokens and monotonic expiry remain in memory.
+Entries expire locally 30 days after browser authorization. Refresh rotation preserves that deadline.
+ServiceNow can revoke or expire a refresh grant sooner. Tokens over 1000 characters are rejected to stay within native Windows storage limits.
+Malformed cache records fail closed and require clearing. Expired records are removed before a new login.
+
+Each entry is partitioned by canonical HTTPS instance, public client ID, OAuth scope set, and redirect URI.
+The cache belongs to the OS user. One configured identity holds one ServiceNow account's refresh grant.
+To change accounts, stop cache-enabled processes, clear the entry, then authorize as the intended account.
+Configuration names and scopes are hashed in the entry name. Secret values never appear in diagnostics.
+
+Use cache-enabled processes sequentially. Keyring APIs have no atomic compare-and-swap or cross-process refresh lock.
+Read-before-write checks reject observed entry changes, including before clearing a rejected refresh token.
+They cannot eliminate a simultaneous read/write race. Do not run concurrent refreshes against the same cache entry.
+A process that detects a change discards its access token and blocks further use. Start a new session and create new previews.
+Fresh cache reuse never restores a previous process's preview tokens.
+
+To remove only the entry for the current configuration, stop cache-enabled processes and run from the repository root:
+
+```bash
+uv run python -m servicenow_mcp.credential_cache clear
+```
+
+The command uses normal environment/local-file configuration. It does not log in, contact ServiceNow, or print credentials.
+It also works when the cache setting is `memory`. Opting out does not delete OS credentials or revoke the remote grant.
+Clearing does not erase tokens already held in another process. Close those processes separately.
 
 ## REST API access policies
 

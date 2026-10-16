@@ -194,8 +194,9 @@ A returned record confirms that the connection can read that table.
 If you cannot read incidents, use a table your account can access.
 Tool discovery alone does not confirm a working ServiceNow connection.
 
-Tokens stay in server memory. The server renews an expired access token when
-it can. Restarting the server requires browser authorization again.
+Tokens stay in server memory by default. The server renews expired access tokens when possible.
+Optional `SERVICENOW_OAUTH_CACHE=os` stores only refresh tokens in the native OS credential store,
+so a new local process can reuse a previous login. See [OAuth cache configuration](docs/wiki/Configuration.md#optional-os-oauth-cache).
 
 ## Making changes
 

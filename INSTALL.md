@@ -168,8 +168,10 @@ A returned record confirms access to that table. Tool discovery alone only
 shows that the MCP connection starts.
 
 The first request that needs ServiceNow opens the browser.
-Tokens stay in server memory. The server renews an expired access token when
-it can. Restarting the server requires browser authorization again.
+Tokens stay in server memory by default. The server renews expired access tokens when possible.
+Optional `SERVICENOW_OAUTH_CACHE=os` stores only refresh tokens in the native OS credential store.
+After one normal login, new local stdio processes can reuse that login without restarting an existing connection.
+See [OAuth cache configuration](docs/wiki/Configuration.md#optional-os-oauth-cache) for platform requirements and clearing instructions.
 
 Continue with [ITSM work](docs/wiki/ITSM-Work.md) or
 [instance administration and development](docs/wiki/Instance-Development.md).

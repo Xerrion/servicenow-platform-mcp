@@ -88,8 +88,9 @@ Use [[Instance-Development]] for table information, script changes, Flow Designe
 ServiceNow data returned by tools becomes available to your AI app.
 Use an app approved for the data you handle.
 
-The server keeps tokens in memory and renews expired access tokens when possible.
-Restarting the server requires browser authorization again.
+The server keeps tokens in memory by default and renews expired access tokens when possible.
+Optional `SERVICENOW_OAUTH_CACHE=os` lets new processes reuse a refresh token from the native OS credential store.
+See [[Configuration#optional-os-oauth-cache]] for requirements and limits.
 
 For a problem report, include the action, table or record, and sanitized error.
 Exclude passwords, tokens, raw headers, and browser callback URLs.

@@ -1,4 +1,4 @@
-"""ServiceNow public OAuth PKCE with memory-only access and refresh tokens."""
+"""ServiceNow public OAuth PKCE with optional native OS refresh-token storage."""
 
 import asyncio
 import base64
@@ -15,11 +15,13 @@ import httpx2
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
 
 from servicenow_mcp._json import JSON
+from servicenow_mcp.credential_cache import CredentialCache
 from servicenow_mcp.errors import AuthError
 from servicenow_mcp.oauth_callback import receive_authorization_code
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import Callable, Generator
+    from typing import Any
 
     from servicenow_mcp.config import Settings
 
@@ -106,8 +108,8 @@ class OAuthPKCEProvider:
     """Authorize a public client in the local browser using PKCE S256.
 
     Concurrent requests share one authorization flow. Failures raise AuthError;
-    cancellation closes the callback listener. Access and refresh tokens stay in
-    memory only. Expiry or invalidation refreshes the access token when possible.
+    cancellation closes the callback listener. Access tokens stay in memory.
+    Refresh tokens may use an explicitly enabled native OS credential cache.
     Callback state is validated but never sent to the token endpoint.
     REST failures never replay the request.
     """
@@ -117,6 +119,12 @@ class OAuthPKCEProvider:
         self._token: AccessToken | None = None
         self._lock: asyncio.Lock = asyncio.Lock()
         self._generation = 0
+        self._cache = (
+            CredentialCache(settings)
+            if settings.servicenow_oauth_cache == "os"
+            else None
+        )
+        self._cache_loaded = False
 
     @property
     def authorization_generation(self) -> int:
@@ -132,8 +140,24 @@ class OAuthPKCEProvider:
                 raise AuthError(
                     "Authorization changed. Create a new preview before applying a mutation."
                 )
+            if self._cache is not None:
+                try:
+                    if not self._cache_loaded:
+                        cached = await self._cache_io(self._cache.load)
+                        self._cache_loaded = True
+                        if cached is not None:
+                            self._token = AccessToken(
+                                value=SecretStr(""), expires_at=0, refresh_token=cached
+                            )
+                            self._generation += 1
+                    else:
+                        await self._cache_io(self._cache.check_current)
+                except AuthError:
+                    self._token = None
+                    self._generation += 1
+                    raise
             if self._token is None:
-                self._token = await self._authorize()
+                await self._accept(await self._authorize(), new_grant=True)
                 self._generation += 1
             elif time.monotonic() >= self._token.expires_at:
                 refresh_token = self._token.refresh_token
@@ -143,21 +167,27 @@ class OAuthPKCEProvider:
                             "Browser authorization is required. Authorize on a read, then create a new preview.",
                         )
                     self._token = None
-                    self._token = await self._authorize()
+                    await self._accept(await self._authorize(), new_grant=True)
                     self._generation += 1
                 else:
                     try:
-                        self._token = await self._refresh(
-                            refresh_token.get_secret_value()
+                        await self._accept(
+                            await self._refresh(refresh_token.get_secret_value())
                         )
                     except _RefreshRejected:
                         self._token = None
+                        if self._cache is not None:
+                            await self._cache_io(self._cache.clear)
                         if expected is not None:
                             raise AuthError(
                                 "Authorization expired. Authorize on a read, then create a new preview.",
                             ) from None
-                        self._token = await self._authorize()
+                        await self._accept(await self._authorize(), new_grant=True)
                         self._generation += 1
+            if self._token is None:
+                raise AuthError(
+                    "OAuth authorization is unavailable. Authorize on a read before creating new previews."
+                )
             if time.monotonic() >= self._token.expires_at:
                 self._token = None
                 raise AuthError(
@@ -168,6 +198,32 @@ class OAuthPKCEProvider:
                 "Content-Type": "application/json",
                 "Accept": "application/json",
             }
+
+    async def _accept(self, token: AccessToken, *, new_grant: bool = False) -> None:
+        if self._cache is not None:
+            try:
+                await self._cache_io(
+                    self._cache.save, token.refresh_token, new_grant=new_grant
+                )
+            except BaseException:
+                self._token = None
+                raise
+        self._token = token
+
+    async def _cache_io(
+        self, operation: Callable[..., Any], *args: Any, **kwargs: Any
+    ) -> Any:
+        # A cancelled waiter must not release the provider lock while its native
+        # store write still runs. No background credential writer is left behind.
+        task = asyncio.create_task(asyncio.to_thread(operation, *args, **kwargs))
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            try:
+                await task
+            except Exception:  # noqa: BLE001, S110 - cancellation must not disclose backend errors
+                pass
+            raise
 
     def invalidate(self, authorization: str) -> None:
         """Expire a rejected token without invalidating a newer concurrent grant."""
@@ -297,5 +353,5 @@ class OAuthPKCEProvider:
 
 
 def create_auth(settings: Settings) -> OAuthPKCEProvider:
-    """Create a memory-only OAuth provider; construction does not open a browser."""
+    """Create a provider without authorization or credential-store I/O."""
     return OAuthPKCEProvider(settings)

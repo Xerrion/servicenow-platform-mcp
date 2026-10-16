@@ -81,7 +81,12 @@ def _isolate_unit_settings(
 def _stub_user_authorization(request: pytest.FixtureRequest) -> Generator[None]:
     """Keep unit tests offline; authentication and integration tests use the real provider."""
     if (
-        request.node.path.name == "test_auth.py"
+        request.node.path.name
+        in {
+            "test_auth.py",
+            "test_credential_cache.py",
+            "test_credential_cache_stdio.py",
+        }
         or "integration" in request.node.path.parts
     ):
         yield

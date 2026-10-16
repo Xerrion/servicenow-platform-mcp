@@ -16,21 +16,21 @@ AI app
 
 Paths are relative to `src/servicenow_mcp/`.
 
-| Component                                            | Responsibility                                                                                |
-| ---------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `server.py`                                          | Installed stdio command and safe startup errors.                                              |
-| `bootstrap/stdio.py`                                 | Explicit dependency wiring and application resource ownership.                                |
-| `packages.py`                                        | Data-only presets and custom group selection.                                                 |
-| `mcp/inputs.py`                                      | Raw schema and constraint checks before SDK argument coercion.                                |
-| `mcp/tools/`                                         | Thin adapters with enumerated actions, native inputs, descriptions, and annotations.          |
-| `mcp/handlers.py`, `mcp/errors.py`, `mcp/outputs.py` | Redacted diagnostics and native MCP error translation.                                        |
-| `capabilities/`                                      | Records, metadata, attachments, catalog, audit, investigations, flows, CMDB, and code search. |
-| `capabilities/mutations/`                            | Typed commands, bounded staging, and single-use application.                                  |
-| `platform/client.py`, `platform/_client_*.py`        | Shared REST facade and existing API-family clients.                                           |
-| `platform/metadata/`                                 | Dictionary inheritance, field classification, choices, audit metadata, and cache ownership.   |
-| `policy/`                                            | Denied tables, query bounds, field masking, and mutation protection.                          |
-| `auth.py`, `oauth_callback.py`                       | Local public-client PKCE authorization and memory-only tokens.                                |
-| `telemetry.py`, `_http_diagnostics.py`, `sentry.py`  | Request timing, safe evidence, and optional error reporting.                                  |
+| Component                                             | Responsibility                                                                                   |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `server.py`                                           | Installed stdio command and safe startup errors.                                                 |
+| `bootstrap/stdio.py`                                  | Explicit dependency wiring and application resource ownership.                                   |
+| `packages.py`                                         | Data-only presets and custom group selection.                                                    |
+| `mcp/inputs.py`                                       | Raw schema and constraint checks before SDK argument coercion.                                   |
+| `mcp/tools/`                                          | Thin adapters with enumerated actions, native inputs, descriptions, and annotations.             |
+| `mcp/handlers.py`, `mcp/errors.py`, `mcp/outputs.py`  | Redacted diagnostics and native MCP error translation.                                           |
+| `capabilities/`                                       | Records, metadata, attachments, catalog, audit, investigations, flows, CMDB, and code search.    |
+| `capabilities/mutations/`                             | Typed commands, bounded staging, and single-use application.                                     |
+| `platform/client.py`, `platform/_client_*.py`         | Shared REST facade and existing API-family clients.                                              |
+| `platform/metadata/`                                  | Dictionary inheritance, field classification, choices, audit metadata, and cache ownership.      |
+| `policy/`                                             | Denied tables, query bounds, field masking, and mutation protection.                             |
+| `auth.py`, `oauth_callback.py`, `credential_cache.py` | Local public-client PKCE, memory-only access tokens, and opt-in native OS refresh-token caching. |
+| `telemetry.py`, `_http_diagnostics.py`, `sentry.py`   | Request timing, safe evidence, and optional error reporting.                                     |
 
 Capabilities, platform metadata, and policy do not import MCP adapters or bootstrap.
 Import-boundary tests enforce that direction.
@@ -66,8 +66,12 @@ The temporary loopback HTTP listener receives OAuth callbacks only. It does not 
 ## Authorization and mutations
 
 OAuth uses public authorization-code flow with PKCE S256 and no client secret.
-Access and refresh tokens stay in memory. Concurrent calls share the provider's lock.
-Token refresh retains the authorization generation. Browser authorization creates a new generation.
+Access tokens stay in memory. Refresh tokens also stay in memory unless native OS caching is explicitly enabled.
+The cache selects only native Keychain, WinVault, or Secret Service backends, without backend discovery or plaintext fallback.
+Concurrent calls share the provider's lock. Separate cache-enabled processes must run sequentially.
+Token refresh retains the process-local authorization generation. Browser authorization and initial cache load create a new generation.
+A detected cache change clears in-memory authorization and blocks held previews. No cached account is substituted within that process.
+Preview tokens are never persisted or transferred between processes.
 
 Every mutation requires a family preview and `mutation_apply`.
 Preview reads metadata and current state, then stores an owned copy of the typed command.

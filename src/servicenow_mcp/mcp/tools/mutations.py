@@ -207,7 +207,12 @@ def register_tools(mcp: MCPServer, coordinator: MutationCoordinator) -> None:
                 Dangling references fail. Values are never cleared automatically.
               set_variables: inputs mapping existing variable names to values, parent/after/before.
               update_field: collection=inputs|outputs|flowVariables, name, label/hint. No type/identity changes.
-              update_stage: stage key, label/value. Creation and deletion of stages remain unavailable.
+              create_stage: label, value, optional duration (epoch-based timestamp), always_show boolean,
+                states (pending/in_progress/skipped/complete/error labels), ref for later stage edits.
+              update_stage: stage key/ref, label/value/duration/always_show/states, or zero-based order.
+              attach_stage/detach_stage: stage key/ref and step. One stage per step. No implicit replacement.
+              delete_stage: stage key/ref. Detach all steps first. Dependent error stages block deletion.
+                These operations author standard stages, not flow-logic steps. For Each/Parallel children are excluded.
             Steps are referenced by sys_id, UI identifier, display order, or a ref alias.
             The preview shows the flow outline before and after. Only inactive, unpublished drafts
             are supported. Activation and execution are excluded.

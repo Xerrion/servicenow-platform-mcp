@@ -820,11 +820,37 @@ def compare_saved(
     pending_deletions: dict[str, list[dict[str, str]]] | None = None,
     allow_updated_advance: bool = False,
     omitted_subflows: list[dict[str, str]] | None = None,
+    generated_stages: set[str] | None = None,
 ) -> None:
     """Allow server IDs only for explicitly new steps. Existing identities cannot change."""
     # Tombstones are request instructions, not persisted settings. Only planned IDs may disappear.
     expected = copy.deepcopy(expected)
     actual = copy.deepcopy(actual)
+    assigned_stage_ids = (
+        [
+            row.get("id")
+            for row in actual.get("stages", {}).values()
+            if isinstance(row, dict) and row.get("id")
+        ]
+        if generated_stages and isinstance(actual.get("stages"), dict)
+        else []
+    )
+    # createStage supplies a stable stageId. Only new stages can receive a
+    # separate database id (bundle:204158-204167,476178-476187).
+    for key in generated_stages or set():
+        wanted_stage = expected.get("stages", {}).get(key)
+        found_stage = actual.get("stages", {}).get(key)
+        if not isinstance(wanted_stage, dict) or wanted_stage.get("id"):
+            raise SemanticMismatch("flow.stages", "INVALID_NEW_STAGE_MANIFEST")
+        if isinstance(found_stage, dict) and "id" in found_stage:
+            if not isinstance(found_stage["id"], str):
+                raise SemanticMismatch(
+                    "flow.stages.id", "INVALID_SERVER_IDENTITY", "actual"
+                )
+            _identity(found_stage["id"], "flow.stages.id")
+            if assigned_stage_ids.count(found_stage["id"]) != 1:
+                raise SemanticMismatch("flow.stages.id", "DUPLICATE_IDENTITY", "actual")
+            found_stage.pop("id")
     removed_ids: set[str] = set()
     removed_ui: set[str] = set()
     for index, removed in enumerate(omitted_subflows or []):
@@ -956,6 +982,7 @@ async def verify_saved(
     generated_ids: set[str],
     pending_deletions: dict[str, list[dict[str, str]]] | None = None,
     omitted_subflows: list[dict[str, str]] | None = None,
+    generated_stages: set[str] | None = None,
 ) -> dict[str, Any]:
     """Verify the echo and a separate GET. Never retry a write or expose input values in errors."""
     phase = "request.echo"
@@ -967,6 +994,7 @@ async def verify_saved(
             pending_deletions=pending_deletions,
             allow_updated_advance=True,
             omitted_subflows=omitted_subflows,
+            generated_stages=generated_stages,
         )
         phase = "readback.get"
         actual = await client.studio_request(f"flow/{expected['id']}")
@@ -978,6 +1006,7 @@ async def verify_saved(
             pending_deletions=pending_deletions,
             allow_updated_advance=True,
             omitted_subflows=omitted_subflows,
+            generated_stages=generated_stages,
         )
         # Assigned IDs must also remain stable between the save response and independent read.
         phase = "echo.readback"

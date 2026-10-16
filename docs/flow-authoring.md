@@ -26,16 +26,19 @@ The adapter does not use browser cookies, run server scripts, or write flow snap
 `flow_preview(action="edit", sys_id=..., edits=[...])` applies an ordered list of edits to one draft and
 saves the result with one request. The preview shows the flow outline before and after the change.
 
-| `op`            | Fields                                                    | Effect                                                                                                                                                                                                                                                                                                  |
-| --------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `set_trigger`   | `type`, `inputs`, `replace`                               | Authors `service_catalog`. Other catalog families return unavailable until their serializers are established.                                                                                                                                                                                           |
-| `insert_logic`  | `logic`, `inputs`, `parent` or `after` or `before`, `ref` | Adds If/Else If/Else, For Each, Try with paired Catch, Parallel/Parallel Branch, End, Exit Loop, or Skip Iteration.                                                                                                                                                                                     |
-| `move_step`     | `step`, `parent` or `after` or `before`                   | Moves an existing step, also into or out of a branch.                                                                                                                                                                                                                                                   |
-| `update_inputs` | `step`, `inputs`                                          | Changes typed input values. Native objects and arrays use declared child schemas.                                                                                                                                                                                                                       |
-| `delete_step`   | `step`, `children`, `cascade`                             | Deletes saved actions or logic with ID tombstones. Deletes saved subflow calls by omission from the complete draft list, not by deleting the referenced definition. Child handling is `reject` (default), `delete`, or `promote`. Connected branches require `cascade=connected` and `children=delete`. |
-| `set_variables` | `inputs`, placement                                       | Assigns existing flow variables through Set Flow Variables.                                                                                                                                                                                                                                             |
-| `update_field`  | `collection`, `name`, `label`, `hint`                     | Changes existing interface or variable metadata. Types and identities remain unchanged. Trigger-owned interfaces cannot change independently.                                                                                                                                                           |
-| `update_stage`  | `stage`, `label`, `value`                                 | Changes an existing keyed stage's unique label or value.                                                                                                                                                                                                                                                |
+| `op`                            | Fields                                                                  | Effect                                                                                                                                                                                                                                                                                                  |
+| ------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `set_trigger`                   | `type`, `inputs`, `replace`                                             | Authors `service_catalog`. Other catalog families return unavailable until their serializers are established.                                                                                                                                                                                           |
+| `insert_logic`                  | `logic`, `inputs`, `parent` or `after` or `before`, `ref`               | Adds If/Else If/Else, For Each, Try with paired Catch, Parallel/Parallel Branch, End, Exit Loop, or Skip Iteration.                                                                                                                                                                                     |
+| `move_step`                     | `step`, `parent` or `after` or `before`                                 | Moves an existing step, also into or out of a branch.                                                                                                                                                                                                                                                   |
+| `update_inputs`                 | `step`, `inputs`                                                        | Changes typed input values. Native objects and arrays use declared child schemas.                                                                                                                                                                                                                       |
+| `delete_step`                   | `step`, `children`, `cascade`                                           | Deletes saved actions or logic with ID tombstones. Deletes saved subflow calls by omission from the complete draft list, not by deleting the referenced definition. Child handling is `reject` (default), `delete`, or `promote`. Connected branches require `cascade=connected` and `children=delete`. |
+| `set_variables`                 | `inputs`, placement                                                     | Assigns existing flow variables through Set Flow Variables.                                                                                                                                                                                                                                             |
+| `update_field`                  | `collection`, `name`, `label`, `hint`                                   | Changes existing interface or variable metadata. Types and identities remain unchanged. Trigger-owned interfaces cannot change independently.                                                                                                                                                           |
+| `create_stage`                  | `label`, `value`, optional `duration`, `always_show`, `states`, `ref`   | Creates a standard stage definition. The optional ref addresses it in later edits.                                                                                                                                                                                                                      |
+| `update_stage`                  | `stage`, `label`, `value`, `duration`, `always_show`, `states`, `order` | Updates a standard stage without replacing unknown metadata. Order is a zero-based position.                                                                                                                                                                                                            |
+| `attach_stage` / `detach_stage` | `stage`, `step`                                                         | Explicitly attaches or detaches a stage at the beginning of a step. No implicit replacement.                                                                                                                                                                                                            |
+| `delete_stage`                  | `stage`                                                                 | Removes an unattached standard stage. Dependent error stages block removal.                                                                                                                                                                                                                             |
 
 Steps are referenced by sys_id, UI identifier, 1-based display order, or the `ref` alias of a block added
 earlier in the same call. References are resolved before each edit changes the tree.
@@ -92,10 +95,54 @@ Otherwise, cleanup retains them. This adapter does not infer that configuration 
 Ordinary call deletion leaves `alerts` unchanged. Connection override cleanup is a separate native path
 (253620-253663); this adapter still blocks nonempty mappings rather than guessing which mapping to remove.
 
-Unavailable: interface/variable creation and removal, stage creation/removal, handler creation/toggling,
+### Standard stages
+
+Stages are separate from flow-logic steps. Create, update, attach, detach, and remove standard stages in one ordered edit request:
+
+```json
+[
+  { "op": "create_stage", "label": "Fulfilment", "value": "fulfilment", "ref": "work" },
+  { "op": "attach_stage", "stage": "work", "step": "1" },
+  {
+    "op": "update_stage",
+    "stage": "work",
+    "always_show": false,
+    "duration": "1970-01-02 00:00:00"
+  }
+]
+```
+
+Use a saved stage's `stageId` key or a request-local `ref`.
+Preview returns `summary.stages_before` and `summary.stages` with reviewed settings and `componentIndexes` attachments.
+Stage keys remain stable between preview and apply. A new stage may receive a separate database `id`.
+Only that assigned ID may differ from the request. The save echo and independent GET must agree on it.
+Existing IDs, stage keys, state labels, attachments, and unknown settings remain strict.
+Labels and values must be unique and nonempty. `always_show` is a JSON boolean.
+`duration` is a ServiceNow epoch-based timestamp, not an ISO duration. `1970-01-02 00:00:00` represents one day.
+`states`, when supplied, replaces the five display labels: `pending`, `in_progress`, `skipped`, `complete`, and `error`.
+Unknown stored state metadata is preserved but is not copied into preview.
+Creation defaults to the Studio English state labels. Supply explicit labels when another language is required.
+Order changes affect stage display order, not step execution order.
+
+Detach every attachment before deleting a stage, including within the same edit request.
+Another stage at the same step must be detached explicitly before replacement. Attached step deletion is rejected.
+Stages cannot attach inside For Each, Parallel, or sandwich blocks, before Else/Else If, or at a grouping block's first child.
+Existing attached steps cannot move across parent regions in the same request. Error-stage ancestry blocks structural edits.
+Error-stage creation and modification remain unavailable. Dependent error stages block parent-stage updates, detachment, and removal.
+Legacy metadata-only stage records retain the existing label/value adapter.
+
+Source contracts: `createStage` (bundle:184105-184139), default states (1461-1463),
+`addNewFlowStage`/`detachStandardStage`/`deleteStandardStage` (204322-204398),
+stage creation and reorder controls (458244-458271),
+stage display ordering (184277-184295), and assigned IDs (204158-204167,476178-476187).
+The complete flow save retains keyed `stages` (99104,350891). This adapter does not call the separate stage-modal endpoint.
+The local official reference is `docs/ServiceNowDocs/markdown/build-workflows/workflow-studio/add-stages.md`.
+These operations are source-grounded and offline-regression verified, not live save or execution verified.
+
+Unavailable: interface/variable creation and removal, error-stage creation, handler creation/toggling,
 scheduled and record-trigger serialization, and dynamic family inputs without a dedicated adapter.
 Existing opaque settings remain unchanged. Stage attachments follow stable step identities during reordering.
-Deleting a stage-attached step or moving it across parent regions fails until an explicit attachment adapter exists.
+Detach a stage before deleting its step. Moving a previously attached step across parent regions requires a separate edit request.
 Structural edits with inline-script order references fail rather than rewrite scripts.
 
 The Studio adapter is grounded in read-only client source for `designer-bundle.min.js` version `27.0.13`:
@@ -291,7 +338,7 @@ The following bodies are still needed from a version-matched, safely isolated UI
 | Family                            | Smallest missing serializer evidence                                                                                                       |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | Inputs, outputs, variables        | Scalar and nested create/remove bodies with generated IDs, flattened child registrations, binding cleanup, and output assignment behavior. |
-| Stages                            | Create/remove body with stage IDs, states, component indexes, ancestor links, and deletion semantics.                                      |
+| Error stages                      | Create/remove bodies with ancestor links and conditional ancestry. Standard-stage CRUD is implemented from local client source.            |
 | Top-level handler                 | Toggle-on/off bodies with hidden order-zero wrappers, enabled input, parent rewriting, and handler boundary index.                         |
 | Record/scheduled/dynamic triggers | Final native input values, regenerated interfaces, table dependencies, and stored timezone/schedule representation.                        |
 | Whole complex pills               | Object, Array.Object, and primitive Array bindings with value/children fields and complete source/target schemas.                          |

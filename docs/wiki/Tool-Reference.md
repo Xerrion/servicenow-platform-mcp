@@ -700,7 +700,10 @@ choice, boolean, or integer values.
 the supported families in `flow.describe`, branch placement, and typed trigger/step/variable/interface pills.
 The preview shows the flow outline before and after. See `docs/flow-authoring.md` for fields and limits.
 Saved action/logic deletion requires explicit child handling and connected-branch cascade choices.
-Existing field and stage metadata edits and Set Flow Variables are supported. Unverified family serializers return unavailable.
+Existing field metadata edits and Set Flow Variables are supported. Standard stages support create, update,
+attach, detach, reorder, and removal after explicit detachment. Error-stage creation remains unavailable.
+See [experimental flow authoring](../flow-authoring.md) for native edit arguments and offline verification limits.
+Unverified family serializers return unavailable.
 Optional `expected_scope`, `expected_update_set`, and existing-flow `expected_revision` bind the preview to explicit context.
 No session switch is attempted. After saving, fresh flow-header Customer Update metadata must match the binding.
 Unbound calls report capture as unverified. Header metadata does not establish child-artifact capture or payload equality.

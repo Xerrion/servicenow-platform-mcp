@@ -6,10 +6,18 @@ existing steps into a branch. The result is validated and saved in one PUT.
 """
 
 import copy
+import uuid
 from typing import TYPE_CHECKING, Any
 
 from servicenow_mcp.capabilities.contracts import CapabilityError, validate_payload
-from servicenow_mcp.capabilities.flows import capture, data, semantics, support, tree
+from servicenow_mcp.capabilities.flows import (
+    capture,
+    data,
+    semantics,
+    stages,
+    support,
+    tree,
+)
 from servicenow_mcp.capabilities.mutations.models import FlowCommand, fingerprint
 from servicenow_mcp.policy import check_table_access
 from servicenow_mcp.telemetry import trace_flow_preview_boundary
@@ -28,6 +36,10 @@ OPS = {
     "update_field",
     "set_variables",
     "update_stage",
+    "create_stage",
+    "delete_stage",
+    "attach_stage",
+    "detach_stage",
 }
 
 
@@ -59,7 +71,19 @@ def _check_edit(edit: dict[str, Any]) -> None:
         "update_inputs": {"step", "inputs"},
         "set_variables": {"inputs", *placement},
         "update_field": {"collection", "name", "label", "hint"},
-        "update_stage": {"stage", "label", "value"},
+        "create_stage": {"label", "value", "duration", "always_show", "states", "ref"},
+        "update_stage": {
+            "stage",
+            "label",
+            "value",
+            "duration",
+            "always_show",
+            "states",
+            "order",
+        },
+        "delete_stage": {"stage"},
+        "attach_stage": {"stage", "step"},
+        "detach_stage": {"stage", "step"},
     }
     op = edit.get("op")
     if not isinstance(op, str) or op not in allowed or set(edit) - {"op", *allowed[op]}:
@@ -615,9 +639,18 @@ async def plan(
     pending_deletions: dict[str, list[dict[str, str]]] = {}
     omitted_subflows: list[dict[str, str]] = []
     working = copy.deepcopy(flow)
+    stage_edits = any(edit.get("op") in stages.OPS for edit in command.edits or [])
+    stage_links = stages.attachments(working) if stage_edits else {}
+    stage_aliases: dict[str, str] = {}
+    created_stages: list[str] = []
+    # Bind client stage UUIDs to this exact definition and edit list. Replanning
+    # preview/apply must not create different stage keys.
+    stage_seed = fingerprint(
+        {"state": state, "edits": command.model_dump(mode="json")["edits"]}
+    )
     for index, edit in enumerate(command.edits or [], start=1):
         _check_edit(edit)
-        op = edit["op"]
+        op = _str(edit, "op", required=True) or ""
         if flow.get("startingIndexOfErrorHandlingInstances", -1) != -1:
             raise CapabilityError(
                 "Top-level handler flows require an order-zero wrapper adapter before edits are available.",
@@ -851,15 +884,47 @@ async def plan(
                 siblings, position, _ = tree.find(roots, ref)
                 _update_inputs(siblings[position], _inputs(edit))
                 summary.append(f"{index}. Update inputs of step {label}")
-        elif op == "update_stage":
-            _update_stage(working, edit)
-            summary.append(f"{index}. Update stage metadata")
+        elif op in stages.OPS:
+            identity = stage_aliases.get(str(edit.get("stage")), edit.get("stage"))
+            existing_stage = (
+                working["stages"].get(identity) if isinstance(identity, str) else None
+            )
+            if (
+                op == "update_stage"
+                and isinstance(existing_stage, dict)
+                and "type" not in existing_stage
+                and set(edit) <= {"op", "stage", "label", "value"}
+            ):
+                # Retain the existing metadata-only adapter for legacy stages.
+                _update_stage(working, {**edit, "stage": identity})
+            else:
+                stage_edit = dict(edit)
+                if "step" in edit:
+                    stage_edit["step"] = _resolve_alias(
+                        roots, _str(edit, "step", required=True)
+                    )
+                identity = stages.edit_stage(
+                    working,
+                    stage_edit,
+                    roots,
+                    stage_links,
+                    stage_aliases,
+                    str(
+                        uuid.UUID(hex=fingerprint([stage_seed, index])[:32], version=4)
+                    ),
+                )
+                if op == "create_stage":
+                    created_stages.append(identity)
+            summary.append(f"{index}. {op.replace('_', ' ').capitalize()} {identity}")
     for step in tree.walk(roots):
         step.raw.pop("_alias", None)
     payload = tree.flatten(working, roots)
     if omitted_subflows:
         _refresh_component_mirror(flow, payload)
-    _preserve_stage_attachments(flow, payload, roots)
+    if stage_edits:
+        stages.serialize(payload, roots, stage_links, flow)
+    else:
+        _preserve_stage_attachments(flow, payload, roots)
     payload["triggerInstances"] = triggers
     payload.update(pending_deletions)
     trigger = triggers[0] if triggers else None
@@ -956,6 +1021,7 @@ async def plan(
         "created": created,
         "pending_deletions": pending_deletions,
         "omitted_subflows": omitted_subflows,
+        "created_stages": [key for key in created_stages if key in payload["stages"]],
         "reference_revision": fingerprint(reference_evidence),
     }
     trace_flow_preview_boundary(
@@ -1065,6 +1131,8 @@ def _update_stage(flow: dict[str, Any], edit: dict[str, Any]) -> None:
         or not isinstance(stages[identity], dict)
     ):
         raise CapabilityError("The existing keyed stage is unavailable.", "UNAVAILABLE")
+    if not set(edit) & {"label", "value"}:
+        raise CapabilityError("update_stage requires label or value.")
     for key in ("label", "value"):
         if key in edit:
             value = _str(edit, key, required=True) or ""
@@ -1171,6 +1239,8 @@ async def preview(
         "data_pills": [entry["name"] for entry in result["payload"]["label_cache"]],
         "adapter": support.ADAPTER,
         "verification": "offline_regression_only",
+        "stages_before": stages.summary(flow, []),
+        "stages": stages.summary(result["payload"], result["created_stages"]),
         "deleted_instances": {
             **result["pending_deletions"],
             **(
@@ -1261,6 +1331,7 @@ async def apply(
         generated_ids={""},
         pending_deletions=result["pending_deletions"],
         omitted_subflows=result["omitted_subflows"],
+        generated_stages=set(result["created_stages"]),
     )
     actual_outline = trigger_lines(saved["triggerInstances"]) + tree.outline(
         tree.build_tree(saved)

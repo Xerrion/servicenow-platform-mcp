@@ -181,11 +181,14 @@ def ledger() -> dict[str, Any]:
             ),
             "stage_metadata": entry(
                 True,
-                "Existing keyed stages: label and value only. Index attachments remain stable across reorders.",
+                "Standard stages: label, value, duration, state labels, always-show, and order. "
+                "Legacy metadata-only stages retain label/value support.",
             ),
             "create_delete_stage": entry(
-                False,
-                "New stage state/ancestry and removal contract remain unverified.",
+                True,
+                "Native keyed standard stages with client stageId and optional assigned id. "
+                "Explicit attach/detach uses stable step identities. Attached or referenced stages cannot be deleted. "
+                "Error-stage creation remains unavailable. Source-derived offline regression only.",
             ),
             "handler_toggle": entry(
                 False,
@@ -224,7 +227,7 @@ def ledger() -> dict[str, Any]:
             ),
             "missing_contracts": (
                 "Guarded UI bootstrap blocked; no new request bodies captured. Need full serialized create/delete "
-                "interface/variable/stage examples, top-level order-zero "
+                "interface/variable and error-stage examples, top-level order-zero "
                 "wrappers, record/scheduled trigger dependent metadata, whole complex pills, and paired Try/Catch "
                 "moves."
             ),

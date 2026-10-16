@@ -69,6 +69,18 @@ class MutationCoordinator:
         if isinstance(command, FlowCommand) and command.action == "add_subflow":
             gate_write("sys_hub_sub_flow_instance_v2", self.settings)
         if isinstance(command, FlowCommand) and command.action == "edit":
+            if any(
+                edit.get("op")
+                in {
+                    "create_stage",
+                    "update_stage",
+                    "delete_stage",
+                    "attach_stage",
+                    "detach_stage",
+                }
+                for edit in command.edits or []
+            ):
+                gate_write("sys_hub_flow_stage", self.settings)
             for component in (
                 "sys_hub_action_instance_v2",
                 "sys_hub_flow_logic_instance_v2",

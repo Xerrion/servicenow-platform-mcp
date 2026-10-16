@@ -88,23 +88,55 @@ _DIAGNOSTIC_FIELDS = frozenset(
         "nonCriticalErrors",
     },
 )
+# Fixed Studio settings, scoped to their schema location rather than arbitrary
+# mapping keys. Source: docs/designer-bundle.min.js:203732-203750,204678-204690.
+_DIAGNOSTIC_SETTING_FIELDS = {
+    "flow": frozenset(
+        {
+            "alerts",
+            "componentInstances",
+            "deletedActions",
+            "deletedFlowLogicInstances",
+            "deletedTriggers",
+            "aliasOverride",
+        }
+    ),
+    "flow.aliasOverride": frozenset({"aliasOverrideMappings"}),
+}
 
 
 class SemanticMismatch(CapabilityError):
     """An equality failure with a value-free path and controlled invariant category."""
 
     def __init__(
-        self, path: str, kind: str, side: str = "both", invariant: str = ""
+        self,
+        path: str,
+        kind: str,
+        side: str = "both",
+        invariant: str = "",
+        *,
+        expected_count: int | None = None,
+        actual_count: int | None = None,
     ) -> None:
+        # Only native lengths reach diagnostic text. Never coerce payload values.
+        self._counts = (
+            f" expected_count={expected_count} actual_count={actual_count}"
+            if kind == "COUNT_MISMATCH"
+            and type(expected_count) is int
+            and type(actual_count) is int
+            and expected_count >= 0
+            and actual_count >= 0
+            else ""
+        )
         super().__init__(
-            f"Saved step topology, definitions, or values differ from the request ({side}:{path} {kind}). "
+            f"Saved step topology, definitions, or values differ from the request ({side}:{path} {kind}{self._counts}). "
             "Inspect the flow.",
             "UNKNOWN_OUTCOME",
         )
         self.path, self.kind, self.side, self.invariant = path, kind, side, invariant
 
     def detail(self) -> str:
-        return f"{self.side}:{self.path} {self.kind}" + (
+        return f"{self.side}:{self.path} {self.kind}{self._counts}" + (
             f". {self.invariant}" if self.invariant else ""
         )
 
@@ -117,7 +149,10 @@ def _difference(left: Any, right: Any, path: str) -> SemanticMismatch | None:
     if isinstance(left, dict):
         for index, key in enumerate(sorted(left.keys() | right.keys())):
             location = path + (
-                f".{key}" if key in _DIAGNOSTIC_FIELDS else f"[field:{index}]"
+                f".{key}"
+                if key in _DIAGNOSTIC_FIELDS
+                or key in _DIAGNOSTIC_SETTING_FIELDS.get(path, ())
+                else f"[field:{index}]"
             )
             if key not in left or key not in right:
                 return SemanticMismatch(
@@ -130,7 +165,12 @@ def _difference(left: Any, right: Any, path: str) -> SemanticMismatch | None:
                 return difference
     elif isinstance(left, list):
         if len(left) != len(right):
-            return SemanticMismatch(path, "COUNT_MISMATCH")
+            return SemanticMismatch(
+                path,
+                "COUNT_MISMATCH",
+                expected_count=len(left),
+                actual_count=len(right),
+            )
         for index, (wanted, found) in enumerate(zip(left, right, strict=True)):
             difference = _difference(wanted, found, f"{path}[{index}]")
             if difference:
@@ -173,7 +213,12 @@ def _semantic_difference(
     if difference:
         return difference
     if len(wanted.steps) != len(found.steps):
-        return SemanticMismatch("flow.steps", "COUNT_MISMATCH")
+        return SemanticMismatch(
+            "flow.steps",
+            "COUNT_MISMATCH",
+            expected_count=len(wanted.steps),
+            actual_count=len(found.steps),
+        )
     paths = {
         row["uiUniqueIdentifier"]: f"flow.{collection}[{index}]"
         for collection in COLLECTIONS
@@ -853,7 +898,12 @@ def compare_saved(
     expected_triggers = expected["triggerInstances"]
     actual_triggers = actual["triggerInstances"]
     if len(expected_triggers) != len(actual_triggers):
-        raise SemanticMismatch("flow.triggerInstances", "COUNT_MISMATCH")
+        raise SemanticMismatch(
+            "flow.triggerInstances",
+            "COUNT_MISMATCH",
+            expected_count=len(expected_triggers),
+            actual_count=len(actual_triggers),
+        )
     for index, (wanted_trigger, found_trigger) in enumerate(
         zip(expected_triggers, actual_triggers, strict=True)
     ):
@@ -869,7 +919,12 @@ def compare_saved(
         expected_rows = expected[collection]
         actual_rows = normalized[collection]
         if len(expected_rows) != len(actual_rows):
-            raise SemanticMismatch(f"flow.{collection}", "COUNT_MISMATCH")
+            raise SemanticMismatch(
+                f"flow.{collection}",
+                "COUNT_MISMATCH",
+                expected_count=len(expected_rows),
+                actual_count=len(actual_rows),
+            )
         for index, row in enumerate(actual_rows):
             _identity(row.get("id", ""), f"flow.{collection}[{index}].id")
         by_ui = {

@@ -857,6 +857,8 @@ async def plan(
     for step in tree.walk(roots):
         step.raw.pop("_alias", None)
     payload = tree.flatten(working, roots)
+    if omitted_subflows:
+        _refresh_component_mirror(flow, payload)
     _preserve_stage_attachments(flow, payload, roots)
     payload["triggerInstances"] = triggers
     payload.update(pending_deletions)
@@ -966,6 +968,32 @@ async def plan(
         },
     )
     return result
+
+
+def _refresh_component_mirror(before: dict[str, Any], after: dict[str, Any]) -> None:
+    if "componentInstances" not in before:
+        return
+    # Studio updates the unified list before splitting the three wire collections
+    # (bundle:205202-205236,99104,99193-99197). Untrimmed saves retain that list
+    # (97521-97527,101697-101712). Do not discard unknown mirror-only metadata.
+    original = sorted(
+        (row for key in tree.COLLECTIONS.values() for row in before[key]),
+        key=lambda row: int(row["order"]),
+    )
+    if not isinstance(before["componentInstances"], list) or fingerprint(
+        before["componentInstances"]
+    ) != fingerprint(original):
+        raise CapabilityError(
+            "The componentInstances mirror differs from the complete ordered step lists. "
+            "No mirror metadata is inferred or discarded.",
+            "UNAVAILABLE",
+        )
+    after["componentInstances"] = copy.deepcopy(
+        sorted(
+            (row for key in tree.COLLECTIONS.values() for row in after[key]),
+            key=lambda row: int(row["order"]),
+        )
+    )
 
 
 def _preserve_stage_attachments(

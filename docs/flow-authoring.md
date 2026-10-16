@@ -82,6 +82,16 @@ Surviving references to a deleted producer fail, including dynamic-input and out
 Nonempty or malformed connection override mappings block deletion until their cleanup adapter is implemented.
 The source-derived fixture is not a captured server response. This capability is offline-regression verified, not live verified.
 
+For saved-call deletion, an existing `componentInstances` list must exactly mirror the three ordered step lists.
+The planner rebuilds that duplicate list from the surviving steps. Missing, reordered, or mirror-only metadata blocks planning.
+An absent mirror stays absent. This correction does not normalize save echoes or identify the earlier indexed mismatch.
+Studio's `removeActionFromFlow` updates this list before `getUpdatedFlowToSaveOrPublish` splits it for saving.
+`saveFlowToServer` then calls `cleanupFlowBeforePut` (local bundle:97521-97527,101697-101712).
+When `TRIM_FLOW_PAYLOAD` is enabled, cleanup selects `FLOW_SCHEMA` fields (350835-350903), excluding the mirror and `alerts`.
+Otherwise, cleanup retains them. This adapter does not infer that configuration or drop unknown top-level settings.
+Ordinary call deletion leaves `alerts` unchanged. Connection override cleanup is a separate native path
+(253620-253663); this adapter still blocks nonempty mappings rather than guessing which mapping to remove.
+
 Unavailable: interface/variable creation and removal, stage creation/removal, handler creation/toggling,
 scheduled and record-trigger serialization, and dynamic family inputs without a dedicated adapter.
 Existing opaque settings remain unchanged. Stage attachments follow stable step identities during reordering.
@@ -125,6 +135,12 @@ An incomplete read, ACL-filtered content, malformed state, or mismatch returns `
 Independent verification errors name the failed phase: `request.echo`, `readback.get`, `request.readback`, or `echo.readback`.
 Comparison errors include the first differing field path, side (`expected`, `actual`, or `both`), and mismatch kind.
 Only application-declared field names appear. Unknown keys use numeric `[field:N]` positions. No values are returned.
+Fixed Studio settings additionally identify `alerts`, `componentInstances`, `deletedActions`,
+`deletedFlowLogicInstances`, `deletedTriggers`, and `aliasOverride` at the flow root.
+Only `flow.aliasOverride` additionally identifies `aliasOverrideMappings`. These names remain anonymous inside custom mappings.
+The allowlist follows the local bundle at 203732-203750 and 204678-204690. It does not identify an earlier indexed mismatch.
+List-count failures append numeric `expected_count=N actual_count=N` details. Counts follow the comparison's left/right direction.
+The error code, first-difference reporting, payload limits, and strict equality checks remain unchanged.
 Malformed semantics retain their safe parser invariant. Equality checks and unknown-setting preservation remain strict.
 
 For an `update_inputs` preview whose requested values already equal saved values, `summary.serialization_check`

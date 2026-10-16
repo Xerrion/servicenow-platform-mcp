@@ -54,6 +54,198 @@ async def test_request_echo_mismatch_retains_phase_path_kind(
     assert not http_mock.calls
 
 
+@pytest.mark.parametrize("field", ["alerts", "componentInstances"])
+@pytest.mark.parametrize("expected_count,actual_count", [(2, 0), (0, 3)])
+async def test_fixed_studio_list_diagnostics_identify_field_and_count_direction(
+    settings, field, expected_count, actual_count
+):
+    # Synthetic settings, not evidence of the historical save response.
+    wanted = base_flow()
+    wanted[field] = ["private-sensitive-marker"] * expected_count
+    echo = copy.deepcopy(wanted)
+    echo[field] = ["private-sensitive-marker"] * actual_count
+    before = copy.deepcopy((wanted, echo))
+    async with ServiceNowClient(settings, OAuthPKCEProvider(settings)) as client:
+        with pytest.raises(CapabilityError) as error:
+            await semantics.verify_saved(client, wanted, echo, generated_ids=set())
+    assert error.value.code == "UNKNOWN_OUTCOME"
+    assert (
+        f"request.echo, both:flow.{field} COUNT_MISMATCH "
+        f"expected_count={expected_count} actual_count={actual_count}"
+    ) in str(error.value)
+    assert "private-sensitive-marker" not in str(error.value)
+    assert (wanted, echo) == before
+    assert not http_mock.calls
+
+
+def test_fixed_studio_override_mapping_diagnostic_does_not_expose_keys_or_values():
+    wanted = base_flow()
+    wanted["aliasOverride"] = {
+        "aliasOverrideMappings": [{"private-sensitive-key": "private-sensitive-value"}]
+    }
+    actual = copy.deepcopy(wanted)
+    actual["aliasOverride"]["aliasOverrideMappings"] = []
+    with pytest.raises(semantics.SemanticMismatch) as error:
+        semantics.compare_saved(wanted, actual, generated_ids=set())
+    assert error.value.path == "flow.aliasOverride.aliasOverrideMappings"
+    assert error.value.detail() == (
+        "both:flow.aliasOverride.aliasOverrideMappings COUNT_MISMATCH "
+        "expected_count=1 actual_count=0"
+    )
+    assert "expected_count=1 actual_count=0" in str(error.value)
+    assert "private-sensitive" not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "field", ["private-sensitive-key", "componentInstances", "aliasOverrideMappings"]
+)
+def test_custom_mapping_keys_stay_anonymous_even_with_known_field_spelling(field):
+    wanted = base_flow()
+    wanted["private-container"] = {field: ["private-sensitive-value"]}
+    actual = copy.deepcopy(wanted)
+    actual["private-container"][field] = []
+    with pytest.raises(semantics.SemanticMismatch) as error:
+        semantics.compare_saved(wanted, actual, generated_ids=set())
+    assert error.value.kind == "COUNT_MISMATCH"
+    assert error.value.path.startswith("flow[field:")
+    assert error.value.path.endswith("[field:0]")
+    assert "expected_count=1 actual_count=0" in error.value.detail()
+    assert field not in str(error.value)
+    assert "private-" not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "collection", ["actionInstances", "subFlowInstances", "outputs"]
+)
+@pytest.mark.parametrize("reverse", [False, True])
+def test_existing_collection_mismatches_keep_failure_and_count_direction(
+    collection, reverse
+):
+    wanted = base_flow()
+    if collection == "outputs":
+        wanted[collection] = [{"name": "private-sensitive-name", "type": "string"}]
+    actual = copy.deepcopy(wanted)
+    actual[collection] = []
+    if reverse:
+        wanted, actual = actual, wanted
+    with pytest.raises(semantics.SemanticMismatch) as error:
+        semantics.compare_saved(wanted, actual, generated_ids=set())
+    assert error.value.code == "UNKNOWN_OUTCOME"
+    assert error.value.path == f"flow.{collection}"
+    assert error.value.detail().endswith(
+        f"COUNT_MISMATCH expected_count={len(wanted[collection])} "
+        f"actual_count={len(actual[collection])}"
+    )
+    assert "private-sensitive" not in str(error.value)
+
+
+def test_diagnostics_remain_first_difference_only_and_bounded_with_long_private_keys():
+    wanted = base_flow()
+    nested = wanted["alerts"] = {}
+    for _ in range(20):
+        child = {}
+        nested["private-sensitive-key" * 200] = child
+        nested = child
+    nested["value"] = ["private-sensitive-value"]
+    actual = copy.deepcopy(wanted)
+    changed = actual["alerts"]
+    for _ in range(20):
+        changed = next(iter(changed.values()))
+    changed["value"] = []
+    # The comparator must not collect or return the later differences.
+    wanted["componentInstances"] = ["private-sensitive-value"] * 100
+    actual["componentInstances"] = []
+    with pytest.raises(semantics.SemanticMismatch) as error:
+        semantics.compare_saved(wanted, actual, generated_ids=set())
+    assert error.value.path == "flow.alerts" + "[field:0]" * 20 + ".value"
+    assert error.value.detail().endswith("expected_count=1 actual_count=0")
+    assert str(error.value).count("COUNT_MISMATCH") == 1
+    assert len(str(error.value)) < 512
+    assert "private-sensitive" not in str(error.value)
+    assert "componentInstances" not in str(error.value)
+
+
+@pytest.mark.parametrize("side", ["expected", "actual"])
+def test_known_setting_missing_field_direction_is_unchanged(side):
+    wanted = base_flow()
+    wanted["alerts"] = []
+    actual = copy.deepcopy(wanted)
+    (wanted if side == "expected" else actual).pop("alerts")
+    with pytest.raises(semantics.SemanticMismatch) as error:
+        semantics.compare_saved(wanted, actual, generated_ids=set())
+    assert (error.value.path, error.value.kind, error.value.side) == (
+        "flow.alerts",
+        "MISSING_FIELD",
+        side,
+    )
+    assert "expected_count" not in error.value.detail()
+
+
+@pytest.mark.parametrize("field", ["alerts", "componentInstances"])
+def test_known_paths_are_stable_when_other_keys_change_sorted_positions(field):
+    wanted = base_flow()
+    wanted["a-private-sensitive-key"] = []
+    wanted[field] = ["private-sensitive-value"]
+    actual = copy.deepcopy(wanted)
+    actual[field] = []
+    with pytest.raises(semantics.SemanticMismatch) as error:
+        semantics.compare_saved(wanted, actual, generated_ids=set())
+    assert error.value.path == f"flow.{field}"
+    assert "private-sensitive" not in error.value.detail()
+
+
+@pytest.mark.parametrize("field", ["alerts", "componentInstances"])
+@pytest.mark.parametrize("actual_value", [["private-sensitive-change"], {}])
+def test_named_settings_still_reject_equal_length_values_and_type_changes(
+    field, actual_value
+):
+    wanted = base_flow()
+    wanted[field] = ["private-sensitive-value"]
+    actual = copy.deepcopy(wanted)
+    actual[field] = actual_value
+    with pytest.raises(semantics.SemanticMismatch) as error:
+        semantics.compare_saved(wanted, actual, generated_ids=set())
+    assert error.value.code == "UNKNOWN_OUTCOME"
+    assert error.value.kind == (
+        "VALUE_MISMATCH" if isinstance(actual_value, list) else "TYPE_MISMATCH"
+    )
+    assert "private-sensitive" not in error.value.detail()
+    assert "expected_count" not in error.value.detail()
+
+
+@pytest.mark.parametrize("invalid", [True, "private-sensitive-value", -1, 1.5, None])
+@pytest.mark.parametrize("side", ["expected_count", "actual_count"])
+def test_count_details_accept_only_nonnegative_native_integers(invalid, side):
+    error = semantics.SemanticMismatch(
+        "flow.alerts",
+        "COUNT_MISMATCH",
+        expected_count=invalid if side == "expected_count" else 1,
+        actual_count=invalid if side == "actual_count" else 0,
+    )
+    assert error.detail() == "both:flow.alerts COUNT_MISMATCH"
+    assert "expected_count" not in str(error)
+    assert "actual_count" not in str(error)
+    assert "private-sensitive" not in str(error)
+
+
+def test_diagnostics_do_not_bypass_existing_payload_depth_limit():
+    wanted = base_flow()
+    nested = wanted["alerts"] = {}
+    for _ in range(40):
+        child = {}
+        nested["private-sensitive-key"] = child
+        nested = child
+    actual = copy.deepcopy(wanted)
+    nested["value"] = ["private-sensitive-value"]
+    with pytest.raises(semantics.SemanticMismatch) as error:
+        semantics.compare_saved(wanted, actual, generated_ids=set())
+    assert error.value.path == "flow"
+    assert error.value.kind == "INCOMPLETE_SEMANTICS"
+    assert error.value.side == "expected"
+    assert len(error.value.detail()) < 256
+    assert "private-sensitive" not in str(error.value)
+
+
 async def test_unavailable_readback_does_not_echo_raw_error(settings):
     flow = base_flow()
     http_mock.get(f"{BASE}/api/now/processflow/flow/{FLOW}").respond(

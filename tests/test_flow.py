@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 import gzip
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx2
@@ -13,8 +13,10 @@ import pytest
 from mcp.server import MCPServer
 
 from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.config import Settings
 from tests.helpers import decode_response, get_tool_functions
+
+if TYPE_CHECKING:
+    from servicenow_mcp.config import Settings
 
 
 # ---------------------------------------------------------------------------
@@ -43,6 +45,7 @@ def _register_and_get_tools(
 def _make_client_mock(**method_returns: Any) -> AsyncMock:
     """Build an AsyncMock client whose listed coroutine methods return the given values."""
     client = AsyncMock()
+    client.list_subflow_instances_v2.return_value = []
     for name, value in method_returns.items():
         getattr(client, name).return_value = value
     return client
@@ -77,7 +80,9 @@ SYS_ID_FLOW = "f" * 32
 
 
 @pytest.mark.asyncio()
-async def test_describe_returns_all_action_keys(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_describe_returns_all_action_keys(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """``describe`` advertises all flow actions."""
     tools = _register_and_get_tools(settings, auth_provider)
     raw = await tools["flow"](action="describe")
@@ -104,7 +109,9 @@ async def test_describe_returns_all_action_keys(settings: Settings, auth_provide
 
 
 @pytest.mark.asyncio()
-async def test_decode_values_action_success(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_decode_values_action_success(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """A real gzip+base64 blob is decoded back to the original structure."""
     tools = _register_and_get_tools(settings, auth_provider)
     blob = _encode_values([{"name": "x", "value": "y"}])
@@ -118,7 +125,9 @@ async def test_decode_values_action_success(settings: Settings, auth_provider: O
 
 
 @pytest.mark.asyncio()
-async def test_decode_values_action_garbage_returns_error(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_decode_values_action_garbage_returns_error(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """Malformed input surfaces a structured error envelope, not an exception."""
     tools = _register_and_get_tools(settings, auth_provider)
 
@@ -133,7 +142,8 @@ async def test_decode_values_action_garbage_returns_error(settings: Settings, au
 
 @pytest.mark.asyncio()
 async def test_decode_values_action_missing_value_returns_error(
-    settings: Settings, auth_provider: OAuthPKCEProvider
+    settings: Settings,
+    auth_provider: OAuthPKCEProvider,
 ) -> None:
     """An empty ``value`` argument is rejected before any decode attempt."""
     tools = _register_and_get_tools(settings, auth_provider)
@@ -150,12 +160,16 @@ async def test_decode_values_action_missing_value_returns_error(
 
 
 @pytest.mark.asyncio()
-async def test_inspect_rejects_both_sys_id_and_name(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_inspect_rejects_both_sys_id_and_name(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """``inspect`` requires exactly one of sys_id / name."""
     tools = _register_and_get_tools(settings, auth_provider)
     client = _make_client_mock()
     with _patch_client(client):
-        raw = await tools["flow"](action="inspect", sys_id=SYS_ID_FLOW, name="Some Flow")
+        raw = await tools["flow"](
+            action="inspect", sys_id=SYS_ID_FLOW, name="Some Flow"
+        )
     result = decode_response(raw)
 
     assert result["status"] == "error"
@@ -163,7 +177,9 @@ async def test_inspect_rejects_both_sys_id_and_name(settings: Settings, auth_pro
 
 
 @pytest.mark.asyncio()
-async def test_inspect_rejects_neither_sys_id_nor_name(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_inspect_rejects_neither_sys_id_nor_name(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """``inspect`` with no identifier is rejected."""
     tools = _register_and_get_tools(settings, auth_provider)
     client = _make_client_mock()
@@ -204,6 +220,7 @@ def _empty_inspect_kwargs(header_sys_id: str = SYS_ID_FLOW) -> dict[str, Any]:
         "list_flow_variables": [],
         "list_flow_stages": [],
         "list_action_instances_v2": [],
+        "list_subflow_instances_v2": [],
         "list_action_instances_v1": [],
         "list_logic_instances_v2": [],
         "list_logic_instances_v1": [],
@@ -217,9 +234,164 @@ def _empty_inspect_kwargs(header_sys_id: str = SYS_ID_FLOW) -> dict[str, Any]:
     }
 
 
+@pytest.mark.parametrize("action", ["inspect", "contract"])
+async def test_v2_subflow_readback(
+    settings: Settings, auth_provider: OAuthPKCEProvider, action: str
+) -> None:
+    kwargs = _empty_inspect_kwargs()
+    kwargs["list_subflow_instances_v2"] = [
+        {
+            "sys_id": _ref("a" * 32),
+            "subflow": _ref("b" * 32, "Provision"),
+            "ui_id": _ref("sub-ui"),
+            "parent_ui_id": _ref(""),
+            "order": _ref("1"),
+            "wait_for_completion": _ref("true"),
+            "subflow_inputs": _ref(
+                _encode_values(
+                    [{"name": "user", "value": "{{Service Catalog_1.request_item}}"}]
+                )
+            ),
+        },
+    ]
+    client = _make_client_mock(**kwargs)
+    tools = _register_and_get_tools(settings, auth_provider)
+    section = "steps" if action == "contract" else "canvas"
+    with _patch_client(client):
+        result = decode_response(
+            await tools["flow"](
+                action=action,
+                sys_id=SYS_ID_FLOW,
+                sections=[section, "structural_summary"],
+            ),
+        )
+    assert result["status"] == "success", result
+    node = result["data"][section][0]
+    assert node["kind"] == "subflow"
+    assert node["subflow"]["sys_id"] == "b" * 32
+    assert node["version"] == "v2"
+    assert node["wait_for_completion"] is True
+    if action == "contract":
+        assert node["inputs"][0]["data_pills"] == ["Service Catalog_1.request_item"]
+    else:
+        assert (
+            node["values_decoded"][0]["value"] == "{{Service Catalog_1.request_item}}"
+        )
+    assert result["data"]["structural_summary"]["counts"]["subflows_v2"] == 1
+    assert result["data"]["structural_summary"]["node_count"] == 1
+    client.list_subflow_instances_v2.assert_awaited_once_with(SYS_ID_FLOW, 101)
+
+
+@pytest.mark.parametrize("action", ["inspect", "contract"])
+@pytest.mark.parametrize(
+    "defect", ["cap", "acl", "blob", "parent", "cycle", "wait", "bindings"]
+)
+async def test_subflow_read_completeness(
+    settings: Settings, auth_provider: OAuthPKCEProvider, action, defect
+):
+    kwargs = _empty_inspect_kwargs()
+    row = {
+        "sys_id": _ref("a" * 32),
+        "subflow": _ref("b" * 32, "Provision"),
+        "ui_id": _ref("sub"),
+        "parent_ui_id": _ref(""),
+        "order": _ref("1"),
+        "wait_for_completion": _ref("false"),
+        "subflow_inputs": _ref(_encode_values([])),
+    }
+    kwargs["list_subflow_instances_v2"] = [row]
+    if defect == "cap":
+        kwargs["list_subflow_instances_v2"].append(
+            {
+                **row,
+                "sys_id": _ref("c" * 32),
+                "ui_id": _ref("sub2"),
+                "order": _ref("2"),
+            },
+        )
+    elif defect == "blob":
+        row["subflow_inputs"] = _ref("invalid")
+    elif defect in {"parent", "cycle"}:
+        row["parent_ui_id"] = _ref("sub" if defect == "cycle" else "missing")
+    elif defect == "wait":
+        row.pop("wait_for_completion")
+    elif defect == "bindings":
+        row["subflow_inputs"] = _ref(_encode_values([{"name": "x"}]))
+    client = _make_client_mock(**kwargs)
+    if defect == "acl":
+        client.list_subflow_instances_v2.side_effect = PermissionError("private-marker")
+    tools = _register_and_get_tools(settings, auth_provider)
+    section = "steps" if action == "contract" else "canvas"
+    with _patch_client(client):
+        result = decode_response(
+            await tools["flow"](
+                action=action,
+                sys_id=SYS_ID_FLOW,
+                sections=[section, "structural_summary"],
+                section_limit=1,
+            ),
+        )
+    assert result["status"] == "success", result
+    assert section in result["truncation"]
+    assert "private-marker" not in str(result)
+    if defect == "cap":
+        assert result["data"]["structural_summary"]["node_count"] == 1
+        assert result["data"]["structural_summary"]["truncated"] is True
+        assert result["data"]["structural_summary"]["complete"] is False
+        assert "subflows_v2" in result["truncation"]["structural_summary"]["datasets"]
+    elif defect == "acl":
+        assert result["data"]["structural_summary"]["counts"]["subflows_v2"] is None
+        assert result["data"]["structural_summary"]["node_count"] is None
+        assert result["data"]["structural_summary"]["complete"] is False
+    else:
+        assert len(result["data"][section]) == 1
+
+
+async def test_subflow_under_logic_uses_persisted_component_fields(
+    settings: Settings,
+    auth_provider: OAuthPKCEProvider,
+):
+    kwargs = _empty_inspect_kwargs()
+    kwargs["list_logic_instances_v2"] = [
+        {
+            "sys_id": _ref("1" * 32),
+            "ui_id": _ref("branch"),
+            "parent_ui_id": _ref(""),
+            "order": _ref("1"),
+            "logic_definition": _ref("2" * 32, "If"),
+            "values": _ref(
+                _encode_values({"inputs": [{"name": "condition", "value": "true"}]})
+            ),
+        },
+    ]
+    kwargs["list_subflow_instances_v2"] = [
+        {
+            "sys_id": _ref("3" * 32),
+            "subflow": _ref("4" * 32, "Provision"),
+            "ui_id": _ref("call"),
+            "parent_ui_id": _ref("branch"),
+            "order": _ref("2"),
+            "wait_for_completion": _ref("false"),
+            "subflow_inputs": _ref(_encode_values([])),
+        },
+    ]
+    tools = _register_and_get_tools(settings, auth_provider)
+    with _patch_client(_make_client_mock(**kwargs)):
+        result = decode_response(
+            await tools["flow"](
+                action="contract", sys_id=SYS_ID_FLOW, sections=["steps"]
+            )
+        )
+    assert "truncation" not in result, result
+    assert result["data"]["steps"][1]["step"] == "1.1"
+    assert result["data"]["steps"][1]["parent_ui_id"] == "branch"
+    assert result["data"]["steps"][1]["wait_for_completion"] is False
+
+
 @pytest.mark.asyncio()
 async def test_inspect_compact_default_omits_optional_detail_requests(
-    settings: Settings, auth_provider: OAuthPKCEProvider
+    settings: Settings,
+    auth_provider: OAuthPKCEProvider,
 ) -> None:
     """The compact default fetches only the header and six bounded structural datasets."""
     tools = _register_and_get_tools(settings, auth_provider)
@@ -265,7 +437,9 @@ async def test_selected_warnings_fetch_spoke_metadata_without_action_schema(
     """Compact and explicit warnings retain spoke detection for both flow views."""
     kwargs = _empty_inspect_kwargs()
     kwargs.update(
-        list_action_instances_v2=[{"sys_id": _ref("a1"), "action_type": _ref("atype_spoke")}],
+        list_action_instances_v2=[
+            {"sys_id": _ref("a1"), "action_type": _ref("atype_spoke")}
+        ],
         get_action_type_definitions=[
             {"sys_id": _ref("atype_spoke"), spoke_field: _ref("IntegrationHub Spoke")},
         ],
@@ -302,8 +476,12 @@ async def test_selected_warnings_disclose_spoke_beyond_probe(
     ]
     kwargs = _empty_inspect_kwargs()
     client = _make_client_mock(**kwargs)
-    client.list_action_instances_v2.side_effect = lambda _flow_sys_id, limit: actions[:limit]
-    client.get_action_type_definitions.return_value = [{"sys_id": _ref("atype_core"), "category": _ref("Core")}]
+    client.list_action_instances_v2.side_effect = lambda _flow_sys_id, limit: actions[
+        :limit
+    ]
+    client.get_action_type_definitions.return_value = [
+        {"sys_id": _ref("atype_core"), "category": _ref("Core")}
+    ]
     tools = _register_and_get_tools(settings, auth_provider)
 
     with _patch_client(client):
@@ -315,7 +493,9 @@ async def test_selected_warnings_disclose_spoke_beyond_probe(
         )
     result = decode_response(raw)
 
-    assert not any("spoke action type" in warning for warning in result["data"]["warnings"])
+    assert not any(
+        "spoke action type" in warning for warning in result["data"]["warnings"]
+    )
     assert result["truncation"]
     assert result["truncation"]["warnings"]["datasets"] == ["actions_v2"]
     assert result["truncation"]["warnings"]["continuation"] == (
@@ -325,6 +505,7 @@ async def test_selected_warnings_disclose_spoke_beyond_probe(
         f"sys_hub_action_instance (encoded_query=flow={SYS_ID_FLOW}, fields=sys_id); "
         f"sys_hub_flow_logic_instance_v2 (encoded_query=flow={SYS_ID_FLOW}, fields=sys_id); "
         f"sys_hub_flow_logic (encoded_query=flow={SYS_ID_FLOW}, fields=sys_id); "
+        f"sys_hub_sub_flow_instance_v2 (encoded_query=flow={SYS_ID_FLOW}, fields=sys_id); "
         f"sys_hub_trigger_instance_v2 (encoded_query=flow={SYS_ID_FLOW}, fields=sys_id); "
         f"sys_hub_trigger_instance (encoded_query=flow={SYS_ID_FLOW}, fields=sys_id). Then collect every action_type "
         "sys_id from the V2 actions and query sys_hub_action_type_base "
@@ -336,12 +517,15 @@ async def test_selected_warnings_disclose_spoke_beyond_probe(
 
 @pytest.mark.asyncio()
 async def test_warning_dependency_below_cap_recommends_larger_section_limit(
-    settings: Settings, auth_provider: OAuthPKCEProvider
+    settings: Settings,
+    auth_provider: OAuthPKCEProvider,
 ) -> None:
     """A saturated warning probe below the cap gives an achievable flow continuation."""
     larger_settings = settings.model_copy(update={"max_row_limit": 200})
     kwargs = _empty_inspect_kwargs()
-    kwargs["list_logic_instances_v1"] = [{"sys_id": _ref(f"logic{index}")} for index in range(3)]
+    kwargs["list_logic_instances_v1"] = [
+        {"sys_id": _ref(f"logic{index}")} for index in range(3)
+    ]
     client = _make_client_mock(**kwargs)
     tools = _register_and_get_tools(larger_settings, OAuthPKCEProvider(larger_settings))
 
@@ -361,7 +545,8 @@ async def test_warning_dependency_below_cap_recommends_larger_section_limit(
 
 @pytest.mark.asyncio()
 async def test_warning_truncation_identifies_every_saturated_dependency(
-    settings: Settings, auth_provider: OAuthPKCEProvider
+    settings: Settings,
+    auth_provider: OAuthPKCEProvider,
 ) -> None:
     """Warning metadata lists each structural dataset that reached its probe limit."""
     structural_methods = {
@@ -374,7 +559,9 @@ async def test_warning_truncation_identifies_every_saturated_dependency(
     }
     kwargs = _empty_inspect_kwargs()
     for method_name in structural_methods:
-        kwargs[method_name] = [{"sys_id": _ref(f"{method_name}_{index}")} for index in range(3)]
+        kwargs[method_name] = [
+            {"sys_id": _ref(f"{method_name}_{index}")} for index in range(3)
+        ]
     client = _make_client_mock(**kwargs)
     tools = _register_and_get_tools(settings, auth_provider)
 
@@ -399,7 +586,8 @@ async def test_warning_truncation_identifies_every_saturated_dependency(
 
 @pytest.mark.asyncio()
 async def test_warning_truncation_discloses_missing_action_type_metadata(
-    settings: Settings, auth_provider: OAuthPKCEProvider
+    settings: Settings,
+    auth_provider: OAuthPKCEProvider,
 ) -> None:
     """Spoke detection reports when action-type metadata is incomplete."""
     kwargs = _empty_inspect_kwargs()
@@ -407,12 +595,16 @@ async def test_warning_truncation_discloses_missing_action_type_metadata(
         {"sys_id": _ref("a1"), "action_type": _ref("atype_returned")},
         {"sys_id": _ref("a2"), "action_type": _ref("atype_missing")},
     ]
-    kwargs["get_action_type_definitions"] = [{"sys_id": _ref("atype_returned"), "category": _ref("Core")}]
+    kwargs["get_action_type_definitions"] = [
+        {"sys_id": _ref("atype_returned"), "category": _ref("Core")}
+    ]
     client = _make_client_mock(**kwargs)
     tools = _register_and_get_tools(settings, auth_provider)
 
     with _patch_client(client):
-        raw = await tools["flow"](action="inspect", sys_id=SYS_ID_FLOW, sections=["warnings"])
+        raw = await tools["flow"](
+            action="inspect", sys_id=SYS_ID_FLOW, sections=["warnings"]
+        )
     result = decode_response(raw)
 
     truncation = result["truncation"]["warnings"]
@@ -422,7 +614,9 @@ async def test_warning_truncation_discloses_missing_action_type_metadata(
     assert "sys_idINatype_missing" in truncation["continuation"]
 
 
-@pytest.mark.parametrize(("action", "section"), [("inspect", "canvas"), ("contract", "steps")])
+@pytest.mark.parametrize(
+    ("action", "section"), [("inspect", "canvas"), ("contract", "steps")]
+)
 @pytest.mark.asyncio()
 async def test_node_section_discloses_missing_action_type_metadata(
     settings: Settings,
@@ -432,7 +626,9 @@ async def test_node_section_discloses_missing_action_type_metadata(
 ) -> None:
     """Derived nodes report missing parent action-type metadata."""
     kwargs = _empty_inspect_kwargs()
-    kwargs["list_action_instances_v2"] = [{"sys_id": _ref("a1"), "action_type": _ref("atype_missing")}]
+    kwargs["list_action_instances_v2"] = [
+        {"sys_id": _ref("a1"), "action_type": _ref("atype_missing")}
+    ]
     client = _make_client_mock(**kwargs)
     tools = _register_and_get_tools(settings, auth_provider)
 
@@ -442,7 +638,10 @@ async def test_node_section_discloses_missing_action_type_metadata(
 
     truncation = result["truncation"][section]
     assert truncation["missing_action_type_metadata"] == 1
-    assert "fields=sys_id,name,internal_name,sys_scope,category" in truncation["continuation"]
+    assert (
+        "fields=sys_id,name,internal_name,sys_scope,category"
+        in truncation["continuation"]
+    )
 
 
 @pytest.mark.asyncio()
@@ -451,10 +650,15 @@ async def test_trigger_section_discloses_record_condition_dependency_cap(
 ) -> None:
     """Trigger output reports when the condition join exceeds its internal query cap."""
     larger_settings = settings.model_copy(update={"max_row_limit": 2000})
-    triggers = [{"sys_id": _ref(f"t{index}"), "remote_trigger_id": _ref(f"rt{index}")} for index in range(1001)]
+    triggers = [
+        {"sys_id": _ref(f"t{index}"), "remote_trigger_id": _ref(f"rt{index}")}
+        for index in range(1001)
+    ]
     kwargs = _empty_inspect_kwargs()
     kwargs["list_trigger_instances_v2"] = triggers
-    kwargs["list_record_triggers"] = [{"sys_id": _ref(f"rt{index}")} for index in range(1000)]
+    kwargs["list_record_triggers"] = [
+        {"sys_id": _ref(f"rt{index}")} for index in range(1000)
+    ]
     client = _make_client_mock(**kwargs)
     tools = _register_and_get_tools(larger_settings, OAuthPKCEProvider(larger_settings))
 
@@ -470,17 +674,25 @@ async def test_trigger_section_discloses_record_condition_dependency_cap(
     truncation = result["truncation"]["triggers"]
     assert truncation["dependency_datasets"] == ["sys_flow_record_trigger"]
     assert "only 1000 remote trigger ids" in truncation["limitation"]
-    assert "sys_flow_record_trigger (encoded_query=sys_idIN<remote_trigger_ids>" in truncation["continuation"]
+    assert (
+        "sys_flow_record_trigger (encoded_query=sys_idIN<remote_trigger_ids>"
+        in truncation["continuation"]
+    )
 
 
 @pytest.mark.asyncio()
 async def test_inspect_invalid_section_fails_before_service_now_io(
-    settings: Settings, auth_provider: OAuthPKCEProvider
+    settings: Settings,
+    auth_provider: OAuthPKCEProvider,
 ) -> None:
     """An invalid selector is rejected before a ServiceNow client is opened."""
     tools = _register_and_get_tools(settings, auth_provider)
-    with patch("servicenow_mcp.capabilities.flows.flow.ServiceNowClient") as client_factory:
-        raw = await tools["flow"](action="inspect", sys_id=SYS_ID_FLOW, sections=["unknown"])
+    with patch(
+        "servicenow_mcp.capabilities.flows.flow.ServiceNowClient"
+    ) as client_factory:
+        raw = await tools["flow"](
+            action="inspect", sys_id=SYS_ID_FLOW, sections=["unknown"]
+        )
     result = decode_response(raw)
 
     assert result["status"] == "error"
@@ -490,7 +702,8 @@ async def test_inspect_invalid_section_fails_before_service_now_io(
 
 @pytest.mark.asyncio()
 async def test_inspect_explicit_sections_fetch_dependencies_once_and_only_when_needed(
-    settings: Settings, auth_provider: OAuthPKCEProvider
+    settings: Settings,
+    auth_provider: OAuthPKCEProvider,
 ) -> None:
     """Overlapping section dependencies are fetched once and unrelated tables are omitted."""
     tools = _register_and_get_tools(settings, auth_provider)
@@ -521,7 +734,8 @@ async def test_inspect_explicit_sections_fetch_dependencies_once_and_only_when_n
 
 @pytest.mark.asyncio()
 async def test_inspect_section_limit_discloses_truncation_and_continuation(
-    settings: Settings, auth_provider: OAuthPKCEProvider
+    settings: Settings,
+    auth_provider: OAuthPKCEProvider,
 ) -> None:
     """A selected large section is bounded and reports how to request more."""
     tools = _register_and_get_tools(settings, auth_provider)
@@ -539,7 +753,9 @@ async def test_inspect_section_limit_discloses_truncation_and_continuation(
     ]
     kwargs = _empty_inspect_kwargs()
     kwargs["list_action_instances_v2"] = actions
-    kwargs["get_action_type_definitions"] = [{"sys_id": _ref("atype"), "name": _ref("Action")}]
+    kwargs["get_action_type_definitions"] = [
+        {"sys_id": _ref("atype"), "name": _ref("Action")}
+    ]
     client = _make_client_mock(**kwargs)
 
     with _patch_client(client):
@@ -558,6 +774,9 @@ async def test_inspect_section_limit_discloses_truncation_and_continuation(
         "observed_at_least": 3,
         "omitted_at_least": 1,
         "continuation": "Re-run with section_limit greater than 2.",
+        "incomplete_semantics": [
+            "Some step fields or input bindings are unreadable or malformed."
+        ],
     }
 
 
@@ -600,7 +819,7 @@ async def test_node_section_bound_does_not_truncate_warning_analysis(
             "label": _ref("Spoke Action"),
             "action_type": _ref("atype_spoke", "Spoke Action"),
             "values": _ref(""),
-        }
+        },
     )
     logic = [
         {
@@ -639,10 +858,14 @@ async def test_node_section_bound_does_not_truncate_warning_analysis(
     assert any("spoke action type" in warning for warning in result["data"]["warnings"])
     assert result["truncation"][node_section]["returned"] == 100
     assert "warnings" not in result["truncation"]
-    client.get_action_type_definitions.assert_awaited_once_with(["atype_core", "atype_spoke"])
+    client.get_action_type_definitions.assert_awaited_once_with(
+        ["atype_core", "atype_spoke"]
+    )
 
 
-@pytest.mark.parametrize(("action", "section"), [("inspect", "canvas"), ("contract", "steps")])
+@pytest.mark.parametrize(
+    ("action", "section"), [("inspect", "canvas"), ("contract", "steps")]
+)
 @pytest.mark.asyncio()
 async def test_node_truncation_at_max_names_direct_query_paths(
     settings: Settings,
@@ -679,9 +902,18 @@ async def test_node_truncation_at_max_names_direct_query_paths(
 
     truncation = result["truncation"][section]
     assert len(result["data"][section]) == settings.max_row_limit
-    assert "no further continuation is available through flow" in truncation["continuation"]
-    assert f"sys_hub_action_instance_v2 (encoded_query=flow={SYS_ID_FLOW})" in truncation["continuation"]
-    assert f"sys_hub_flow_logic_instance_v2 (encoded_query=flow={SYS_ID_FLOW})" in truncation["continuation"]
+    assert (
+        "no further continuation is available through flow"
+        in truncation["continuation"]
+    )
+    assert (
+        f"sys_hub_action_instance_v2 (encoded_query=flow={SYS_ID_FLOW})"
+        in truncation["continuation"]
+    )
+    assert (
+        f"sys_hub_flow_logic_instance_v2 (encoded_query=flow={SYS_ID_FLOW})"
+        in truncation["continuation"]
+    )
     assert "explicit fields projection" in truncation["continuation"]
     assert "Query safety and row limits still apply" in truncation["continuation"]
 
@@ -695,7 +927,9 @@ async def test_structural_summary_truncation_at_max_names_all_truncated_sources(
 ) -> None:
     """Both flow views disclose direct source paths for capped structural counts."""
     kwargs = _empty_inspect_kwargs()
-    kwargs["list_trigger_instances_v1"] = [{"sys_id": _ref(f"t{index}")} for index in range(settings.max_row_limit + 1)]
+    kwargs["list_trigger_instances_v1"] = [
+        {"sys_id": _ref(f"t{index}")} for index in range(settings.max_row_limit + 1)
+    ]
     client = _make_client_mock(**kwargs)
     tools = _register_and_get_tools(settings, auth_provider)
 
@@ -710,18 +944,26 @@ async def test_structural_summary_truncation_at_max_names_all_truncated_sources(
 
     truncation = result["truncation"]["structural_summary"]
     assert truncation["datasets"] == ["triggers_v1"]
-    assert "no further continuation is available through flow" in truncation["continuation"]
-    assert f"sys_hub_trigger_instance (encoded_query=flow={SYS_ID_FLOW})" in truncation["continuation"]
+    assert (
+        "no further continuation is available through flow"
+        in truncation["continuation"]
+    )
+    assert (
+        f"sys_hub_trigger_instance (encoded_query=flow={SYS_ID_FLOW})"
+        in truncation["continuation"]
+    )
 
 
 @pytest.mark.asyncio()
 async def test_warning_truncation_at_max_names_complete_direct_query_sequence(
-    settings: Settings, auth_provider: OAuthPKCEProvider
+    settings: Settings,
+    auth_provider: OAuthPKCEProvider,
 ) -> None:
     """Capped warning probes give the complete safe direct-query sequence."""
     kwargs = _empty_inspect_kwargs()
     kwargs["list_action_instances_v2"] = [
-        {"sys_id": _ref(f"a{index}"), "action_type": _ref("atype")} for index in range(settings.max_row_limit + 1)
+        {"sys_id": _ref(f"a{index}"), "action_type": _ref("atype")}
+        for index in range(settings.max_row_limit + 1)
     ]
     client = _make_client_mock(**kwargs)
     tools = _register_and_get_tools(settings, auth_provider)
@@ -749,7 +991,10 @@ async def test_warning_truncation_at_max_names_complete_direct_query_sequence(
     ):
         assert f"{table} (encoded_query=flow={SYS_ID_FLOW}, fields=" in continuation
     assert "sys_id,action_type" in continuation
-    assert "sys_hub_action_type_base (encoded_query=sys_idIN<action_type_sys_ids>" in continuation
+    assert (
+        "sys_hub_action_type_base (encoded_query=sys_idIN<action_type_sys_ids>"
+        in continuation
+    )
     assert "fields=sys_id,category,sys_scope" in continuation
     assert "Use limit and offset" in continuation
     assert "Query safety and row limits still apply" in continuation
@@ -776,7 +1021,9 @@ async def test_row_section_truncation_at_max_names_direct_query_path(
 ) -> None:
     """Bounded rows and merged trigger rows disclose usable capped-read paths."""
     kwargs = _empty_inspect_kwargs()
-    kwargs[client_method] = [{"sys_id": _ref(f"r{index}")} for index in range(settings.max_row_limit + 1)]
+    kwargs[client_method] = [
+        {"sys_id": _ref(f"r{index}")} for index in range(settings.max_row_limit + 1)
+    ]
     client = _make_client_mock(**kwargs)
     tools = _register_and_get_tools(settings, auth_provider)
 
@@ -813,8 +1060,12 @@ async def test_v1_section_truncation_names_direct_query_sequence(
 ) -> None:
     """Legacy action sections retain safe direct-query guidance when capped."""
     kwargs = _empty_inspect_kwargs()
-    kwargs["list_action_instances_v1"] = [{"sys_id": _ref(f"a{index}")} for index in range(settings.max_row_limit + 1)]
-    kwargs["list_v1_variable_values"] = [{"document": _ref(f"a{index}")} for index in range(settings.max_row_limit + 1)]
+    kwargs["list_action_instances_v1"] = [
+        {"sys_id": _ref(f"a{index}")} for index in range(settings.max_row_limit + 1)
+    ]
+    kwargs["list_v1_variable_values"] = [
+        {"document": _ref(f"a{index}")} for index in range(settings.max_row_limit + 1)
+    ]
     client = _make_client_mock(**kwargs)
     tools = _register_and_get_tools(settings, auth_provider)
 
@@ -833,22 +1084,33 @@ async def test_v1_section_truncation_names_direct_query_sequence(
     assert "Query safety and row limits still apply" in continuation
     if section == "v1_variable_values":
         assert "The configured MAX_ROW_LIMIT of 100 has been reached" in continuation
-        assert f"sys_hub_action_instance (encoded_query=flow={SYS_ID_FLOW}, fields=sys_id)" in continuation
-        assert "document=sys_hub_action_instance^document_keyIN<action_sys_ids>" in continuation
+        assert (
+            f"sys_hub_action_instance (encoded_query=flow={SYS_ID_FLOW}, fields=sys_id)"
+            in continuation
+        )
+        assert (
+            "document=sys_hub_action_instance^document_keyIN<action_sys_ids>"
+            in continuation
+        )
         assert "Re-run with section_limit" not in continuation
 
 
 @pytest.mark.asyncio()
 async def test_v1_variable_values_disclose_saturated_action_dependency(
-    settings: Settings, auth_provider: OAuthPKCEProvider
+    settings: Settings,
+    auth_provider: OAuthPKCEProvider,
 ) -> None:
     """V1 values stay incomplete when only an omitted action has values, and metadata says so."""
     actions = [{"sys_id": _ref(f"a{index}")} for index in range(4)]
     kwargs = _empty_inspect_kwargs()
     client = _make_client_mock(**kwargs)
-    client.list_action_instances_v1.side_effect = lambda _flow_sys_id, limit: actions[:limit]
+    client.list_action_instances_v1.side_effect = lambda _flow_sys_id, limit: actions[
+        :limit
+    ]
     client.list_v1_variable_values.side_effect = lambda action_ids: (
-        [{"document_key": _ref("a3"), "value": _ref("late")}] if "a3" in action_ids else []
+        [{"document_key": _ref("a3"), "value": _ref("late")}]
+        if "a3" in action_ids
+        else []
     )
     tools = _register_and_get_tools(settings, auth_provider)
 
@@ -867,14 +1129,21 @@ async def test_v1_variable_values_disclose_saturated_action_dependency(
     assert truncation["returned"] == 0
     assert truncation["possible_more"] is True
     assert "Re-run with section_limit greater than 2" in truncation["continuation"]
-    assert f"sys_hub_action_instance (encoded_query=flow={SYS_ID_FLOW}, fields=sys_id)" in truncation["continuation"]
-    assert "document=sys_hub_action_instance^document_keyIN<action_sys_ids>" in truncation["continuation"]
+    assert (
+        f"sys_hub_action_instance (encoded_query=flow={SYS_ID_FLOW}, fields=sys_id)"
+        in truncation["continuation"]
+    )
+    assert (
+        "document=sys_hub_action_instance^document_keyIN<action_sys_ids>"
+        in truncation["continuation"]
+    )
     client.list_v1_variable_values.assert_awaited_once_with(["a0", "a1", "a2"])
 
 
 @pytest.mark.asyncio()
 async def test_inspect_canvas_only_decodes_nodes_without_warning_dependencies(
-    settings: Settings, auth_provider: OAuthPKCEProvider
+    settings: Settings,
+    auth_provider: OAuthPKCEProvider,
 ) -> None:
     """Canvas alone fetches and decodes V2 nodes without trigger or V1 warning reads."""
     tools = _register_and_get_tools(settings, auth_provider)
@@ -888,15 +1157,19 @@ async def test_inspect_canvas_only_decodes_nodes_without_warning_dependencies(
             "label": _ref("Action"),
             "action_type": _ref("atype", "Action"),
             "values": _ref(_encode_values([{"name": "x", "value": "y"}])),
-        }
+        },
     ]
     client = _make_client_mock(**kwargs)
 
     with _patch_client(client):
-        raw = await tools["flow"](action="inspect", sys_id=SYS_ID_FLOW, sections=["canvas"])
+        raw = await tools["flow"](
+            action="inspect", sys_id=SYS_ID_FLOW, sections=["canvas"]
+        )
     result = decode_response(raw)
 
-    assert result["data"]["canvas"][0]["values_decoded"] == [{"name": "x", "value": "y"}]
+    assert result["data"]["canvas"][0]["values_decoded"] == [
+        {"name": "x", "value": "y"}
+    ]
     client.list_action_instances_v2.assert_awaited_once()
     client.list_logic_instances_v2.assert_awaited_once()
     client.list_action_instances_v1.assert_not_awaited()
@@ -906,7 +1179,9 @@ async def test_inspect_canvas_only_decodes_nodes_without_warning_dependencies(
 
 
 @pytest.mark.asyncio()
-async def test_inspect_resolves_unique_name(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_inspect_resolves_unique_name(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """A name resolving to exactly one flow uses that sys_id."""
     tools = _register_and_get_tools(settings, auth_provider)
     client = _make_client_mock(
@@ -922,7 +1197,9 @@ async def test_inspect_resolves_unique_name(settings: Settings, auth_provider: O
 
 
 @pytest.mark.asyncio()
-async def test_inspect_ambiguous_name_returns_error(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_inspect_ambiguous_name_returns_error(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """Multiple matches on a name are rejected with a useful error."""
     tools = _register_and_get_tools(settings, auth_provider)
     client = _make_client_mock(
@@ -940,7 +1217,9 @@ async def test_inspect_ambiguous_name_returns_error(settings: Settings, auth_pro
 
 
 @pytest.mark.asyncio()
-async def test_inspect_unknown_name_returns_error(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_inspect_unknown_name_returns_error(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """No matches on a name surfaces a 'not found' error."""
     tools = _register_and_get_tools(settings, auth_provider)
     client = _make_client_mock(find_flows_by_name=[])
@@ -953,7 +1232,9 @@ async def test_inspect_unknown_name_returns_error(settings: Settings, auth_provi
 
 
 @pytest.mark.asyncio()
-async def test_inspect_missing_flow_returns_error(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_inspect_missing_flow_returns_error(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """A 404 from ``get_flow_by_sys_id`` becomes a structured error."""
     tools = _register_and_get_tools(settings, auth_provider)
     kwargs = _empty_inspect_kwargs()
@@ -973,7 +1254,9 @@ async def test_inspect_missing_flow_returns_error(settings: Settings, auth_provi
 
 
 @pytest.mark.asyncio()
-async def test_inspect_happy_path_assembles_canvas(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_inspect_happy_path_assembles_canvas(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """A flow with one V2 trigger, one V2 action, one V2 logic block builds correctly."""
     tools = _register_and_get_tools(settings, auth_provider)
 
@@ -1089,7 +1372,9 @@ async def test_inspect_happy_path_assembles_canvas(settings: Settings, auth_prov
 
 
 @pytest.mark.asyncio()
-async def test_inspect_snapshot_drift_emits_warning(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_inspect_snapshot_drift_emits_warning(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """Diverging master/latest snapshots set ``drift=True`` and emit a warning."""
     tools = _register_and_get_tools(settings, auth_provider)
     header = _minimal_flow_header()
@@ -1136,7 +1421,7 @@ async def test_flow_stages_include_root_and_snapshot_provenance(
                 "ancestor_stage_id": _ref(""),
                 "ancestral_if_else_logic": _ref(""),
                 "always_show": _ref("true"),
-            }
+            },
         ],
         "a" * 32: [
             {
@@ -1152,7 +1437,7 @@ async def test_flow_stages_include_root_and_snapshot_provenance(
                 "ancestor_stage_id": _ref(""),
                 "ancestral_if_else_logic": _ref(""),
                 "always_show": _ref("true"),
-            }
+            },
         ],
     }
     client.list_flow_stages.side_effect = lambda flow_id, _limit: stage_rows[flow_id]
@@ -1160,11 +1445,15 @@ async def test_flow_stages_include_root_and_snapshot_provenance(
 
     with _patch_client(client):
         result = decode_response(
-            await tools["flow"](action=action, sys_id=SYS_ID_FLOW, sections=["stages"], section_limit=25)
+            await tools["flow"](
+                action=action, sys_id=SYS_ID_FLOW, sections=["stages"], section_limit=25
+            ),
         )
 
     stages = result["data"]["stages"]
-    assert "not executed steps or evidence of record field writes" in stages["semantics"]
+    assert (
+        "not executed steps or evidence of record field writes" in stages["semantics"]
+    )
     assert [source["roles"] for source in stages["sources"]] == [
         ["root_flow"],
         ["published_snapshot"],
@@ -1200,7 +1489,9 @@ async def test_flow_stages_empty_and_shared_snapshot_are_normalized(
     tools = _register_and_get_tools(settings, auth_provider)
 
     with _patch_client(client):
-        result = decode_response(await tools["flow"](action=action, sys_id=SYS_ID_FLOW, sections=["stages"]))
+        result = decode_response(
+            await tools["flow"](action=action, sys_id=SYS_ID_FLOW, sections=["stages"])
+        )
 
     stages = result["data"]["stages"]
     assert stages["sources"] == [
@@ -1211,7 +1502,9 @@ async def test_flow_stages_empty_and_shared_snapshot_are_normalized(
 
 
 @pytest.mark.asyncio()
-async def test_inspect_decode_failure_resilient(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_inspect_decode_failure_resilient(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """A malformed ``values`` blob attaches ``decode_error`` but keeps overall success."""
     tools = _register_and_get_tools(settings, auth_provider)
     actions_v2 = [
@@ -1245,7 +1538,8 @@ async def test_inspect_decode_failure_resilient(settings: Settings, auth_provide
 
 @pytest.mark.asyncio()
 async def test_contract_returns_concise_configured_bindings(
-    settings: Settings, auth_provider: OAuthPKCEProvider
+    settings: Settings,
+    auth_provider: OAuthPKCEProvider,
 ) -> None:
     """``contract`` retains configured values and data pills without raw Flow Designer metadata."""
     tools = _register_and_get_tools(settings, auth_provider)
@@ -1392,8 +1686,12 @@ async def test_contract_returns_concise_configured_bindings(
 
     assert result["status"] == "success"
     data = result["data"]
-    assert data["inputs"] == [{"name": "user", "label": "User", "type": "string", "required": True}]
-    assert data["outputs"] == [{"name": "message", "label": "Message", "type": "string", "required": False}]
+    assert data["inputs"] == [
+        {"name": "user", "label": "User", "type": "string", "required": True}
+    ]
+    assert data["outputs"] == [
+        {"name": "message", "label": "Message", "type": "string", "required": False}
+    ]
     assert "canvas" not in data
     assert data["steps"] == [
         {
@@ -1529,15 +1827,17 @@ async def test_contract_limits_action_definition_lookup_failures_to_schema_warni
                                 "mandatory": True,
                             },
                         },
-                    ]
-                )
+                    ],
+                ),
             ),
         },
     ]
     kwargs = _empty_inspect_kwargs()
     kwargs.update(
         list_action_instances_v2=actions_v2,
-        get_action_type_definitions=[{"sys_id": _ref("atype_x"), "name": _ref("Action X")}],
+        get_action_type_definitions=[
+            {"sys_id": _ref("atype_x"), "name": _ref("Action X")}
+        ],
     )
     client = _make_client_mock(**kwargs)
     getattr(client, lookup_method).side_effect = failure
@@ -1557,18 +1857,21 @@ async def test_contract_limits_action_definition_lookup_failures_to_schema_warni
             "required": True,
             "value": "{{flow.record}}",
             "data_pills": ["flow.record"],
-        }
+        },
     ]
     definition = step["definition"]
     assert definition["inputs"] == []
     assert definition["outputs"] == []
-    assert definition["limitations"] == [f"Action {lookup_label} definitions are unavailable: {failure}"]
+    assert definition["limitations"] == [
+        f"Action {lookup_label} definitions are unavailable: {failure}"
+    ]
     assert result["data"]["warnings"][-1] == definition["limitations"][0]
 
 
 @pytest.mark.asyncio()
 async def test_inspect_does_not_fetch_action_field_definitions(
-    settings: Settings, auth_provider: OAuthPKCEProvider
+    settings: Settings,
+    auth_provider: OAuthPKCEProvider,
 ) -> None:
     """The existing inspect action keeps its prior lookup and response behavior."""
     kwargs = _empty_inspect_kwargs()
@@ -1585,7 +1888,8 @@ async def test_inspect_does_not_fetch_action_field_definitions(
 
 @pytest.mark.asyncio()
 async def test_contract_warns_when_v1_actions_cannot_be_reconstructed(
-    settings: Settings, auth_provider: OAuthPKCEProvider
+    settings: Settings,
+    auth_provider: OAuthPKCEProvider,
 ) -> None:
     """V1 actions must not be silently omitted from a contract's ordered V2 steps."""
     tools = _register_and_get_tools(settings, auth_provider)
@@ -1602,7 +1906,9 @@ async def test_contract_warns_when_v1_actions_cannot_be_reconstructed(
 
     assert result["status"] == "success"
     assert result["data"]["steps"] == []
-    assert any("V1 action instance" in warning for warning in result["data"]["warnings"])
+    assert any(
+        "V1 action instance" in warning for warning in result["data"]["warnings"]
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1611,7 +1917,9 @@ async def test_contract_warns_when_v1_actions_cannot_be_reconstructed(
 
 
 @pytest.mark.asyncio()
-async def test_find_by_table_happy_path(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_find_by_table_happy_path(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """find_by_table merges V1 + V2 trigger rows and returns deduplicated flow count."""
     tools = _register_and_get_tools(settings, auth_provider)
 
@@ -1619,7 +1927,9 @@ async def test_find_by_table_happy_path(settings: Settings, auth_provider: OAuth
     flow_v1_id = "v1flow"
     record_trig_id = "rt_001"
 
-    record_triggers = [{"sys_id": _ref(record_trig_id), "condition": _ref("active=true")}]
+    record_triggers = [
+        {"sys_id": _ref(record_trig_id), "condition": _ref("active=true")}
+    ]
     v1_triggers = [
         {
             "sys_id": _ref("t_v1"),
@@ -1680,7 +1990,8 @@ async def test_find_by_table_happy_path(settings: Settings, auth_provider: OAuth
 
 @pytest.mark.asyncio()
 async def test_find_by_table_resolves_snapshot_and_deduplicates(
-    settings: Settings, auth_provider: OAuthPKCEProvider
+    settings: Settings,
+    auth_provider: OAuthPKCEProvider,
 ) -> None:
     """Current snapshot and canonical references must resolve to one real flow."""
     tools = _register_and_get_tools(settings, auth_provider)
@@ -1693,7 +2004,9 @@ async def test_find_by_table_resolves_snapshot_and_deduplicates(
         get_flows_bulk=[header],
     )
     with _patch_client(client):
-        result = decode_response(await tools["flow"](action="find_by_table", table="sc_task"))
+        result = decode_response(
+            await tools["flow"](action="find_by_table", table="sc_task")
+        )
     assert result["status"] == "success"
     assert result["data"]["total"] == 1
     assert result["data"]["flows"][0]["sys_id"] == SYS_ID_FLOW
@@ -1703,7 +2016,9 @@ async def test_find_by_table_resolves_snapshot_and_deduplicates(
 
 
 @pytest.mark.asyncio()
-async def test_find_by_table_missing_header_is_unknown(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_find_by_table_missing_header_is_unknown(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """Missing headers cannot be reported as inactive flows."""
     tools = _register_and_get_tools(settings, auth_provider)
     client = _make_client_mock(
@@ -1712,7 +2027,9 @@ async def test_find_by_table_missing_header_is_unknown(settings: Settings, auth_
         get_flows_bulk=[],
     )
     with _patch_client(client):
-        result = decode_response(await tools["flow"](action="find_by_table", table="sc_task"))
+        result = decode_response(
+            await tools["flow"](action="find_by_table", table="sc_task")
+        )
     assert result["status"] == "success"
     assert result["data"]["flows"][0]["active"] is None
     assert result["data"]["flows"][0]["metadata_resolved"] is False
@@ -1721,7 +2038,9 @@ async def test_find_by_table_missing_header_is_unknown(settings: Settings, auth_
 
 
 @pytest.mark.asyncio()
-async def test_find_by_table_missing_table_returns_error(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_find_by_table_missing_table_returns_error(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """``find_by_table`` requires a table name."""
     tools = _register_and_get_tools(settings, auth_provider)
     raw = await tools["flow"](action="find_by_table")
@@ -1737,7 +2056,9 @@ async def test_find_by_table_missing_table_returns_error(settings: Settings, aut
 
 
 @pytest.mark.asyncio()
-async def test_list_triggers_happy_path(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_list_triggers_happy_path(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """``list_triggers`` returns combined V2+V1 with flow names resolved."""
     tools = _register_and_get_tools(settings, auth_provider)
 
@@ -1790,7 +2111,9 @@ async def test_list_triggers_happy_path(settings: Settings, auth_provider: OAuth
 
 
 @pytest.mark.asyncio()
-async def test_list_triggers_invalid_active_returns_error(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_list_triggers_invalid_active_returns_error(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """``active`` must be 'true' or 'false' when supplied."""
     tools = _register_and_get_tools(settings, auth_provider)
     raw = await tools["flow"](action="list_triggers", active="maybe")
@@ -1806,7 +2129,9 @@ async def test_list_triggers_invalid_active_returns_error(settings: Settings, au
 
 
 @pytest.mark.asyncio()
-async def test_unknown_action_returns_error(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_unknown_action_returns_error(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     tools = _register_and_get_tools(settings, auth_provider)
     raw = await tools["flow"](action="bogus")
     result = decode_response(raw)
@@ -1816,7 +2141,9 @@ async def test_unknown_action_returns_error(settings: Settings, auth_provider: O
 
 
 @pytest.mark.asyncio()
-async def test_inspect_rejects_invalid_sys_id_without_io(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_inspect_rejects_invalid_sys_id_without_io(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """Malformed sys_id on action='inspect' returns a structured error WITHOUT any HTTP I/O."""
     client = AsyncMock()
     tools = _register_and_get_tools(settings, auth_provider)

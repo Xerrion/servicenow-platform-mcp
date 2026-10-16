@@ -4,8 +4,7 @@ import ipaddress
 import socket
 import time
 import webbrowser
-from collections.abc import Generator
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
 
 import httpx2
@@ -15,6 +14,10 @@ from pydantic import SecretStr
 from servicenow_mcp.auth import AccessToken, OAuthPKCEProvider
 from servicenow_mcp.config import Settings
 from tests._mock_transport import http_mock
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
+    from pathlib import Path
 
 
 @pytest.fixture(autouse=True)
@@ -64,7 +67,9 @@ def prod_auth_provider(prod_settings: Settings) -> OAuthPKCEProvider:
 
 
 @pytest.fixture(autouse=True)
-def _isolate_unit_settings(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+def _isolate_unit_settings(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Do not load developer credentials or telemetry settings in unit tests."""
     if "integration" not in request.node.path.parts:
         model_config = Settings.model_config.copy()
@@ -75,13 +80,18 @@ def _isolate_unit_settings(request: pytest.FixtureRequest, monkeypatch: pytest.M
 @pytest.fixture(autouse=True)
 def _stub_user_authorization(request: pytest.FixtureRequest) -> Generator[None]:
     """Keep unit tests offline; authentication and integration tests use the real provider."""
-    if request.node.path.name == "test_auth.py" or "integration" in request.node.path.parts:
+    if (
+        request.node.path.name == "test_auth.py"
+        or "integration" in request.node.path.parts
+    ):
         yield
         return
     with patch.object(
         OAuthPKCEProvider,
         "_authorize",
-        return_value=AccessToken(value=SecretStr("test-only-token"), expires_at=time.monotonic() + 3600),
+        return_value=AccessToken(
+            value=SecretStr("test-only-token"), expires_at=time.monotonic() + 3600
+        ),
     ):
         yield
 
@@ -99,7 +109,9 @@ def _is_loopback(address: Any) -> bool:
 
 
 @pytest.fixture(autouse=True)
-def _fail_closed_network(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+def _fail_closed_network(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Block real network, browser and telemetry side effects in unit tests.
 
     Loopback sockets are allowed only for tests marked ``loopback``.
@@ -114,9 +126,13 @@ def _fail_closed_network(request: pytest.FixtureRequest, monkeypatch: pytest.Mon
 
     def check(address: Any) -> None:
         if not _is_loopback(address):
-            raise RuntimeError(f"Unit tests must not open non-loopback connections: {address!r}")
+            raise RuntimeError(
+                f"Unit tests must not open non-loopback connections: {address!r}"
+            )
         if not is_loopback_allowed:
-            raise RuntimeError(f"Loopback connection requires @pytest.mark.loopback: {address!r}")
+            raise RuntimeError(
+                f"Loopback connection requires @pytest.mark.loopback: {address!r}"
+            )
 
     def guarded_connect(self: socket.socket, address: Any) -> None:
         check(address)
@@ -132,8 +148,12 @@ def _fail_closed_network(request: pytest.FixtureRequest, monkeypatch: pytest.Mon
 
     def guarded_getaddrinfo(host: Any, port: Any, *args: Any, **kwargs: Any) -> Any:
         # Name resolution can leak to a remote DNS server before any connect() is attempted.
-        if host is not None and not _is_loopback((host.decode() if isinstance(host, bytes) else host, port)):
-            raise RuntimeError(f"Unit tests must not resolve non-loopback hosts: {host!r}")
+        if host is not None and not _is_loopback(
+            (host.decode() if isinstance(host, bytes) else host, port)
+        ):
+            raise RuntimeError(
+                f"Unit tests must not resolve non-loopback hosts: {host!r}"
+            )
         return original_getaddrinfo(host, port, *args, **kwargs)
 
     def blocked_browser(*_args: Any, **_kwargs: Any) -> bool:
@@ -158,21 +178,38 @@ def _fail_closed_network(request: pytest.FixtureRequest, monkeypatch: pytest.Mon
 
 
 @pytest.fixture(autouse=True)
-def _mock_http(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
+def _isolate_flow_preview_sink(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Keep offline test diagnostics out of the temporary live evidence file."""
+    if "integration" not in request.node.path.parts:
+        monkeypatch.setattr("servicenow_mcp.telemetry._FLOW_TRACE_ROOT", tmp_path)
+
+
+@pytest.fixture(autouse=True)
+def _mock_http(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> Generator[None]:
     """Route every default httpx2 transport through ``http_mock``; unmatched requests fail the test.
 
     Tests marked ``real_http`` keep the real transport for loopback TLS and proxy fixtures.
     """
-    if "integration" in request.node.path.parts or request.node.get_closest_marker("real_http"):
+    if "integration" in request.node.path.parts or request.node.get_closest_marker(
+        "real_http"
+    ):
         yield
         return
     http_mock.reset()
 
-    async def handle_async_request(_self: httpx2.AsyncHTTPTransport, req: httpx2.Request) -> httpx2.Response:
+    async def handle_async_request(
+        _self: httpx2.AsyncHTTPTransport, req: httpx2.Request
+    ) -> httpx2.Response:
         await req.aread()
         return await http_mock.handle(req)
 
-    monkeypatch.setattr(httpx2.AsyncHTTPTransport, "handle_async_request", handle_async_request)
+    monkeypatch.setattr(
+        httpx2.AsyncHTTPTransport, "handle_async_request", handle_async_request
+    )
     yield
     unexpected = [f"{req.method} {req.url}" for req in http_mock.unexpected]
     http_mock.reset()

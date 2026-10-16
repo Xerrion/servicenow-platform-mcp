@@ -1,24 +1,104 @@
 """Flow Designer API operations."""
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import httpx2
-
-from servicenow_mcp.capabilities.contracts import CapabilityError
 from servicenow_mcp.errors import NotFoundError, ServiceNowMCPError
 from servicenow_mcp.platform._client_transport import ServiceNowRequestClient
 from servicenow_mcp.policy import INTERNAL_QUERY_LIMIT
 from servicenow_mcp.query_builder import ServiceNowQuery
-from servicenow_mcp.validation import resolve_ref_value, sanitize_query_value, validate_identifier, validate_sys_id
+from servicenow_mcp.validation import (
+    resolve_ref_value,
+    sanitize_query_value,
+    validate_identifier,
+    validate_sys_id,
+)
+
+if TYPE_CHECKING:
+    import httpx2
 
 
 class FlowDesignerApiClient(ServiceNowRequestClient):
     """Implement Flow Designer record discovery and bounded joins."""
 
+    async def flow_capture_rows(
+        self,
+        sys_id: str,
+        fields: str,
+        *,
+        update_set: str | None = None,
+        scope: str | None = None,
+    ) -> list[dict[str, Any]]:
+        validate_sys_id(sys_id)
+        query = f"name=sys_hub_flow_{sys_id}"
+        if update_set is not None:
+            validate_sys_id(update_set)
+            if scope != "global":
+                validate_sys_id(scope or "")
+            query += f"^update_set={update_set}^application={scope}"
+        return await self._list_flow_rows(
+            "sys_update_xml",
+            query + "^ORDERBYsys_id",
+            limit=101 if update_set else 2,
+            fields=fields,
+        )
+
+    async def flow_session_context(self) -> dict[str, str]:
+        """Read the installed concourse picker contract. Never change the session context."""
+        response = await self._ensure_client().get(
+            f"{self._settings.servicenow_instance_url}/api/now/ui/concoursepicker/current",
+            headers=await self._headers(),
+        )
+        self._raise_for_flow_read_status(response)
+        result = self._extract_json_result(response)
+        if not isinstance(result, dict):
+            raise ServiceNowMCPError(
+                "Current application/update-set context is incomplete."
+            )
+        application = result.get("currentApplication")
+        update_set = result.get("currentUpdateSet")
+        if not isinstance(application, dict) or not isinstance(update_set, dict):
+            raise ServiceNowMCPError(
+                "Current application/update-set fields are unavailable."
+            )
+        scope = application.get("sysId")
+        identity = update_set.get("sysId")
+        if scope != "global":
+            validate_sys_id(scope)
+        validate_sys_id(identity)
+        return {"scope": scope, "update_set": identity}
+
+    async def flow_record(
+        self, table: str, sys_id: str, fields: list[str]
+    ) -> dict[str, Any]:
+        """Strict synchronous reads for known lifecycle and capture schemas."""
+        if table not in {"sys_hub_flow", "sys_flow_context", "sys_update_set"}:
+            raise ValueError("Unsupported flow lifecycle table.")
+        validate_sys_id(sys_id)
+        response = await self._ensure_client().get(
+            self._table_url(table, sys_id),
+            headers=await self._headers(),
+            params={
+                "sysparm_fields": ",".join(fields),
+                "sysparm_display_value": "false",
+            },
+        )
+        self._raise_for_flow_read_status(response)
+        row = self._extract_json_result(response)
+        if not isinstance(row, dict):
+            raise ServiceNowMCPError("Flow lifecycle record response is incomplete.")
+        return row
+
     async def studio_request(
-        self, resource: str, *, data: dict[str, Any] | None = None, create: bool = False
+        self,
+        resource: str,
+        *,
+        data: dict[str, Any] | None = None,
+        create: bool = False,
+        minimal: bool = False,
     ) -> dict[str, Any]:
         """Use the observed, undocumented Studio contract without retries or browser credentials."""
+        if (data is not None or create) and resource != "flow":
+            raise ValueError("Studio writes are restricted to draft flow definitions.")
         if resource.startswith("flow/"):
             validate_sys_id(resource.removeprefix("flow/"))
         elif resource.startswith("action/action_types/"):
@@ -26,22 +106,70 @@ class FlowDesignerApiClient(ServiceNowRequestClient):
         elif resource != "flow" or data is None:
             raise ValueError("Unsupported Studio resource.")
         method = "GET" if data is None else "POST" if create else "PUT"
-        params = {"param_only_properties": "true", "sysparm_transaction_scope": data["scope"]} if create and data else None
+        params = (
+            {
+                "param_only_properties": "true",
+                "sysparm_transaction_scope": data["scope"],
+            }
+            if create and data
+            else None
+        )
+        if minimal:
+            if data is not None or create or not resource.startswith("flow/"):
+                raise ValueError(
+                    "Minimal definitions are available only for Studio flow reads."
+                )
+            params = {"use_definition": "0", "use_min_flow": "true"}
         response = await self._ensure_client().request(
             method,
             f"{self._settings.servicenow_instance_url}/api/now/processflow/{resource}",
             headers=await self._headers(),
             params=params,
-            **({"json": data} if data is not None else {}),
+            json=data,
         )
         self._raise_for_status(response)
         result = self._extract_json_result(response)
-        if response.status_code != 200 or not isinstance(result, dict) or result.get("errorCode") not in (0, None):
-            raise CapabilityError("Studio did not establish success. Check the remote flow before retrying.", "UNKNOWN_OUTCOME")
-        value = result.get("data")
+        if (
+            response.status_code != 200
+            or not isinstance(result, dict)
+            or result.get("errorCode") not in (0, None)
+            or result.get("errorMessage")
+        ):
+            raise ServiceNowMCPError(
+                "Studio did not establish success. Remote outcome is unknown. Check the remote flow before retrying.",
+            )
+        value = (
+            result
+            if resource.startswith("action/action_types/")
+            else result.get("data")
+        )
         if not isinstance(value, dict) or not value.get("id"):
-            raise CapabilityError("Studio response is incomplete. Check the remote flow before retrying.", "UNKNOWN_OUTCOME")
+            raise ServiceNowMCPError(
+                "Studio response is incomplete. Remote outcome is unknown. Check the remote flow before retrying.",
+            )
         return value
+
+    async def studio_definitions(self, kind: str) -> list[dict[str, Any]]:
+        """Read the flow-logic or trigger catalogs that Workflow Studio offers to authors."""
+        paths = {
+            "flow_logic": "processflow/flow_logic/types",
+            "triggers": "trigger_api/trigger_categories",
+        }
+        if kind not in paths:
+            raise ValueError("Unsupported Studio definition catalog.")
+        response = await self._ensure_client().get(
+            f"{self._settings.servicenow_instance_url}/api/now/{paths[kind]}",
+            headers=await self._headers(),
+        )
+        self._raise_for_flow_read_status(response)
+        result = self._extract_json_result(response)
+        if not isinstance(result, list) or not all(
+            isinstance(item, dict) for item in result
+        ):
+            raise ServiceNowMCPError(
+                "Studio returned an unexpected definition catalog."
+            )
+        return result
 
     def _raise_for_flow_read_status(self, response: httpx2.Response) -> None:
         """Require a completed Table API response for a Flow Designer read."""
@@ -50,7 +178,8 @@ class FlowDesignerApiClient(ServiceNowRequestClient):
             raise ServiceNowMCPError(
                 f"Flow Designer Table API read returned HTTP {response.status_code} {response.reason_phrase}; "
                 "the response does not contain a completed record result. Retry the read. If it remains accepted, "
-                "check the instance REST access policy or intermediary that changed this synchronous Table API response.",
+                "check the instance REST access policy or intermediary that changed this synchronous Table API "
+                "response.",
                 status_code=response.status_code,
             )
 
@@ -69,22 +198,41 @@ class FlowDesignerApiClient(ServiceNowRequestClient):
 
     async def find_flows_by_name(self, name: str) -> list[dict[str, Any]]:
         """Find flows whose name or internal name matches the supplied name."""
-        query = ServiceNowQuery().equals("name", name).or_equals("internal_name", name).build()
+        query = (
+            ServiceNowQuery()
+            .equals("name", name)
+            .or_equals("internal_name", name)
+            .build()
+        )
         return await self._list_flow_rows("sys_hub_flow", query, limit=25)
 
-    async def list_flow_inputs(self, flow_sys_id: str, limit: int | None = None) -> list[dict[str, Any]]:
+    async def list_flow_inputs(
+        self, flow_sys_id: str, limit: int | None = None
+    ) -> list[dict[str, Any]]:
         """List declared flow inputs."""
-        return await self._list_flow_rows("sys_hub_flow_input", f"model={flow_sys_id}^ORDERBYorder", limit=limit)
+        return await self._list_flow_rows(
+            "sys_hub_flow_input", f"model={flow_sys_id}^ORDERBYorder", limit=limit
+        )
 
-    async def list_flow_outputs(self, flow_sys_id: str, limit: int | None = None) -> list[dict[str, Any]]:
+    async def list_flow_outputs(
+        self, flow_sys_id: str, limit: int | None = None
+    ) -> list[dict[str, Any]]:
         """List declared flow outputs."""
-        return await self._list_flow_rows("sys_hub_flow_output", f"model={flow_sys_id}^ORDERBYorder", limit=limit)
+        return await self._list_flow_rows(
+            "sys_hub_flow_output", f"model={flow_sys_id}^ORDERBYorder", limit=limit
+        )
 
-    async def list_flow_variables(self, flow_sys_id: str, limit: int | None = None) -> list[dict[str, Any]]:
+    async def list_flow_variables(
+        self, flow_sys_id: str, limit: int | None = None
+    ) -> list[dict[str, Any]]:
         """List flow-scoped variables."""
-        return await self._list_flow_rows("sys_hub_flow_variable", f"model={flow_sys_id}^ORDERBYorder", limit=limit)
+        return await self._list_flow_rows(
+            "sys_hub_flow_variable", f"model={flow_sys_id}^ORDERBYorder", limit=limit
+        )
 
-    async def list_flow_stages(self, flow_sys_id: str, limit: int | None = None) -> list[dict[str, Any]]:
+    async def list_flow_stages(
+        self, flow_sys_id: str, limit: int | None = None
+    ) -> list[dict[str, Any]]:
         """List configured lifecycle stages owned by a flow-base record."""
         return await self._list_flow_rows(
             "sys_hub_flow_stage",
@@ -96,33 +244,71 @@ class FlowDesignerApiClient(ServiceNowRequestClient):
             limit=limit,
         )
 
-    async def list_action_instances_v2(self, flow_sys_id: str, limit: int = 1000) -> list[dict[str, Any]]:
+    async def list_action_instances_v2(
+        self, flow_sys_id: str, limit: int = 1000
+    ) -> list[dict[str, Any]]:
         """List V2 action instances for a flow."""
-        return await self._list_flow_rows("sys_hub_action_instance_v2", f"flow={flow_sys_id}^ORDERBYorder", limit=limit)
-
-    async def list_action_instances_v1(self, flow_sys_id: str, limit: int = 1000) -> list[dict[str, Any]]:
-        """List V1 action instances for a flow."""
-        return await self._list_flow_rows("sys_hub_action_instance", f"flow={flow_sys_id}^ORDERBYorder", limit=limit)
-
-    async def list_logic_instances_v2(self, flow_sys_id: str, limit: int = 1000) -> list[dict[str, Any]]:
-        """List V2 flow-logic instances."""
         return await self._list_flow_rows(
-            "sys_hub_flow_logic_instance_v2", f"flow={flow_sys_id}^ORDERBYorder", limit=limit
+            "sys_hub_action_instance_v2",
+            f"flow={flow_sys_id}^ORDERBYorder",
+            limit=limit,
         )
 
-    async def list_logic_instances_v1(self, flow_sys_id: str, limit: int = 1000) -> list[dict[str, Any]]:
+    async def list_action_instances_v1(
+        self, flow_sys_id: str, limit: int = 1000
+    ) -> list[dict[str, Any]]:
+        """List V1 action instances for a flow."""
+        return await self._list_flow_rows(
+            "sys_hub_action_instance", f"flow={flow_sys_id}^ORDERBYorder", limit=limit
+        )
+
+    async def list_subflow_instances_v2(
+        self, flow_sys_id: str, limit: int = 1000
+    ) -> list[dict[str, Any]]:
+        """List persisted V2 subflow calls, including snapshot references and input blobs."""
+        return await self._list_flow_rows(
+            "sys_hub_sub_flow_instance_v2",
+            f"flow={flow_sys_id}^ORDERBYorder",
+            limit=limit,
+        )
+
+    async def list_logic_instances_v2(
+        self, flow_sys_id: str, limit: int = 1000
+    ) -> list[dict[str, Any]]:
+        """List V2 flow-logic instances."""
+        return await self._list_flow_rows(
+            "sys_hub_flow_logic_instance_v2",
+            f"flow={flow_sys_id}^ORDERBYorder",
+            limit=limit,
+        )
+
+    async def list_logic_instances_v1(
+        self, flow_sys_id: str, limit: int = 1000
+    ) -> list[dict[str, Any]]:
         """List V1 flow-logic instances."""
-        return await self._list_flow_rows("sys_hub_flow_logic", f"flow={flow_sys_id}^ORDERBYorder", limit=limit)
+        return await self._list_flow_rows(
+            "sys_hub_flow_logic", f"flow={flow_sys_id}^ORDERBYorder", limit=limit
+        )
 
-    async def list_trigger_instances_v2(self, flow_sys_id: str, limit: int | None = None) -> list[dict[str, Any]]:
+    async def list_trigger_instances_v2(
+        self, flow_sys_id: str, limit: int | None = None
+    ) -> list[dict[str, Any]]:
         """List V2 trigger instances for a flow."""
-        return await self._list_flow_rows("sys_hub_trigger_instance_v2", f"flow={flow_sys_id}", limit=limit)
+        return await self._list_flow_rows(
+            "sys_hub_trigger_instance_v2", f"flow={flow_sys_id}", limit=limit
+        )
 
-    async def list_trigger_instances_v1(self, flow_sys_id: str, limit: int | None = None) -> list[dict[str, Any]]:
+    async def list_trigger_instances_v1(
+        self, flow_sys_id: str, limit: int | None = None
+    ) -> list[dict[str, Any]]:
         """List V1 trigger instances for a flow."""
-        return await self._list_flow_rows("sys_hub_trigger_instance", f"flow={flow_sys_id}", limit=limit)
+        return await self._list_flow_rows(
+            "sys_hub_trigger_instance", f"flow={flow_sys_id}", limit=limit
+        )
 
-    async def list_record_triggers(self, remote_trigger_ids: list[str]) -> list[dict[str, Any]]:
+    async def list_record_triggers(
+        self, remote_trigger_ids: list[str]
+    ) -> list[dict[str, Any]]:
         """Bulk-fetch record triggers for V2 trigger conditions."""
         if not remote_trigger_ids:
             return []
@@ -132,7 +318,9 @@ class FlowDesignerApiClient(ServiceNowRequestClient):
             limit=min(len(remote_trigger_ids), INTERNAL_QUERY_LIMIT),
         )
 
-    async def get_action_type_definitions(self, action_type_sys_ids: list[str]) -> list[dict[str, Any]]:
+    async def get_action_type_definitions(
+        self, action_type_sys_ids: list[str]
+    ) -> list[dict[str, Any]]:
         """Bulk-fetch action-type metadata."""
         if not action_type_sys_ids:
             return []
@@ -143,7 +331,9 @@ class FlowDesignerApiClient(ServiceNowRequestClient):
             limit=min(len(action_type_sys_ids), INTERNAL_QUERY_LIMIT),
         )
 
-    async def list_action_input_definitions(self, action_type_sys_ids: list[str]) -> list[dict[str, Any]]:
+    async def list_action_input_definitions(
+        self, action_type_sys_ids: list[str]
+    ) -> list[dict[str, Any]]:
         """Bulk-fetch declared inputs for action types."""
         if not action_type_sys_ids:
             return []
@@ -154,7 +344,9 @@ class FlowDesignerApiClient(ServiceNowRequestClient):
             limit=min(len(action_type_sys_ids) * 50, 5000),
         )
 
-    async def list_action_output_definitions(self, action_type_sys_ids: list[str]) -> list[dict[str, Any]]:
+    async def list_action_output_definitions(
+        self, action_type_sys_ids: list[str]
+    ) -> list[dict[str, Any]]:
         """Bulk-fetch declared outputs for action types."""
         if not action_type_sys_ids:
             return []
@@ -165,7 +357,9 @@ class FlowDesignerApiClient(ServiceNowRequestClient):
             limit=min(len(action_type_sys_ids) * 50, 5000),
         )
 
-    async def list_v1_variable_values(self, action_instance_sys_ids: list[str]) -> list[dict[str, Any]]:
+    async def list_v1_variable_values(
+        self, action_instance_sys_ids: list[str]
+    ) -> list[dict[str, Any]]:
         """Bulk-fetch V1 action instance input values."""
         if not action_instance_sys_ids:
             return []
@@ -197,7 +391,11 @@ class FlowDesignerApiClient(ServiceNowRequestClient):
         return self._extract_json_result(response)
 
     async def _flow_lookup_page(
-        self, table: str, query: str, limit: int, fields: str = ""
+        self,
+        table: str,
+        query: str,
+        limit: int,
+        fields: str = "",
     ) -> tuple[list[dict[str, Any]], int | None]:
         params = {"sysparm_display_value": "all", "sysparm_limit": str(limit)}
         if query:
@@ -225,7 +423,10 @@ class FlowDesignerApiClient(ServiceNowRequestClient):
         for sys_id in unique_ids:
             validate_sys_id(sys_id)
         return [
-            "^OR".join(f"{relation}IN{','.join(unique_ids[start : start + 50])}" for relation in relations)
+            "^OR".join(
+                f"{relation}IN{','.join(unique_ids[start : start + 50])}"
+                for relation in relations
+            )
             for start in range(0, len(unique_ids), 50)
         ]
 
@@ -250,7 +451,11 @@ class FlowDesignerApiClient(ServiceNowRequestClient):
         return has_omitted_rows
 
     async def _flow_lookup_batches(
-        self, table: str, queries: list[str], limit: int, fields: str = ""
+        self,
+        table: str,
+        queries: list[str],
+        limit: int,
+        fields: str = "",
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         rows: list[dict[str, Any]] = []
         seen_ids: set[str] = set()
@@ -259,7 +464,9 @@ class FlowDesignerApiClient(ServiceNowRequestClient):
             page, total = await self._flow_lookup_page(table, query, limit, fields)
             previous_count = len(rows)
             has_omitted_rows = self._merge_flow_lookup_page(rows, page, seen_ids, limit)
-            is_page_incomplete = total > len(page) if total is not None else len(page) >= limit
+            is_page_incomplete = (
+                total > len(page) if total is not None else len(page) >= limit
+            )
             if has_omitted_rows or is_page_incomplete:
                 truncation.append(
                     {
@@ -273,16 +480,20 @@ class FlowDesignerApiClient(ServiceNowRequestClient):
                             "fields='*', offset=0) and advance offset through all pages. "
                             "Restart this batch because the merged limit can omit rows within it."
                         ),
-                    }
+                    },
                 )
         return rows, truncation
 
     async def find_record_triggers_by_table(self, table: str) -> list[dict[str, Any]]:
         """Find record triggers for a table."""
         validate_identifier(table)
-        return await self._list_flow_rows("sys_flow_record_trigger", f"table={table}", limit=INTERNAL_QUERY_LIMIT)
+        return await self._list_flow_rows(
+            "sys_flow_record_trigger", f"table={table}", limit=INTERNAL_QUERY_LIMIT
+        )
 
-    async def list_v2_triggers_by_remote_ids(self, remote_trigger_ids: list[str]) -> list[dict[str, Any]]:
+    async def list_v2_triggers_by_remote_ids(
+        self, remote_trigger_ids: list[str]
+    ) -> list[dict[str, Any]]:
         """Find V2 trigger instances linked to record-trigger IDs."""
         if not remote_trigger_ids:
             return []
@@ -297,7 +508,9 @@ class FlowDesignerApiClient(ServiceNowRequestClient):
         """Find V1 trigger instances through their remote record-trigger relation."""
         validate_identifier(table)
         record_triggers = await self.find_record_triggers_by_table(table)
-        remote_ids = [resolve_ref_value(row.get("sys_id", "")) for row in record_triggers]
+        remote_ids = [
+            resolve_ref_value(row.get("sys_id", "")) for row in record_triggers
+        ]
         if not remote_ids:
             return []
         rows, _ = await self._flow_lookup_batches(
@@ -335,10 +548,14 @@ class FlowDesignerApiClient(ServiceNowRequestClient):
             validate_identifier(table)
             source_query = f"table={table}^ORDERBYsys_id"
             record_triggers, total = await self._flow_lookup_page(
-                "sys_flow_record_trigger", source_query, INTERNAL_QUERY_LIMIT
+                "sys_flow_record_trigger",
+                source_query,
+                INTERNAL_QUERY_LIMIT,
             )
             is_source_incomplete = (
-                total > len(record_triggers) if total is not None else len(record_triggers) >= INTERNAL_QUERY_LIMIT
+                total > len(record_triggers)
+                if total is not None
+                else len(record_triggers) >= INTERNAL_QUERY_LIMIT
             )
             if is_source_incomplete:
                 truncation["sys_flow_record_trigger"] = {
@@ -353,8 +570,12 @@ class FlowDesignerApiClient(ServiceNowRequestClient):
                         "trigger_type and active filters. Query safety row limits still apply."
                     ),
                 }
-            remote_ids = [resolve_ref_value(row.get("sys_id", "")) for row in record_triggers]
-            v2_relations = self._flow_id_queries(remote_ids, ("remote_trigger_id", "sys_id"))
+            remote_ids = [
+                resolve_ref_value(row.get("sys_id", "")) for row in record_triggers
+            ]
+            v2_relations = self._flow_id_queries(
+                remote_ids, ("remote_trigger_id", "sys_id")
+            )
             v1_relations = self._flow_id_queries(remote_ids, ("remote_sys_id",))
 
         result: dict[str, Any] = {}
@@ -362,8 +583,13 @@ class FlowDesignerApiClient(ServiceNowRequestClient):
             ("v2", "sys_hub_trigger_instance_v2", v2_parts, v2_relations),
             ("v1", "sys_hub_trigger_instance", v1_parts, v1_relations),
         ):
-            queries = ["^".join(part for part in [*parts, relation] if part) for relation in relations]
-            result[version], batches = await self._flow_lookup_batches(source_table, queries, capped)
+            queries = [
+                "^".join(part for part in [*parts, relation] if part)
+                for relation in relations
+            ]
+            result[version], batches = await self._flow_lookup_batches(
+                source_table, queries, capped
+            )
             if batches:
                 truncation[source_table] = {"batches": batches}
         if truncation:
@@ -376,7 +602,9 @@ class FlowDesignerApiClient(ServiceNowRequestClient):
             return []
         rows, _ = await self._flow_lookup_batches(
             "sys_hub_flow",
-            self._flow_id_queries(flow_sys_ids, ("sys_id", "master_snapshot", "latest_snapshot")),
+            self._flow_id_queries(
+                flow_sys_ids, ("sys_id", "master_snapshot", "latest_snapshot")
+            ),
             INTERNAL_QUERY_LIMIT,
             "sys_id,name,internal_name,type,active,sys_scope,description,master_snapshot,latest_snapshot",
         )

@@ -7,12 +7,12 @@ Restart the application after changing settings.
 
 ## Preset packages
 
-| Package | Available work |
-| --- | --- |
-| `readonly` | Records, metadata, attachments, history, submitted answers, investigations, audits, flows, code search, CMDB, and catalog browsing. |
-| `core_readonly` | Queries, table descriptions, and attachment reads. |
-| `full` | All read tools, all mutation previews, and shared application. |
-| `none` | Only `list_tool_packages`. |
+| Package         | Available work                                                                                                                      |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `readonly`      | Records, metadata, attachments, history, submitted answers, investigations, audits, flows, code search, CMDB, and catalog browsing. |
+| `core_readonly` | Queries, table descriptions, and attachment reads.                                                                                  |
+| `full`          | All read tools, all mutation previews, and shared application.                                                                      |
+| `none`          | Only `list_tool_packages`.                                                                                                          |
 
 `list_tool_packages` lists package definitions and groups without contacting ServiceNow.
 It does not report the active package.
@@ -20,33 +20,38 @@ Use the AI app's tool list to check the actual registered surface.
 
 ## Read groups
 
-| Group | Tool |
-| --- | --- |
-| `query` | List records, read an exact record, or calculate aggregates. |
-| `describe` | Inspect tables, inherited fields, and script fields. |
-| `record_read` | Read a record by `sys_id` or its actual `name`. |
-| `resolve_choice` | List or resolve choice keys. |
-| `attachment` | List, inspect, or download attachments. |
-| `analysis` | Read journals and submitted requested-item answers. |
-| `audit` | Inspect audit configuration and field history. |
-| `investigate` | Run bounded checks or explain findings. |
-| `flow` | Inspect Flow Designer configuration and stored values. |
-| `code_search` | Search scripts or inspect search coverage. |
-| `cmdb` | Read CIs, relationships, and class metadata. |
+| Group             | Tool                                                                                     |
+| ----------------- | ---------------------------------------------------------------------------------------- |
+| `query`           | List records, read an exact record, or calculate aggregates.                             |
+| `describe`        | Inspect tables, inherited fields, and script fields.                                     |
+| `record_read`     | Read a record by `sys_id` or its actual `name`.                                          |
+| `resolve_choice`  | List or resolve choice keys.                                                             |
+| `attachment`      | List, inspect, or download attachments.                                                  |
+| `analysis`        | Read journals and submitted requested-item answers.                                      |
+| `audit`           | Inspect audit configuration and field history.                                           |
+| `investigate`     | Run bounded checks or explain findings.                                                  |
+| `flow`            | Inspect Flow Designer configuration and stored values.                                   |
+| `code_search`     | Search scripts or inspect search coverage.                                               |
+| `cmdb`            | Read CIs, relationships, and class metadata.                                             |
 | `service_catalog` | Browse catalogs, categories, items, variables, carts, wish lists, and delegation checks. |
 
 ## Mutation groups
 
-| Group | Preview tool |
-| --- | --- |
-| `record_write` | `record_preview` for create, update, and delete. |
-| `attachment_write` | `attachment_preview` for upload and delete. |
+| Group                   | Preview tool                                                                                        |
+| ----------------------- | --------------------------------------------------------------------------------------------------- |
+| `record_write`          | `record_preview` for create, update, and delete.                                                    |
+| `attachment_write`      | `attachment_preview` for upload and delete.                                                         |
 | `service_catalog_write` | `service_catalog_preview` for orders, record producers, order guides, wish lists, and cart changes. |
+| `flow_write`            | `flow_preview` for experimental inactive draft authoring.                                           |
 
 Selecting any mutation group registers `mutation_apply` exactly once.
 Application rejects commands from families that are not enabled.
 Every mutation requires preview followed by apply.
 A preview token does not prove human approval.
+
+`flow_preview` uses an undocumented Workflow Studio API. It creates inactive headers
+and appends actions or published subflow calls with static inputs to linear, unpublished drafts.
+It does not activate or execute flows. See [[Tool-Reference]] for its limits.
 
 For a development instance:
 

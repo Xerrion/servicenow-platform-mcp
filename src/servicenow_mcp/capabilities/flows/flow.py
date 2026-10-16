@@ -2,7 +2,7 @@
 
 Six actions:
 
-* ``contract``       - concise declared fields, configured stages, ordered V2 checks/actions, and bindings.
+* ``contract``       - declared fields, configured stages, ordered V2 actions/logic/subflows, and bindings.
 * ``inspect``        - assemble one flow by sys_id or name: header, triggers,
   inputs/outputs/variables, configured stages, decoded V2 nodes, canvas tree, snapshot drift.
 * ``find_by_table``  - find flows with record triggers on a given table
@@ -21,11 +21,11 @@ from __future__ import annotations
 import asyncio
 import re
 from dataclasses import dataclass
-from typing import Any, Final, Literal, NoReturn
+from typing import TYPE_CHECKING, Any, Final, Literal, NoReturn
 
-from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.capabilities.contracts import CapabilityError, CapabilityResult
 from servicenow_mcp.capabilities.contracts import result as operation_result
+from servicenow_mcp.capabilities.flows import lifecycle, semantics, support
 from servicenow_mcp.capabilities.flows._flow_models import (
     ActionTypeRef,
     ContractBinding,
@@ -36,11 +36,18 @@ from servicenow_mcp.capabilities.flows._flow_models import (
     V1Trigger,
     V2Trigger,
 )
-from servicenow_mcp.capabilities.flows._flow_values import decode_values, looks_compressed
-from servicenow_mcp.config import Settings
+from servicenow_mcp.capabilities.flows._flow_values import (
+    decode_values,
+    looks_compressed,
+)
+from servicenow_mcp.errors import ServiceNowMCPError
 from servicenow_mcp.platform.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.policy import INTERNAL_QUERY_LIMIT
 from servicenow_mcp.validation import validate_identifier, validate_sys_id
+
+if TYPE_CHECKING:
+    from servicenow_mcp.auth import OAuthPKCEProvider
+    from servicenow_mcp.config import Settings
 
 
 _VALID_ACTIONS: Final[frozenset[str]] = frozenset(
@@ -51,7 +58,9 @@ _VALID_ACTIONS: Final[frozenset[str]] = frozenset(
         "decode_values",
         "list_triggers",
         "describe",
-    }
+        "validate",
+        "status",
+    },
 )
 
 _DEFAULT_TRIGGER_LIMIT: Final[int] = 100
@@ -64,6 +73,7 @@ _DATASET_QUERY_PATHS: Final[dict[str, tuple[str, str]]] = {
     "variables": ("sys_hub_flow_variable", "model"),
     "actions_v2": ("sys_hub_action_instance_v2", "flow"),
     "actions_v1": ("sys_hub_action_instance", "flow"),
+    "subflows_v2": ("sys_hub_sub_flow_instance_v2", "flow"),
     "logic_v2": ("sys_hub_flow_logic_instance_v2", "flow"),
     "logic_v1": ("sys_hub_flow_logic", "flow"),
     "triggers_v2": ("sys_hub_trigger_instance_v2", "flow"),
@@ -71,7 +81,15 @@ _DATASET_QUERY_PATHS: Final[dict[str, tuple[str, str]]] = {
 }
 
 _STRUCTURAL_DATASETS: Final[frozenset[str]] = frozenset(
-    {"actions_v2", "actions_v1", "logic_v2", "logic_v1", "triggers_v2", "triggers_v1"}
+    {
+        "actions_v2",
+        "actions_v1",
+        "subflows_v2",
+        "logic_v2",
+        "logic_v1",
+        "triggers_v2",
+        "triggers_v1",
+    },
 )
 _SECTION_DEPENDENCIES: Final[dict[str, frozenset[str]]] = {
     "flow": frozenset(),
@@ -82,10 +100,10 @@ _SECTION_DEPENDENCIES: Final[dict[str, frozenset[str]]] = {
     "variables": frozenset({"variables"}),
     "stages": frozenset(),
     "triggers": frozenset({"triggers_v2", "triggers_v1"}),
-    "canvas": frozenset({"actions_v2", "logic_v2"}),
+    "canvas": frozenset({"actions_v2", "logic_v2", "subflows_v2"}),
     "v1_actions": frozenset({"actions_v1"}),
     "v1_variable_values": frozenset({"actions_v1", "v1_variable_values"}),
-    "steps": frozenset({"actions_v2", "logic_v2"}),
+    "steps": frozenset({"actions_v2", "logic_v2", "subflows_v2"}),
     "warnings": _STRUCTURAL_DATASETS,
 }
 _INSPECT_SECTIONS: Final[tuple[str, ...]] = (
@@ -122,21 +140,49 @@ _DEFAULT_FLOW_SECTIONS: Final[tuple[str, ...]] = (
 )
 
 _ACTION_REGISTRY: Final[dict[str, dict[str, Any]]] = {
+    "validate": {
+        "description": (
+            "Read a saved draft and validate supported semantics locally. No remote compile, save, or execution."
+        ),
+        "params": {"sys_id": "str (32-char)"},
+    },
+    "status": {
+        "description": (
+            "Read lifecycle fields and optionally one known execution context. Unknown state never permits replay."
+        ),
+        "params": {
+            "sys_id": "str (32-char)",
+            "execution_sys_id": "str (optional 32-char)",
+        },
+    },
     "contract": {
-        "description": "Return progressive contract sections for one flow or subflow. The compact default returns identity, publication state, a bounded structural summary, and warnings.",
+        "description": (
+            "Return progressive contract sections for one flow or subflow. The compact default returns identity, "
+            "publication state, a bounded structural summary, and warnings."
+        ),
         "params": {
             "sys_id": "str (32-char)",
             "name": "str",
-            "sections": "native array containing: flow,published_state,structural_summary,inputs,outputs,variables,stages,triggers,steps,warnings; '*' selects all",
+            "sections": (
+                "native array containing: "
+                "flow,published_state,structural_summary,inputs,outputs,variables,stages,triggers,steps,warnings; "
+                "'*' selects all"
+            ),
             "section_limit": "int (default 100; shared row/node cap)",
         },
     },
     "inspect": {
-        "description": "Return progressive inspection sections for one flow. The compact default avoids optional detail reads.",
+        "description": (
+            "Return progressive inspection sections for one flow. The compact default avoids optional detail reads."
+        ),
         "params": {
             "sys_id": "str (32-char)",
             "name": "str",
-            "sections": "native array containing: flow,published_state,structural_summary,inputs,outputs,variables,stages,triggers,canvas,v1_actions,v1_variable_values,warnings; '*' selects all",
+            "sections": (
+                "native array containing: "
+                "flow,published_state,structural_summary,inputs,outputs,variables,stages,triggers,canvas,"
+                "v1_actions,v1_variable_values,warnings; '*' selects all"
+            ),
             "section_limit": "int (default 100; shared row/node cap)",
         },
     },
@@ -251,10 +297,15 @@ async def _flow_stages(
     """Read configured stages with root-flow and published-snapshot provenance."""
     source_roles = {root_flow_sys_id: ["root_flow"]}
     if published_snapshot_sys_id:
-        source_roles.setdefault(published_snapshot_sys_id, []).append("published_snapshot")
+        source_roles.setdefault(published_snapshot_sys_id, []).append(
+            "published_snapshot"
+        )
     source_ids = list(source_roles)
     source_rows = await asyncio.gather(
-        *(client.list_flow_stages(source_id, section_limit + 1) for source_id in source_ids)
+        *(
+            client.list_flow_stages(source_id, section_limit + 1)
+            for source_id in source_ids
+        ),
     )
     sources: list[dict[str, Any]] = []
     truncated_sources: list[dict[str, Any]] = []
@@ -265,7 +316,7 @@ async def _flow_stages(
                 "flow_sys_id": source_id,
                 "roles": source_roles[source_id],
                 "definitions": definitions,
-            }
+            },
         )
         if len(rows) > section_limit:
             truncated_sources.append(
@@ -275,7 +326,7 @@ async def _flow_stages(
                     "returned": len(definitions),
                     "observed_at_least": len(rows),
                     "omitted_at_least": len(rows) - len(definitions),
-                }
+                },
             )
 
     return (
@@ -301,12 +352,16 @@ def _build_v2_node(
     kind: str,
     action_type_lookup: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Build a canvas node for a V2 action or logic instance."""
-    decoded, decode_error = _maybe_decode(row.get("values"))
+    """Build a canvas node for a persisted V2 action, logic, or subflow instance."""
+    decoded, decode_error = _maybe_decode(
+        row.get("subflow_inputs" if kind == "subflow" else "values")
+    )
     action_type: ActionTypeRef | None = None
     if kind == "action":
         action_type_id = _v(row.get("action_type"))
-        action_type = ActionTypeRef(sys_id=action_type_id, name=_d(row.get("action_type")))
+        action_type = ActionTypeRef(
+            sys_id=action_type_id, name=_d(row.get("action_type"))
+        )
         if action_type_lookup and action_type_id in action_type_lookup:
             meta = action_type_lookup[action_type_id]
             action_type.internal_name = _v(meta.get("internal_name"))
@@ -318,26 +373,71 @@ def _build_v2_node(
             sys_id=_v(row.get("logic_definition")),
             name=_d(row.get("logic_definition")),
         )
-    return FlowNode(
+    subflow = None
+    wait = None
+    if kind == "subflow":
+        subflow = LogicDefinitionRef(
+            sys_id=_v(row.get("subflow")), name=_d(row.get("subflow"))
+        )
+        raw_wait = _v(row.get("wait_for_completion"))
+        wait = {"true": True, "false": False}.get(raw_wait)
+        if decoded is None and decode_error is None:
+            decode_error = (
+                "Subflow input values are missing or use an unsupported encoding."
+            )
+        if not isinstance(decoded, list | dict) and decode_error is None:
+            decode_error = "Subflow input values have an invalid structure."
+    node = FlowNode(
         kind=kind,
         version="v2",
         sys_id=_v(row.get("sys_id")),
-        ui_uuid=_v(row.get("ui_uuid")),
-        parent_ui_id=_v(row.get("parent_ui_uuid")),
+        ui_uuid=_v(row.get("ui_id", row.get("ui_uuid"))),
+        parent_ui_id=_v(row.get("parent_ui_id", row.get("parent_ui_uuid"))),
         order=_v(row.get("order")),
-        label=_d(row.get("label")),
+        label=_d(row.get("subflow" if kind == "subflow" else "label")),
         name=_v(row.get("name")),
         comment=_v(row.get("comment")),
         values_decoded=decoded,
         children=[],
         action_type=action_type,
         logic_definition=logic_definition,
+        subflow=subflow,
+        wait_for_completion=wait,
         decode_error=decode_error,
     ).to_payload()
+    try:
+        reference = action_type or logic_definition or subflow
+        semantics.table_step(
+            kind="flowlogic" if kind == "logic" else kind,
+            identity=node["sys_id"],
+            ui_id=node["ui_uuid"],
+            order=node["order"],
+            parent=node["parent_ui_id"],
+            definition=reference.sys_id if reference else "",
+            inputs=decoded,
+            settings={"wait_for_completion": wait} if kind == "subflow" else {},
+        )
+        if (
+            kind == "subflow"
+            and not {
+                "sys_id",
+                "ui_id",
+                "parent_ui_id",
+                "order",
+                "subflow",
+                "wait_for_completion",
+                "subflow_inputs",
+            }
+            <= row.keys()
+        ):
+            raise CapabilityError("Incomplete persisted subflow fields.")
+    except CapabilityError:
+        node["incomplete_semantics"] = True
+    return node
 
 
 def _assemble_canvas(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Build a nested canvas tree by linking each node to its parent_ui_uuid.
+    """Build a nested canvas tree by linking each node to its parent UI identity.
 
     Roots (``parent_ui_id == ""``) are returned at the top level; children
     are attached to their parent's ``children`` list in the order they
@@ -349,33 +449,463 @@ def _assemble_canvas(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if uuid:
             by_uuid[uuid] = node
 
+    # A cycle must not disappear from the returned roots or recurse during serialization.
+    cyclic: set[str] = set()
+    for node in nodes:
+        seen: set[str] = set()
+        parent = node["ui_uuid"]
+        while parent and parent in by_uuid:
+            if parent in seen:
+                cyclic.update(seen)
+                break
+            seen.add(parent)
+            parent = by_uuid[parent]["parent_ui_id"]
+
     roots: list[dict[str, Any]] = []
     for node in nodes:
         parent = node["parent_ui_id"]
-        if parent and parent in by_uuid:
+        if parent and parent in by_uuid and node["ui_uuid"] not in cyclic:
             by_uuid[parent]["children"].append(node)
         else:
             roots.append(node)
     return roots
 
 
+def _v2_trigger_type(row: dict[str, Any]) -> str:
+    return _v(row.get("trigger_type" if "trigger_type" in row else "type"))
+
+
+def _v2_remote_id(row: dict[str, Any]) -> str:
+    return _v(
+        row.get("remote_sys_id" if "remote_sys_id" in row else "remote_trigger_id")
+    )
+
+
+def _uses_record_trigger(row: dict[str, Any]) -> bool:
+    trigger_type = _v2_trigger_type(row)
+    return trigger_type in {
+        "record_create",
+        "record_update",
+        "record_create_or_update",
+        "record_delete",
+    } or (not trigger_type and bool(_v(row.get("remote_trigger_id"))))
+
+
+def _trigger_schema_field(spec: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    """Project catalog or stored parameter metadata without supplying absent defaults."""
+    parameter = spec.get("parameter")
+    parameter = parameter if isinstance(parameter, dict) else spec
+    field = {
+        "name": spec.get("name"),
+        "label": spec.get("label", parameter.get("label")),
+        "type": spec.get("type", parameter.get("type")),
+        "required": spec.get("mandatory", parameter.get("mandatory")),
+    }
+    issues = []
+    if any(
+        not isinstance(field[key], str) or not field[key]
+        for key in ("name", "label", "type")
+    ):
+        issues.append(
+            "Trigger definition field identity or type metadata is unreadable."
+        )
+    if not isinstance(field["required"], bool):
+        field["required"] = None
+        issues.append("Trigger definition mandatory metadata is unreadable.")
+    if "default_value" in spec or "defaultValue" in parameter:
+        field["default"] = spec.get("default_value", parameter.get("defaultValue"))
+        if field["default"] is None:
+            issues.append("Trigger definition default metadata is unreadable.")
+    for source, target in (
+        ("reference", "reference_table"),
+        ("reference_display", "reference_display"),
+    ):
+        if isinstance(parameter.get(source), str) and parameter[source]:
+            field[target] = parameter[source]
+    if field["type"] == "reference" and "reference_table" not in field:
+        field["reference_table"] = None
+        issues.append("Trigger definition reference table metadata is unreadable.")
+    if field["type"] == "choice" or "choices" in parameter:
+        choices = parameter.get("choices")
+        if (
+            not isinstance(choices, list)
+            or not choices
+            or len(choices) > INTERNAL_QUERY_LIMIT
+            or any(
+                not isinstance(choice, dict) or not isinstance(choice.get("value"), str)
+                for choice in choices
+            )
+        ):
+            field["choices"] = None
+            issues.append("Trigger definition choice metadata is unreadable.")
+        else:
+            field["choices"] = [
+                {"value": choice["value"], "label": choice.get("label")}
+                for choice in choices
+            ]
+            if any(not isinstance(choice.get("label"), str) for choice in choices):
+                issues.append("Trigger definition choice labels are unreadable.")
+        if "choiceOption" in parameter:
+            field["choice_option"] = parameter["choiceOption"]
+    if parameter.get("children"):
+        issues.append("Nested trigger definition schemas are not resolved.")
+    dependent_on = spec.get("dependent_on", parameter.get("dependent_on"))
+    if dependent_on:
+        field["dependent_on"] = dependent_on
+        issues.append("Dependent trigger definition schemas are not resolved.")
+    return field, issues
+
+
+def _trigger_definition(
+    definition: dict[str, Any], category: str, limit: int
+) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "sys_id": definition.get("id"),
+        "type": definition.get("type"),
+        "label": definition.get("label"),
+        "category": category,
+        "source": "instance_trigger_catalog",
+        "semantics": "Declared schemas only. Outputs are not execution results.",
+    }
+    warnings: list[str] = []
+    for key in ("type", "label"):
+        if not isinstance(result[key], str) or not result[key]:
+            warnings.append("Trigger definition identity metadata is unreadable.")
+    if not category:
+        warnings.append("Trigger definition category metadata is unreadable.")
+    for side in ("inputs", "outputs"):
+        rows = definition.get(side)
+        if not isinstance(rows, list):
+            result[side] = None
+            warnings.append(f"Trigger definition {side} metadata is unreadable.")
+            continue
+        fields = []
+        for row in rows[:limit]:
+            if not isinstance(row, dict):
+                warnings.append(f"Trigger definition {side} contains malformed fields.")
+                continue
+            field, issues = _trigger_schema_field(row)
+            fields.append(field)
+            warnings.extend(issues)
+            if side == "inputs" and "default" not in field:
+                warnings.append(
+                    "Trigger definition input default metadata is unreadable."
+                )
+        result[side] = fields
+        names = [field["name"] for field in fields if isinstance(field["name"], str)]
+        if len(set(names)) != len(names):
+            warnings.append(f"Trigger definition {side} contains duplicate fields.")
+        if len(rows) > limit:
+            result.setdefault("truncation", {})[side] = {
+                "returned": len(fields),
+                "observed": len(rows),
+                "limit": limit,
+            }
+            warnings.append(
+                f"Trigger definition {side} exceeds the metadata field limit."
+            )
+    if definition.get("has_dynamic_outputs") is not False:
+        warnings.append("Dynamic trigger output schemas are unknown.")
+    result["warnings"] = list(dict.fromkeys(warnings))
+    result["metadata_complete"] = not warnings
+    return result
+
+
+async def _load_trigger_definitions(
+    client: ServiceNowClient,
+    rows: list[dict[str, Any]],
+    limit: int,
+) -> dict[str, dict[str, Any]]:
+    """Read the observed instance catalog once and join only bounded, exact definition IDs."""
+    ids = sorted(
+        {
+            _v(row.get("trigger_definition"))
+            for row in rows
+            if _v(row.get("trigger_definition"))
+        }
+    )
+    if not ids:
+        return {}
+    lookup: dict[str, dict[str, Any]] = {}
+    requested = set(ids[: min(limit, INTERNAL_QUERY_LIMIT)])
+    for identity in ids:
+        lookup[identity] = {
+            "sys_id": identity,
+            "inputs": None,
+            "outputs": None,
+            "metadata_complete": False,
+            "warnings": ["Trigger definition metadata is missing or unreadable."],
+        }
+        if re.fullmatch(r"[0-9a-f]{32}", identity) is None:
+            requested.discard(identity)
+            lookup[identity]["warnings"] = ["trigger_definition identity is invalid."]
+        elif identity not in requested:
+            lookup[identity]["warnings"] = [
+                "Trigger definition lookup exceeds the metadata identity limit."
+            ]
+    if not requested:
+        return lookup
+    try:
+        categories = await client.studio_definitions("triggers")
+    except Exception as exc:  # noqa: BLE001 — preserve safe fallback behavior for unexpected failures
+        status = exc.status_code if isinstance(exc, ServiceNowMCPError) else None
+        for identity in requested:
+            lookup[identity]["warnings"] = [
+                "Trigger definition catalog is unavailable. Check instance and metadata access.",
+            ]
+            lookup[identity]["read_status"] = (
+                f"http_{status}" if status is not None else "unavailable"
+            )
+        return lookup
+    try:
+        if not isinstance(categories, list) or len(categories) > INTERNAL_QUERY_LIMIT:
+            raise ValueError("Malformed trigger catalog")
+        seen: set[str] = set()
+        count = 0
+        for category in categories:
+            if not isinstance(category, dict) or not isinstance(
+                category.get("triggers"), dict
+            ):
+                raise TypeError("Malformed trigger category")
+            for definition in category["triggers"].values():
+                count += 1
+                if count > INTERNAL_QUERY_LIMIT:
+                    raise ValueError(
+                        "Trigger catalog exceeds the metadata definition limit"
+                    )
+                if not isinstance(definition, dict):
+                    raise TypeError("Malformed trigger definition")
+                identity = definition.get("id")
+                if not isinstance(identity, str) or identity not in requested:
+                    continue
+                if identity in seen:
+                    raise ValueError("Duplicate trigger definition identity")
+                seen.add(identity)
+                name = category.get("name")
+                lookup[identity] = _trigger_definition(
+                    definition, name if isinstance(name, str) else "", limit
+                )
+    except Exception:  # noqa: BLE001 — deliberately convert unexpected failures to safe diagnostics
+        for identity in requested:
+            lookup[identity].update(
+                inputs=None,
+                outputs=None,
+                metadata_complete=False,
+                read_status="malformed_or_capped",
+                warnings=[
+                    "Trigger definition catalog was malformed or exceeded its metadata limit."
+                ],
+            )
+    return lookup
+
+
+def _trigger_input_issues(
+    bindings: list[dict[str, Any]],
+    fields: list[dict[str, Any]],
+    *,
+    complete: bool = True,
+) -> list[str]:
+    warnings: list[str] = []
+    by_name = {
+        binding.get("name"): binding
+        for binding in bindings
+        if isinstance(binding.get("name"), str)
+    }
+    if len(by_name) != len(bindings):
+        warnings.append("Trigger inputs have missing or duplicate binding names.")
+    names = {field["name"] for field in fields if isinstance(field.get("name"), str)}
+    if complete and set(by_name) - names:
+        warnings.append(
+            "Trigger inputs contain fields absent from the declared definition."
+        )
+    for field in fields:
+        name = field.get("name")
+        if not isinstance(name, str):
+            continue
+        binding = by_name.get(name)
+        if binding is None:
+            if field.get("required") is True:
+                warnings.append("Trigger inputs omit a required definition field.")
+            continue
+        value = binding.get("value")
+        if value is None:
+            warnings.append("Trigger input value is null or unreadable.")
+        elif value == "":
+            if field.get("required") is True:
+                warnings.append("Trigger inputs contain an empty required value.")
+            elif field.get("required") is not False:
+                warnings.append("Empty trigger input has unknown mandatory metadata.")
+        elif isinstance(field.get("choices"), list) and value not in [
+            c["value"] for c in field["choices"]
+        ]:
+            warnings.append(
+                "Trigger inputs contain a value outside the declared choice metadata."
+            )
+    return warnings
+
+
 def _v2_trigger_entry(
     row: dict[str, Any],
     *,
-    condition_lookup: dict[str, str],
+    record_lookup: dict[str, dict[str, Any]],
+    definition_lookup: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
     """Build a trigger entry from a V2 ``sys_hub_trigger_instance_v2`` row."""
-    remote_id = _v(row.get("remote_trigger_id"))
-    decoded, decode_error = _maybe_decode(row.get("values"))
+    remote_id = _v2_remote_id(row)
+    trigger_type = _v2_trigger_type(row)
+    record = record_lookup.get(remote_id, {}) if _uses_record_trigger(row) else {}
+    warnings: list[str] = []
+    definition = definition_lookup.get(_v(row.get("trigger_definition")))
+    known_types = {
+        "record_create",
+        "record_update",
+        "record_create_or_update",
+        "record_delete",
+        "service_catalog",
+        "inbound_email",
+        "scheduled",
+        "daily",
+        "weekly",
+        "monthly",
+        "repeat",
+        "run_once",
+    }
+    if trigger_type not in known_types and (
+        not definition or definition.get("type") != trigger_type
+    ):
+        warnings.append(
+            "trigger_type is missing or unrecognized. Trigger family metadata is unknown."
+        )
+    modern = "trigger_type" in row or "trigger_inputs" in row
+    if modern and not _v(row.get("trigger_definition")):
+        warnings.append("trigger_definition metadata is missing or unreadable.")
+    elif definition:
+        warnings.extend(definition["warnings"])
+        if definition.get("type") not in (None, trigger_type):
+            warnings.append(
+                "trigger_definition type differs from the stored trigger_type."
+            )
+
+    active: bool | None = None
+    active_source: str | None = None
+    active_row = row if "active" in row else record
+    active_value = _v(active_row.get("active"))
+    if active_value in {"true", "false"}:
+        active = active_value == "true"
+        active_source = (
+            "trigger.active" if active_row is row else "record_trigger.active"
+        )
+    else:
+        warnings.append(
+            "Trigger active status is missing or invalid. The flow header does not establish trigger activation.",
+        )
+
+    table = _v(row.get("table")) or _v(record.get("table"))
+    condition = _v(record.get("condition"))
+    if _uses_record_trigger(row):
+        if not record:
+            warnings.append("Record trigger metadata is missing or unreadable.")
+        if not table:
+            warnings.append("Record trigger table metadata is missing or unreadable.")
+        if "condition" not in record:
+            warnings.append(
+                "Record trigger condition metadata is missing or unreadable."
+            )
+
+    input_column = (
+        "trigger_inputs"
+        if "trigger_inputs" in row or (modern and "values" not in row)
+        else "values"
+    )
+    decoded_fields: dict[str, Any] = {}
+    errors: list[str] = []
+    for column in (input_column, "trigger_outputs"):
+        raw = _v(row.get(column))
+        decoded: Any = None
+        error = None
+        if column == "values":
+            decoded, error = _maybe_decode(row.get(column))
+        elif (
+            column not in row
+            or row[column] is None
+            or (isinstance(row[column], dict) and row[column].get("value") is None)
+        ):
+            if modern:
+                warnings.append(f"{column} metadata is missing or unreadable.")
+        elif raw:
+            try:
+                decoded = decode_values(raw)
+            except ValueError as exc:
+                error = str(exc)
+        if error:
+            errors.append(f"{column}: {error}")
+            warnings.append(f"{column} could not be decoded.")
+        if decoded is not None:
+            bindings, _ = _contract_node_bindings(decoded)
+            if not bindings and decoded not in ([], {}):
+                warnings.append(f"{column} has an unsupported binding structure.")
+            if isinstance(decoded, list) and len(bindings) != len(decoded):
+                warnings.append(f"{column} contains malformed bindings.")
+            for binding in bindings:
+                if not isinstance(binding.get("name"), str) or not binding["name"]:
+                    warnings.append(f"{column} has a malformed binding name.")
+                if column == input_column and "value" not in binding:
+                    warnings.append(f"{column} has an unreadable binding value.")
+                parameter = binding.get("parameter")
+                if (
+                    column == input_column
+                    and isinstance(parameter, dict)
+                    and not (
+                        definition
+                        and definition.get("type") == trigger_type
+                        and isinstance(definition.get("inputs"), list)
+                    )
+                ):
+                    field, _ = _trigger_schema_field(
+                        {**parameter, "name": binding.get("name")}
+                    )
+                    warnings.extend(_trigger_input_issues([binding], [field]))
+        decoded_fields[column] = decoded
+    inputs_readable = decoded_fields[input_column] is not None or (
+        input_column in row
+        and _v(row[input_column]) == ""
+        and row[input_column] is not None
+        and not (
+            isinstance(row[input_column], dict)
+            and row[input_column].get("value") is None
+        )
+    )
+    if (
+        inputs_readable
+        and definition
+        and definition.get("type") == trigger_type
+        and isinstance(definition.get("inputs"), list)
+    ):
+        bindings, _ = _contract_node_bindings(decoded_fields[input_column])
+        warnings.extend(
+            _trigger_input_issues(
+                bindings, definition["inputs"], complete=definition["metadata_complete"]
+            )
+        )
+    warnings = list(dict.fromkeys(warnings))
     return V2Trigger(
         sys_id=_v(row.get("sys_id")),
-        type=_v(row.get("type")),
-        active=_v(row.get("active")) == "true",
-        table=_v(row.get("table")),
+        type=trigger_type,
+        active=active,
+        table=table,
         remote_trigger_id=remote_id,
-        condition=condition_lookup.get(remote_id, ""),
-        values_decoded=decoded,
-        decode_error=decode_error,
+        condition=condition,
+        values_decoded=decoded_fields[input_column],
+        outputs_decoded=decoded_fields["trigger_outputs"],
+        decode_error=". ".join(errors) or None,
+        active_source=active_source,
+        metadata_complete=False
+        if warnings
+        else True
+        if definition and definition["metadata_complete"]
+        else None,
+        warnings=warnings,
+        definition=definition,
     ).to_payload()
 
 
@@ -423,32 +953,39 @@ def _build_inspect_warnings(
     logic_v2: list[dict[str, Any]],
     triggers_v2: list[dict[str, Any]],
     action_type_lookup: dict[str, dict[str, Any]],
+    subflows_v2: list[dict[str, Any]],
 ) -> list[str]:
     """Assemble the ``inspect`` warning list (drift, V1/V2 coexistence, spokes)."""
     warnings: list[str] = []
     if drift:
         warnings.append(
             f"snapshot drift: master_snapshot={master!r} differs from latest_snapshot={latest!r}; "
-            "the runtime engine and the latest design may not agree."
+            "the runtime engine and the latest design may not agree.",
         )
-    if (actions_v1 or logic_v1 or triggers_v1) and (actions_v2 or logic_v2 or triggers_v2):
-        warnings.append("V1 and V2 Flow Designer artifacts coexist on this flow; canvas omits V1 nodes.")
+    if (actions_v1 or logic_v1 or triggers_v1) and (
+        actions_v2 or logic_v2 or triggers_v2 or subflows_v2
+    ):
+        warnings.append(
+            "V1 and V2 Flow Designer artifacts coexist on this flow; canvas omits V1 nodes."
+        )
     if actions_v1:
         warnings.append(
-            f"{len(actions_v1)} V1 action instance(s) present; their configured bindings are not represented as contract steps."
+            f"{len(actions_v1)} V1 action instance(s) present; "
+            "their configured bindings are not represented as contract steps.",
         )
     if logic_v1:
         warnings.append(
-            f"{len(logic_v1)} V1 logic instance(s) present; their semantics are not reflected in the canvas tree."
+            f"{len(logic_v1)} V1 logic instance(s) present; their semantics are not reflected in the canvas tree.",
         )
     spoke_actions = [
         meta
         for meta in action_type_lookup.values()
-        if "spoke" in _v(meta.get("category")).lower() or "spoke" in _v(meta.get("sys_scope")).lower()
+        if "spoke" in _v(meta.get("category")).lower()
+        or "spoke" in _v(meta.get("sys_scope")).lower()
     ]
     if spoke_actions:
         warnings.append(
-            f"{len(spoke_actions)} spoke action type(s) referenced; their decoded values may depend on scoped types."
+            f"{len(spoke_actions)} spoke action type(s) referenced; their decoded values may depend on scoped types.",
         )
     return warnings
 
@@ -470,7 +1007,9 @@ def _contract_field(row: dict[str, Any]) -> dict[str, Any]:
     return field
 
 
-def _action_definition_field(row: dict[str, Any], *, has_default: bool) -> dict[str, Any]:
+def _action_definition_field(
+    row: dict[str, Any], *, has_default: bool
+) -> dict[str, Any]:
     """Project one declared action field without exposing its source record."""
     name = _v(row.get("name"))
     field: dict[str, Any] = {
@@ -503,7 +1042,9 @@ def _index_action_definition_fields(
     for row in rows:
         action_type_id = _v(row.get("action_type"))
         if action_type_id:
-            indexed.setdefault(action_type_id, []).append(_action_definition_field(row, has_default=has_default))
+            indexed.setdefault(action_type_id, []).append(
+                _action_definition_field(row, has_default=has_default)
+            )
     return indexed
 
 
@@ -516,7 +1057,9 @@ def _contract_binding(value: dict[str, Any]) -> dict[str, Any]:
     parameter = value.get("parameter")
     parameter_data = parameter if isinstance(parameter, dict) else {}
     raw_value = value.get("value", "")
-    data_pills = _DATA_PILL_PATTERN.findall(raw_value) if isinstance(raw_value, str) else []
+    data_pills = (
+        _DATA_PILL_PATTERN.findall(raw_value) if isinstance(raw_value, str) else []
+    )
     return ContractBinding(
         name=str(value.get("name", "")),
         label=str(parameter_data.get("label", "") or value.get("name", "")),
@@ -583,14 +1126,26 @@ def _contract_steps(
                     action_definition["limitations"] = list(schema_limitations)
                 step["definition"] = action_definition
                 step["inputs"] = [_contract_binding(value) for value in inputs]
+            elif node["kind"] == "subflow":
+                step["subflow"] = node["subflow"]
+                step["version"] = node["version"]
+                step["sys_id"] = node["sys_id"]
+                step["ui_uuid"] = node["ui_uuid"]
+                step["parent_ui_id"] = node["parent_ui_id"]
+                step["wait_for_completion"] = node.get("wait_for_completion")
+                step["inputs"] = [_contract_binding(value) for value in inputs]
             else:
                 definition = node["logic_definition"]
                 step["logic"] = {"name": definition["name"]}
                 step["conditions"] = [_contract_binding(value) for value in inputs]
             if assignments:
-                step["output_assignments"] = [_contract_binding(value) for value in assignments]
+                step["output_assignments"] = [
+                    _contract_binding(value) for value in assignments
+                ]
             if "decode_error" in node:
                 step["decode_error"] = node["decode_error"]
+            if node.get("incomplete_semantics"):
+                step["incomplete_semantics"] = True
             steps.append(step)
             visit(node["children"], step_id)
 
@@ -601,6 +1156,7 @@ def _contract_steps(
 def _contract_trigger(trigger: dict[str, Any]) -> dict[str, Any]:
     """Project a trigger into contract fields without raw decoded metadata."""
     configuration, _ = _contract_node_bindings(trigger.get("values_decoded"))
+    outputs, _ = _contract_node_bindings(trigger.get("outputs_decoded"))
     result = ContractTrigger(
         version=trigger["version"],
         type=trigger["type"],
@@ -608,9 +1164,24 @@ def _contract_trigger(trigger: dict[str, Any]) -> dict[str, Any]:
         table=trigger["table"],
         condition=trigger["condition"],
         configuration=[_contract_binding(value) for value in configuration] or None,
+        output_configuration=[_contract_binding(value) for value in outputs] or None,
         decode_error=trigger.get("decode_error"),
     )
-    return result.to_payload()
+    payload = result.to_payload()
+    for key in ("active_source", "metadata_complete", "warnings", "definition"):
+        if key in trigger:
+            payload[key] = trigger[key]
+    for binding, output in zip(
+        outputs, payload.get("output_configuration", []), strict=True
+    ):
+        parameter = binding.get("parameter")
+        if (
+            isinstance(parameter, dict)
+            and isinstance(parameter.get("reference"), str)
+            and parameter["reference"]
+        ):
+            output["reference_table"] = parameter["reference"]
+    return payload
 
 
 def _build_flow_contract(
@@ -642,7 +1213,9 @@ def _build_flow_contract(
     }
 
 
-def _parse_sections(sections: list[str] | Literal["*"], *, is_contract: bool) -> tuple[list[str], str | None]:
+def _parse_sections(
+    sections: list[str] | Literal["*"], *, is_contract: bool
+) -> tuple[list[str], str | None]:
     available = _CONTRACT_SECTIONS if is_contract else _INSPECT_SECTIONS
     if not sections:
         return list(_DEFAULT_FLOW_SECTIONS), None
@@ -686,7 +1259,9 @@ def _continuation(
     )
 
 
-def _warning_continuation(*, section_limit: int, max_row_limit: int, flow_sys_id: str) -> str:
+def _warning_continuation(
+    *, section_limit: int, max_row_limit: int, flow_sys_id: str
+) -> str:
     if section_limit < max_row_limit:
         return f"Re-run with section_limit greater than {section_limit}."
     return (
@@ -696,6 +1271,7 @@ def _warning_continuation(*, section_limit: int, max_row_limit: int, flow_sys_id
         f"sys_hub_action_instance (encoded_query=flow={flow_sys_id}, fields=sys_id); "
         f"sys_hub_flow_logic_instance_v2 (encoded_query=flow={flow_sys_id}, fields=sys_id); "
         f"sys_hub_flow_logic (encoded_query=flow={flow_sys_id}, fields=sys_id); "
+        f"sys_hub_sub_flow_instance_v2 (encoded_query=flow={flow_sys_id}, fields=sys_id); "
         f"sys_hub_trigger_instance_v2 (encoded_query=flow={flow_sys_id}, fields=sys_id); "
         f"sys_hub_trigger_instance (encoded_query=flow={flow_sys_id}, fields=sys_id). Then collect every action_type "
         "sys_id from the V2 actions and query sys_hub_action_type_base "
@@ -704,7 +1280,9 @@ def _warning_continuation(*, section_limit: int, max_row_limit: int, flow_sys_id
     )
 
 
-def _stage_continuation(*, section_limit: int, max_row_limit: int, flow_sys_id: str) -> str:
+def _stage_continuation(
+    *, section_limit: int, max_row_limit: int, flow_sys_id: str
+) -> str:
     if section_limit < max_row_limit:
         return f"Re-run with section_limit greater than {section_limit}."
     return (
@@ -714,7 +1292,9 @@ def _stage_continuation(*, section_limit: int, max_row_limit: int, flow_sys_id: 
     )
 
 
-def _v1_variable_value_continuation(*, section_limit: int, max_row_limit: int, flow_sys_id: str) -> str:
+def _v1_variable_value_continuation(
+    *, section_limit: int, max_row_limit: int, flow_sys_id: str
+) -> str:
     next_step = (
         f"Re-run with section_limit greater than {section_limit}. "
         if section_limit < max_row_limit
@@ -738,7 +1318,8 @@ def _saturated_datasets(
     return sorted(
         name
         for name in names
-        if requested_limits.get(name, 0) > 0 and len(datasets.get(name, [])) >= requested_limits[name]
+        if requested_limits.get(name, 0) > 0
+        and len(datasets.get(name, [])) >= requested_limits[name]
     )
 
 
@@ -761,9 +1342,20 @@ def _bounded_rows(
     return returned
 
 
-def _structural_summary(datasets: dict[str, list[dict[str, Any]]], section_limit: int) -> dict[str, Any]:
-    counts = {name: min(len(datasets.get(name, [])), section_limit) for name in sorted(_STRUCTURAL_DATASETS)}
-    total_nodes = counts["actions_v2"] + counts["actions_v1"] + counts["logic_v2"] + counts["logic_v1"]
+def _structural_summary(
+    datasets: dict[str, list[dict[str, Any]]], section_limit: int
+) -> dict[str, Any]:
+    counts = {
+        name: min(len(datasets.get(name, [])), section_limit)
+        for name in sorted(_STRUCTURAL_DATASETS)
+    }
+    total_nodes = (
+        counts["actions_v2"]
+        + counts["actions_v1"]
+        + counts["logic_v2"]
+        + counts["logic_v1"]
+        + counts["subflows_v2"]
+    )
     return {
         "counts": counts,
         "count_semantics": "exact unless truncated=true; truncated dataset counts are lower bounds",
@@ -772,9 +1364,14 @@ def _structural_summary(datasets: dict[str, list[dict[str, Any]]], section_limit
         "versions": [
             version
             for version in ("v1", "v2")
-            if any(counts[f"{kind}_{version}"] for kind in ("actions", "logic", "triggers"))
+            if any(
+                counts.get(f"{kind}_{version}", 0)
+                for kind in ("actions", "logic", "triggers", "subflows")
+            )
         ],
-        "truncated": any(len(datasets.get(name, [])) > section_limit for name in _STRUCTURAL_DATASETS),
+        "truncated": any(
+            len(datasets.get(name, [])) > section_limit for name in _STRUCTURAL_DATASETS
+        ),
         "per_dataset_limit": section_limit,
     }
 
@@ -784,13 +1381,14 @@ async def _fetch_flow_datasets(
     resolved_sys_id: str,
     required: set[str],
     section_limit: int,
-) -> tuple[dict[str, list[dict[str, Any]]], dict[str, int]]:
+) -> tuple[dict[str, list[dict[str, Any]]], dict[str, int], list[str]]:
     fetchers = {
         "inputs": client.list_flow_inputs,
         "outputs": client.list_flow_outputs,
         "variables": client.list_flow_variables,
         "actions_v2": client.list_action_instances_v2,
         "actions_v1": client.list_action_instances_v1,
+        "subflows_v2": client.list_subflow_instances_v2,
         "logic_v2": client.list_logic_instances_v2,
         "logic_v1": client.list_logic_instances_v1,
         "triggers_v2": client.list_trigger_instances_v2,
@@ -798,16 +1396,40 @@ async def _fetch_flow_datasets(
     }
     names = sorted(required)
     direct_names = [name for name in names if name != "v1_variable_values"]
-    rows = await asyncio.gather(*(fetchers[name](resolved_sys_id, section_limit + 1) for name in direct_names))
-    datasets = dict(zip(direct_names, rows, strict=True))
+    rows = await asyncio.gather(
+        *(fetchers[name](resolved_sys_id, section_limit + 1) for name in direct_names),
+        return_exceptions=True,
+    )
+    datasets: dict[str, list[dict[str, Any]]] = {}
+    incomplete: list[str] = []
+    for name, result in zip(direct_names, rows, strict=True):
+        if isinstance(result, asyncio.CancelledError):
+            raise result
+        if (
+            isinstance(result, BaseException)
+            or not isinstance(result, list)
+            or any(not isinstance(row, dict) for row in result)
+        ):
+            incomplete.append(name)
+            datasets[name] = []
+        else:
+            datasets[name] = result
     requested_limits = dict.fromkeys(direct_names, section_limit + 1)
     if "v1_variable_values" in required:
         v1_action_ids = sorted(
-            {_v(action.get("sys_id")) for action in datasets.get("actions_v1", []) if _v(action.get("sys_id"))}
+            {
+                _v(action.get("sys_id"))
+                for action in datasets.get("actions_v1", [])
+                if _v(action.get("sys_id"))
+            },
         )
-        datasets["v1_variable_values"] = await client.list_v1_variable_values(v1_action_ids) if v1_action_ids else []
-        requested_limits["v1_variable_values"] = min(len(v1_action_ids) * 10, 5000) if v1_action_ids else 0
-    return datasets, requested_limits
+        datasets["v1_variable_values"] = (
+            await client.list_v1_variable_values(v1_action_ids) if v1_action_ids else []
+        )
+        requested_limits["v1_variable_values"] = (
+            min(len(v1_action_ids) * 10, 5000) if v1_action_ids else 0
+        )
+    return datasets, requested_limits, incomplete
 
 
 @dataclass(frozen=True)
@@ -828,9 +1450,11 @@ class InspectionSnapshot:
     variables: list[dict[str, Any]]
     node_actions_v2: list[dict[str, Any]]
     node_logic_v2: list[dict[str, Any]]
+    node_subflows_v2: list[dict[str, Any]]
     returned_triggers_v2: list[dict[str, Any]]
     returned_triggers_v1: list[dict[str, Any]]
     record_triggers: list[dict[str, Any]]
+    trigger_definitions: dict[str, dict[str, Any]]
     action_type_rows: list[dict[str, Any]]
     action_input_rows: list[dict[str, Any]]
     action_output_rows: list[dict[str, Any]]
@@ -857,7 +1481,9 @@ async def _load_inspection(
         return _error("Either sys_id or name is required.")
     if sys_id:
         validate_sys_id(sys_id)
-    selected_sections, section_error = _parse_sections(sections, is_contract=is_contract)
+    selected_sections, section_error = _parse_sections(
+        sections, is_contract=is_contract
+    )
     if section_error is not None:
         return _error(section_error)
     effective_limit = max(
@@ -879,8 +1505,24 @@ async def _load_inspection(
         master = _v(header.get("master_snapshot"))
         latest = _v(header.get("latest_snapshot"))
         drift = bool(master and latest and master != latest)
-        datasets, requested_limits = await _fetch_flow_datasets(client, resolved_sys_id, required, effective_limit)
+        datasets, requested_limits, incomplete = await _fetch_flow_datasets(
+            client,
+            resolved_sys_id,
+            required,
+            effective_limit,
+        )
         truncation: dict[str, dict[str, Any]] = {}
+        for section in selected_sections:
+            missing = sorted(set(incomplete) & _SECTION_DEPENDENCIES[section])
+            if missing:
+                truncation[section] = {
+                    "incomplete_datasets": missing,
+                    "limitation": "The read failed or returned malformed rows. Counts for these datasets are unknown.",
+                    "continuation": (
+                        "Retry the read with the required table and field access. Do not infer absent steps from "
+                        "this result."
+                    ),
+                }
         stages: dict[str, Any] = {"semantics": "", "sources": []}
         if "stages" in selected_sections:
             stages, truncated_stage_sources = await _flow_stages(
@@ -902,7 +1544,7 @@ async def _load_inspection(
                             ),
                         }
                         for source in truncated_stage_sources
-                    ]
+                    ],
                 }
         inputs = _bounded_rows(
             datasets.get("inputs", []),
@@ -942,85 +1584,131 @@ async def _load_inspection(
         )
         actions_v2 = datasets.get("actions_v2", [])
         logic_v2 = datasets.get("logic_v2", [])
+        subflows_v2 = datasets.get("subflows_v2", [])
         triggers_v2 = datasets.get("triggers_v2", [])
         triggers_v1 = datasets.get("triggers_v1", [])
         node_actions_v2 = actions_v2
         node_logic_v2 = logic_v2
+        node_subflows_v2 = subflows_v2
         returned_triggers_v2 = triggers_v2
         returned_triggers_v1 = triggers_v1
         if "structural_summary" in selected_sections:
-            truncated_datasets = _saturated_datasets(datasets, requested_limits, _STRUCTURAL_DATASETS)
+            truncated_datasets = _saturated_datasets(
+                datasets, requested_limits, _STRUCTURAL_DATASETS
+            )
             if truncated_datasets:
-                truncation["structural_summary"] = {
-                    "datasets": truncated_datasets,
-                    "returned_per_dataset": effective_limit,
-                    "continuation": _continuation(
-                        section_limit=effective_limit,
-                        max_row_limit=settings.max_row_limit,
-                        flow_sys_id=resolved_sys_id,
-                        source_datasets=tuple(truncated_datasets),
-                    ),
-                }
+                truncation.setdefault("structural_summary", {}).update(
+                    {
+                        "datasets": truncated_datasets,
+                        "returned_per_dataset": effective_limit,
+                        "continuation": _continuation(
+                            section_limit=effective_limit,
+                            max_row_limit=settings.max_row_limit,
+                            flow_sys_id=resolved_sys_id,
+                            source_datasets=tuple(truncated_datasets),
+                        ),
+                    },
+                )
 
         if "warnings" in selected_sections:
-            saturated_dependencies = _saturated_datasets(datasets, requested_limits, _STRUCTURAL_DATASETS)
+            saturated_dependencies = _saturated_datasets(
+                datasets, requested_limits, _STRUCTURAL_DATASETS
+            )
             if saturated_dependencies:
-                truncation["warnings"] = {
-                    "datasets": saturated_dependencies,
-                    "limitation": "Warning analysis covers only the probed rows for the saturated dependencies.",
-                    "continuation": _warning_continuation(
-                        section_limit=effective_limit,
-                        max_row_limit=settings.max_row_limit,
-                        flow_sys_id=resolved_sys_id,
-                    ),
-                }
+                truncation.setdefault("warnings", {}).update(
+                    {
+                        "datasets": saturated_dependencies,
+                        "limitation": "Warning analysis covers only the probed rows for the saturated dependencies.",
+                        "continuation": _warning_continuation(
+                            section_limit=effective_limit,
+                            max_row_limit=settings.max_row_limit,
+                            flow_sys_id=resolved_sys_id,
+                        ),
+                    },
+                )
 
         selected_node_section = "steps" if is_contract else "canvas"
         if selected_node_section in selected_sections:
             combined_nodes = sorted(
-                [("action", row) for row in actions_v2] + [("logic", row) for row in logic_v2],
+                [("action", row) for row in actions_v2]
+                + [("logic", row) for row in logic_v2]
+                + [("subflow", row) for row in subflows_v2],
                 key=lambda item: _safe_int(_v(item[1].get("order"))),
             )
             bounded_nodes = combined_nodes[:effective_limit]
             if len(combined_nodes) > effective_limit:
-                truncation[selected_node_section] = {
-                    "returned": len(bounded_nodes),
-                    "observed_at_least": len(combined_nodes),
-                    "omitted_at_least": len(combined_nodes) - len(bounded_nodes),
-                    "continuation": _continuation(
-                        section_limit=effective_limit,
-                        max_row_limit=settings.max_row_limit,
-                        flow_sys_id=resolved_sys_id,
-                        source_datasets=("actions_v2", "logic_v2"),
-                    ),
-                }
+                truncation.setdefault(selected_node_section, {}).update(
+                    {
+                        "returned": len(bounded_nodes),
+                        "observed_at_least": len(combined_nodes),
+                        "omitted_at_least": len(combined_nodes) - len(bounded_nodes),
+                        "continuation": _continuation(
+                            section_limit=effective_limit,
+                            max_row_limit=settings.max_row_limit,
+                            flow_sys_id=resolved_sys_id,
+                            source_datasets=("actions_v2", "logic_v2", "subflows_v2"),
+                        ),
+                    },
+                )
             node_actions_v2 = [row for kind, row in bounded_nodes if kind == "action"]
             node_logic_v2 = [row for kind, row in bounded_nodes if kind == "logic"]
+            node_subflows_v2 = [row for kind, row in bounded_nodes if kind == "subflow"]
 
         if "triggers" in selected_sections:
-            all_triggers = [("v2", row) for row in triggers_v2] + [("v1", row) for row in triggers_v1]
+            all_triggers = [("v2", row) for row in triggers_v2] + [
+                ("v1", row) for row in triggers_v1
+            ]
             bounded_triggers = all_triggers[:effective_limit]
             if len(all_triggers) > effective_limit:
-                truncation["triggers"] = {
-                    "returned": len(bounded_triggers),
-                    "observed_at_least": len(all_triggers),
-                    "omitted_at_least": len(all_triggers) - len(bounded_triggers),
-                    "continuation": _continuation(
-                        section_limit=effective_limit,
-                        max_row_limit=settings.max_row_limit,
-                        flow_sys_id=resolved_sys_id,
-                        source_datasets=("triggers_v2", "triggers_v1"),
-                    ),
-                }
-            returned_triggers_v2 = [row for version, row in bounded_triggers if version == "v2"]
-            returned_triggers_v1 = [row for version, row in bounded_triggers if version == "v1"]
+                truncation.setdefault("triggers", {}).update(
+                    {
+                        "returned": len(bounded_triggers),
+                        "observed_at_least": len(all_triggers),
+                        "omitted_at_least": len(all_triggers) - len(bounded_triggers),
+                        "continuation": _continuation(
+                            section_limit=effective_limit,
+                            max_row_limit=settings.max_row_limit,
+                            flow_sys_id=resolved_sys_id,
+                            source_datasets=("triggers_v2", "triggers_v1"),
+                        ),
+                    },
+                )
+            returned_triggers_v2 = [
+                row for version, row in bounded_triggers if version == "v2"
+            ]
+            returned_triggers_v1 = [
+                row for version, row in bounded_triggers if version == "v1"
+            ]
 
+        trigger_definitions = (
+            await _load_trigger_definitions(
+                client, returned_triggers_v2, effective_limit
+            )
+            if "triggers" in selected_sections
+            else {}
+        )
         remote_ids = sorted(
-            {_v(t.get("remote_trigger_id")) for t in returned_triggers_v2 if _v(t.get("remote_trigger_id"))}
+            {
+                _v2_remote_id(t)
+                for t in returned_triggers_v2
+                if _uses_record_trigger(t) and _v2_remote_id(t)
+            },
         )
-        record_triggers = (
-            await client.list_record_triggers(remote_ids) if "triggers" in selected_sections and remote_ids else []
-        )
+        record_triggers = []
+        if "triggers" in selected_sections and remote_ids:
+            try:
+                record_triggers = await client.list_record_triggers(remote_ids)
+                if not isinstance(record_triggers, list) or any(
+                    not isinstance(row, dict) for row in record_triggers
+                ):
+                    raise ValueError("Malformed record trigger metadata")
+            except Exception:  # noqa: BLE001 — deliberately convert unexpected failures to safe diagnostics
+                record_triggers = []
+                truncation.setdefault("triggers", {}).setdefault(
+                    "incomplete_datasets", []
+                ).append(
+                    "sys_flow_record_trigger",
+                )
         if "triggers" in selected_sections and len(remote_ids) > INTERNAL_QUERY_LIMIT:
             trigger_truncation = truncation.setdefault(
                 "triggers",
@@ -1040,22 +1728,36 @@ async def _load_inspection(
                 "still apply."
             )
 
-        node_action_type_ids = {_v(a.get("action_type")) for a in node_actions_v2 if _v(a.get("action_type"))}
-        warning_action_type_ids = {_v(a.get("action_type")) for a in actions_v2 if _v(a.get("action_type"))}
+        node_action_type_ids = {
+            _v(a.get("action_type"))
+            for a in node_actions_v2
+            if _v(a.get("action_type"))
+        }
+        warning_action_type_ids = {
+            _v(a.get("action_type")) for a in actions_v2 if _v(a.get("action_type"))
+        }
         required_action_type_ids: set[str] = set()
         if selected_node_section in selected_sections:
             required_action_type_ids.update(node_action_type_ids)
         if "warnings" in selected_sections:
             required_action_type_ids.update(warning_action_type_ids)
         action_type_ids = sorted(required_action_type_ids)
-        action_type_rows = await client.get_action_type_definitions(action_type_ids) if action_type_ids else []
-        returned_action_type_ids = {_v(row.get("sys_id")) for row in action_type_rows if _v(row.get("sys_id"))}
+        action_type_rows = (
+            await client.get_action_type_definitions(action_type_ids)
+            if action_type_ids
+            else []
+        )
+        returned_action_type_ids = {
+            _v(row.get("sys_id")) for row in action_type_rows if _v(row.get("sys_id"))
+        }
         section_action_type_ids = {
             selected_node_section: node_action_type_ids,
             "warnings": warning_action_type_ids,
         }
         for section, section_type_ids in section_action_type_ids.items():
-            missing_action_type_ids = sorted(section_type_ids - returned_action_type_ids)
+            missing_action_type_ids = sorted(
+                section_type_ids - returned_action_type_ids
+            )
             if section not in selected_sections or not missing_action_type_ids:
                 continue
             section_truncation = truncation.setdefault(
@@ -1070,7 +1772,9 @@ async def _load_inspection(
                     ),
                 },
             )
-            section_truncation["missing_action_type_metadata"] = len(missing_action_type_ids)
+            section_truncation["missing_action_type_metadata"] = len(
+                missing_action_type_ids
+            )
             section_truncation["limitation"] = (
                 f"{section} covers only probed structural rows and returned action-type metadata."
             )
@@ -1086,13 +1790,21 @@ async def _load_inspection(
         node_action_type_id_list = sorted(node_action_type_ids)
         if is_contract and "steps" in selected_sections and node_action_type_id_list:
             try:
-                action_input_rows = await client.list_action_input_definitions(node_action_type_id_list)
-            except Exception as exc:
-                schema_limitations.append(f"Action input definitions are unavailable: {exc}")
+                action_input_rows = await client.list_action_input_definitions(
+                    node_action_type_id_list
+                )
+            except Exception as exc:  # noqa: BLE001 — preserve safe fallback behavior for unexpected failures
+                schema_limitations.append(
+                    f"Action input definitions are unavailable: {exc}"
+                )
             try:
-                action_output_rows = await client.list_action_output_definitions(node_action_type_id_list)
-            except Exception as exc:
-                schema_limitations.append(f"Action output definitions are unavailable: {exc}")
+                action_output_rows = await client.list_action_output_definitions(
+                    node_action_type_id_list
+                )
+            except Exception as exc:  # noqa: BLE001 — preserve safe fallback behavior for unexpected failures
+                schema_limitations.append(
+                    f"Action output definitions are unavailable: {exc}"
+                )
 
         v1_variable_values = datasets.get("v1_variable_values", [])
         v1_variable_values = _bounded_rows(
@@ -1108,7 +1820,9 @@ async def _load_inspection(
         )
 
         if "v1_variable_values" in selected_sections and _saturated_datasets(
-            datasets, requested_limits, frozenset({"actions_v1"})
+            datasets,
+            requested_limits,
+            frozenset({"actions_v1"}),
         ):
             truncation["v1_variable_values"] = {
                 "dependency_datasets": ["actions_v1"],
@@ -1137,9 +1851,11 @@ async def _load_inspection(
         variables=variables,
         node_actions_v2=node_actions_v2,
         node_logic_v2=node_logic_v2,
+        node_subflows_v2=node_subflows_v2,
         returned_triggers_v2=returned_triggers_v2,
         returned_triggers_v1=returned_triggers_v1,
         record_triggers=record_triggers,
+        trigger_definitions=trigger_definitions,
         action_type_rows=action_type_rows,
         action_input_rows=action_input_rows,
         action_output_rows=action_output_rows,
@@ -1151,7 +1867,9 @@ async def _load_inspection(
     )
 
 
-def assemble_inspection(snapshot: InspectionSnapshot, *, max_row_limit: int) -> CapabilityResult:
+def assemble_inspection(
+    snapshot: InspectionSnapshot, *, max_row_limit: int
+) -> CapabilityResult:
     """Project a loaded Flow snapshot without platform I/O."""
     resolved_sys_id = snapshot.resolved_sys_id
     header = snapshot.header
@@ -1188,25 +1906,52 @@ def assemble_inspection(snapshot: InspectionSnapshot, *, max_row_limit: int) -> 
 
     # Build lookups.
     action_type_lookup = _index_by_sys_id(action_type_rows)
-    condition_lookup: dict[str, str] = {
-        _v(row.get("sys_id")): _v(row.get("condition")) for row in record_triggers if _v(row.get("sys_id"))
-    }
+    record_lookup = _index_by_sys_id(record_triggers)
 
-    # Build canvas nodes (actions + logic, both V2), sorted by ``order``.
+    # Build V2 canvas nodes in global persisted order.
     canvas: list[dict[str, Any]] = []
     if selected_node_section in selected_sections:
         nodes: list[dict[str, Any]] = [
-            _build_v2_node(row, kind="action", action_type_lookup=action_type_lookup) for row in node_actions_v2
+            _build_v2_node(row, kind="action", action_type_lookup=action_type_lookup)
+            for row in node_actions_v2
         ]
         nodes.extend(_build_v2_node(row, kind="logic") for row in node_logic_v2)
+        nodes.extend(
+            _build_v2_node(row, kind="subflow") for row in snapshot.node_subflows_v2
+        )
         nodes.sort(key=lambda n: _safe_int(n["order"]))
+        issues = _canvas_issues(nodes)
+        if issues:
+            truncation.setdefault(selected_node_section, {}).update(
+                {"incomplete_semantics": issues}
+            )
         canvas = _assemble_canvas(nodes)
 
     # Triggers - V2 first (stitched), then V1.
     triggers: list[dict[str, Any]] = []
     if "triggers" in selected_sections:
-        triggers = [_v2_trigger_entry(row, condition_lookup=condition_lookup) for row in returned_triggers_v2]
+        triggers = [
+            _v2_trigger_entry(
+                row,
+                record_lookup=record_lookup,
+                definition_lookup=snapshot.trigger_definitions,
+            )
+            for row in returned_triggers_v2
+        ]
         triggers.extend(_v1_trigger_entry(row) for row in returned_triggers_v1)
+        trigger_issues = list(
+            dict.fromkeys(
+                issue for trigger in triggers for issue in trigger.get("warnings", [])
+            )
+        )
+        if trigger_issues:
+            trigger_truncation = truncation.setdefault("triggers", {})
+            trigger_truncation["incomplete_metadata"] = trigger_issues
+            trigger_truncation.setdefault(
+                "continuation",
+                "Read the trigger source fields and definition metadata with the required field access. Unknown "
+                "metadata does not establish inactivity.",
+            )
 
     warnings = _build_inspect_warnings(
         drift=drift,
@@ -1219,7 +1964,17 @@ def assemble_inspection(snapshot: InspectionSnapshot, *, max_row_limit: int) -> 
         logic_v2=logic_v2,
         triggers_v2=triggers_v2,
         action_type_lookup=action_type_lookup,
+        subflows_v2=datasets.get("subflows_v2", []),
     )
+    warnings.extend(
+        dict.fromkeys(
+            issue for trigger in triggers for issue in trigger.get("warnings", [])
+        )
+    )
+    if "triggers" in truncation:
+        warnings.append(
+            "Trigger metadata is incomplete. Check truncation.triggers before interpreting unknown fields."
+        )
 
     full_payload: dict[str, Any] = {
         "flow": {
@@ -1264,8 +2019,14 @@ def assemble_inspection(snapshot: InspectionSnapshot, *, max_row_limit: int) -> 
         "v1_variable_values": [_flatten_record(row) for row in v1_variable_values],
         "warnings": warnings,
     }
-    action_input_definitions = _index_action_definition_fields(action_input_rows, has_default=True)
-    action_output_definitions = _index_action_definition_fields(action_output_rows, has_default=False)
+    action_input_definitions = _index_action_definition_fields(
+        action_input_rows, has_default=True
+    )
+    action_output_definitions = _index_action_definition_fields(
+        action_output_rows, has_default=False
+    )
+    if schema_limitations and "steps" in selected_sections:
+        truncation.setdefault("steps", {})["incomplete_definitions"] = True
     assembled = (
         _build_flow_contract(
             full_payload,
@@ -1276,8 +2037,10 @@ def assemble_inspection(snapshot: InspectionSnapshot, *, max_row_limit: int) -> 
         if is_contract
         else full_payload
     )
-    if "v1_variable_values" in selected_sections and requested_limits.get("v1_variable_values") == len(
-        v1_variable_values
+    if "v1_variable_values" in selected_sections and requested_limits.get(
+        "v1_variable_values"
+    ) == len(
+        v1_variable_values,
     ):
         truncation.setdefault(
             "v1_variable_values",
@@ -1292,8 +2055,82 @@ def assemble_inspection(snapshot: InspectionSnapshot, *, max_row_limit: int) -> 
             },
         )
     assembled["structural_summary"] = _structural_summary(datasets, effective_limit)
+    assembled["structural_summary"]["complete"] = "structural_summary" not in truncation
+    metadata_sections = [
+        section
+        for section in selected_sections
+        if section not in {"flow", "published_state", "structural_summary", "warnings"}
+    ]
+    assembled["structural_summary"].update(
+        {
+            "completeness_scope": "structural_counts_only",
+            "metadata_sections": metadata_sections,
+            "metadata_complete": False
+            if any(section in truncation for section in metadata_sections)
+            else None,
+        },
+    )
+    if truncation.get("structural_summary", {}).get("incomplete_datasets"):
+        assembled["structural_summary"]["count_semantics"] = (
+            "Counts exclude unreadable datasets and are incomplete."
+        )
+        missing = truncation["structural_summary"]["incomplete_datasets"]
+        for dataset in missing:
+            assembled["structural_summary"]["counts"][dataset] = None
+        if any(
+            dataset.startswith(("actions", "logic", "subflows")) for dataset in missing
+        ):
+            assembled["structural_summary"]["node_count"] = None
+        if any(dataset.startswith("triggers") for dataset in missing):
+            assembled["structural_summary"]["trigger_count"] = None
     data = {section: assembled[section] for section in selected_sections}
     return operation_result(data=data, truncation=truncation)
+
+
+def _canvas_issues(nodes: list[dict[str, Any]]) -> list[str]:
+    """Report partial fields and malformed topology without discarding returned nodes."""
+    issues: list[str] = []
+    by_ui = {node["ui_uuid"]: node for node in nodes if node["ui_uuid"]}
+    if len(by_ui) != len(nodes):
+        issues.append(
+            "Missing or duplicate UI identities prevent complete topology readback."
+        )
+    identities = [node["sys_id"] for node in nodes]
+    if any(not value for value in identities) or len(set(identities)) != len(
+        identities
+    ):
+        issues.append("Missing or duplicate persisted step identities.")
+    orders = [node["order"] for node in nodes]
+    if any(_safe_int(value) == 10**9 for value in orders) or len(set(orders)) != len(
+        orders
+    ):
+        issues.append("Invalid or duplicate persisted step orders.")
+    for node in nodes:
+        if node.get("incomplete_semantics"):
+            issues.append(
+                "Some step fields or input bindings are unreadable or malformed."
+            )
+        if node.get("decode_error"):
+            issues.append("Some persisted input values could not be decoded.")
+        if node["kind"] == "subflow" and (
+            not node["subflow"]["sys_id"] or "wait_for_completion" not in node
+        ):
+            issues.append("A subflow definition or wait setting is unreadable.")
+        seen = {node["ui_uuid"]}
+        parent = node["parent_ui_id"]
+        while parent:
+            if (
+                parent in seen
+                or parent not in by_ui
+                or by_ui[parent]["kind"] != "logic"
+            ):
+                issues.append(
+                    "A parent is missing, cyclic, or not flow logic. Returned roots do not establish topology.",
+                )
+                break
+            seen.add(parent)
+            parent = by_ui[parent]["parent_ui_id"]
+    return list(dict.fromkeys(issues))
 
 
 async def _action_inspect(
@@ -1358,8 +2195,14 @@ async def _action_find_by_table(
 
     async with client_factory() as client:
         record_triggers = await client.find_record_triggers_by_table(table)
-        remote_ids = sorted({_v(r.get("sys_id")) for r in record_triggers if _v(r.get("sys_id"))})
-        v2_triggers = await client.list_v2_triggers_by_remote_ids(remote_ids) if remote_ids else []
+        remote_ids = sorted(
+            {_v(r.get("sys_id")) for r in record_triggers if _v(r.get("sys_id"))}
+        )
+        v2_triggers = (
+            await client.list_v2_triggers_by_remote_ids(remote_ids)
+            if remote_ids
+            else []
+        )
         v1_triggers = await client.list_v1_triggers_by_table(table)
 
         flow_versions = _collect_flow_versions(v2_triggers, v1_triggers)
@@ -1380,17 +2223,23 @@ async def _action_find_by_table(
     flow_versions = canonical_versions
     v1_unique = {fid for fid, versions in flow_versions.items() if "v1" in versions}
     v2_unique = {fid for fid, versions in flow_versions.items() if "v2" in versions}
-    flows = [_find_by_table_entry(fid, versions, canonical_meta[fid]) for fid, versions in flow_versions.items()]
+    flows = [
+        _find_by_table_entry(fid, versions, canonical_meta[fid])
+        for fid, versions in flow_versions.items()
+    ]
     warnings = []
     if unresolved_ids:
         warnings.append(
             "Some trigger flow references could not be resolved to current flow headers. "
-            "They may refer to older snapshots or inaccessible records; active state is unknown."
+            "They may refer to older snapshots or inaccessible records; active state is unknown.",
         )
-    if any(len(rows) >= INTERNAL_QUERY_LIMIT for rows in (record_triggers, v1_triggers, v2_triggers)):
+    if any(
+        len(rows) >= INTERNAL_QUERY_LIMIT
+        for rows in (record_triggers, v1_triggers, v2_triggers)
+    ):
         warnings.append(
             "Trigger discovery reached its internal row limit; results may be incomplete. "
-            "Use query with explicit fields and offset pagination on the trigger tables."
+            "Use query with explicit fields and offset pagination on the trigger tables.",
         )
 
     payload: dict[str, Any] = {
@@ -1432,7 +2281,9 @@ def _find_by_table_entry(
         "name": _d(meta.get("name")) if meta else "",
         "internal_name": _v(meta.get("internal_name")) if meta else "",
         "type": _v(meta.get("type")) if meta else "",
-        "active": (_v(meta.get("active")) == "true" if meta and "active" in meta else None),
+        "active": (
+            _v(meta.get("active")) == "true" if meta and "active" in meta else None
+        ),
         "metadata_resolved": bool(meta),
         "sys_scope": _d(meta.get("sys_scope")) if meta else "",
         "version": "+".join(sorted(versions)),
@@ -1493,12 +2344,16 @@ async def _action_list_triggers(
         v2_rows = list(filtered.get("v2") or [])
         v1_rows = list(filtered.get("v1") or [])
 
-        flow_ids = {_v(row.get("flow")) for row in v2_rows + v1_rows if _v(row.get("flow"))}
+        flow_ids = {
+            _v(row.get("flow")) for row in v2_rows + v1_rows if _v(row.get("flow"))
+        }
         flows_meta = await client.get_flows_bulk(sorted(flow_ids)) if flow_ids else []
 
     meta_by_id = _index_flow_headers(flows_meta)
 
-    triggers: list[dict[str, Any]] = [_trigger_with_flow(row, "v2", meta_by_id) for row in v2_rows]
+    triggers: list[dict[str, Any]] = [
+        _trigger_with_flow(row, "v2", meta_by_id) for row in v2_rows
+    ]
     triggers.extend(_trigger_with_flow(row, "v1", meta_by_id) for row in v1_rows)
 
     payload: dict[str, Any] = {
@@ -1515,7 +2370,7 @@ async def _action_list_triggers(
                 (
                     "Trigger search is incomplete. Counts describe returned matches only; zero does not prove absence. "
                     "Follow truncation for source queries and continuation."
-                )
+                ),
             ]
             if filtered.get("truncation")
             else None
@@ -1558,7 +2413,7 @@ def _trigger_with_flow(
 def _action_describe() -> CapabilityResult:
     """Return the action registry without making any platform calls."""
     return operation_result(
-        data={"actions": _ACTION_REGISTRY},
+        data={"actions": _ACTION_REGISTRY, "authoring": support.ledger()},
     )
 
 
@@ -1575,7 +2430,9 @@ class FlowCapability:
         client_factory: ServiceNowClientProvider | None = None,
     ) -> None:
         """Bind the operation's platform and metadata dependencies."""
-        client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
+        client_factory = client_factory or (
+            lambda: ServiceNowClient(settings, auth_provider)
+        )
 
         self.auth_provider = auth_provider
         self.client_factory = client_factory
@@ -1593,6 +2450,7 @@ class FlowCapability:
         limit: int | None = None,
         sections: list[str] | Literal["*"] | None = None,
         section_limit: int | None = None,
+        execution_sys_id: str | None = None,
     ) -> CapabilityResult:
         """Execute the flow capability with native typed inputs."""
         sys_id = "" if sys_id is None else sys_id
@@ -1615,6 +2473,16 @@ class FlowCapability:
 
         if action == "decode_values":
             return _action_decode_values(value=value)
+
+        if action in {"validate", "status"}:
+            if not sys_id:
+                raise CapabilityError("validate and status require sys_id.")
+            async with self.client_factory() as client:
+                return (
+                    await lifecycle.validate(sys_id, client)
+                    if action == "validate"
+                    else await lifecycle.status(sys_id, execution_sys_id, client)
+                )
 
         if action in {"contract", "inspect"}:
             return await _action_inspect(

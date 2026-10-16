@@ -1,8 +1,8 @@
 """Compose the local ServiceNow server with explicit capability dependencies."""
 
 import logging
-from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 from mcp.types import ToolAnnotations
@@ -35,6 +35,9 @@ from servicenow_mcp.platform.metadata.choices import ChoiceRegistry
 from servicenow_mcp.sentry import set_sentry_context, setup_sentry
 from servicenow_mcp.telemetry import HttpTelemetry, TelemetryAsyncClient
 
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
+
 
 logger = logging.getLogger(__name__)
 
@@ -47,21 +50,33 @@ def create_mcp_server(settings: Settings | None = None) -> NativeMCPServer:
     set_sentry_context(
         "server",
         {
-            "instance_url": urlparse(settings.servicenow_instance_url).hostname or "unknown",
+            "instance_url": urlparse(settings.servicenow_instance_url).hostname
+            or "unknown",
             "environment": settings.servicenow_env,
             "is_production": settings.is_production,
             "tool_package": settings.mcp_tool_package,
         },
     )
     telemetry = HttpTelemetry()
-    http = TelemetryAsyncClient(telemetry=telemetry, is_shared_pool=True, timeout=settings.httpx_timeout_seconds)
+    http = TelemetryAsyncClient(
+        telemetry=telemetry, is_shared_pool=True, timeout=settings.httpx_timeout_seconds
+    )
     clients = ServiceNowClientFactory(settings, auth, http)
     dictionary = DictionaryRegistry(settings, auth, clients, telemetry)
     choices = ChoiceRegistry(settings, auth, clients, telemetry)
     groups = get_package(settings.mcp_tool_package)
-    mutation_groups = {"record_write": "records", "attachment_write": "attachments", "service_catalog_write": "catalog"}
+    mutation_groups = {
+        "record_write": "records",
+        "attachment_write": "attachments",
+        "service_catalog_write": "catalog",
+        "flow_write": "flows",
+    }
     coordinator = MutationCoordinator(
-        settings, auth, clients, dictionary, frozenset(mutation_groups[g] for g in groups if g in mutation_groups)
+        settings,
+        auth,
+        clients,
+        dictionary,
+        frozenset(mutation_groups[g] for g in groups if g in mutation_groups),
     )
 
     @asynccontextmanager
@@ -77,8 +92,11 @@ def create_mcp_server(settings: Settings | None = None) -> NativeMCPServer:
 
     @server.tool(
         annotations=ToolAnnotations(
-            read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False
-        )
+            read_only_hint=True,
+            destructive_hint=False,
+            idempotent_hint=True,
+            open_world_hint=False,
+        ),
     )
     @tool_handler
     async def list_tool_packages() -> CapabilityResult:
@@ -86,18 +104,36 @@ def create_mcp_server(settings: Settings | None = None) -> NativeMCPServer:
         return CapabilityResult(data=list_packages())
 
     registrars = {
-        "query": lambda: query.register_tools(server, settings, auth, choices, dictionary, clients),
-        "record_read": lambda: record_read.register_tools(server, settings, auth, dictionary, clients),
-        "describe": lambda: describe.register_tools(server, settings, auth, dictionary, clients),
+        "query": lambda: query.register_tools(
+            server, settings, auth, choices, dictionary, clients
+        ),
+        "record_read": lambda: record_read.register_tools(
+            server, settings, auth, dictionary, clients
+        ),
+        "describe": lambda: describe.register_tools(
+            server, settings, auth, dictionary, clients
+        ),
         "resolve_choice": lambda: resolve_choice.register_tools(server, choices),
-        "attachment": lambda: attachment.register_tools(server, settings, auth, clients),
-        "analysis": lambda: analysis.register_tools(server, settings, auth, dictionary, clients),
-        "audit": lambda: audit.register_tools(server, settings, auth, dictionary, clients, telemetry),
+        "attachment": lambda: attachment.register_tools(
+            server, settings, auth, clients
+        ),
+        "analysis": lambda: analysis.register_tools(
+            server, settings, auth, dictionary, clients
+        ),
+        "audit": lambda: audit.register_tools(
+            server, settings, auth, dictionary, clients, telemetry
+        ),
         "flow": lambda: flow.register_tools(server, settings, auth, clients),
-        "investigate": lambda: investigate.register_tools(server, settings, auth, clients),
+        "investigate": lambda: investigate.register_tools(
+            server, settings, auth, clients
+        ),
         "cmdb": lambda: cmdb.register_tools(server, settings, auth, clients),
-        "code_search": lambda: code_search.register_tools(server, settings, auth, clients),
-        "service_catalog": lambda: service_catalog.register_tools(server, settings, auth, clients),
+        "code_search": lambda: code_search.register_tools(
+            server, settings, auth, clients
+        ),
+        "service_catalog": lambda: service_catalog.register_tools(
+            server, settings, auth, clients
+        ),
     }
     for group in groups:
         if group not in mutation_groups:

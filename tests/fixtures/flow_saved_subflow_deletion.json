@@ -1,0 +1,36 @@
+{
+  "source": {
+    "asset": "docs/designer-bundle.min.js",
+    "removeActionFromFlow": "205101-205236: filter the selected UI identity, prune parent, renumber, update stages and cache",
+    "addToDeletedInstances": "205365-205377: only action and flowlogic IDs receive tombstones",
+    "splitComponentInstancesForSavingToServer": "130432-130460: rebuild subFlowInstances from remaining components",
+    "saveFlowSaga": "99193-99197: serialize the rebuilt subFlowInstances into the complete flow PUT",
+    "provenance": "Synthetic source-derived serializer projection, not a captured server request or response"
+  },
+  "before": [
+    {
+      "id": "44444444444444444444444444444444",
+      "uiUniqueIdentifier": "call-one",
+      "order": 4,
+      "parent": "",
+      "type": "subflow",
+      "name": "Fixture subflow",
+      "subflowSysId": "55555555555555555555555555555555",
+      "inputs": [{"name": "action", "value": "REMOVE", "parameter": {"type": "choice"}}],
+      "waitForCompletion": {"value": true}
+    },
+    {
+      "id": "66666666666666666666666666666666",
+      "uiUniqueIdentifier": "call-two",
+      "order": 5,
+      "parent": "",
+      "type": "subflow",
+      "name": "Fixture subflow",
+      "subflowSysId": "55555555555555555555555555555555",
+      "inputs": [{"name": "action", "value": "KEEP", "parameter": {"type": "choice"}}],
+      "waitForCompletion": {"value": true}
+    }
+  ],
+  "after_ids": ["66666666666666666666666666666666"],
+  "wire_deletion_method": "omit selected call from complete subFlowInstances; no subflow tombstone or deleted flag"
+}

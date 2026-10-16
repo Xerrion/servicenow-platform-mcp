@@ -37,13 +37,13 @@ continue to [connect your AI app](#2-connect-your-ai-app).
 
 You can use an existing inbound application that meets the same requirements.
 
-| Requirement | Value |
-| --- | --- |
-| Client type | Public, with no client secret |
-| Authorization flow | Authorization code with PKCE |
-| PKCE method | `S256` |
-| Scope | `useraccount` |
-| Redirect URL | `http://127.0.0.1:8765/oauth/callback` |
+| Requirement        | Value                                  |
+| ------------------ | -------------------------------------- |
+| Client type        | Public, with no client secret          |
+| Authorization flow | Authorization code with PKCE           |
+| PKCE method        | `S256`                                 |
+| Scope              | `useraccount`                          |
+| Redirect URL       | `http://127.0.0.1:8765/oauth/callback` |
 
 These are connection requirements. OAuth configuration screens depend on the
 ServiceNow release and application type.
@@ -81,9 +81,7 @@ Save this as `.mcp.json` in the top-level folder you open in your AI app:
   "mcpServers": {
     "servicenow-platform": {
       "command": "uvx",
-      "args": [
-        "servicenow-platform-mcp"
-      ],
+      "args": ["servicenow-platform-mcp"],
       "env": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_OAUTH_CLIENT_ID": "your-public-client-id",
@@ -114,10 +112,7 @@ Add this configuration to `opencode.json` in your project:
   "mcp": {
     "servicenow-platform": {
       "type": "local",
-      "command": [
-        "uvx",
-        "servicenow-platform-mcp"
-      ],
+      "command": ["uvx", "servicenow-platform-mcp"],
       "enabled": true,
       "environment": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
@@ -146,9 +141,7 @@ This is a server entry, not a complete client configuration:
 ```json
 {
   "command": "uvx",
-  "args": [
-    "servicenow-platform-mcp"
-  ],
+  "args": ["servicenow-platform-mcp"],
   "env": {
     "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
     "SERVICENOW_OAUTH_CLIENT_ID": "your-public-client-id",
@@ -186,12 +179,12 @@ Continue with [ITSM work](docs/wiki/ITSM-Work.md) or
 Keep `MCP_TOOL_PACKAGE=readonly` for ordinary record inspection and investigation.
 Use a smaller custom package when you need fewer tools.
 
-| Need | Package |
-| --- | --- |
-| ITSM reads, ticket history, metadata, investigations, flows, code search, and CMDB inspection | `readonly` |
-| Queries, field descriptions, and attachment reads | `core_readonly` |
-| Record changes, attachment changes, or catalog actions | A custom package with the required groups, or `full` |
-| Check that the server starts without contacting ServiceNow | `none` |
+| Need                                                                                          | Package                                              |
+| --------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| ITSM reads, ticket history, metadata, investigations, flows, code search, and CMDB inspection | `readonly`                                           |
+| Queries, field descriptions, and attachment reads                                             | `core_readonly`                                      |
+| Record changes, attachment changes, or catalog actions                                        | A custom package with the required groups, or `full` |
+| Check that the server starts without contacting ServiceNow                                    | `none`                                               |
 
 The package defaults to `readonly`.
 Package selection does not grant ServiceNow access.
@@ -249,10 +242,7 @@ Adapt the entry to your app's configuration format:
 ```json
 {
   "command": "uv",
-  "args": [
-    "run",
-    "servicenow-platform-mcp"
-  ],
+  "args": ["run", "servicenow-platform-mcp"],
   "cwd": "/absolute/path/to/servicenow-platform-mcp",
   "env": {
     "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",

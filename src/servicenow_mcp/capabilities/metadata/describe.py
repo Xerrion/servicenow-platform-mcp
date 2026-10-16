@@ -4,9 +4,8 @@ Projection helpers live in ``servicenow_mcp.capabilities.metadata._describe_help
 """
 
 import logging
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
-from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.capabilities.contracts import CapabilityError, CapabilityResult
 from servicenow_mcp.capabilities.contracts import result as operation_result
 from servicenow_mcp.capabilities.metadata._describe_helpers import (
@@ -14,18 +13,23 @@ from servicenow_mcp.capabilities.metadata._describe_helpers import (
     _describe_impl,
     _parse_fields_filter,
 )
-from servicenow_mcp.config import Settings
 from servicenow_mcp.platform.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.platform.metadata._dictionary import DictionaryRegistry, ScriptField
 from servicenow_mcp.policy import check_table_access
 from servicenow_mcp.query_builder import ServiceNowQuery
 from servicenow_mcp.validation import validate_identifier
 
+if TYPE_CHECKING:
+    from servicenow_mcp.auth import OAuthPKCEProvider
+    from servicenow_mcp.config import Settings
+
 
 logger = logging.getLogger(__name__)
 
 
-_VALID_DESCRIBE_ACTIONS: frozenset[str] = frozenset({"list_script_fields", "list_tables"})
+_VALID_DESCRIBE_ACTIONS: frozenset[str] = frozenset(
+    {"list_script_fields", "list_tables"}
+)
 
 # sys_db_object holds thousands of rows; cap list_tables and warn on truncation.
 _LIST_TABLES_LIMIT: int = 500
@@ -106,11 +110,16 @@ async def _run_list_tables(
         )
 
     records = result.get("records", [])
-    tables = [{name: _coerce_display(row.get(name)) for name in _LIST_TABLES_FIELDS} for row in records]
+    tables = [
+        {name: _coerce_display(row.get(name)) for name in _LIST_TABLES_FIELDS}
+        for row in records
+    ]
 
     warnings: list[str] = []
     if len(tables) >= _LIST_TABLES_LIMIT:
-        warnings.append(f"Result truncated at {_LIST_TABLES_LIMIT} tables; narrow name_filter to see more.")
+        warnings.append(
+            f"Result truncated at {_LIST_TABLES_LIMIT} tables; narrow name_filter to see more."
+        )
 
     return operation_result(
         data={"tables": tables, "count": len(tables)},
@@ -127,7 +136,9 @@ class DescribeCapability:
         client_factory: ServiceNowClientProvider | None = None,
     ) -> None:
         """Bind the operation's platform and metadata dependencies."""
-        client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
+        client_factory = client_factory or (
+            lambda: ServiceNowClient(settings, auth_provider)
+        )
         if dictionary is None:
             dictionary = DictionaryRegistry(settings, auth_provider, client_factory)
         dict_registry = dictionary
@@ -157,12 +168,14 @@ class DescribeCapability:
         action = "" if action is None else action
         name_filter = "" if name_filter is None else name_filter
         field_offset = 0 if field_offset is None else field_offset
-        field_limit = DEFAULT_DESCRIBE_FIELD_LIMIT if field_limit is None else field_limit
+        field_limit = (
+            DEFAULT_DESCRIBE_FIELD_LIMIT if field_limit is None else field_limit
+        )
 
         if action:
             if action not in _VALID_DESCRIBE_ACTIONS:
                 raise CapabilityError(
-                    f"Unknown describe action {action!r}. Valid actions: {sorted(_VALID_DESCRIBE_ACTIONS)}."
+                    f"Unknown describe action {action!r}. Valid actions: {sorted(_VALID_DESCRIBE_ACTIONS)}.",
                 )
             if action == "list_tables":
                 return await _run_list_tables(name_filter, self.client_factory)
@@ -201,7 +214,11 @@ class DescribeCapability:
             data=data,
             warnings=warnings or None,
             pagination=(
-                {"offset": field_offset, "limit": field_limit, "total": data["total_field_count"]}
+                {
+                    "offset": field_offset,
+                    "limit": field_limit,
+                    "total": data["total_field_count"],
+                }
                 if not is_all_fields and not requested_fields
                 else None
             ),

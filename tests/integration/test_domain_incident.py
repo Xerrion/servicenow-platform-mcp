@@ -1,10 +1,14 @@
 """Integration tests for Incident domain tools against a live ServiceNow instance."""
 
+from typing import TYPE_CHECKING
+
 import pytest
 
-from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.config import Settings
 from servicenow_mcp.platform.client import ServiceNowClient
+
+if TYPE_CHECKING:
+    from servicenow_mcp.auth import OAuthPKCEProvider
+    from servicenow_mcp.config import Settings
 
 
 pytestmark = pytest.mark.integration
@@ -13,7 +17,9 @@ pytestmark = pytest.mark.integration
 class TestDomainIncident:
     """Test Incident domain API operations on a live instance."""
 
-    async def test_incident_list_returns_records(self, live_settings: Settings, live_auth: OAuthPKCEProvider) -> None:
+    async def test_incident_list_returns_records(
+        self, live_settings: Settings, live_auth: OAuthPKCEProvider
+    ) -> None:
         """Query incidents without filters returns results."""
         async with ServiceNowClient(live_settings, live_auth) as client:
             result = await client.query_records(
@@ -25,7 +31,9 @@ class TestDomainIncident:
         assert isinstance(result["records"], list)
         assert len(result["records"]) > 0, "No incidents found on instance"
 
-    async def test_incident_list_with_state_filter(self, live_settings: Settings, live_auth: OAuthPKCEProvider) -> None:
+    async def test_incident_list_with_state_filter(
+        self, live_settings: Settings, live_auth: OAuthPKCEProvider
+    ) -> None:
         """Query incidents filtered by active state."""
         async with ServiceNowClient(live_settings, live_auth) as client:
             result = await client.query_records(
@@ -72,9 +80,13 @@ class TestDomainIncident:
             pytest.skip("No incident found on instance")
 
         async with ServiceNowClient(live_settings, live_auth) as client:
-            record = await client.get_record("incident", incident_sys_id, fields=["number"])
+            record = await client.get_record(
+                "incident", incident_sys_id, fields=["number"]
+            )
             number = record.get("number", "")
-            assert number.startswith("INC"), f"Unexpected incident number format: {number}"
+            assert number.startswith("INC"), (
+                f"Unexpected incident number format: {number}"
+            )
 
             result = await client.query_records(
                 "incident",
@@ -86,7 +98,9 @@ class TestDomainIncident:
         assert result["records"][0]["number"] == number
 
     async def test_incident_list_with_priority_filter(
-        self, live_settings: Settings, live_auth: OAuthPKCEProvider
+        self,
+        live_settings: Settings,
+        live_auth: OAuthPKCEProvider,
     ) -> None:
         """Query incidents filtered by priority."""
         async with ServiceNowClient(live_settings, live_auth) as client:

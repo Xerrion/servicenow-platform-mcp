@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from servicenow_mcp.capabilities.contracts import CapabilityError
 from servicenow_mcp.capabilities.records.models import DiffEntry
-from servicenow_mcp.platform.client import ServiceNowClient
-from servicenow_mcp.platform.metadata._dictionary import DictionaryRegistry
 from servicenow_mcp.policy import MASK_VALUE, is_sensitive_field
 from servicenow_mcp.query_builder import ServiceNowQuery
 from servicenow_mcp.validation import validate_sys_id
+
+if TYPE_CHECKING:
+    from servicenow_mcp.platform.client import ServiceNowClient
+    from servicenow_mcp.platform.metadata._dictionary import DictionaryRegistry
 
 
 async def _check_mandatory_fields(
@@ -29,7 +31,11 @@ async def _check_mandatory_fields(
     for current in chain:
         result = await client.query_records(
             table="sys_dictionary",
-            query=ServiceNowQuery().equals("name", current).is_not_empty("element").equals("active", "true").build(),
+            query=ServiceNowQuery()
+            .equals("name", current)
+            .is_not_empty("element")
+            .equals("active", "true")
+            .build(),
             fields=["element", "mandatory"],
             limit=1000,
         )
@@ -38,7 +44,11 @@ async def _check_mandatory_fields(
             if not name or name in mandatory_fields:
                 continue
             mandatory_fields[name] = entry.get("mandatory") in ("true", True)
-    return [name for name, is_mandatory in mandatory_fields.items() if is_mandatory and data.get(name) in (None, "")]
+    return [
+        name
+        for name, is_mandatory in mandatory_fields.items()
+        if is_mandatory and data.get(name) in (None, "")
+    ]
 
 
 async def _resolve_record_sys_id(
@@ -62,10 +72,14 @@ async def _resolve_record_sys_id(
     if not records:
         raise CapabilityError(f"No record found with name={name!r} on table {table!r}.")
     if len(records) > 1:
-        raise CapabilityError(f"Ambiguous name={name!r} on table {table!r}: multiple records match.")
+        raise CapabilityError(
+            f"Ambiguous name={name!r} on table {table!r}: multiple records match."
+        )
     resolved_sys_id = records[0].get("sys_id")
     if not isinstance(resolved_sys_id, str):
-        raise CapabilityError(f"Record lookup on table {table!r} did not return a string sys_id.")
+        raise CapabilityError(
+            f"Record lookup on table {table!r} did not return a string sys_id."
+        )
     validate_sys_id(resolved_sys_id)
     return resolved_sys_id
 

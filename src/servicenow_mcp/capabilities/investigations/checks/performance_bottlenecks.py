@@ -1,15 +1,18 @@
 """Investigation: find performance bottlenecks — heavy automation, frequent jobs, long flows."""
 
 from collections import Counter
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
 
-from servicenow_mcp.capabilities.investigations.checks._models import ParamSpec, RecordFinding, param_specs
+from servicenow_mcp.capabilities.investigations.checks._models import (
+    ParamSpec,
+    RecordFinding,
+    param_specs,
+)
 from servicenow_mcp.capabilities.investigations.helpers import (
     build_investigation_result,
     parse_element_id,
     parse_int_param,
 )
-from servicenow_mcp.platform.client import ServiceNowClient
 from servicenow_mcp.policy import (
     INTERNAL_QUERY_LIMIT,
     check_table_access,
@@ -18,12 +21,19 @@ from servicenow_mcp.policy import (
 from servicenow_mcp.query_builder import ServiceNowQuery
 from servicenow_mcp.validation import validate_identifier
 
+if TYPE_CHECKING:
+    from servicenow_mcp.platform.client import ServiceNowClient
+
 
 HEAVY_AUTOMATION_THRESHOLD = 10
 
 
 PARAMS: Final[dict[str, dict[str, Any]]] = param_specs(
-    hours=ParamSpec(type="int|None", default=None, description="Lookback window in hours; omit to query all history."),
+    hours=ParamSpec(
+        type="int|None",
+        default=None,
+        description="Lookback window in hours; omit to query all history.",
+    ),
     limit=ParamSpec(type="int", default=20, description="Max findings per category."),
 )
 
@@ -72,9 +82,12 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
                     category="heavy_automation",
                     element_id=table_name,
                     name=table_name,
-                    detail=f"Table '{table_name}' has {count} active business rules (threshold: {HEAVY_AUTOMATION_THRESHOLD})",
+                    detail=(
+                        f"Table '{table_name}' has {count} active business rules "
+                        f"(threshold: {HEAVY_AUTOMATION_THRESHOLD})"
+                    ),
                     br_count=count,
-                ).to_payload()
+                ).to_payload(),
             )
 
     # 2. Frequent scheduled jobs
@@ -103,7 +116,7 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
                 name=masked_rec.get("name", ""),
                 detail=f"Active scheduled job: {masked_rec.get('name', '')}",
                 run_type=masked_rec.get("run_type", ""),
-            ).to_payload()
+            ).to_payload(),
         )
 
     # 3. Long-running flows (still IN_PROGRESS)
@@ -125,7 +138,7 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
                 element_id=f"sys_flow_context:{masked_rec.get('sys_id', '')}",
                 name=masked_rec.get("name", ""),
                 detail=f"Flow in progress since {masked_rec.get('sys_created_on', '')}",
-            ).to_payload()
+            ).to_payload(),
         )
 
     return build_investigation_result(
@@ -172,7 +185,12 @@ async def explain(client: ServiceNowClient, element_id: str) -> dict[str, Any]:
 
     check_table_access("sys_script")
 
-    br_query = ServiceNowQuery().equals("collection", element_id).equals("active", "true").build()
+    br_query = (
+        ServiceNowQuery()
+        .equals("collection", element_id)
+        .equals("active", "true")
+        .build()
+    )
     br_result = await client.query_records(
         "sys_script",
         br_query,

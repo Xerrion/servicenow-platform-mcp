@@ -13,7 +13,7 @@ build/
 .zed/
 
 # Virtual environments
-.venv/
+.venv*/
 venv/
 ENV/
 
@@ -55,3 +55,4 @@ Thumbs.db
 docs/ServiceNowDocs/
 
 .playwright-mcp/
+/.tooling-backups/

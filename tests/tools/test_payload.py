@@ -1,7 +1,8 @@
 """Native JSON payload boundaries preserve values and reject unsafe objects."""
 
+from typing import TYPE_CHECKING
+
 import pytest
-from pydantic import JsonValue
 
 from servicenow_mcp.capabilities.contracts import (
     MAX_JSON_DEPTH,
@@ -9,6 +10,9 @@ from servicenow_mcp.capabilities.contracts import (
     CapabilityError,
     validate_payload,
 )
+
+if TYPE_CHECKING:
+    from pydantic import JsonValue
 
 
 def nested(depth: int) -> dict[str, JsonValue]:
@@ -23,7 +27,18 @@ def test_native_values_are_preserved() -> None:
     assert validate_payload(value, field_name="data") == value
 
 
-@pytest.mark.parametrize("value", ['{"a":1}', "null", [], None, {"a": float("nan")}, {"a": float("inf")}, {"a": b"x"}])
+@pytest.mark.parametrize(
+    "value",
+    [
+        '{"a":1}',
+        "null",
+        [],
+        None,
+        {"a": float("nan")},
+        {"a": float("inf")},
+        {"a": b"x"},
+    ],
+)
 def test_invalid_native_values_fail(value) -> None:
     with pytest.raises(CapabilityError):
         validate_payload(value, field_name="data")
@@ -48,4 +63,6 @@ def test_utf8_size_boundary() -> None:
 def test_non_identifier_variable_keys_are_optional() -> None:
     with pytest.raises(ValueError, match="Invalid identifier"):
         validate_payload({"invalid-key": 1}, field_name="data")
-    assert validate_payload({"invalid-key": 1}, field_name="variables", validate_keys=False)
+    assert validate_payload(
+        {"invalid-key": 1}, field_name="variables", validate_keys=False
+    )

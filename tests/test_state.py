@@ -6,13 +6,19 @@ from unittest.mock import patch
 import pytest
 
 from servicenow_mcp.capabilities.contracts import CapabilityError
-from servicenow_mcp.capabilities.mutations.models import RecordCommand, StagedMutation, retained_bytes
+from servicenow_mcp.capabilities.mutations.models import (
+    RecordCommand,
+    StagedMutation,
+    retained_bytes,
+)
 from servicenow_mcp.capabilities.mutations.store import PreviewTokenStore
 
 
 def staged() -> StagedMutation:
     return StagedMutation(
-        command=RecordCommand(action="create", table="incident", data={"nested": {"value": 1}}),
+        command=RecordCommand(
+            action="create", table="incident", data={"nested": {"value": 1}}
+        ),
         instance="https://test.service-now.com",
         authorization_generation=1,
     )
@@ -37,10 +43,15 @@ async def test_owned_command_consumes_once() -> None:
 
 @pytest.mark.parametrize(("elapsed", "valid"), [(59, True), (60, True), (61, False)])
 async def test_monotonic_expiry(elapsed: int, valid: bool) -> None:
-    with patch("servicenow_mcp.capabilities.mutations.store.time.monotonic", return_value=1000):
+    with patch(
+        "servicenow_mcp.capabilities.mutations.store.time.monotonic", return_value=1000
+    ):
         store = PreviewTokenStore(ttl_seconds=60)
         token = await store.create(staged())
-    with patch("servicenow_mcp.capabilities.mutations.store.time.monotonic", return_value=1000 + elapsed):
+    with patch(
+        "servicenow_mcp.capabilities.mutations.store.time.monotonic",
+        return_value=1000 + elapsed,
+    ):
         if valid:
             assert await store.consume(token)
         else:
@@ -52,7 +63,9 @@ async def test_monotonic_expiry(elapsed: int, valid: bool) -> None:
 async def test_one_concurrent_consumer_wins() -> None:
     store = PreviewTokenStore()
     token = await store.create(staged())
-    results = await asyncio.gather(*(store.consume(token) for _ in range(10)), return_exceptions=True)
+    results = await asyncio.gather(
+        *(store.consume(token) for _ in range(10)), return_exceptions=True
+    )
     assert sum(isinstance(value, StagedMutation) for value in results) == 1
     assert sum(isinstance(value, CapabilityError) for value in results) == 9
     assert len(store) == 0
@@ -60,11 +73,15 @@ async def test_one_concurrent_consumer_wins() -> None:
 
 async def test_entry_capacity_and_expiry_reclamation() -> None:
     store = PreviewTokenStore(max_size=1)
-    with patch("servicenow_mcp.capabilities.mutations.store.time.monotonic", return_value=1000):
+    with patch(
+        "servicenow_mcp.capabilities.mutations.store.time.monotonic", return_value=1000
+    ):
         await store.create(staged())
         with pytest.raises(CapabilityError, match="capacity"):
             await store.create(staged())
-    with patch("servicenow_mcp.capabilities.mutations.store.time.monotonic", return_value=1301):
+    with patch(
+        "servicenow_mcp.capabilities.mutations.store.time.monotonic", return_value=1301
+    ):
         assert await store.create(staged())
     assert len(store) == 1
     await store.clear()

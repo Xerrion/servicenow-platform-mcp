@@ -1,16 +1,22 @@
 """Investigation: find stale automations — stuck flows, disabled scripts, stale jobs."""
 
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
 
-from servicenow_mcp.capabilities.investigations.checks._models import ParamSpec, RecordFinding, param_specs
+from servicenow_mcp.capabilities.investigations.checks._models import (
+    ParamSpec,
+    RecordFinding,
+    param_specs,
+)
 from servicenow_mcp.capabilities.investigations.helpers import (
     build_investigation_result,
     fetch_and_explain,
     parse_int_param,
 )
-from servicenow_mcp.platform.client import ServiceNowClient
 from servicenow_mcp.policy import check_table_access, mask_sensitive_fields
 from servicenow_mcp.query_builder import ServiceNowQuery
+
+if TYPE_CHECKING:
+    from servicenow_mcp.platform.client import ServiceNowClient
 
 
 _ALLOWED_TABLES = {
@@ -47,7 +53,12 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
 
     # 1. Stuck flow contexts (IN_PROGRESS created before cutoff)
     check_table_access("sys_flow_context")
-    flow_query = ServiceNowQuery().equals("state", "IN_PROGRESS").older_than_days("sys_created_on", stale_days).build()
+    flow_query = (
+        ServiceNowQuery()
+        .equals("state", "IN_PROGRESS")
+        .older_than_days("sys_created_on", stale_days)
+        .build()
+    )
     flow_result = await client.query_records(
         "sys_flow_context",
         flow_query,
@@ -62,7 +73,7 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
                 element_id=f"sys_flow_context:{masked_rec.get('sys_id', '')}",
                 name=masked_rec.get("name", ""),
                 detail=f"Flow stuck in IN_PROGRESS since {masked_rec.get('sys_created_on', '')}",
-            ).to_payload()
+            ).to_payload(),
         )
 
     # 2. Disabled business rules
@@ -82,7 +93,7 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
                 element_id=f"sys_script:{masked_rec.get('sys_id', '')}",
                 name=masked_rec.get("name", ""),
                 detail=f"Disabled BR on table '{masked_rec.get('collection', '')}'",
-            ).to_payload()
+            ).to_payload(),
         )
 
     # 3. Disabled script includes
@@ -102,7 +113,7 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
                 element_id=f"sys_script_include:{masked_rec.get('sys_id', '')}",
                 name=masked_rec.get("name", ""),
                 detail=f"Disabled script include '{masked_rec.get('api_name', '')}'",
-            ).to_payload()
+            ).to_payload(),
         )
 
     # 4. Stale scheduled jobs (repeating triggers with no recent activity)
@@ -117,7 +128,15 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
     sj_result = await client.query_records(
         "sys_trigger",
         sj_query,
-        fields=["sys_id", "name", "sys_updated_on", "next_action", "trigger_type", "run_count", "error_count"],
+        fields=[
+            "sys_id",
+            "name",
+            "sys_updated_on",
+            "next_action",
+            "trigger_type",
+            "run_count",
+            "error_count",
+        ],
         limit=limit,
     )
     for rec in sj_result["records"]:
@@ -132,7 +151,7 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
                     f"last activity {masked_rec.get('sys_updated_on', 'unknown')}, "
                     f"next_action={masked_rec.get('next_action', 'none')}"
                 ),
-            ).to_payload()
+            ).to_payload(),
         )
 
     return build_investigation_result(
@@ -149,25 +168,25 @@ def _build_explanation(table: str, sys_id: str, record: dict[str, Any]) -> list[
     if table == "sys_flow_context":
         explanation_parts.append(
             f"Flow '{record.get('name', '')}' has been in state "
-            f"'{record.get('state', '')}' since {record.get('sys_created_on', '')}."
+            f"'{record.get('state', '')}' since {record.get('sys_created_on', '')}.",
         )
         explanation_parts.append(
-            "Consider cancelling this flow if it is no longer needed, or investigate why it is stuck."
+            "Consider cancelling this flow if it is no longer needed, or investigate why it is stuck.",
         )
     elif table == "sys_script":
         explanation_parts.append(
-            f"Business rule '{record.get('name', '')}' is disabled. Review whether it should be removed or re-enabled."
+            f"Business rule '{record.get('name', '')}' is disabled. Review whether it should be removed or re-enabled.",
         )
     elif table == "sys_script_include":
         explanation_parts.append(
-            f"Script include '{record.get('name', '')}' is disabled. Check if any other scripts reference it."
+            f"Script include '{record.get('name', '')}' is disabled. Check if any other scripts reference it.",
         )
     elif table == "sys_trigger":
         last_activity = record.get("sys_updated_on", "unknown")
         next_action = record.get("next_action", "none")
         explanation_parts.append(
             f"Scheduled trigger '{record.get('name', '')}' last activity was {last_activity} "
-            f"(next_action={next_action}). Verify the underlying job is still needed."
+            f"(next_action={next_action}). Verify the underlying job is still needed.",
         )
 
     return explanation_parts
@@ -179,6 +198,8 @@ async def explain(client: ServiceNowClient, element_id: str) -> dict[str, Any]:
     element_id format: "table:sys_id" (e.g. "sys_flow_context:fc001").
     """
     try:
-        return await fetch_and_explain(client, element_id, _ALLOWED_TABLES, _build_explanation)
+        return await fetch_and_explain(
+            client, element_id, _ALLOWED_TABLES, _build_explanation
+        )
     except ValueError as e:
         return {"error": str(e)}

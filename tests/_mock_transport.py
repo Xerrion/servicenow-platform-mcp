@@ -8,10 +8,9 @@ import inspect
 import re
 from collections.abc import Awaitable, Callable, Iterator
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Self
 
 import httpx2
-
 
 Handler = Callable[[httpx2.Request], httpx2.Response | Awaitable[httpx2.Response]]
 SideEffect = Handler | BaseException | type[BaseException] | list[Any] | Iterator[Any]
@@ -40,7 +39,12 @@ class CallList(list[Call]):
 
 
 def _copy(response: httpx2.Response, request: httpx2.Request) -> httpx2.Response:
-    return httpx2.Response(response.status_code, headers=response.headers, content=response.content, request=request)
+    return httpx2.Response(
+        response.status_code,
+        headers=response.headers,
+        content=response.content,
+        request=request,
+    )
 
 
 @dataclass(eq=False)
@@ -62,9 +66,16 @@ class Route:
     def respond(self, status_code: int = 200, **kwargs: Any) -> Route:
         return self.mock(return_value=httpx2.Response(status_code, **kwargs))
 
-    def mock(self, *, return_value: httpx2.Response | None = None, side_effect: SideEffect | None = None) -> Route:
+    def mock(
+        self,
+        *,
+        return_value: httpx2.Response | None = None,
+        side_effect: SideEffect | None = None,
+    ) -> Route:
         self.return_value = return_value
-        self.side_effect = iter(side_effect) if isinstance(side_effect, list) else side_effect
+        self.side_effect = (
+            iter(side_effect) if isinstance(side_effect, list) else side_effect
+        )
         return self
 
     def matches(self, request: httpx2.Request) -> bool:
@@ -86,7 +97,9 @@ class Route:
         effect = self.side_effect
         if isinstance(effect, Iterator):
             effect = next(effect)
-        if isinstance(effect, BaseException) or (isinstance(effect, type) and issubclass(effect, BaseException)):
+        if isinstance(effect, BaseException) or (
+            isinstance(effect, type) and issubclass(effect, BaseException)
+        ):
             raise effect
         if isinstance(effect, httpx2.Response):
             return _copy(effect, request)
@@ -95,7 +108,9 @@ class Route:
             if inspect.isawaitable(response):
                 response = await response
             if not isinstance(response, httpx2.Response):
-                raise TypeError(f"Mock side effect must return httpx2.Response, got {response!r}")
+                raise TypeError(
+                    f"Mock side effect must return httpx2.Response, got {response!r}"
+                )
             return response
         if effect is not None:
             raise TypeError(f"Unsupported mock side effect: {effect!r}")
@@ -112,7 +127,7 @@ class HTTPMock:
         self.calls: CallList = CallList()
         self.unexpected: list[httpx2.Request] = []
 
-    def __enter__(self) -> HTTPMock:
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *_exc: object) -> None:
@@ -144,10 +159,14 @@ class HTTPMock:
         return self.route(method="DELETE", url=url)
 
     async def handle(self, request: httpx2.Request) -> httpx2.Response:
-        route = next((candidate for candidate in self.routes if candidate.matches(request)), None)
+        route = next(
+            (candidate for candidate in self.routes if candidate.matches(request)), None
+        )
         if route is None:
             self.unexpected.append(request)
-            raise AssertionError(f"Unexpected HTTP request: {request.method} {request.url}")
+            raise AssertionError(
+                f"Unexpected HTTP request: {request.method} {request.url}"
+            )
         try:
             response = await route.resolve(request)
         except BaseException:

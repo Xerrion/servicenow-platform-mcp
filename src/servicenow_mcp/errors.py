@@ -42,14 +42,18 @@ class NotFoundError(ServiceNowMCPError):
 class ServerError(ServiceNowMCPError):
     """ServiceNow server error (HTTP 5xx)."""
 
-    def __init__(self, message: str = "Internal server error", status_code: int = 500) -> None:
+    def __init__(
+        self, message: str = "Internal server error", status_code: int = 500
+    ) -> None:
         super().__init__(message, status_code=status_code)
 
 
 class PolicyError(ServiceNowMCPError):
     """Access denied by policy (deny list, masking, etc.)."""
 
-    def __init__(self, message: str = "Policy violation", status_code: int = 403) -> None:
+    def __init__(
+        self, message: str = "Policy violation", status_code: int = 403
+    ) -> None:
         super().__init__(message, status_code=status_code)
 
 

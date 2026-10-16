@@ -9,7 +9,6 @@ from urllib.parse import urlsplit
 from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
 _DEFAULT_LARGE_TABLES = "syslog,sys_audit,syslog_transaction,sys_email_log"
 
 
@@ -62,7 +61,9 @@ class Settings(BaseSettings):
             or any(char.isspace() for char in v)
             or (port is not None and port == 0)
         ):
-            raise ValueError("servicenow_instance_url must be an https:// origin without credentials, path or query")
+            raise ValueError(
+                "servicenow_instance_url must be an https:// origin without credentials, path or query"
+            )
         return v.rstrip("/")
 
     @model_validator(mode="after")
@@ -75,7 +76,7 @@ class Settings(BaseSettings):
         ):
             raise ValueError(
                 "Basic Auth and API keys are no longer supported. Remove SERVICENOW_USERNAME, "
-                "SERVICENOW_PASSWORD and SERVICENOW_API_KEY; configure ServiceNow OAuth authorization-code flow."
+                "SERVICENOW_PASSWORD and SERVICENOW_API_KEY; configure ServiceNow OAuth authorization-code flow.",
             )
         return self
 
@@ -83,7 +84,11 @@ class Settings(BaseSettings):
     @classmethod
     def validate_oauth_client_id(cls, v: str) -> str:
         """Require a non-empty printable ASCII client ID."""
-        if not v.strip() or not v.isascii() or any(ord(char) < 32 or ord(char) == 127 for char in v):
+        if (
+            not v.strip()
+            or not v.isascii()
+            or any(ord(char) < 32 or ord(char) == 127 for char in v)
+        ):
             raise ValueError("OAuth client ID must be non-empty printable ASCII")
         return v.strip()
 
@@ -91,8 +96,12 @@ class Settings(BaseSettings):
     @classmethod
     def validate_oauth_scope(cls, v: str) -> str:
         """Require one or more printable ASCII OAuth scope tokens."""
-        if not re.fullmatch(r"[\x21\x23-\x5B\x5D-\x7E]+(?: [\x21\x23-\x5B\x5D-\x7E]+)*", v):
-            raise ValueError("OAuth scope must contain printable ASCII scope tokens separated by single spaces")
+        if not re.fullmatch(
+            r"[\x21\x23-\x5B\x5D-\x7E]+(?: [\x21\x23-\x5B\x5D-\x7E]+)*", v
+        ):
+            raise ValueError(
+                "OAuth scope must contain printable ASCII scope tokens separated by single spaces"
+            )
         return v
 
     @field_validator("servicenow_oauth_redirect_uri")
@@ -111,7 +120,9 @@ class Settings(BaseSettings):
             or not 1024 <= port <= 65535
             or v != f"http://127.0.0.1:{port}/oauth/callback"
         ):
-            raise ValueError("OAuth redirect URI must be http://127.0.0.1:<port>/oauth/callback (port 1024-65535)")
+            raise ValueError(
+                "OAuth redirect URI must be http://127.0.0.1:<port>/oauth/callback (port 1024-65535)"
+            )
         return v
 
     @field_validator("servicenow_oauth_timeout_seconds")
@@ -169,7 +180,9 @@ class Settings(BaseSettings):
     @cached_property
     def large_table_names(self) -> frozenset[str]:
         """Parse comma-separated large table names into a frozenset."""
-        return frozenset(t.strip() for t in self.large_table_names_csv.split(",") if t.strip())
+        return frozenset(
+            t.strip() for t in self.large_table_names_csv.split(",") if t.strip()
+        )
 
     @property
     def is_production(self) -> bool:

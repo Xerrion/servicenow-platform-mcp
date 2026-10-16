@@ -41,13 +41,13 @@ tool needs instance data.
 
 ## ServiceNow connection settings
 
-| Variable | Default | Accepted value and purpose |
-| --- | --- | --- |
-| `SERVICENOW_INSTANCE_URL` | Required | An HTTPS instance address with no credentials, page path, query, or fragment. The server removes a trailing slash. |
-| `SERVICENOW_OAUTH_CLIENT_ID` | Required | A non-empty public client ID using printable ASCII. The server removes surrounding spaces. |
-| `SERVICENOW_OAUTH_SCOPE` | `useraccount` | One or more enabled OAuth scope tokens, separated by single spaces. |
-| `SERVICENOW_OAUTH_REDIRECT_URI` | `http://127.0.0.1:8765/oauth/callback` | The exact registered callback URL. Use `127.0.0.1`, port `1024` to `65535`, and `/oauth/callback`. |
-| `SERVICENOW_OAUTH_TIMEOUT_SECONDS` | `180` | Browser authorization wait in seconds. Allowed range: `1` to `600`. |
+| Variable                           | Default                                | Accepted value and purpose                                                                                         |
+| ---------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `SERVICENOW_INSTANCE_URL`          | Required                               | An HTTPS instance address with no credentials, page path, query, or fragment. The server removes a trailing slash. |
+| `SERVICENOW_OAUTH_CLIENT_ID`       | Required                               | A non-empty public client ID using printable ASCII. The server removes surrounding spaces.                         |
+| `SERVICENOW_OAUTH_SCOPE`           | `useraccount`                          | One or more enabled OAuth scope tokens, separated by single spaces.                                                |
+| `SERVICENOW_OAUTH_REDIRECT_URI`    | `http://127.0.0.1:8765/oauth/callback` | The exact registered callback URL. Use `127.0.0.1`, port `1024` to `65535`, and `/oauth/callback`.                 |
+| `SERVICENOW_OAUTH_TIMEOUT_SECONDS` | `180`                                  | Browser authorization wait in seconds. Allowed range: `1` to `600`.                                                |
 
 The callback cannot use `localhost`, another path, query parameters, or fragments.
 If you change its port, register the complete new URL in ServiceNow too.
@@ -59,10 +59,10 @@ is not a valid scope value.
 
 ## Tools and write protection
 
-| Variable | Default | Accepted value and purpose |
-| --- | --- | --- |
-| `MCP_TOOL_PACKAGE` | `readonly` | A preset package or comma-separated group names. See [[Tool-Packages]]. |
-| `SERVICENOW_ENV` | `prod` | `dev` and `test` permit mutations. `prod` and `production`, ignoring case, block them. Unknown values fail startup. |
+| Variable           | Default    | Accepted value and purpose                                                                                          |
+| ------------------ | ---------- | ------------------------------------------------------------------------------------------------------------------- |
+| `MCP_TOOL_PACKAGE` | `readonly` | A preset package or comma-separated group names. See [[Tool-Packages]].                                             |
+| `SERVICENOW_ENV`   | `prod`     | `dev` and `test` permit mutations. `prod` and `production`, ignoring case, block them. Unknown values fail startup. |
 
 Use `readonly` or a smaller read package for ordinary ITSM work.
 Enabling a tool does not grant permission to use its ServiceNow resources.
@@ -73,9 +73,9 @@ See [[Safety-and-Policy]] before changing these settings.
 
 ## Read limits
 
-| Variable | Default | Accepted value and purpose |
-| --- | --- | --- |
-| `MAX_ROW_LIMIT` | `100` | A row cap for paths that use this setting. Allowed range: `1` to `10000`. |
+| Variable                | Default                                             | Accepted value and purpose                                                                             |
+| ----------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `MAX_ROW_LIMIT`         | `100`                                               | A row cap for paths that use this setting. Allowed range: `1` to `10000`.                              |
 | `LARGE_TABLE_NAMES_CSV` | `syslog,sys_audit,syslog_transaction,sys_email_log` | Comma-separated large-table names for date-filter checks on query lists, aggregates, and CMDB queries. |
 
 `MAX_ROW_LIMIT` is not a global response-size limit or a database scan limit.
@@ -86,10 +86,10 @@ See [[Tool-Reference]] for each tool's pagination and limits.
 
 ## Request timeouts and metadata freshness
 
-| Variable | Default | Accepted value and purpose |
-| --- | --- | --- |
-| `HTTPX_TIMEOUT_SECONDS` | `30.0` | Connection, read, write, and pool timeout in seconds. Must be finite, from `1.0` to `600.0`. |
-| `METADATA_CACHE_TTL_SECONDS` | `300` | How long cached metadata stays fresh, in seconds. Allowed range: `1` to `86400`. |
+| Variable                     | Default | Accepted value and purpose                                                                   |
+| ---------------------------- | ------- | -------------------------------------------------------------------------------------------- |
+| `HTTPX_TIMEOUT_SECONDS`      | `30.0`  | Connection, read, write, and pool timeout in seconds. Must be finite, from `1.0` to `600.0`. |
+| `METADATA_CACHE_TTL_SECONDS` | `300`   | How long cached metadata stays fresh, in seconds. Allowed range: `1` to `86400`.             |
 
 The HTTP timeout applies to ServiceNow operations. It is not a total MCP request deadline.
 Your AI app may stop waiting before the server completes a request.
@@ -102,10 +102,10 @@ Lower cache durations increase metadata requests.
 
 ## Optional error reporting
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `SENTRY_DSN` | Unset | Enables Sentry error reporting when configured. |
-| `SENTRY_ENVIRONMENT` | Unset | Error-reporting environment label. Falls back to `SERVICENOW_ENV`. |
+| Variable             | Default | Purpose                                                            |
+| -------------------- | ------- | ------------------------------------------------------------------ |
+| `SENTRY_DSN`         | Unset   | Enables Sentry error reporting when configured.                    |
+| `SENTRY_ENVIRONMENT` | Unset   | Error-reporting environment label. Falls back to `SERVICENOW_ENV`. |
 
 Leave both settings unset when your organization does not use Sentry for this server.
 See [[Telemetry]] for reporting behavior and data limits.

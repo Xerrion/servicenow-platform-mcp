@@ -1,10 +1,14 @@
 """Integration tests for record tools against a live ServiceNow instance."""
 
+from typing import TYPE_CHECKING
+
 import pytest
 
-from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.config import Settings
 from servicenow_mcp.platform.client import ServiceNowClient
+
+if TYPE_CHECKING:
+    from servicenow_mcp.auth import OAuthPKCEProvider
+    from servicenow_mcp.config import Settings
 
 
 pytestmark = pytest.mark.integration
@@ -24,7 +28,9 @@ class TestRecordIntegration:
             pytest.skip("No incident found on instance")
 
         async with ServiceNowClient(live_settings, live_auth) as client:
-            record = await client.get_record("incident", incident_sys_id, display_values=True)
+            record = await client.get_record(
+                "incident", incident_sys_id, display_values=True
+            )
             ref_fields = await client.query_records(
                 "sys_dictionary",
                 "name=incident^internal_type=reference",
@@ -42,7 +48,9 @@ class TestRecordIntegration:
         # An incident should have at least some populated reference fields
         assert isinstance(outgoing, list)
 
-    async def test_rel_references_to(self, live_settings: Settings, live_auth: OAuthPKCEProvider) -> None:
+    async def test_rel_references_to(
+        self, live_settings: Settings, live_auth: OAuthPKCEProvider
+    ) -> None:
         """rel_references_to: find tables that reference the incident table."""
         async with ServiceNowClient(live_settings, live_auth) as client:
             ref_fields = await client.query_records(
@@ -52,5 +60,7 @@ class TestRecordIntegration:
                 limit=50,
             )
 
-        referencing_tables = list({f.get("name", "") for f in ref_fields["records"] if f.get("name")})
+        referencing_tables = list(
+            {f.get("name", "") for f in ref_fields["records"] if f.get("name")}
+        )
         assert len(referencing_tables) > 0, "No tables reference incident"

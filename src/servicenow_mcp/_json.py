@@ -4,12 +4,15 @@ from typing import Any
 
 from pydantic import ConfigDict, JsonValue, TypeAdapter, ValidationError
 
-
 # Inbound parsing and tool output keep NaN/Infinity as JSON constants, matching the prior stdlib contract.
-JSON: TypeAdapter[Any] = TypeAdapter(Any, config=ConfigDict(ser_json_inf_nan="constants"))
+JSON: TypeAdapter[Any] = TypeAdapter(
+    Any, config=ConfigDict(ser_json_inf_nan="constants")
+)
 
 # Outbound request bodies must be strict JSON: ServiceNow cannot parse NaN, Infinity or Python-only types.
-_OUTBOUND: TypeAdapter[JsonValue] = TypeAdapter(JsonValue, config=ConfigDict(allow_inf_nan=False))
+_OUTBOUND: TypeAdapter[JsonValue] = TypeAdapter(
+    JsonValue, config=ConfigDict(allow_inf_nan=False)
+)
 
 
 def dump_request_body(data: Any) -> bytes:
@@ -22,5 +25,5 @@ def dump_request_body(data: Any) -> bytes:
         return _OUTBOUND.dump_json(_OUTBOUND.validate_python(data))
     except ValidationError:
         raise ValueError(
-            "Request body is not JSON compliant: NaN, Infinity and non-JSON values are not allowed."
+            "Request body is not JSON compliant: NaN, Infinity and non-JSON values are not allowed.",
         ) from None

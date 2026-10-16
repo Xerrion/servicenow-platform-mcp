@@ -1,17 +1,20 @@
 """Caller-facing facade for ServiceNow REST API families."""
 
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
-import httpx2
-
-from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.config import Settings
 from servicenow_mcp.platform._client_attachments import AttachmentApiClient
 from servicenow_mcp.platform._client_catalog import ServiceCatalogApiClient
 from servicenow_mcp.platform._client_cmdb import CmdbApiClient
 from servicenow_mcp.platform._client_code_search import CodeSearchApiClient
 from servicenow_mcp.platform._client_flow import FlowDesignerApiClient
 from servicenow_mcp.platform._client_table import TableApiClient
+
+if TYPE_CHECKING:
+    import httpx2
+
+    from servicenow_mcp.auth import OAuthPKCEProvider
+    from servicenow_mcp.config import Settings
 
 
 class ServiceNowClient(

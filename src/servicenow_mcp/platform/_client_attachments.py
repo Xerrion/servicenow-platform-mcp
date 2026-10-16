@@ -50,7 +50,9 @@ class AttachmentApiClient(ServiceNowRequestClient):
 
     async def get_attachment(self, sys_id: str) -> dict[str, Any]:
         """Fetch attachment metadata by sys_id."""
-        response = await self._ensure_client().get(self._attachment_url(sys_id), headers=await self._headers())
+        response = await self._ensure_client().get(
+            self._attachment_url(sys_id), headers=await self._headers()
+        )
         self._raise_for_status(response)
         return self._extract_json_result(response)
 
@@ -67,7 +69,11 @@ class AttachmentApiClient(ServiceNowRequestClient):
         """Upload binary content as an attachment."""
         validate_identifier(table_name)
         validate_sys_id(table_sys_id)
-        params = {"table_name": table_name, "table_sys_id": table_sys_id, "file_name": file_name}
+        params = {
+            "table_name": table_name,
+            "table_sys_id": table_sys_id,
+            "file_name": file_name,
+        }
         if encryption_context:
             params["encryption_context"] = encryption_context
         if creation_time:
@@ -85,12 +91,16 @@ class AttachmentApiClient(ServiceNowRequestClient):
 
     async def download_attachment(self, sys_id: str) -> bytes:
         """Download attachment content by sys_id."""
-        response = await self._ensure_client().get(self._attachment_file_url(sys_id), headers=await self._headers())
+        response = await self._ensure_client().get(
+            self._attachment_file_url(sys_id), headers=await self._headers()
+        )
         self._raise_for_status(response)
         return response.content
 
     async def delete_attachment(self, sys_id: str) -> bool:
         """Delete an attachment by sys_id."""
-        response = await self._ensure_client().delete(self._attachment_url(sys_id), headers=await self._headers())
+        response = await self._ensure_client().delete(
+            self._attachment_url(sys_id), headers=await self._headers()
+        )
         self._raise_for_status(response)
         return True

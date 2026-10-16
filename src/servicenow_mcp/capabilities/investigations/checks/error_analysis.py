@@ -1,22 +1,32 @@
 """Investigation: analyze and cluster syslog errors."""
 
 from collections import defaultdict
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
 
-from servicenow_mcp.capabilities.investigations.checks._models import ErrorClusterFinding, ParamSpec, param_specs
+from servicenow_mcp.capabilities.investigations.checks._models import (
+    ErrorClusterFinding,
+    ParamSpec,
+    param_specs,
+)
 from servicenow_mcp.capabilities.investigations.helpers import (
     build_investigation_result,
     fetch_and_explain,
     parse_int_param,
 )
-from servicenow_mcp.platform.client import ServiceNowClient
 from servicenow_mcp.policy import check_table_access, mask_sensitive_fields
 from servicenow_mcp.query_builder import ServiceNowQuery
+
+if TYPE_CHECKING:
+    from servicenow_mcp.platform.client import ServiceNowClient
 
 
 PARAMS: Final[dict[str, dict[str, Any]]] = param_specs(
     hours=ParamSpec(type="int", default=24, description="Lookback window in hours."),
-    source=ParamSpec(type="str|None", default=None, description="Optional source-name filter (LIKE match)."),
+    source=ParamSpec(
+        type="str|None",
+        default=None,
+        description="Optional source-name filter (LIKE match).",
+    ),
     limit=ParamSpec(type="int", default=100, description="Max log entries to fetch."),
 )
 
@@ -69,7 +79,7 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
                 last_seen=max(timestamps) if timestamps else "",
                 sample_messages=sample_messages,
                 element_id=f"syslog:{entries[0].get('sys_id', '')}",
-            ).to_payload()
+            ).to_payload(),
         )
 
     return build_investigation_result(
@@ -97,6 +107,8 @@ async def explain(client: ServiceNowClient, element_id: str) -> dict[str, Any]:
     element_id format: "syslog:sys_id".
     """
     try:
-        return await fetch_and_explain(client, element_id, {"syslog"}, _build_explanation)
+        return await fetch_and_explain(
+            client, element_id, {"syslog"}, _build_explanation
+        )
     except ValueError as e:
         return {"error": str(e)}

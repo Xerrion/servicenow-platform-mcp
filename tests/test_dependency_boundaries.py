@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-
 SOURCE = Path(__file__).parents[1] / "src/servicenow_mcp"
 
 
@@ -28,6 +27,11 @@ def test_lower_layers_have_no_transport_imports(directory: str) -> None:
             else:
                 continue
             for name in names:
-                if any(name == prefix or name.startswith(prefix + ".") for prefix in forbidden):
-                    violations.append(f"{path.relative_to(SOURCE)}:{node.lineno}: {name}")
+                if any(
+                    name == prefix or name.startswith(prefix + ".")
+                    for prefix in forbidden
+                ):
+                    violations.append(
+                        f"{path.relative_to(SOURCE)}:{node.lineno}: {name}"
+                    )
     assert not violations, "\n".join(violations)

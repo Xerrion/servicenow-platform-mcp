@@ -1,10 +1,14 @@
 """Integration tests for Problem Management domain tools against a live ServiceNow instance."""
 
+from typing import TYPE_CHECKING
+
 import pytest
 
-from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.config import Settings
 from servicenow_mcp.platform.client import ServiceNowClient
+
+if TYPE_CHECKING:
+    from servicenow_mcp.auth import OAuthPKCEProvider
+    from servicenow_mcp.config import Settings
 
 
 pytestmark = pytest.mark.integration
@@ -13,7 +17,9 @@ pytestmark = pytest.mark.integration
 class TestDomainProblem:
     """Test Problem Management domain API operations on a live instance."""
 
-    async def test_problem_list_returns_records(self, live_settings: Settings, live_auth: OAuthPKCEProvider) -> None:
+    async def test_problem_list_returns_records(
+        self, live_settings: Settings, live_auth: OAuthPKCEProvider
+    ) -> None:
         """Query problems without filters."""
         async with ServiceNowClient(live_settings, live_auth) as client:
             result = await client.query_records(
@@ -59,9 +65,13 @@ class TestDomainProblem:
             pytest.skip("No problem found on instance")
 
         async with ServiceNowClient(live_settings, live_auth) as client:
-            record = await client.get_record("problem", problem_sys_id, fields=["number"])
+            record = await client.get_record(
+                "problem", problem_sys_id, fields=["number"]
+            )
             number = record.get("number", "")
-            assert number.startswith("PRB"), f"Unexpected problem number format: {number}"
+            assert number.startswith("PRB"), (
+                f"Unexpected problem number format: {number}"
+            )
 
             result = await client.query_records(
                 "problem",
@@ -71,7 +81,9 @@ class TestDomainProblem:
             )
         assert len(result["records"]) == 1
 
-    async def test_problem_list_with_state_filter(self, live_settings: Settings, live_auth: OAuthPKCEProvider) -> None:
+    async def test_problem_list_with_state_filter(
+        self, live_settings: Settings, live_auth: OAuthPKCEProvider
+    ) -> None:
         """Query problems filtered by state (new)."""
         async with ServiceNowClient(live_settings, live_auth) as client:
             result = await client.query_records(
@@ -83,7 +95,9 @@ class TestDomainProblem:
         assert isinstance(result["records"], list)
 
     async def test_problem_list_with_priority_filter(
-        self, live_settings: Settings, live_auth: OAuthPKCEProvider
+        self,
+        live_settings: Settings,
+        live_auth: OAuthPKCEProvider,
     ) -> None:
         """Query problems filtered by priority."""
         async with ServiceNowClient(live_settings, live_auth) as client:

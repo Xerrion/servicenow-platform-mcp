@@ -1,14 +1,20 @@
 """Investigation: find deprecated API patterns in scripts."""
 
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
 
-from servicenow_mcp.capabilities.investigations.checks._models import DeprecatedApiFinding, ParamSpec, param_specs
+from servicenow_mcp.capabilities.investigations.checks._models import (
+    DeprecatedApiFinding,
+    ParamSpec,
+    param_specs,
+)
 from servicenow_mcp.capabilities.investigations.helpers import (
     build_investigation_result,
     fetch_and_explain,
     parse_int_param,
 )
-from servicenow_mcp.platform.client import ServiceNowClient
+
+if TYPE_CHECKING:
+    from servicenow_mcp.platform.client import ServiceNowClient
 
 
 # Legacy Java Packages calls have documented supported replacements.
@@ -81,6 +87,8 @@ async def explain(client: ServiceNowClient, element_id: str) -> dict[str, Any]:
     element_id format: "table:sys_id".
     """
     try:
-        return await fetch_and_explain(client, element_id, _ALLOWED_TABLES, _build_explanation)
+        return await fetch_and_explain(
+            client, element_id, _ALLOWED_TABLES, _build_explanation
+        )
     except ValueError as e:
         return {"error": str(e)}

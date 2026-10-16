@@ -12,15 +12,15 @@ Use HTTPX2 for all application-owned outbound HTTP and Pydantic for data models,
 
 ## Context & Decisions
 
-| Decision | Rationale | Source |
-| --- | --- | --- |
-| Use explicit `httpx2` imports throughout production code and tests. No `import httpx2 as httpx` compatibility layer. | Keep client types, exception types, instrumentation, and mock transports consistent. | `ref:6b1c3635-22a6-45c9-acbf-8796518a7b43`; `src/servicenow_mcp/auth.py`, `client.py`, `_client_transport.py`, `telemetry.py`. |
-| Start with `httpx2>=2.12.0,<3`, retaining 2.12.0 in the migration lockfile. | The existing MCP dependency already resolves this version. Do not combine consolidation with an unrelated version upgrade. | `ref:6b1c3635-22a6-45c9-acbf-8796518a7b43`; `uv.lock`; [HTTPX2 exports](https://github.com/pydantic/httpx2/blob/v2.12.0/src/httpx2/httpx2/__init__.py). |
-| Replace RESPX with HTTPX2-native `MockTransport` fixtures. | RESPX depends on and patches the old HTTPX/httpcore stack. A compatibility plugin that retains RESPX does not meet the consolidation goal. | `ref:6b1c3635-22a6-45c9-acbf-8796518a7b43`; [RESPX mock implementation](https://github.com/lundberg/respx/blob/0.23.1/respx/mocks.py); [HTTPX2 transports](https://pydantic.dev/docs/httpx2/advanced/transports/). |
-| Leave Sentry configuration, transport, and dependencies unchanged. | The user explicitly approved this exception. Sentry's urllib3 dependency is not part of this migration. | User decision, 2026-09-15: "Lad sentry være som den er." |
-| Use Pydantic `BaseModel` for application-owned data models and `TypeAdapter` for dynamic JSON values. | One modeling approach without imposing a fixed schema on arbitrary ServiceNow tables. | Confirmed user scope; `ref:6b1c3635-22a6-45c9-acbf-8796518a7b43`; [Pydantic JSON](https://pydantic.dev/docs/validation/latest/concepts/json/). |
-| Keep standard Python runtime machinery. | Pydantic does not replace asyncio, locks, ContextVar, logging, clocks, collections, regex, compression, or binary processing. | Confirmed user scope; `metadata_cache.py`, `state.py`, `oauth_callback.py`. |
-| Preserve timeout diagnostics, tool signatures, and response shapes. | This migration must not discard the current work or silently change agent-visible behavior. HTTPX2 is not a proven fix for the reported timeouts. | `ref:6b1c3635-22a6-45c9-acbf-8796518a7b43`; `tests/test_timeout_diagnostics.py`, `tests/test_response_contract.py`. |
+| Decision                                                                                                             | Rationale                                                                                                                                         | Source                                                                                                                                                                                                             |
+| -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Use explicit `httpx2` imports throughout production code and tests. No `import httpx2 as httpx` compatibility layer. | Keep client types, exception types, instrumentation, and mock transports consistent.                                                              | `ref:6b1c3635-22a6-45c9-acbf-8796518a7b43`; `src/servicenow_mcp/auth.py`, `client.py`, `_client_transport.py`, `telemetry.py`.                                                                                     |
+| Start with `httpx2>=2.12.0,<3`, retaining 2.12.0 in the migration lockfile.                                          | The existing MCP dependency already resolves this version. Do not combine consolidation with an unrelated version upgrade.                        | `ref:6b1c3635-22a6-45c9-acbf-8796518a7b43`; `uv.lock`; [HTTPX2 exports](https://github.com/pydantic/httpx2/blob/v2.12.0/src/httpx2/httpx2/__init__.py).                                                            |
+| Replace RESPX with HTTPX2-native `MockTransport` fixtures.                                                           | RESPX depends on and patches the old HTTPX/httpcore stack. A compatibility plugin that retains RESPX does not meet the consolidation goal.        | `ref:6b1c3635-22a6-45c9-acbf-8796518a7b43`; [RESPX mock implementation](https://github.com/lundberg/respx/blob/0.23.1/respx/mocks.py); [HTTPX2 transports](https://pydantic.dev/docs/httpx2/advanced/transports/). |
+| Leave Sentry configuration, transport, and dependencies unchanged.                                                   | The user explicitly approved this exception. Sentry's urllib3 dependency is not part of this migration.                                           | User decision, 2026-09-15: "Lad sentry være som den er."                                                                                                                                                           |
+| Use Pydantic `BaseModel` for application-owned data models and `TypeAdapter` for dynamic JSON values.                | One modeling approach without imposing a fixed schema on arbitrary ServiceNow tables.                                                             | Confirmed user scope; `ref:6b1c3635-22a6-45c9-acbf-8796518a7b43`; [Pydantic JSON](https://pydantic.dev/docs/validation/latest/concepts/json/).                                                                     |
+| Keep standard Python runtime machinery.                                                                              | Pydantic does not replace asyncio, locks, ContextVar, logging, clocks, collections, regex, compression, or binary processing.                     | Confirmed user scope; `metadata_cache.py`, `state.py`, `oauth_callback.py`.                                                                                                                                        |
+| Preserve timeout diagnostics, tool signatures, and response shapes.                                                  | This migration must not discard the current work or silently change agent-visible behavior. HTTPX2 is not a proven fix for the reported timeouts. | `ref:6b1c3635-22a6-45c9-acbf-8796518a7b43`; `tests/test_timeout_diagnostics.py`, `tests/test_response_contract.py`.                                                                                                |
 
 ## Verified scope
 
@@ -36,16 +36,16 @@ Inventory source: `ref:6b1c3635-22a6-45c9-acbf-8796518a7b43`. Refresh counts and
 
 ### Existing model conversion map
 
-| Owner under `src/servicenow_mcp/` | Models | Protected behavior |
-| --- | --- | --- |
-| `auth.py` | `AccessToken` | Frozen value, secret-free repr/serialization, monotonic expiry. |
-| `telemetry.py` | `ToolTrace`, `CacheTelemetrySnapshot`, `HttpTelemetrySnapshot` | Mutable shared trace identity; frozen snapshots; request counts. |
-| `metadata_cache.py` | `_CacheEntry` | Frozen generic entry; cached value identity; TTL and invalidation. |
-| `tools/_dictionary_models.py` | `ScriptField`, `DictionaryField` | Frozen values, independent metadata defaults, unknown fields retained. |
-| `tools/_query_parsing.py` | `AggregatePlan`, `LabelPair`, `Projection` | Frozen values, independent lists, derived properties, projection shape. |
-| `tools/_query_preparation.py` | `AggregateRequest`, `ListRequest` | Mode validation and limit behavior. |
-| `tools/_record_write_validation.py` | `WriteRequest` | Action constraints and write-policy ordering. |
-| `tools/_audit.py` | `FieldAudit` | Missing evidence remains distinct from false; no-audit precedence. |
+| Owner under `src/servicenow_mcp/`   | Models                                                         | Protected behavior                                                      |
+| ----------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `auth.py`                           | `AccessToken`                                                  | Frozen value, secret-free repr/serialization, monotonic expiry.         |
+| `telemetry.py`                      | `ToolTrace`, `CacheTelemetrySnapshot`, `HttpTelemetrySnapshot` | Mutable shared trace identity; frozen snapshots; request counts.        |
+| `metadata_cache.py`                 | `_CacheEntry`                                                  | Frozen generic entry; cached value identity; TTL and invalidation.      |
+| `tools/_dictionary_models.py`       | `ScriptField`, `DictionaryField`                               | Frozen values, independent metadata defaults, unknown fields retained.  |
+| `tools/_query_parsing.py`           | `AggregatePlan`, `LabelPair`, `Projection`                     | Frozen values, independent lists, derived properties, projection shape. |
+| `tools/_query_preparation.py`       | `AggregateRequest`, `ListRequest`                              | Mode validation and limit behavior.                                     |
+| `tools/_record_write_validation.py` | `WriteRequest`                                                 | Action constraints and write-policy ordering.                           |
+| `tools/_audit.py`                   | `FieldAudit`                                                   | Missing evidence remains distinct from false; no-audit precedence.      |
 
 Service objects such as clients, registries, query builders, caches, and token stores remain service objects. Their structured entries or payloads can be models; their locks and algorithms are not replaced.
 

@@ -14,13 +14,17 @@ import httpx2
 import pytest
 from pydantic import SecretStr
 
-from servicenow_mcp.auth import AccessToken, OAuthPKCEProvider, _parse_token, create_auth
+from servicenow_mcp.auth import (
+    AccessToken,
+    OAuthPKCEProvider,
+    _parse_token,
+    create_auth,
+)
 from servicenow_mcp.config import Settings
 from servicenow_mcp.errors import AuthError
 from servicenow_mcp.oauth_callback import _callback_result, receive_authorization_code
 from servicenow_mcp.platform.client import ServiceNowClient
 from tests._mock_transport import http_mock
-
 
 pytestmark = pytest.mark.loopback()
 
@@ -28,7 +32,9 @@ BASE_URL = "https://test.service-now.com"
 REDIRECT = "http://127.0.0.1:8765/oauth/callback"
 
 
-def _request(query: str, *, host: str = "127.0.0.1:8765", path: str = "/oauth/callback") -> bytes:
+def _request(
+    query: str, *, host: str = "127.0.0.1:8765", path: str = "/oauth/callback"
+) -> bytes:
     return f"GET {path}?{query} HTTP/1.1\r\nHost: {host}\r\n\r\n".encode()
 
 
@@ -56,12 +62,16 @@ async def _send(redirect_uri: str, query: str) -> bytes:
 async def _assert_closed(redirect_uri: str) -> None:
     with pytest.raises(ConnectionRefusedError):
         await asyncio.open_connection("127.0.0.1", urlsplit(redirect_uri).port)
-    server = await asyncio.start_server(lambda reader, writer: writer.close(), "127.0.0.1", urlsplit(redirect_uri).port)
+    server = await asyncio.start_server(
+        lambda reader, writer: writer.close(), "127.0.0.1", urlsplit(redirect_uri).port
+    )
     server.close()
     await server.wait_closed()
 
 
-async def test_query_401_then_reauthorize_on_same_loopback_port(settings: Settings, redirect_uri: str) -> None:
+async def test_query_401_then_reauthorize_on_same_loopback_port(
+    settings: Settings, redirect_uri: str
+) -> None:
     """A rejected token requires new browser authorization on the next tool call."""
     from mcp.server import MCPServer
 
@@ -76,7 +86,9 @@ async def test_query_401_then_reauthorize_on_same_loopback_port(settings: Settin
         params = parse_qs(urlsplit(url).query)
         authorization.append(params)
         assert params["redirect_uri"] == [redirect_uri]
-        response = await _send(redirect_uri, urlencode({"state": params["state"][0], "code": "test-code"}))
+        response = await _send(
+            redirect_uri, urlencode({"state": params["state"][0], "code": "test-code"})
+        )
         assert b"200 OK" in response
         return True
 
@@ -91,10 +103,13 @@ async def test_query_401_then_reauthorize_on_same_loopback_port(settings: Settin
                 },
             )
             for token in ("rejected-token", "fresh-token")
-        ]
+        ],
     )
     api_route = http_mock.get(f"{BASE_URL}/api/now/table/incident").mock(
-        side_effect=[httpx2.Response(401, text="private"), httpx2.Response(200, json={"result": []})]
+        side_effect=[
+            httpx2.Response(401, text="private"),
+            httpx2.Response(200, json={"result": []}),
+        ],
     )
     provider = OAuthPKCEProvider(settings)
     server = MCPServer("test")
@@ -160,7 +175,11 @@ async def test_public_pkce_loopback_exchange_and_bearer_request(
         form = parse_qs(request.content.decode(), keep_blank_values=True)
         verifier = form["code_verifier"][0]
         assert 43 <= len(verifier) <= 128
-        challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+        challenge = (
+            base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest())
+            .rstrip(b"=")
+            .decode()
+        )
         expected_form = {
             "grant_type": ["authorization_code"],
             "code": ["test-code"],
@@ -193,23 +212,40 @@ async def test_public_pkce_loopback_exchange_and_bearer_request(
             },
         )
 
-    token_route = http_mock.post(f"{BASE_URL}/oauth_token.do").mock(side_effect=exchange)
+    token_route = http_mock.post(f"{BASE_URL}/oauth_token.do").mock(
+        side_effect=exchange
+    )
     api_route = http_mock.get(f"{BASE_URL}/api/now/table/incident/test-id").respond(
-        200, json={"result": {"sys_id": "test-id"}}
+        200,
+        json={"result": {"sys_id": "test-id"}},
     )
     provider = create_auth(settings)
     assert isinstance(provider, OAuthPKCEProvider)
-    with patch("servicenow_mcp.oauth_callback.asyncio.to_thread", side_effect=browser) as launch:
+    with patch(
+        "servicenow_mcp.oauth_callback.asyncio.to_thread", side_effect=browser
+    ) as launch:
         async with ServiceNowClient(settings, provider) as client:
-            assert await client.get_record("incident", "test-id") == {"sys_id": "test-id"}
+            assert await client.get_record("incident", "test-id") == {
+                "sys_id": "test-id"
+            }
             await client.get_record("incident", "test-id")
         launch.assert_awaited_once()
     assert token_route.call_count == 1
-    assert dict(api_route.calls.last.request.url.params) == {"sysparm_display_value": "false"}
-    assert api_route.calls.last.request.headers["Authorization"] == "Bearer test+opaque/token=="
+    assert dict(api_route.calls.last.request.url.params) == {
+        "sysparm_display_value": "false"
+    }
+    assert (
+        api_route.calls.last.request.headers["Authorization"]
+        == "Bearer test+opaque/token=="
+    )
     assert "x-sn-apikey" not in api_route.calls.last.request.headers
     assert "X-Correlation-ID" in api_route.calls.last.request.headers
-    for sensitive in ("test-only-secret", "test-code", "test+opaque/token==", authorization["state"][0]):
+    for sensitive in (
+        "test-only-secret",
+        "test-code",
+        "test+opaque/token==",
+        authorization["state"][0],
+    ):
         assert sensitive not in caplog.text
     await _assert_closed(redirect_uri)
 
@@ -230,21 +266,40 @@ def test_invalid_callback_does_not_consume_grant(query: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "path", ["/favicon.ico", "http://evil.invalid/oauth/callback", "//evil.invalid/oauth/callback"]
+    "path",
+    [
+        "/favicon.ico",
+        "http://evil.invalid/oauth/callback",
+        "//evil.invalid/oauth/callback",
+    ],
 )
 def test_callback_path_is_exact(path: str) -> None:
-    assert _callback_result(_request("state=expected&code=x", path=path), REDIRECT, "expected") is None
+    assert (
+        _callback_result(
+            _request("state=expected&code=x", path=path), REDIRECT, "expected"
+        )
+        is None
+    )
 
 
 def test_callback_host_and_method_are_checked() -> None:
-    assert _callback_result(_request("state=expected&code=x", host="evil.invalid"), REDIRECT, "expected") is None
+    assert (
+        _callback_result(
+            _request("state=expected&code=x", host="evil.invalid"), REDIRECT, "expected"
+        )
+        is None
+    )
     request = _request("state=expected&code=x").replace(b"GET ", b"POST ")
     assert _callback_result(request, REDIRECT, "expected") is None
 
 
 @pytest.mark.parametrize(
     "query",
-    ["state=expected&error=access_denied&error_description=private", "state=expected", "state=expected&code=%0D%0A"],
+    [
+        "state=expected&error=access_denied&error_description=private",
+        "state=expected",
+        "state=expected&code=%0D%0A",
+    ],
 )
 def test_callback_errors_are_sanitized(query: str) -> None:
     result = _callback_result(_request(query), REDIRECT, "expected")
@@ -273,7 +328,12 @@ def test_callback_errors_are_sanitized(query: str) -> None:
 )
 def test_invalid_token_response_rejected(payload: Any) -> None:
     if isinstance(payload, dict) and payload:
-        payload = {"access_token": "test-token", "token_type": "Bearer", "expires_in": 60, **payload}
+        payload = {
+            "access_token": "test-token",
+            "token_type": "Bearer",
+            "expires_in": 60,
+            **payload,
+        }
     with pytest.raises(AuthError):
         _parse_token(payload, 100)
 
@@ -304,7 +364,9 @@ async def test_expiry_refreshes_once_and_rotates_refresh_token(
 ) -> None:
     provider = OAuthPKCEProvider(settings)
     provider._token = AccessToken(
-        value=SecretStr("expired-access"), expires_at=time.monotonic() - 1, refresh_token=SecretStr("old-refresh")
+        value=SecretStr("expired-access"),
+        expires_at=time.monotonic() - 1,
+        refresh_token=SecretStr("old-refresh"),
     )
     route = http_mock.post(f"{BASE_URL}/oauth_token.do").respond(
         200,
@@ -332,13 +394,24 @@ async def test_expiry_refreshes_once_and_rotates_refresh_token(
         "client_id": [settings.servicenow_oauth_client_id],
     }
     assert "authorization" not in route.calls.last.request.headers
-    for sensitive in ("expired-access", "old-refresh", "fresh-access", "rotated-refresh"):
+    for sensitive in (
+        "expired-access",
+        "old-refresh",
+        "fresh-access",
+        "rotated-refresh",
+    ):
         assert sensitive not in caplog.text
 
 
-async def test_refresh_response_without_rotation_keeps_existing_refresh_token(settings: Settings) -> None:
+async def test_refresh_response_without_rotation_keeps_existing_refresh_token(
+    settings: Settings,
+) -> None:
     provider = OAuthPKCEProvider(settings)
-    provider._token = AccessToken(value=SecretStr("expired"), expires_at=0, refresh_token=SecretStr("existing-refresh"))
+    provider._token = AccessToken(
+        value=SecretStr("expired"),
+        expires_at=0,
+        refresh_token=SecretStr("existing-refresh"),
+    )
     http_mock.post(f"{BASE_URL}/oauth_token.do").respond(
         200,
         json={"access_token": "fresh", "token_type": "Bearer", "expires_in": 1800},
@@ -349,9 +422,15 @@ async def test_refresh_response_without_rotation_keeps_existing_refresh_token(se
     assert provider._token.refresh_token == SecretStr("existing-refresh")
 
 
-async def test_rejected_refresh_falls_back_to_browser_authorization(settings: Settings) -> None:
+async def test_rejected_refresh_falls_back_to_browser_authorization(
+    settings: Settings,
+) -> None:
     provider = OAuthPKCEProvider(settings)
-    provider._token = AccessToken(value=SecretStr("expired"), expires_at=0, refresh_token=SecretStr("rejected-refresh"))
+    provider._token = AccessToken(
+        value=SecretStr("expired"),
+        expires_at=0,
+        refresh_token=SecretStr("rejected-refresh"),
+    )
     route = http_mock.post(f"{BASE_URL}/oauth_token.do").mock(
         side_effect=[
             httpx2.Response(400, text="private rejected-refresh"),
@@ -364,26 +443,46 @@ async def test_rejected_refresh_falls_back_to_browser_authorization(settings: Se
                     "refresh_token": "authorized-refresh",
                 },
             ),
-        ]
+        ],
     )
 
-    with patch("servicenow_mcp.auth.receive_authorization_code", return_value="test-code") as browser:
-        assert (await provider.get_headers())["Authorization"] == "Bearer authorized-access"
+    with patch(
+        "servicenow_mcp.auth.receive_authorization_code", return_value="test-code"
+    ) as browser:
+        assert (await provider.get_headers())[
+            "Authorization"
+        ] == "Bearer authorized-access"
 
     browser.assert_awaited_once()
     assert route.call_count == 2
-    refresh_form, authorization_form = [parse_qs(call.request.content.decode()) for call in route.calls]
+    refresh_form, authorization_form = [
+        parse_qs(call.request.content.decode()) for call in route.calls
+    ]
     assert set(refresh_form) == {"grant_type", "refresh_token", "client_id"}
     assert refresh_form["grant_type"] == ["refresh_token"]
-    assert set(authorization_form) == {"grant_type", "code", "redirect_uri", "client_id", "code_verifier"}
+    assert set(authorization_form) == {
+        "grant_type",
+        "code",
+        "redirect_uri",
+        "client_id",
+        "code_verifier",
+    }
     assert authorization_form["grant_type"] == ["authorization_code"]
 
 
-async def test_refresh_network_failure_preserves_token_without_opening_browser(settings: Settings) -> None:
+async def test_refresh_network_failure_preserves_token_without_opening_browser(
+    settings: Settings,
+) -> None:
     provider = OAuthPKCEProvider(settings)
-    expired = AccessToken(value=SecretStr("expired"), expires_at=0, refresh_token=SecretStr("retryable-refresh"))
+    expired = AccessToken(
+        value=SecretStr("expired"),
+        expires_at=0,
+        refresh_token=SecretStr("retryable-refresh"),
+    )
     provider._token = expired
-    http_mock.post(f"{BASE_URL}/oauth_token.do").mock(side_effect=httpx2.ConnectError("private"))
+    http_mock.post(f"{BASE_URL}/oauth_token.do").mock(
+        side_effect=httpx2.ConnectError("private")
+    )
     authorize = AsyncMock()
 
     with (
@@ -396,11 +495,19 @@ async def test_refresh_network_failure_preserves_token_without_opening_browser(s
     assert provider._token is expired
 
 
-async def test_refresh_server_failure_preserves_token_without_opening_browser(settings: Settings) -> None:
+async def test_refresh_server_failure_preserves_token_without_opening_browser(
+    settings: Settings,
+) -> None:
     provider = OAuthPKCEProvider(settings)
-    expired = AccessToken(value=SecretStr("expired"), expires_at=0, refresh_token=SecretStr("retryable-refresh"))
+    expired = AccessToken(
+        value=SecretStr("expired"),
+        expires_at=0,
+        refresh_token=SecretStr("retryable-refresh"),
+    )
     provider._token = expired
-    http_mock.post(f"{BASE_URL}/oauth_token.do").respond(500, text="private retryable-refresh")
+    http_mock.post(f"{BASE_URL}/oauth_token.do").respond(
+        500, text="private retryable-refresh"
+    )
     authorize = AsyncMock()
 
     with (
@@ -413,11 +520,19 @@ async def test_refresh_server_failure_preserves_token_without_opening_browser(se
     assert provider._token is expired
 
 
-async def test_refresh_invalid_json_preserves_token_without_opening_browser(settings: Settings) -> None:
+async def test_refresh_invalid_json_preserves_token_without_opening_browser(
+    settings: Settings,
+) -> None:
     provider = OAuthPKCEProvider(settings)
-    expired = AccessToken(value=SecretStr("expired"), expires_at=0, refresh_token=SecretStr("retryable-refresh"))
+    expired = AccessToken(
+        value=SecretStr("expired"),
+        expires_at=0,
+        refresh_token=SecretStr("retryable-refresh"),
+    )
     provider._token = expired
-    http_mock.post(f"{BASE_URL}/oauth_token.do").respond(200, text="private retryable-refresh")
+    http_mock.post(f"{BASE_URL}/oauth_token.do").respond(
+        200, text="private retryable-refresh"
+    )
     authorize = AsyncMock()
 
     with (
@@ -432,7 +547,11 @@ async def test_refresh_invalid_json_preserves_token_without_opening_browser(sett
 
 async def test_token_expired_during_refresh_is_not_stored(settings: Settings) -> None:
     provider = OAuthPKCEProvider(settings)
-    expired = AccessToken(value=SecretStr("expired"), expires_at=0, refresh_token=SecretStr("retryable-refresh"))
+    expired = AccessToken(
+        value=SecretStr("expired"),
+        expires_at=0,
+        refresh_token=SecretStr("retryable-refresh"),
+    )
     provider._token = expired
     http_mock.post(f"{BASE_URL}/oauth_token.do").respond(
         200,
@@ -453,10 +572,18 @@ async def test_token_expired_during_refresh_is_not_stored(settings: Settings) ->
     assert provider._token is expired
 
 
-async def test_expiry_requires_new_flow_and_concurrent_calls_share_it(settings: Settings) -> None:
+async def test_expiry_requires_new_flow_and_concurrent_calls_share_it(
+    settings: Settings,
+) -> None:
     provider = OAuthPKCEProvider(settings)
-    provider._token = AccessToken(value=SecretStr("expired"), expires_at=time.monotonic() - 1)
-    authorize = AsyncMock(return_value=AccessToken(value=SecretStr("fresh"), expires_at=time.monotonic() + 3600))
+    provider._token = AccessToken(
+        value=SecretStr("expired"), expires_at=time.monotonic() - 1
+    )
+    authorize = AsyncMock(
+        return_value=AccessToken(
+            value=SecretStr("fresh"), expires_at=time.monotonic() + 3600
+        )
+    )
     with patch.object(provider, "_authorize", authorize):
         results = await asyncio.gather(*(provider.get_headers() for _ in range(8)))
     authorize.assert_awaited_once()
@@ -466,10 +593,13 @@ async def test_expiry_requires_new_flow_and_concurrent_calls_share_it(settings: 
 async def test_token_expired_during_exchange_is_not_stored(settings: Settings) -> None:
     provider = OAuthPKCEProvider(settings)
     http_mock.post(f"{BASE_URL}/oauth_token.do").respond(
-        200, json={"access_token": "too-late", "token_type": "Bearer", "expires_in": 1}
+        200,
+        json={"access_token": "too-late", "token_type": "Bearer", "expires_in": 1},
     )
     with (
-        patch("servicenow_mcp.auth.receive_authorization_code", return_value="test-code") as browser,
+        patch(
+            "servicenow_mcp.auth.receive_authorization_code", return_value="test-code"
+        ) as browser,
         patch("servicenow_mcp.auth.time.monotonic", side_effect=[100, 102]),
         pytest.raises(AuthError, match="expired during exchange"),
     ):
@@ -478,7 +608,9 @@ async def test_token_expired_during_exchange_is_not_stored(settings: Settings) -
     assert provider._token is None
 
 
-async def test_failed_authorization_cannot_reuse_expired_token(settings: Settings) -> None:
+async def test_failed_authorization_cannot_reuse_expired_token(
+    settings: Settings,
+) -> None:
     provider = OAuthPKCEProvider(settings)
     provider._token = AccessToken(value=SecretStr("expired"), expires_at=0)
     with (
@@ -491,8 +623,12 @@ async def test_failed_authorization_cannot_reuse_expired_token(settings: Setting
 
 async def test_401_invalidates_without_replaying_request(settings: Settings) -> None:
     provider = OAuthPKCEProvider(settings)
-    provider._token = AccessToken(value=SecretStr("test-token"), expires_at=time.monotonic() + 3600)
-    route = http_mock.get(f"{BASE_URL}/api/now/table/incident/test-id").respond(401, json={"error": "private"})
+    provider._token = AccessToken(
+        value=SecretStr("test-token"), expires_at=time.monotonic() + 3600
+    )
+    route = http_mock.get(f"{BASE_URL}/api/now/table/incident/test-id").respond(
+        401, json={"error": "private"}
+    )
     async with ServiceNowClient(settings, provider) as client:
         with pytest.raises(AuthError, match="authorize again"):
             await client.get_record("incident", "test-id")
@@ -511,7 +647,7 @@ async def test_401_preserves_refresh_token_for_next_request(settings: Settings) 
         side_effect=[
             httpx2.Response(401, json={"error": "private"}),
             httpx2.Response(200, json={"result": {"sys_id": "test-id"}}),
-        ]
+        ],
     )
     token_route = http_mock.post(f"{BASE_URL}/oauth_token.do").respond(
         200,
@@ -530,12 +666,17 @@ async def test_401_preserves_refresh_token_for_next_request(settings: Settings) 
                 await client.get_record("incident", "test-id")
             assert provider._token is not None
             assert provider._token.expires_at == 0
-            assert await client.get_record("incident", "test-id") == {"sys_id": "test-id"}
+            assert await client.get_record("incident", "test-id") == {
+                "sys_id": "test-id"
+            }
 
     authorize.assert_not_awaited()
     assert api_route.call_count == 2
     assert token_route.call_count == 1
-    assert api_route.calls.last.request.headers["Authorization"] == "Bearer refreshed-access"
+    assert (
+        api_route.calls.last.request.headers["Authorization"]
+        == "Bearer refreshed-access"
+    )
     assert provider._token is not None
     assert provider._token.refresh_token == SecretStr("rotated-refresh")
 
@@ -548,14 +689,18 @@ def test_stale_401_does_not_invalidate_new_token(settings: Settings) -> None:
 
 
 @pytest.mark.parametrize("status", [302, 400, 401, 500])
-async def test_exchange_failure_is_sanitized(settings: Settings, status: int, caplog: pytest.LogCaptureFixture) -> None:
+async def test_exchange_failure_is_sanitized(
+    settings: Settings, status: int, caplog: pytest.LogCaptureFixture
+) -> None:
     route = http_mock.post(f"{BASE_URL}/oauth_token.do").respond(
         status,
         text="private test-code test-access",
         headers={"Location": "https://evil.invalid"},
     )
     with (
-        patch("servicenow_mcp.auth.receive_authorization_code", return_value="test-code"),
+        patch(
+            "servicenow_mcp.auth.receive_authorization_code", return_value="test-code"
+        ),
         pytest.raises(AuthError, match=f"HTTP {status}") as exc,
     ):
         await OAuthPKCEProvider(settings).get_headers()
@@ -572,7 +717,9 @@ async def test_exchange_failure_names_configured_scope(settings: Settings) -> No
     settings = Settings(_env_file=None, **settings_data)
     http_mock.post(f"{BASE_URL}/oauth_token.do").respond(400)
     with (
-        patch("servicenow_mcp.auth.receive_authorization_code", return_value="test-code"),
+        patch(
+            "servicenow_mcp.auth.receive_authorization_code", return_value="test-code"
+        ),
         pytest.raises(AuthError, match="configured OAuth scope") as exc,
     ):
         await OAuthPKCEProvider(settings).get_headers()
@@ -580,8 +727,12 @@ async def test_exchange_failure_names_configured_scope(settings: Settings) -> No
 
 
 async def test_exchange_network_and_json_errors(settings: Settings) -> None:
-    route = http_mock.post(f"{BASE_URL}/oauth_token.do").mock(side_effect=httpx2.ConnectError("private"))
-    with patch("servicenow_mcp.auth.receive_authorization_code", return_value="test-code"):
+    route = http_mock.post(f"{BASE_URL}/oauth_token.do").mock(
+        side_effect=httpx2.ConnectError("private")
+    )
+    with patch(
+        "servicenow_mcp.auth.receive_authorization_code", return_value="test-code"
+    ):
         with pytest.raises(AuthError, match="connectivity") as exc:
             await OAuthPKCEProvider(settings).get_headers()
         assert "private" not in str(exc.value)
@@ -595,7 +746,9 @@ async def test_browser_failure_closes_listener(redirect_uri: str) -> None:
         patch("servicenow_mcp.oauth_callback.webbrowser.open", return_value=False),
         pytest.raises(AuthError, match="Cannot open"),
     ):
-        await receive_authorization_code("https://example.invalid", redirect_uri, "expected", 1)
+        await receive_authorization_code(
+            "https://example.invalid", redirect_uri, "expected", 1
+        )
     await _assert_closed(redirect_uri)
 
 
@@ -604,11 +757,15 @@ async def test_timeout_closes_listener(redirect_uri: str) -> None:
         patch("servicenow_mcp.oauth_callback.webbrowser.open", return_value=True),
         pytest.raises(AuthError, match="timed out"),
     ):
-        await receive_authorization_code("https://example.invalid", redirect_uri, "expected", 1)
+        await receive_authorization_code(
+            "https://example.invalid", redirect_uri, "expected", 1
+        )
     await _assert_closed(redirect_uri)
 
 
-async def test_cancellation_closes_listener_and_partial_connections(redirect_uri: str) -> None:
+async def test_cancellation_closes_listener_and_partial_connections(
+    redirect_uri: str,
+) -> None:
     opened = asyncio.Event()
 
     async def browser(*args: Any, **kwargs: Any) -> bool:
@@ -617,9 +774,15 @@ async def test_cancellation_closes_listener_and_partial_connections(redirect_uri
         return True
 
     with patch("servicenow_mcp.oauth_callback.asyncio.to_thread", side_effect=browser):
-        task = asyncio.create_task(receive_authorization_code("https://example.invalid", redirect_uri, "expected", 10))
+        task = asyncio.create_task(
+            receive_authorization_code(
+                "https://example.invalid", redirect_uri, "expected", 10
+            )
+        )
         await opened.wait()
-        reader, writer = await asyncio.open_connection("127.0.0.1", urlsplit(redirect_uri).port)
+        reader, writer = await asyncio.open_connection(
+            "127.0.0.1", urlsplit(redirect_uri).port
+        )
         writer.write(b"GET ")
         await writer.drain()
         task.cancel()
@@ -635,33 +798,43 @@ async def test_cancellation_closes_listener_and_partial_connections(redirect_uri
 
 
 async def test_occupied_port_does_not_open_browser(redirect_uri: str) -> None:
-    server = await asyncio.start_server(lambda reader, writer: writer.close(), "127.0.0.1", urlsplit(redirect_uri).port)
+    server = await asyncio.start_server(
+        lambda reader, writer: writer.close(), "127.0.0.1", urlsplit(redirect_uri).port
+    )
     async with server:
         with (
             patch("servicenow_mcp.oauth_callback.webbrowser.open") as browser,
             pytest.raises(AuthError, match="Cannot bind"),
         ):
-            await receive_authorization_code("https://example.invalid", redirect_uri, "expected", 1)
+            await receive_authorization_code(
+                "https://example.invalid", redirect_uri, "expected", 1
+            )
         browser.assert_not_called()
 
 
 async def test_denial_closes_listener(redirect_uri: str) -> None:
     async def browser(*args: Any, **kwargs: Any) -> bool:
         del args, kwargs
-        await _send(redirect_uri, "state=expected&error=access_denied&error_description=private")
+        await _send(
+            redirect_uri, "state=expected&error=access_denied&error_description=private"
+        )
         return True
 
     with (
         patch("servicenow_mcp.oauth_callback.asyncio.to_thread", side_effect=browser),
         pytest.raises(AuthError, match="denied") as exc,
     ):
-        await receive_authorization_code("https://example.invalid", redirect_uri, "expected", 1)
+        await receive_authorization_code(
+            "https://example.invalid", redirect_uri, "expected", 1
+        )
     assert "private" not in str(exc.value)
     await _assert_closed(redirect_uri)
 
 
 @pytest.mark.parametrize("query", ["state=expected", "state=expected&code=%0D%0A"])
-async def test_malformed_state_bound_callback_closes_listener(redirect_uri: str, query: str) -> None:
+async def test_malformed_state_bound_callback_closes_listener(
+    redirect_uri: str, query: str
+) -> None:
     async def browser(*args: Any, **kwargs: Any) -> bool:
         del args, kwargs
         await _send(redirect_uri, query)
@@ -671,25 +844,33 @@ async def test_malformed_state_bound_callback_closes_listener(redirect_uri: str,
         patch("servicenow_mcp.oauth_callback.asyncio.to_thread", side_effect=browser),
         pytest.raises(AuthError, match="valid authorization code"),
     ):
-        await receive_authorization_code("https://example.invalid", redirect_uri, "expected", 1)
+        await receive_authorization_code(
+            "https://example.invalid", redirect_uri, "expected", 1
+        )
     await _assert_closed(redirect_uri)
 
 
 async def test_invalid_callback_times_out_and_releases_port(redirect_uri: str) -> None:
     async def browser(*args: Any, **kwargs: Any) -> bool:
         del args, kwargs
-        assert b"400 Bad Request" in await _send(redirect_uri, "state=wrong&code=untrusted")
+        assert b"400 Bad Request" in await _send(
+            redirect_uri, "state=wrong&code=untrusted"
+        )
         return True
 
     with (
         patch("servicenow_mcp.oauth_callback.asyncio.to_thread", side_effect=browser),
         pytest.raises(AuthError, match="timed out"),
     ):
-        await receive_authorization_code("https://example.invalid", redirect_uri, "expected", 1)
+        await receive_authorization_code(
+            "https://example.invalid", redirect_uri, "expected", 1
+        )
     await _assert_closed(redirect_uri)
 
 
-async def test_cancellation_during_listener_start_releases_port(redirect_uri: str) -> None:
+async def test_cancellation_during_listener_start_releases_port(
+    redirect_uri: str,
+) -> None:
     started = asyncio.Event()
     start_serving = asyncio.Server.start_serving
 
@@ -702,7 +883,11 @@ async def test_cancellation_during_listener_start_releases_port(redirect_uri: st
         patch("servicenow_mcp.oauth_callback.asyncio.Server.start_serving", start),
         patch("servicenow_mcp.oauth_callback.webbrowser.open") as browser,
     ):
-        task = asyncio.create_task(receive_authorization_code("https://example.invalid", redirect_uri, "expected", 10))
+        task = asyncio.create_task(
+            receive_authorization_code(
+                "https://example.invalid", redirect_uri, "expected", 10
+            )
+        )
         await started.wait()
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
@@ -713,7 +898,9 @@ async def test_cancellation_during_listener_start_releases_port(redirect_uri: st
 
 @pytest.mark.parametrize("failure", ["http", "network", "json", "token", "cancel"])
 async def test_exchange_failure_leaves_loopback_port_reusable(
-    settings: Settings, redirect_uri: str, failure: str
+    settings: Settings,
+    redirect_uri: str,
+    failure: str,
 ) -> None:
     settings.servicenow_oauth_redirect_uri = redirect_uri
     provider = OAuthPKCEProvider(settings)
@@ -738,16 +925,22 @@ async def test_exchange_failure_leaves_loopback_port_reusable(
 
     route = http_mock.post(f"{BASE_URL}/oauth_token.do").mock(side_effect=exchange)
     with patch("servicenow_mcp.oauth_callback.asyncio.to_thread", side_effect=browser):
-        with pytest.raises(asyncio.CancelledError if failure == "cancel" else AuthError):
+        with pytest.raises(
+            asyncio.CancelledError if failure == "cancel" else AuthError
+        ):
             await provider.get_headers()
         assert provider._token is None
-        route.respond(200, json={"access_token": "fresh", "token_type": "Bearer", "expires_in": 3600})
+        route.respond(
+            200,
+            json={"access_token": "fresh", "token_type": "Bearer", "expires_in": 3600},
+        )
         assert (await provider.get_headers())["Authorization"] == "Bearer fresh"
     await _assert_closed(redirect_uri)
 
 
 async def test_concurrent_authorization_and_cancelled_waiter_use_one_listener(
-    settings: Settings, redirect_uri: str
+    settings: Settings,
+    redirect_uri: str,
 ) -> None:
     settings.servicenow_oauth_redirect_uri = redirect_uri
     opened = asyncio.Event()
@@ -760,10 +953,13 @@ async def test_concurrent_authorization_and_cancelled_waiter_use_one_listener(
         return True
 
     route = http_mock.post(f"{BASE_URL}/oauth_token.do").respond(
-        200, json={"access_token": "fresh", "token_type": "Bearer", "expires_in": 3600}
+        200,
+        json={"access_token": "fresh", "token_type": "Bearer", "expires_in": 3600},
     )
     provider = OAuthPKCEProvider(settings)
-    with patch("servicenow_mcp.oauth_callback.asyncio.to_thread", side_effect=browser) as launch:
+    with patch(
+        "servicenow_mcp.oauth_callback.asyncio.to_thread", side_effect=browser
+    ) as launch:
         owner = asyncio.create_task(provider.get_headers())
         await opened.wait()
         waiters = [asyncio.create_task(provider.get_headers()) for _ in range(8)]
@@ -771,7 +967,10 @@ async def test_concurrent_authorization_and_cancelled_waiter_use_one_listener(
         waiters[0].cancel()
         with pytest.raises(asyncio.CancelledError):
             await waiters[0]
-        await _send(redirect_uri, urlencode({"state": authorization["state"][0], "code": "test-code"}))
+        await _send(
+            redirect_uri,
+            urlencode({"state": authorization["state"][0], "code": "test-code"}),
+        )
         headers = await asyncio.gather(owner, *waiters[1:])
         assert all(item["Authorization"] == "Bearer fresh" for item in headers)
         launch.assert_awaited_once()
@@ -779,7 +978,9 @@ async def test_concurrent_authorization_and_cancelled_waiter_use_one_listener(
     await _assert_closed(redirect_uri)
 
 
-async def test_cancelled_owner_allows_waiting_call_to_reauthorize(settings: Settings, redirect_uri: str) -> None:
+async def test_cancelled_owner_allows_waiting_call_to_reauthorize(
+    settings: Settings, redirect_uri: str
+) -> None:
     settings.servicenow_oauth_redirect_uri = redirect_uri
     opened = asyncio.Event()
     states: list[str] = []
@@ -791,7 +992,8 @@ async def test_cancelled_owner_allows_waiting_call_to_reauthorize(settings: Sett
         return True
 
     route = http_mock.post(f"{BASE_URL}/oauth_token.do").respond(
-        200, json={"access_token": "fresh", "token_type": "Bearer", "expires_in": 3600}
+        200,
+        json={"access_token": "fresh", "token_type": "Bearer", "expires_in": 3600},
     )
     provider = OAuthPKCEProvider(settings)
     with patch("servicenow_mcp.oauth_callback.asyncio.to_thread", side_effect=browser):
@@ -800,12 +1002,16 @@ async def test_cancelled_owner_allows_waiting_call_to_reauthorize(settings: Sett
         opened.clear()
         waiter = asyncio.create_task(provider.get_headers())
         # A rejected request leaves TCP cleanup to exercise reuse after cancellation.
-        assert b"400 Bad Request" in await _send(redirect_uri, "state=wrong&code=untrusted")
+        assert b"400 Bad Request" in await _send(
+            redirect_uri, "state=wrong&code=untrusted"
+        )
         owner.cancel()
         with pytest.raises(asyncio.CancelledError):
             await asyncio.wait_for(asyncio.shield(owner), timeout=0.5)
         await asyncio.wait_for(opened.wait(), timeout=1)
-        assert b"400 Bad Request" in await _send(redirect_uri, urlencode({"state": states[0], "code": "old"}))
+        assert b"400 Bad Request" in await _send(
+            redirect_uri, urlencode({"state": states[0], "code": "old"})
+        )
         await _send(redirect_uri, urlencode({"state": states[1], "code": "new"}))
         assert (await waiter)["Authorization"] == "Bearer fresh"
     assert states[0] != states[1]
@@ -814,7 +1020,9 @@ async def test_cancelled_owner_allows_waiting_call_to_reauthorize(settings: Sett
 
 
 @pytest.mark.parametrize("has_callback", [True, False])
-async def test_flow_exit_closes_idle_browser_connection(redirect_uri: str, has_callback: bool) -> None:
+async def test_flow_exit_closes_idle_browser_connection(
+    redirect_uri: str, has_callback: bool
+) -> None:
     opened = asyncio.Event()
 
     async def browser(*args: Any, **kwargs: Any) -> bool:
@@ -823,13 +1031,22 @@ async def test_flow_exit_closes_idle_browser_connection(redirect_uri: str, has_c
         return True
 
     with patch("servicenow_mcp.oauth_callback.asyncio.to_thread", side_effect=browser):
-        task = asyncio.create_task(receive_authorization_code("https://example.invalid", redirect_uri, "expected", 1))
+        task = asyncio.create_task(
+            receive_authorization_code(
+                "https://example.invalid", redirect_uri, "expected", 1
+            )
+        )
         await opened.wait()
-        reader, writer = await asyncio.open_connection("127.0.0.1", urlsplit(redirect_uri).port)
+        reader, writer = await asyncio.open_connection(
+            "127.0.0.1", urlsplit(redirect_uri).port
+        )
         try:
             if has_callback:
                 await _send(redirect_uri, "state=expected&code=accepted")
-                assert await asyncio.wait_for(asyncio.shield(task), timeout=0.5) == "accepted"
+                assert (
+                    await asyncio.wait_for(asyncio.shield(task), timeout=0.5)
+                    == "accepted"
+                )
             else:
                 with pytest.raises(AuthError, match="timed out"):
                     await asyncio.wait_for(asyncio.shield(task), timeout=1.5)
@@ -846,7 +1063,11 @@ async def test_flow_exit_closes_idle_browser_connection(redirect_uri: str, has_c
 async def test_expired_exchange_result_is_never_sent(settings: Settings) -> None:
     provider = OAuthPKCEProvider(settings)
     with (
-        patch.object(provider, "_authorize", return_value=AccessToken(value=SecretStr("expired"), expires_at=0)),
+        patch.object(
+            provider,
+            "_authorize",
+            return_value=AccessToken(value=SecretStr("expired"), expires_at=0),
+        ),
         pytest.raises(AuthError, match="expired during authorization"),
     ):
         await provider.get_headers()
@@ -854,7 +1075,9 @@ async def test_expired_exchange_result_is_never_sent(settings: Settings) -> None
 
 
 @pytest.mark.parametrize("reason", ["expiry", "new_provider"])
-async def test_reauthorization_uses_new_state_and_verifier(settings: Settings, reason: str) -> None:
+async def test_reauthorization_uses_new_state_and_verifier(
+    settings: Settings, reason: str
+) -> None:
     urls: list[str] = []
 
     async def receive(url: str, *_args: Any) -> str:
@@ -887,14 +1110,24 @@ async def test_reauthorization_uses_new_state_and_verifier(settings: Settings, r
     assert first["code_challenge"] != second["code_challenge"]
     for call, authorization in zip(route.calls, (first, second), strict=True):
         form = parse_qs(call.request.content.decode())
-        assert set(form) == {"grant_type", "code", "redirect_uri", "client_id", "code_verifier"}
+        assert set(form) == {
+            "grant_type",
+            "code",
+            "redirect_uri",
+            "client_id",
+            "code_verifier",
+        }
         assert form["grant_type"] == ["authorization_code"]
         assert "state" not in form
-        challenge = base64.urlsafe_b64encode(hashlib.sha256(form["code_verifier"][0].encode()).digest()).rstrip(b"=")
+        challenge = base64.urlsafe_b64encode(
+            hashlib.sha256(form["code_verifier"][0].encode()).digest()
+        ).rstrip(b"=")
         assert authorization["code_challenge"] == [challenge.decode()]
 
 
-async def test_oversized_and_replayed_callbacks_do_not_replace_code(redirect_uri: str) -> None:
+async def test_oversized_and_replayed_callbacks_do_not_replace_code(
+    redirect_uri: str,
+) -> None:
     async def browser(*args: Any, **kwargs: Any) -> bool:
         del args, kwargs
         url = urlsplit(redirect_uri)
@@ -905,11 +1138,18 @@ async def test_oversized_and_replayed_callbacks_do_not_replace_code(redirect_uri
         writer.close()
         await writer.wait_closed()
         assert b"200 OK" in await _send(redirect_uri, "state=expected&code=first")
-        assert b"400 Bad Request" in await _send(redirect_uri, "state=expected&code=replay")
+        assert b"400 Bad Request" in await _send(
+            redirect_uri, "state=expected&code=replay"
+        )
         return True
 
     with patch("servicenow_mcp.oauth_callback.asyncio.to_thread", side_effect=browser):
-        assert await receive_authorization_code("https://example.invalid", redirect_uri, "expected", 2) == "first"
+        assert (
+            await receive_authorization_code(
+                "https://example.invalid", redirect_uri, "expected", 2
+            )
+            == "first"
+        )
     await _assert_closed(redirect_uri)
 
 
@@ -922,8 +1162,14 @@ async def test_auth_failure_keeps_tool_error_envelope(settings: Settings) -> Non
     provider = OAuthPKCEProvider(settings)
     server = MCPServer("test")
     register_tools(server, settings, provider)
-    with patch.object(provider, "_authorize", side_effect=AuthError("Authorization denied")):
-        result = decode_response(await get_tool_functions(server)["query"](table="incident", fields=["sys_id"]))
+    with patch.object(
+        provider, "_authorize", side_effect=AuthError("Authorization denied")
+    ):
+        result = decode_response(
+            await get_tool_functions(server)["query"](
+                table="incident", fields=["sys_id"]
+            )
+        )
     assert result["status"] == "error"
     assert result["data"] is None
     assert "correlation_id" not in result

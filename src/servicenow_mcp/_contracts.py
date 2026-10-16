@@ -2,7 +2,12 @@
 
 from typing import Any, ClassVar
 
-from pydantic import BaseModel, ConfigDict, SerializerFunctionWrapHandler, model_serializer
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    SerializerFunctionWrapHandler,
+    model_serializer,
+)
 
 
 class ContractModel(BaseModel):
@@ -14,7 +19,9 @@ class ContractModel(BaseModel):
     ``dict[str, Any]`` / ``Any`` fields and passes through unvalidated.
     """
 
-    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(
+        extra="forbid", arbitrary_types_allowed=True
+    )
     omit_when_none: ClassVar[frozenset[str]] = frozenset()
 
     @model_serializer(mode="wrap")

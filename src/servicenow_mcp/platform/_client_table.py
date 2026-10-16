@@ -57,7 +57,11 @@ class TableApiClient(ServiceNowRequestClient):
         if order_by:
             is_descending = order_by.startswith("-")
             order_field = order_by[1:] if is_descending else order_by
-            order_clause = ServiceNowQuery().order_by(order_field, descending=is_descending).build()
+            order_clause = (
+                ServiceNowQuery()
+                .order_by(order_field, descending=is_descending)
+                .build()
+            )
             effective_query = f"{query}^{order_clause}" if query else order_clause
         if effective_query:
             params["sysparm_query"] = effective_query
@@ -122,7 +126,9 @@ class TableApiClient(ServiceNowRequestClient):
         self._raise_for_status(response)
         return self._extract_json_result(response)
 
-    async def update_record(self, table: str, sys_id: str, data: dict[str, Any]) -> dict[str, Any]:
+    async def update_record(
+        self, table: str, sys_id: str, data: dict[str, Any]
+    ) -> dict[str, Any]:
         """Update a record with the Table API."""
         response = await self._ensure_client().patch(
             self._table_url(table, sys_id),

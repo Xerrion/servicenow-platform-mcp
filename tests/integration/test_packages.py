@@ -9,7 +9,6 @@ from servicenow_mcp.packages import PACKAGE_REGISTRY
 from servicenow_mcp.server import create_mcp_server
 from tests.helpers import get_registered_tools, get_tool_names
 
-
 pytestmark = pytest.mark.integration
 
 # Counts include discovery and one shared apply tool for selected mutation groups.
@@ -32,7 +31,9 @@ class TestPackageLoading:
         ids=list(EXPECTED_TOOL_COUNTS.keys()),
     )
     async def test_package_loads_correct_tool_count(
-        self, package_name: str, expected_count: int
+        self,
+        package_name: str,
+        expected_count: int,
     ) -> None:  # pragma: no cover
         """Verify each preset loads exactly the expected number of tools."""
         with patch.dict(os.environ, {"MCP_TOOL_PACKAGE": package_name}):
@@ -47,7 +48,9 @@ class TestPackageLoading:
         list(EXPECTED_TOOL_COUNTS.keys()),
         ids=list(EXPECTED_TOOL_COUNTS.keys()),
     )
-    async def test_package_tool_names_are_unique(self, package_name: str) -> None:  # pragma: no cover
+    async def test_package_tool_names_are_unique(
+        self, package_name: str
+    ) -> None:  # pragma: no cover
         """No duplicate tool names within a preset."""
         with patch.dict(os.environ, {"MCP_TOOL_PACKAGE": package_name}):
             mcp = create_mcp_server()
@@ -56,7 +59,9 @@ class TestPackageLoading:
             f"Package '{package_name}' has duplicate tool names: {[n for n in tool_names if tool_names.count(n) > 1]}"
         )
 
-    async def test_all_registry_packages_have_expected_counts(self) -> None:  # pragma: no cover
+    async def test_all_registry_packages_have_expected_counts(
+        self,
+    ) -> None:  # pragma: no cover
         """``EXPECTED_TOOL_COUNTS`` covers exactly the registry presets."""
         registry_names = set(PACKAGE_REGISTRY.keys())
         expected_names = set(EXPECTED_TOOL_COUNTS.keys())
@@ -86,15 +91,21 @@ class TestPackageLoading:
             "describe+investigate+resolve_choice",
         ],
     )
-    async def test_comma_separated_groups_load(self, groups_csv: str) -> None:  # pragma: no cover
+    async def test_comma_separated_groups_load(
+        self, groups_csv: str
+    ) -> None:  # pragma: no cover
         """Comma-separated group syntax creates a working server."""
         with patch.dict(os.environ, {"MCP_TOOL_PACKAGE": groups_csv}):
             mcp = create_mcp_server()
             tool_count = len(await get_registered_tools(mcp))
         # At minimum: list_tool_packages + at least one tool per group.
-        assert tool_count > 1, f"Comma-separated groups '{groups_csv}' loaded only {tool_count} tools"
+        assert tool_count > 1, (
+            f"Comma-separated groups '{groups_csv}' loaded only {tool_count} tools"
+        )
 
-    async def test_full_package_includes_all_unified_tools(self) -> None:  # pragma: no cover
+    async def test_full_package_includes_all_unified_tools(
+        self,
+    ) -> None:  # pragma: no cover
         """``full`` registers every unified tool by name."""
         with patch.dict(os.environ, {"MCP_TOOL_PACKAGE": "full"}):
             mcp = create_mcp_server()
@@ -125,11 +136,16 @@ class TestPackageLoading:
         ("package_name", "expected_tools"),
         [
             ("attachment", {"list_tool_packages", "attachment"}),
-            ("attachment_write", {"list_tool_packages", "attachment_preview", "mutation_apply"}),
+            (
+                "attachment_write",
+                {"list_tool_packages", "attachment_preview", "mutation_apply"},
+            ),
         ],
     )
     async def test_attachment_groups_load_independently(
-        self, package_name: str, expected_tools: set[str]
+        self,
+        package_name: str,
+        expected_tools: set[str],
     ) -> None:  # pragma: no cover
         """Attachment read and write groups do not register each other."""
         with patch.dict(os.environ, {"MCP_TOOL_PACKAGE": package_name}):

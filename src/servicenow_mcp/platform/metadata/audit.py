@@ -17,17 +17,19 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, ClassVar, Final
+from typing import TYPE_CHECKING, Any, ClassVar, Final
 
 from pydantic import BaseModel, ConfigDict
 
-from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.config import Settings
 from servicenow_mcp.platform.client import ServiceNowClient, ServiceNowClientProvider
-from servicenow_mcp.platform.metadata._dictionary import DictionaryRegistry
 from servicenow_mcp.platform.metadata.cache import AsyncMetadataCache
 from servicenow_mcp.query_builder import ServiceNowQuery
 from servicenow_mcp.telemetry import CacheName, HttpTelemetry
+
+if TYPE_CHECKING:
+    from servicenow_mcp.auth import OAuthPKCEProvider
+    from servicenow_mcp.config import Settings
+    from servicenow_mcp.platform.metadata._dictionary import DictionaryRegistry
 
 
 logger = logging.getLogger(__name__)
@@ -62,7 +64,9 @@ def _empty_field_audit() -> FieldAudit:
     )
 
 
-def _index_dict_rows_by_table(rows: list[dict[str, Any]], field: str) -> dict[str, dict[str, Any]]:
+def _index_dict_rows_by_table(
+    rows: list[dict[str, Any]], field: str
+) -> dict[str, dict[str, Any]]:
     """Index ``sys_dictionary`` rows by ``name`` keeping only ``element == field``.
 
     First row per table wins; subsequent rows for the same table are ignored
@@ -92,7 +96,9 @@ def _pick_chain_match(
     return None, None
 
 
-def _build_field_audit(match_row: dict[str, Any], match_table: str, queried_table: str) -> FieldAudit:
+def _build_field_audit(
+    match_row: dict[str, Any], match_table: str, queried_table: str
+) -> FieldAudit:
     """Assemble a :class:`FieldAudit` from the resolved ``sys_dictionary`` row.
 
     Applies the ``no_audit=true`` attribute veto over the raw ``audit`` column.
@@ -168,13 +174,19 @@ class AuditRegistry:
         telemetry: HttpTelemetry | None = None,
     ) -> None:
         self._dictionary = dictionary
-        self._client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
+        self._client_factory = client_factory or (
+            lambda: ServiceNowClient(settings, auth_provider)
+        )
         ttl = settings.metadata_cache_ttl_seconds
         self._table_audit_cache = AsyncMetadataCache[str, bool | None](
-            name=CacheName.AUDIT_TABLE_CONFIG, ttl_seconds=ttl, telemetry=telemetry
+            name=CacheName.AUDIT_TABLE_CONFIG,
+            ttl_seconds=ttl,
+            telemetry=telemetry,
         )
         self._field_audit_cache = AsyncMetadataCache[tuple[str, str], FieldAudit](
-            name=CacheName.AUDIT_FIELD_CONFIG, ttl_seconds=ttl, telemetry=telemetry
+            name=CacheName.AUDIT_FIELD_CONFIG,
+            ttl_seconds=ttl,
+            telemetry=telemetry,
         )
 
     # ------------------------------------------------------------------
@@ -288,7 +300,13 @@ class AuditRegistry:
 
         The resolved field configuration cache owns repeat-call suppression.
         """
-        query = ServiceNowQuery().in_list("name", chain).equals("element", field).equals("active", "true").build()
+        query = (
+            ServiceNowQuery()
+            .in_list("name", chain)
+            .equals("element", field)
+            .equals("active", "true")
+            .build()
+        )
         async with self._client_factory() as client:
             result = await client.query_records(
                 table="sys_dictionary",
@@ -309,7 +327,13 @@ class AuditRegistry:
         chain = await self.get_chain(table)
         if not chain:
             return []
-        query = ServiceNowQuery().in_list("name", chain).is_not_empty("element").equals("active", "true").build()
+        query = (
+            ServiceNowQuery()
+            .in_list("name", chain)
+            .is_not_empty("element")
+            .equals("active", "true")
+            .build()
+        )
         async with self._client_factory() as client:
             result = await client.query_records(
                 table="sys_dictionary",

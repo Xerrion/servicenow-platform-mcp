@@ -2,20 +2,24 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx2
 import pytest
 from mcp.server import MCPServer
 
 from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.config import Settings
 from servicenow_mcp.mcp.tools.audit import register_tools
 from servicenow_mcp.platform.metadata._dictionary import DictionaryRegistry
 from servicenow_mcp.platform.metadata.audit import attribute_has_no_audit
 from tests._mock_transport import http_mock
 from tests.helpers import decode_response, get_tool_functions
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from servicenow_mcp.config import Settings
+    from servicenow_mcp.platform.client import ServiceNowClientProvider
 
 
 BASE_URL = "https://test.service-now.com"
@@ -72,7 +76,11 @@ def _make_sys_db_handler(
             parent = chain_parents.get(target, "")
             return httpx2.Response(
                 200,
-                json={"result": [{"super_class.name": parent}] if target in chain_parents else []},
+                json={
+                    "result": [{"super_class.name": parent}]
+                    if target in chain_parents
+                    else []
+                },
             )
         # Table-audit chain-IN lookup.
         result = [{"name": t, "sys_audit": table_audit.get(t, "")} for t in table_audit]
@@ -161,7 +169,7 @@ def _make_stats_handler(
                         }
                         for name in _parse_in_list_clause(query, "fieldname")
                         if counts.get((table, name), 0) > 0
-                    ]
+                    ],
                 },
             )
         return _stats_response(counts.get((table, field), 0))
@@ -186,7 +194,13 @@ async def test_describe_returns_action_registry_with_no_io(
 
     assert result["status"] == "success"
     actions = result["data"]["actions"]
-    assert set(actions.keys()) == {"check_field", "check_fields", "check_table", "history", "describe"}
+    assert set(actions.keys()) == {
+        "check_field",
+        "check_fields",
+        "check_table",
+        "history",
+        "describe",
+    }
     # No platform calls were issued.
     assert not http_mock.routes
 
@@ -216,7 +230,9 @@ async def test_denied_table_rejected(
 ) -> None:
     """check_table_access blocks deny-listed tables before any HTTP call."""
     tools = _register_and_get_tools(settings, auth_provider)
-    raw = await tools["audit"](action="check_field", table="sys_credentials", field="password")
+    raw = await tools["audit"](
+        action="check_field", table="sys_credentials", field="password"
+    )
     result = decode_response(raw)
     assert result["status"] == "error"
     assert "denied by policy" in result["error"]["message"]
@@ -229,7 +245,9 @@ async def test_invalid_identifier_rejected(
 ) -> None:
     """validate_identifier rejects malformed field names."""
     tools = _register_and_get_tools(settings, auth_provider)
-    raw = await tools["audit"](action="check_field", table="incident", field="Bad Name!")
+    raw = await tools["audit"](
+        action="check_field", table="incident", field="Bad Name!"
+    )
     result = decode_response(raw)
     assert result["status"] == "error"
     assert "Invalid identifier" in result["error"]["message"]
@@ -251,25 +269,35 @@ def _wire_check_field_mocks(
     field: str = "business_service",
 ) -> None:
     """Install mock handlers for one ``check_field`` scenario."""
-    http_mock.get(SYS_DB_URL).mock(side_effect=_make_sys_db_handler(chain_parents, table_audit))
+    http_mock.get(SYS_DB_URL).mock(
+        side_effect=_make_sys_db_handler(chain_parents, table_audit)
+    )
     http_mock.get(SYS_DICT_URL).mock(side_effect=_make_sys_dict_handler(field_rows))
     http_mock.get(SYS_AUDIT_STATS_URL).mock(
-        side_effect=_make_stats_handler({(table, field): field_count, (table, None): table_count})
+        side_effect=_make_stats_handler(
+            {(table, field): field_count, (table, None): table_count}
+        ),
     )
 
 
 @pytest.mark.asyncio()
-async def test_verdict_audited(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_verdict_audited(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """Field is audited at parent table, activity confirms it."""
     _wire_check_field_mocks(
         chain_parents={"incident": "task", "task": ""},
         table_audit={"incident": "true", "task": "true"},
-        field_rows={"task": [{"element": "business_service", "audit": "true", "attributes": ""}]},
+        field_rows={
+            "task": [{"element": "business_service", "audit": "true", "attributes": ""}]
+        },
         field_count=5,
         table_count=100,
     )
     tools = _register_and_get_tools(settings, auth_provider)
-    raw = await tools["audit"](action="check_field", table="incident", field="business_service")
+    raw = await tools["audit"](
+        action="check_field", table="incident", field="business_service"
+    )
     result = decode_response(raw)
     assert result["status"] == "success"
     assert result["data"]["verdict"] == "audited"
@@ -279,17 +307,25 @@ async def test_verdict_audited(settings: Settings, auth_provider: OAuthPKCEProvi
 
 
 @pytest.mark.asyncio()
-async def test_verdict_not_audited_field_flag(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_verdict_not_audited_field_flag(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """Field audit=false (inherited from parent) wins over table audit=true."""
     _wire_check_field_mocks(
         chain_parents={"incident": "task", "task": ""},
         table_audit={"incident": "true", "task": "true"},
-        field_rows={"task": [{"element": "business_service", "audit": "false", "attributes": ""}]},
+        field_rows={
+            "task": [
+                {"element": "business_service", "audit": "false", "attributes": ""}
+            ]
+        },
         field_count=0,
         table_count=100,
     )
     tools = _register_and_get_tools(settings, auth_provider)
-    raw = await tools["audit"](action="check_field", table="incident", field="business_service")
+    raw = await tools["audit"](
+        action="check_field", table="incident", field="business_service"
+    )
     result = decode_response(raw)
     assert result["data"]["verdict"] == "not_audited_field_flag"
     assert result["data"]["reason"] == "audit_flag"
@@ -297,59 +333,79 @@ async def test_verdict_not_audited_field_flag(settings: Settings, auth_provider:
 
 
 @pytest.mark.asyncio()
-async def test_verdict_not_audited_table_flag(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_verdict_not_audited_table_flag(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """Table audit off short-circuits the verdict regardless of field config."""
     _wire_check_field_mocks(
         chain_parents={"incident": "task", "task": ""},
         table_audit={"incident": "false", "task": "false"},
-        field_rows={"task": [{"element": "business_service", "audit": "true", "attributes": ""}]},
+        field_rows={
+            "task": [{"element": "business_service", "audit": "true", "attributes": ""}]
+        },
         field_count=0,
         table_count=0,
     )
     tools = _register_and_get_tools(settings, auth_provider)
-    raw = await tools["audit"](action="check_field", table="incident", field="business_service")
+    raw = await tools["audit"](
+        action="check_field", table="incident", field="business_service"
+    )
     result = decode_response(raw)
     assert result["data"]["verdict"] == "not_audited_table_flag"
     assert result["data"]["table_audit"] is False
 
 
 @pytest.mark.asyncio()
-async def test_verdict_audited_but_inactive(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_verdict_audited_but_inactive(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """Configured for audit, table has activity, field has none in window."""
     _wire_check_field_mocks(
         chain_parents={"incident": "task", "task": ""},
         table_audit={"incident": "true", "task": "true"},
-        field_rows={"incident": [{"element": "description", "audit": "true", "attributes": ""}]},
+        field_rows={
+            "incident": [{"element": "description", "audit": "true", "attributes": ""}]
+        },
         field_count=0,
         table_count=100,
         field="description",
     )
     tools = _register_and_get_tools(settings, auth_provider)
-    raw = await tools["audit"](action="check_field", table="incident", field="description")
+    raw = await tools["audit"](
+        action="check_field", table="incident", field="description"
+    )
     result = decode_response(raw)
     assert result["data"]["verdict"] == "audited_but_inactive"
 
 
 @pytest.mark.asyncio()
-async def test_verdict_inconclusive_zero_table(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_verdict_inconclusive_zero_table(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """Zero field rows AND zero table rows -> inconclusive (window uninformative)."""
     _wire_check_field_mocks(
         chain_parents={"incident": "task", "task": ""},
         table_audit={"incident": "true", "task": "true"},
-        field_rows={"incident": [{"element": "description", "audit": "true", "attributes": ""}]},
+        field_rows={
+            "incident": [{"element": "description", "audit": "true", "attributes": ""}]
+        },
         field_count=0,
         table_count=0,
         field="description",
     )
     tools = _register_and_get_tools(settings, auth_provider)
-    raw = await tools["audit"](action="check_field", table="incident", field="description")
+    raw = await tools["audit"](
+        action="check_field", table="incident", field="description"
+    )
     result = decode_response(raw)
     assert result["data"]["verdict"] == "inconclusive"
     assert result["data"]["recent_activity"]["positive_control_passed"] is False
 
 
 @pytest.mark.asyncio()
-async def test_verdict_inconclusive_field_not_in_chain(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_verdict_inconclusive_field_not_in_chain(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """Field row absent everywhere -> inconclusive with the dedicated explanation."""
     _wire_check_field_mocks(
         chain_parents={"incident": "task", "task": ""},
@@ -360,7 +416,9 @@ async def test_verdict_inconclusive_field_not_in_chain(settings: Settings, auth_
         field="not_a_real_field",
     )
     tools = _register_and_get_tools(settings, auth_provider)
-    raw = await tools["audit"](action="check_field", table="incident", field="not_a_real_field")
+    raw = await tools["audit"](
+        action="check_field", table="incident", field="not_a_real_field"
+    )
     result = decode_response(raw)
     assert result["data"]["verdict"] == "inconclusive"
     assert "not found" in result["data"]["explanation"].lower()
@@ -391,15 +449,21 @@ def test_attribute_has_no_audit_tolerates_trailing_whitespace() -> None:
 
 
 @pytest.mark.asyncio()
-async def test_no_audit_attribute_vetoes_audit_true(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_no_audit_attribute_vetoes_audit_true(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """A row with audit=true AND no_audit=true resolves to not_audited_field_flag."""
     _wire_check_field_mocks(
         chain_parents={"incident": "task", "task": ""},
         table_audit={"incident": "true", "task": "true"},
         field_rows={
             "incident": [
-                {"element": "comments", "audit": "true", "attributes": "foo=bar,no_audit=true"},
-            ]
+                {
+                    "element": "comments",
+                    "audit": "true",
+                    "attributes": "foo=bar,no_audit=true",
+                },
+            ],
         },
         field_count=0,
         table_count=100,
@@ -419,17 +483,26 @@ async def test_no_audit_attribute_vetoes_audit_true(settings: Settings, auth_pro
 
 
 @pytest.mark.asyncio()
-async def test_window_days_override_surfaces_in_response(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_window_days_override_surfaces_in_response(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """A non-default window_days value is echoed back and triggers the warning note."""
     _wire_check_field_mocks(
         chain_parents={"incident": "task", "task": ""},
         table_audit={"incident": "true", "task": "true"},
-        field_rows={"task": [{"element": "business_service", "audit": "true", "attributes": ""}]},
+        field_rows={
+            "task": [{"element": "business_service", "audit": "true", "attributes": ""}]
+        },
         field_count=1,
         table_count=10,
     )
     tools = _register_and_get_tools(settings, auth_provider)
-    raw = await tools["audit"](action="check_field", table="incident", field="business_service", window_days=365)
+    raw = await tools["audit"](
+        action="check_field",
+        table="incident",
+        field="business_service",
+        window_days=365,
+    )
     result = decode_response(raw)
     assert result["data"]["recent_activity"]["window_days"] == 365
     assert "Non-default window" in result["data"]["window_note"]
@@ -441,21 +514,27 @@ async def test_window_days_override_surfaces_in_response(settings: Settings, aut
 
 
 @pytest.mark.asyncio()
-async def test_check_fields_returns_per_field_verdicts(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_check_fields_returns_per_field_verdicts(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """``check_fields`` returns one verdict per field and a single shared table_change_count."""
     http_mock.get(SYS_DB_URL).mock(
         side_effect=_make_sys_db_handler(
             chain_parents={"incident": "task", "task": ""},
             table_audit={"incident": "true", "task": "true"},
-        )
+        ),
     )
     http_mock.get(SYS_DICT_URL).mock(
         side_effect=_make_sys_dict_handler(
             {
-                "task": [{"element": "business_service", "audit": "true", "attributes": ""}],
-                "incident": [{"element": "description", "audit": "false", "attributes": ""}],
-            }
-        )
+                "task": [
+                    {"element": "business_service", "audit": "true", "attributes": ""}
+                ],
+                "incident": [
+                    {"element": "description", "audit": "false", "attributes": ""}
+                ],
+            },
+        ),
     )
     http_mock.get(SYS_AUDIT_STATS_URL).mock(
         side_effect=_make_stats_handler(
@@ -463,23 +542,36 @@ async def test_check_fields_returns_per_field_verdicts(settings: Settings, auth_
                 ("incident", "business_service"): 3,
                 ("incident", "description"): 0,
                 ("incident", None): 42,
-            }
-        )
+            },
+        ),
     )
     tools = _register_and_get_tools(settings, auth_provider)
-    raw = await tools["audit"](action="check_fields", table="incident", fields=["business_service", "description"])
+    raw = await tools["audit"](
+        action="check_fields",
+        table="incident",
+        fields=["business_service", "description"],
+    )
     result = decode_response(raw)
     assert result["status"] == "success"
     data = result["data"]
     assert data["table_change_count"] == 42
     assert data["positive_control_passed"] is True
     verdicts = {entry["field"]: entry["verdict"] for entry in data["results"]}
-    assert verdicts == {"business_service": "audited", "description": "not_audited_field_flag"}
-    assert {entry["field"]: entry["field_change_count"] for entry in data["results"]} == {
+    assert verdicts == {
+        "business_service": "audited",
+        "description": "not_audited_field_flag",
+    }
+    assert {
+        entry["field"]: entry["field_change_count"] for entry in data["results"]
+    } == {
         "business_service": 3,
         "description": 0,
     }
-    stats_calls = [call for call in http_mock.calls if call.request.url.path == "/api/now/stats/sys_audit"]
+    stats_calls = [
+        call
+        for call in http_mock.calls
+        if call.request.url.path == "/api/now/stats/sys_audit"
+    ]
     assert len(stats_calls) == 2
     grouped_params = stats_calls[1].request.url.params
     assert grouped_params["sysparm_group_by"] == "fieldname"
@@ -490,7 +582,9 @@ async def test_check_fields_returns_per_field_verdicts(settings: Settings, auth_
 
 
 @pytest.mark.asyncio()
-async def test_check_fields_rejects_empty_list(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_check_fields_rejects_empty_list(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """An empty fields list is rejected with a structured error."""
     tools = _register_and_get_tools(settings, auth_provider)
     raw = await tools["audit"](action="check_fields", table="incident", fields=[])
@@ -500,7 +594,9 @@ async def test_check_fields_rejects_empty_list(settings: Settings, auth_provider
 
 
 @pytest.mark.asyncio()
-async def test_check_fields_rejects_over_max(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_check_fields_rejects_over_max(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """Requesting more than the configured max yields an error before any I/O."""
     tools = _register_and_get_tools(settings, auth_provider)
     fields = [f"f{i}" for i in range(51)]
@@ -516,13 +612,15 @@ async def test_check_fields_rejects_over_max(settings: Settings, auth_provider: 
 
 
 @pytest.mark.asyncio()
-async def test_check_table_lists_field_overrides(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_check_table_lists_field_overrides(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """``check_table`` returns only fields whose flag differs from the table default."""
     http_mock.get(SYS_DB_URL).mock(
         side_effect=_make_sys_db_handler(
             chain_parents={"incident": "task", "task": ""},
             table_audit={"incident": "true", "task": "true"},
-        )
+        ),
     )
     http_mock.get(SYS_DICT_URL).mock(
         side_effect=_make_sys_dict_handler(
@@ -532,10 +630,14 @@ async def test_check_table_lists_field_overrides(settings: Settings, auth_provid
                     {"element": "state", "audit": "true", "attributes": ""},
                 ],
                 "incident": [
-                    {"element": "description", "audit": "true", "attributes": "no_audit=true"},
+                    {
+                        "element": "description",
+                        "audit": "true",
+                        "attributes": "no_audit=true",
+                    },
                 ],
-            }
-        )
+            },
+        ),
     )
     tools = _register_and_get_tools(settings, auth_provider)
     raw = await tools["audit"](action="check_table", table="incident")
@@ -557,7 +659,9 @@ async def test_check_table_lists_field_overrides(settings: Settings, auth_provid
 
 
 @pytest.mark.asyncio()
-async def test_history_masks_sensitive_field_values(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_history_masks_sensitive_field_values(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """sys_audit rows for sensitive fields have old/new values masked."""
 
     def _audit_handler(request: httpx2.Request) -> httpx2.Response:
@@ -585,7 +689,7 @@ async def test_history_masks_sensitive_field_values(settings: Settings, auth_pro
                         "oldvalue": "1",
                         "newvalue": "2",
                     },
-                ]
+                ],
             },
             headers={"X-Total-Count": "2"},
         )
@@ -603,7 +707,9 @@ async def test_history_masks_sensitive_field_values(settings: Settings, auth_pro
 
 
 @pytest.mark.asyncio()
-async def test_history_requires_sys_id(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_history_requires_sys_id(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """``history`` rejects calls missing the record sys_id."""
     tools = _register_and_get_tools(settings, auth_provider)
     raw = await tools["audit"](action="history", table="incident")
@@ -613,7 +719,9 @@ async def test_history_requires_sys_id(settings: Settings, auth_provider: OAuthP
 
 
 @pytest.mark.asyncio()
-async def test_history_explicit_since_overrides_window(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_history_explicit_since_overrides_window(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """An explicit ``since`` value is honoured and surfaced via window_note."""
 
     def _audit_handler(request: httpx2.Request) -> httpx2.Response:
@@ -623,7 +731,9 @@ async def test_history_explicit_since_overrides_window(settings: Settings, auth_
 
     http_mock.get(SYS_AUDIT_URL).mock(side_effect=_audit_handler)
     tools = _register_and_get_tools(settings, auth_provider)
-    raw = await tools["audit"](action="history", table="incident", sys_id=SYS_ID_RECORD, since="2024-01-01")
+    raw = await tools["audit"](
+        action="history", table="incident", sys_id=SYS_ID_RECORD, since="2024-01-01"
+    )
     result = decode_response(raw)
     assert result["status"] == "success"
     assert result["data"]["window"]["since"] == "2024-01-01"
@@ -636,7 +746,9 @@ async def test_history_explicit_since_overrides_window(settings: Settings, auth_
 
 
 @pytest.mark.asyncio()
-async def test_flush_table_clears_field_config_cache(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_flush_table_clears_field_config_cache(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """``flush('incident')`` makes a changed field configuration visible immediately."""
     from servicenow_mcp.platform.metadata.audit import AuditRegistry
 
@@ -644,7 +756,7 @@ async def test_flush_table_clears_field_config_cache(settings: Settings, auth_pr
         side_effect=_make_sys_db_handler(
             chain_parents={"incident": "task", "task": ""},
             table_audit={"incident": "true", "task": "true"},
-        )
+        ),
     )
 
     audit_values = ["true", "false"]  # consumed in order across the two fetches
@@ -655,8 +767,13 @@ async def test_flush_table_clears_field_config_cache(settings: Settings, auth_pr
             200,
             json={
                 "result": [
-                    {"name": "incident", "element": "business_service", "audit": current, "attributes": ""},
-                ]
+                    {
+                        "name": "incident",
+                        "element": "business_service",
+                        "audit": current,
+                        "attributes": "",
+                    },
+                ],
             },
         )
 
@@ -671,16 +788,19 @@ async def test_flush_table_clears_field_config_cache(settings: Settings, auth_pr
     registry.flush("incident")
 
     second = await registry.get_field_audit("incident", "business_service")
-    assert second.field_audit is False, "flush('incident') failed to invalidate field configuration"
+    assert second.field_audit is False, (
+        "flush('incident') failed to invalidate field configuration"
+    )
 
 
 @pytest.mark.asyncio()
-async def test_field_config_hit_precedes_client_creation(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_field_config_hit_precedes_client_creation(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """A fresh audit field hit does not ask its dictionary or client to load."""
     from typing import cast
     from unittest.mock import AsyncMock
 
-    from servicenow_mcp.platform.client import ServiceNowClientProvider
     from servicenow_mcp.platform.metadata.audit import AuditRegistry, FieldAudit
 
     dictionary = DictionaryRegistry(settings, auth_provider)
@@ -731,35 +851,53 @@ async def test_no_audit_veto_field_audit_false_and_check_table_agrees(
         side_effect=_make_sys_db_handler(
             chain_parents={"incident": "task", "task": ""},
             table_audit={"incident": "true", "task": "true"},
-        )
+        ),
     )
     http_mock.get(SYS_DICT_URL).mock(
         side_effect=_make_sys_dict_handler(
             {
                 "incident": [
-                    {"element": "comments", "audit": "true", "attributes": "foo=bar,no_audit=true"},
-                ]
-            }
-        )
+                    {
+                        "element": "comments",
+                        "audit": "true",
+                        "attributes": "foo=bar,no_audit=true",
+                    },
+                ],
+            },
+        ),
     )
     http_mock.get(SYS_AUDIT_STATS_URL).mock(
-        side_effect=_make_stats_handler({("incident", "comments"): 0, ("incident", None): 100})
+        side_effect=_make_stats_handler(
+            {("incident", "comments"): 0, ("incident", None): 100}
+        ),
     )
 
     tools = _register_and_get_tools(settings, auth_provider)
 
-    field_raw = await tools["audit"](action="check_field", table="incident", field="comments")
+    field_raw = await tools["audit"](
+        action="check_field", table="incident", field="comments"
+    )
     field_result = decode_response(field_raw)
     assert field_result["data"]["verdict"] == "not_audited_field_flag"
     assert field_result["data"]["reason"] == "no_audit_attribute"
-    assert field_result["data"]["field_audit"] is False, "no_audit veto must force field_audit=False"
-    assert field_result["data"]["raw_field_audit"] is True, "raw audit column value must remain observable"
+    assert field_result["data"]["field_audit"] is False, (
+        "no_audit veto must force field_audit=False"
+    )
+    assert field_result["data"]["raw_field_audit"] is True, (
+        "raw audit column value must remain observable"
+    )
 
     table_raw = await tools["audit"](action="check_table", table="incident")
     table_result = decode_response(table_raw)
-    overrides = {entry["field"]: entry for entry in table_result["data"]["field_overrides"]}
-    assert "comments" in overrides, "check_table must surface the vetoed field as an override"
-    assert overrides["comments"]["field_audit"] is False, "check_table must agree with check_field post-veto"
+    overrides = {
+        entry["field"]: entry for entry in table_result["data"]["field_overrides"]
+    }
+    assert "comments" in overrides, (
+        "check_table must surface the vetoed field as an override"
+    )
+    assert overrides["comments"]["field_audit"] is False, (
+        "check_table must agree with check_field post-veto"
+    )
     assert overrides["comments"]["reason"] == "no_audit_attribute"
 
 
@@ -775,13 +913,17 @@ async def test_history_rejects_invalid_sys_id_without_io(
 ) -> None:
     """Malformed sys_id on action='history' returns a structured error WITHOUT any HTTP I/O."""
     tools = _register_and_get_tools(settings, auth_provider)
-    raw = await tools["audit"](action="history", table="incident", sys_id="not-a-sys-id")
+    raw = await tools["audit"](
+        action="history", table="incident", sys_id="not-a-sys-id"
+    )
     result = decode_response(raw)
 
     assert result["status"] == "error"
     assert "Invalid sys_id" in result["error"]["message"]
     # No mock routes were registered; any HTTP request would fail the test.
-    assert http_mock.calls.call_count == 0, "history must validate sys_id BEFORE opening the HTTP client"
+    assert http_mock.calls.call_count == 0, (
+        "history must validate sys_id BEFORE opening the HTTP client"
+    )
 
 
 @pytest.mark.asyncio()
@@ -794,22 +936,30 @@ async def test_check_field_malformed_stats_count_returns_error(
         side_effect=_make_sys_db_handler(
             {"incident": "task", "task": ""},
             {"incident": "true", "task": "true"},
-        )
+        ),
     )
     http_mock.get(SYS_DICT_URL).mock(
         side_effect=_make_sys_dict_handler(
-            {"task": [{"element": "business_service", "audit": "true", "attributes": ""}]}
-        )
+            {
+                "task": [
+                    {"element": "business_service", "audit": "true", "attributes": ""}
+                ]
+            },
+        ),
     )
     # Malformed: stats.count is a non-numeric string.
     http_mock.get(SYS_AUDIT_STATS_URL).mock(
-        return_value=httpx2.Response(200, json={"result": {"stats": {"count": "abc"}}})
+        return_value=httpx2.Response(200, json={"result": {"stats": {"count": "abc"}}}),
     )
 
     tools = _register_and_get_tools(settings, auth_provider)
-    raw = await tools["audit"](action="check_field", table="incident", field="business_service")
+    raw = await tools["audit"](
+        action="check_field", table="incident", field="business_service"
+    )
     result = decode_response(raw)
 
-    assert result["status"] == "error", "malformed stats.count must not be silently coerced to 0"
+    assert result["status"] == "error", (
+        "malformed stats.count must not be silently coerced to 0"
+    )
     message = result["error"]["message"]
     assert "stats" in message.lower() or "count" in message.lower()

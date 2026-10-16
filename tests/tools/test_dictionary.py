@@ -9,22 +9,26 @@ are mocked with the httpx2 mock transport routed by URL.
 from __future__ import annotations
 
 import asyncio
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import AsyncMock, patch
 
 import httpx2
 import pytest
 
 from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.config import Settings
-from servicenow_mcp.platform.client import ServiceNowClientProvider
 from servicenow_mcp.platform.metadata._dictionary import (
     DictionaryField,
     DictionaryRegistry,
 )
-from servicenow_mcp.platform.metadata._dictionary_classification import attributes_admit_heuristic
+from servicenow_mcp.platform.metadata._dictionary_classification import (
+    attributes_admit_heuristic,
+)
 from servicenow_mcp.telemetry import CacheName, HttpTelemetry
 from tests._mock_transport import http_mock
+
+if TYPE_CHECKING:
+    from servicenow_mcp.config import Settings
+    from servicenow_mcp.platform.client import ServiceNowClientProvider
 
 
 BASE_URL = "https://test.service-now.com"
@@ -40,13 +44,21 @@ def auth_provider(settings: Settings) -> OAuthPKCEProvider:
 
 def _row(element: str, internal_type: str, attributes: str = "") -> dict[str, str]:
     """Build a ``sys_dictionary`` row stub with the columns the registry reads."""
-    return {"element": element, "internal_type": internal_type, "attributes": attributes}
+    return {
+        "element": element,
+        "internal_type": internal_type,
+        "attributes": attributes,
+    }
 
 
 def _mock_root_table(dictionary_rows: list[dict[str, Any]]) -> None:
     """Mock a root table (empty super_class) returning ``dictionary_rows``."""
-    http_mock.get(DB_OBJECT_URL).mock(return_value=httpx2.Response(200, json={"result": [{"super_class.name": ""}]}))
-    http_mock.get(DICTIONARY_URL).mock(return_value=httpx2.Response(200, json={"result": dictionary_rows}))
+    http_mock.get(DB_OBJECT_URL).mock(
+        return_value=httpx2.Response(200, json={"result": [{"super_class.name": ""}]})
+    )
+    http_mock.get(DICTIONARY_URL).mock(
+        return_value=httpx2.Response(200, json={"result": dictionary_rows})
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -57,15 +69,26 @@ def _mock_root_table(dictionary_rows: list[dict[str, Any]]) -> None:
 class TestSelectedFields:
     """Write validation fetches only supplied columns, without a broad field load."""
 
-    async def test_empty_selection_does_not_query(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-        assert await DictionaryRegistry(settings, auth_provider).get_fields("u_child", []) == []
+    async def test_empty_selection_does_not_query(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
+        assert (
+            await DictionaryRegistry(settings, auth_provider).get_fields("u_child", [])
+            == []
+        )
         assert not http_mock.calls
 
     async def test_child_override_and_inherited_types(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         def objects(request: httpx2.Request) -> httpx2.Response:
-            parent = "u_parent" if request.url.params["sysparm_query"] == "name=u_child" else ""
+            parent = (
+                "u_parent"
+                if request.url.params["sysparm_query"] == "name=u_child"
+                else ""
+            )
             return httpx2.Response(200, json={"result": [{"super_class.name": parent}]})
 
         def dictionary(request: httpx2.Request) -> httpx2.Response:
@@ -81,14 +104,20 @@ class TestSelectedFields:
 
         http_mock.get(DB_OBJECT_URL).mock(side_effect=objects)
         metadata = http_mock.get(DICTIONARY_URL).mock(side_effect=dictionary)
-        fields = await DictionaryRegistry(settings, auth_provider).get_fields("u_child", ["overridden", "u_markup"])
-        assert [(field.name, field.internal_type, field.inherited_from) for field in fields] == [
+        fields = await DictionaryRegistry(settings, auth_provider).get_fields(
+            "u_child", ["overridden", "u_markup"]
+        )
+        assert [
+            (field.name, field.internal_type, field.inherited_from) for field in fields
+        ] == [
             ("overridden", "string", None),
             ("u_markup", "xml", "u_parent"),
         ]
         assert metadata.call_count == 2
 
-    async def test_repeated_selection_uses_cache(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_repeated_selection_uses_cache(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         _mock_root_table([_row("active", "boolean")])
         registry = DictionaryRegistry(settings, auth_provider)
 
@@ -100,7 +129,9 @@ class TestSelectedFields:
         assert len(http_mock.calls) == 2
 
     async def test_selection_is_batched_and_stops_after_resolution(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         registry = DictionaryRegistry(settings, auth_provider)
         registry.get_chain = AsyncMock(return_value=["u_child", "u_parent"])
@@ -113,7 +144,13 @@ class TestSelectedFields:
             assert 1 <= len(selected) <= 100
             assert request.url.params["sysparm_limit"] == str(len(selected))
             return httpx2.Response(
-                200, json={"result": [{"element": name, "internal_type.name": "string"} for name in selected]}
+                200,
+                json={
+                    "result": [
+                        {"element": name, "internal_type.name": "string"}
+                        for name in selected
+                    ]
+                },
             )
 
         metadata = http_mock.get(DICTIONARY_URL).mock(side_effect=dictionary)
@@ -127,7 +164,9 @@ class TestTypeFilter:
 
     @pytest.mark.asyncio()
     async def test_unambiguous_script_types_admitted(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         _mock_root_table(
             [
@@ -136,7 +175,7 @@ class TestTypeFilter:
                 _row("css", "css"),
                 _row("name", "string"),
                 _row("active", "boolean"),
-            ]
+            ],
         )
         registry = DictionaryRegistry(settings, auth_provider)
         fields = await registry.get_script_fields("sys_script")
@@ -147,13 +186,15 @@ class TestTypeFilter:
         assert all(f.inherited_from is None for f in fields)
 
     @pytest.mark.asyncio()
-    async def test_excluded_elements_dropped(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_excluded_elements_dropped(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         _mock_root_table(
             [
                 _row("script", "script"),
                 _row("translated_html", "html", "tinymce_allow_all=true"),
                 _row("conditions", "script"),
-            ]
+            ],
         )
         registry = DictionaryRegistry(settings, auth_provider)
         fields = await registry.get_script_fields("some_table")
@@ -165,8 +206,12 @@ class TestHeuristicAdmission:
     """``html`` and ``xml`` require a heuristic flag in attributes to admit."""
 
     @pytest.mark.asyncio()
-    async def test_html_with_tinymce_flag_admitted(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-        _mock_root_table([_row("layout", "html", "tinymce_allow_all=true,html_sanitize=false")])
+    async def test_html_with_tinymce_flag_admitted(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
+        _mock_root_table(
+            [_row("layout", "html", "tinymce_allow_all=true,html_sanitize=false")]
+        )
         registry = DictionaryRegistry(settings, auth_provider)
         fields = await registry.get_script_fields("sys_email_layout")
 
@@ -175,7 +220,9 @@ class TestHeuristicAdmission:
         assert fields[0].via_heuristic is True
 
     @pytest.mark.asyncio()
-    async def test_html_without_flag_rejected(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_html_without_flag_rejected(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         _mock_root_table([_row("description", "html", "edge_encryption_enabled=true")])
         registry = DictionaryRegistry(settings, auth_provider)
         fields = await registry.get_script_fields("incident")
@@ -184,7 +231,9 @@ class TestHeuristicAdmission:
 
     @pytest.mark.asyncio()
     async def test_internal_type_uses_dot_walk_name_not_reference_sys_id(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         _mock_root_table(
             [
@@ -193,34 +242,67 @@ class TestHeuristicAdmission:
                     "internal_type": {"value": "a" * 32},
                     "internal_type.name": "journal_input",
                     "attributes": "",
-                }
-            ]
+                },
+            ],
         )
-        fields = await DictionaryRegistry(settings, auth_provider).get_all_fields("task")
+        fields = await DictionaryRegistry(settings, auth_provider).get_all_fields(
+            "task"
+        )
         assert fields[0].internal_type == "journal_input"
 
     @pytest.mark.asyncio()
     async def test_internal_type_fallback_queries_dot_walk_name(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         dictionary = http_mock.get(DICTIONARY_URL).mock(
             side_effect=[
-                httpx2.Response(200, json={"result": [{"element": "comments", "internal_type": {"value": "a" * 32}}]}),
-                httpx2.Response(200, json={"result": [{"element": "comments", "internal_type.name": "journal_input"}]}),
-            ]
+                httpx2.Response(
+                    200,
+                    json={
+                        "result": [
+                            {
+                                "element": "comments",
+                                "internal_type": {"value": "a" * 32},
+                            },
+                        ],
+                    },
+                ),
+                httpx2.Response(
+                    200,
+                    json={
+                        "result": [
+                            {
+                                "element": "comments",
+                                "internal_type.name": "journal_input",
+                            },
+                        ],
+                    },
+                ),
+            ],
         )
         http_mock.get(DB_OBJECT_URL).mock(
-            return_value=httpx2.Response(200, json={"result": [{"super_class.name": ""}]})
+            return_value=httpx2.Response(
+                200, json={"result": [{"super_class.name": ""}]}
+            ),
         )
 
-        fields = await DictionaryRegistry(settings, auth_provider).get_all_fields("task")
+        fields = await DictionaryRegistry(settings, auth_provider).get_all_fields(
+            "task"
+        )
 
         assert fields[0].internal_type == "journal_input"
         assert dictionary.call_count == 2
-        assert dictionary.calls[1].request.url.params["sysparm_fields"] == "element,internal_type.name"
+        assert (
+            dictionary.calls[1].request.url.params["sysparm_fields"]
+            == "element,internal_type.name"
+        )
 
     @pytest.mark.asyncio()
-    async def test_html_sanitize_false_alone_admits(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_html_sanitize_false_alone_admits(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         _mock_root_table([_row("body", "html", "html_sanitize=false")])
         registry = DictionaryRegistry(settings, auth_provider)
         fields = await registry.get_script_fields("custom_table")
@@ -239,7 +321,9 @@ class TestAttributesAdmitHeuristic:
         assert attributes_admit_heuristic("tinymce_allow_all=true") is True
 
     def test_legitimate_flag_with_other_tokens_admitted(self) -> None:
-        assert attributes_admit_heuristic("foo=bar,tinymce_allow_all=true,baz=qux") is True
+        assert (
+            attributes_admit_heuristic("foo=bar,tinymce_allow_all=true,baz=qux") is True
+        )
 
     def test_html_sanitize_false_admitted(self) -> None:
         assert attributes_admit_heuristic("html_sanitize=false") is True
@@ -274,14 +358,18 @@ class TestSuperClassChain:
 
     @pytest.mark.asyncio()
     async def test_inherited_fields_merge_with_parent_attribution(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         # Child returns parent="sys_script_client"; parent returns "" (root).
         http_mock.get(DB_OBJECT_URL).mock(
             side_effect=[
-                httpx2.Response(200, json={"result": [{"super_class.name": "sys_script_client"}]}),
+                httpx2.Response(
+                    200, json={"result": [{"super_class.name": "sys_script_client"}]}
+                ),
                 httpx2.Response(200, json={"result": [{"super_class.name": ""}]}),
-            ]
+            ],
         )
         http_mock.get(DICTIONARY_URL).mock(
             side_effect=[
@@ -295,7 +383,7 @@ class TestSuperClassChain:
                     200,
                     json={"result": [_row("script", "script")]},
                 ),
-            ]
+            ],
         )
 
         registry = DictionaryRegistry(settings, auth_provider)
@@ -308,18 +396,22 @@ class TestSuperClassChain:
         assert chain == ["catalog_script_client", "sys_script_client"]
 
     @pytest.mark.asyncio()
-    async def test_child_wins_on_field_collision(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_child_wins_on_field_collision(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         http_mock.get(DB_OBJECT_URL).mock(
             side_effect=[
-                httpx2.Response(200, json={"result": [{"super_class.name": "parent_table"}]}),
+                httpx2.Response(
+                    200, json={"result": [{"super_class.name": "parent_table"}]}
+                ),
                 httpx2.Response(200, json={"result": [{"super_class.name": ""}]}),
-            ]
+            ],
         )
         http_mock.get(DICTIONARY_URL).mock(
             side_effect=[
                 httpx2.Response(200, json={"result": [_row("script", "script")]}),
                 httpx2.Response(200, json={"result": [_row("script", "script_plain")]}),
-            ]
+            ],
         )
 
         registry = DictionaryRegistry(settings, auth_provider)
@@ -332,11 +424,17 @@ class TestSuperClassChain:
 
     @pytest.mark.asyncio()
     async def test_missing_super_class_yields_single_table_chain(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         # sys_db_object returns no rows for an unknown table.
-        http_mock.get(DB_OBJECT_URL).mock(return_value=httpx2.Response(200, json={"result": []}))
-        http_mock.get(DICTIONARY_URL).mock(return_value=httpx2.Response(200, json={"result": []}))
+        http_mock.get(DB_OBJECT_URL).mock(
+            return_value=httpx2.Response(200, json={"result": []})
+        )
+        http_mock.get(DICTIONARY_URL).mock(
+            return_value=httpx2.Response(200, json={"result": []})
+        )
 
         registry = DictionaryRegistry(settings, auth_provider)
         chain = await registry.get_chain("unknown_table")
@@ -348,7 +446,9 @@ class TestCycleAndDepthGuards:
     """The chain walker bails out on cycles and at the depth ceiling."""
 
     @pytest.mark.asyncio()
-    async def test_cycle_detected_and_truncated(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_cycle_detected_and_truncated(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         # a -> b -> a (cycle). Each call returns the cyclic parent.
         responses = {
             "a": httpx2.Response(200, json={"result": [{"super_class.name": "b"}]}),
@@ -364,7 +464,9 @@ class TestCycleAndDepthGuards:
             return httpx2.Response(200, json={"result": []})
 
         http_mock.get(DB_OBJECT_URL).mock(side_effect=_route)
-        http_mock.get(DICTIONARY_URL).mock(return_value=httpx2.Response(200, json={"result": []}))
+        http_mock.get(DICTIONARY_URL).mock(
+            return_value=httpx2.Response(200, json={"result": []})
+        )
 
         registry = DictionaryRegistry(settings, auth_provider)
         chain = await registry.get_chain("a")
@@ -381,12 +483,18 @@ class TestCache:
     """The registry caches per-table results to avoid re-querying."""
 
     @pytest.mark.asyncio()
-    async def test_second_call_does_not_refetch(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_second_call_does_not_refetch(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         db_route = http_mock.get(DB_OBJECT_URL).mock(
-            return_value=httpx2.Response(200, json={"result": [{"super_class.name": ""}]})
+            return_value=httpx2.Response(
+                200, json={"result": [{"super_class.name": ""}]}
+            ),
         )
         dict_route = http_mock.get(DICTIONARY_URL).mock(
-            return_value=httpx2.Response(200, json={"result": [_row("script", "script")]})
+            return_value=httpx2.Response(
+                200, json={"result": [_row("script", "script")]}
+            ),
         )
 
         registry = DictionaryRegistry(settings, auth_provider)
@@ -398,12 +506,18 @@ class TestCache:
         assert dict_route.call_count == 1
 
     @pytest.mark.asyncio()
-    async def test_flush_invalidates_cache(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_flush_invalidates_cache(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         db_route = http_mock.get(DB_OBJECT_URL).mock(
-            return_value=httpx2.Response(200, json={"result": [{"super_class.name": ""}]})
+            return_value=httpx2.Response(
+                200, json={"result": [{"super_class.name": ""}]}
+            ),
         )
         dict_route = http_mock.get(DICTIONARY_URL).mock(
-            return_value=httpx2.Response(200, json={"result": [_row("script", "script")]})
+            return_value=httpx2.Response(
+                200, json={"result": [_row("script", "script")]}
+            ),
         )
 
         registry = DictionaryRegistry(settings, auth_provider)
@@ -416,7 +530,9 @@ class TestCache:
 
     @pytest.mark.asyncio()
     async def test_chain_cache_hit_precedes_client_creation(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """A fresh chain hit does not construct or enter another client context."""
         entered = 0
@@ -432,8 +548,13 @@ class TestCache:
 
         client_factory = cast("ServiceNowClientProvider", ClientContext)
         registry = DictionaryRegistry(settings, auth_provider, client_factory)
-        with patch("servicenow_mcp.platform.metadata._dictionary.resolve_chain", new_callable=AsyncMock) as resolver:
-            from servicenow_mcp.platform.metadata._dictionary_models import TableInheritance
+        with patch(
+            "servicenow_mcp.platform.metadata._dictionary.resolve_chain",
+            new_callable=AsyncMock,
+        ) as resolver:
+            from servicenow_mcp.platform.metadata._dictionary_models import (
+                TableInheritance,
+            )
 
             resolver.return_value = TableInheritance(tables=["incident"], complete=True)
             assert await registry.get_chain("incident") == ["incident"]
@@ -443,7 +564,10 @@ class TestCache:
 
     @pytest.mark.asyncio()
     async def test_same_table_field_load_is_single_flight(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider, monkeypatch: pytest.MonkeyPatch
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Concurrent calls for one table share dictionary metadata loading."""
         registry = DictionaryRegistry(settings, auth_provider)
@@ -468,11 +592,15 @@ class TestCache:
 
     @pytest.mark.asyncio()
     async def test_cache_telemetry_uses_fixed_dictionary_names(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """Dictionary cache counters omit the requested table name."""
         http_mock.get(DB_OBJECT_URL).mock(
-            return_value=httpx2.Response(200, json={"result": [{"super_class.name": ""}]})
+            return_value=httpx2.Response(
+                200, json={"result": [{"super_class.name": ""}]}
+            ),
         )
         telemetry = HttpTelemetry()
         registry = DictionaryRegistry(settings, auth_provider, telemetry=telemetry)

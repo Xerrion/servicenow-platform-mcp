@@ -77,13 +77,13 @@ Use [[Instance-Development]] for table information, script changes, Flow Designe
 
 ## When access fails
 
-| What happens | What to check next |
-| --- | --- |
-| The app has no ServiceNow tools | Check the connection settings and selected tool package. Restart the MCP server after changes. |
+| What happens                                     | What to check next                                                                                                                  |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| The app has no ServiceNow tools                  | Check the connection settings and selected tool package. Restart the MCP server after changes.                                      |
 | The browser does not open or authorization fails | Follow the [installation troubleshooting](https://github.com/Xerrion/servicenow-platform-mcp/blob/main/INSTALL.md#troubleshooting). |
-| Sign-in succeeds, but a read returns 401 or 403 | Ask your administrator to check API access policies, roles, and table or field permissions. |
-| A field or history entry is missing | Check the requested fields, access rules, time period, and any result limits. |
-| A write is unavailable or blocked | Check [[Tool-Packages]] and [[Safety-and-Policy]]. Use a development or test instance for write testing. |
+| Sign-in succeeds, but a read returns 401 or 403  | Ask your administrator to check API access policies, roles, and table or field permissions.                                         |
+| A field or history entry is missing              | Check the requested fields, access rules, time period, and any result limits.                                                       |
+| A write is unavailable or blocked                | Check [[Tool-Packages]] and [[Safety-and-Policy]]. Use a development or test instance for write testing.                            |
 
 ServiceNow data returned by tools becomes available to your AI app.
 Use an app approved for the data you handle.

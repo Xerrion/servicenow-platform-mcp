@@ -1,14 +1,23 @@
 """Execute the single-record, aggregate, and list unified-query modes."""
 
+from typing import TYPE_CHECKING
+
 from servicenow_mcp.capabilities.contracts import CapabilityResult
 from servicenow_mcp.capabilities.contracts import result as operation_result
-from servicenow_mcp.capabilities.records._query_parsing import Projection
-from servicenow_mcp.capabilities.records._query_preparation import AggregateRequest, ListRequest
-from servicenow_mcp.platform.client import ServiceNowClientProvider
 from servicenow_mcp.policy import mask_record
 
+if TYPE_CHECKING:
+    from servicenow_mcp.capabilities.records._query_parsing import Projection
+    from servicenow_mcp.capabilities.records._query_preparation import (
+        AggregateRequest,
+        ListRequest,
+    )
+    from servicenow_mcp.platform.client import ServiceNowClientProvider
 
-def _project_record(record: dict[str, object], fields: list[str] | None) -> dict[str, object]:
+
+def _project_record(
+    record: dict[str, object], fields: list[str] | None
+) -> dict[str, object]:
     if fields is None:
         return record
     return {name: record[name] for name in fields if name in record}
@@ -23,7 +32,9 @@ async def run_single_record(
 ) -> CapabilityResult:
     """Fetch, mask, and project one record."""
     async with client_factory() as client:
-        record = await client.get_record(table, sys_id, fields=projection.fields, display_values=display_values)
+        record = await client.get_record(
+            table, sys_id, fields=projection.fields, display_values=display_values
+        )
 
     masked = mask_record(table, record)
     return operation_result(data=_project_record(masked, projection.fields))
@@ -72,12 +83,15 @@ async def run_list(
             display_values=display_values,
         )
 
-    masked = [_project_record(mask_record(table, record), fields) for record in result["records"]]
+    masked = [
+        _project_record(mask_record(table, record), fields)
+        for record in result["records"]
+    ]
     if not masked and result["count"] > offset:
         warnings.append(
             "ServiceNow returned an empty page although X-Total-Count reports more matching rows. "
             "The Table API applies limit before ACL evaluation, so row access or ordering can cause this; "
-            "change order_by or offset before concluding that no records match."
+            "change order_by or offset before concluding that no records match.",
         )
     return operation_result(
         data=masked,

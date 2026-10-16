@@ -54,10 +54,27 @@ class TestToolHandler:
 
         assert inspect.unwrap(my_tool) is not my_tool
         assert inspect.signature(my_tool).return_annotation is ToolResult
-        assert inspect.signature(inspect.unwrap(my_tool)).return_annotation is CapabilityResult
+        assert (
+            inspect.signature(inspect.unwrap(my_tool)).return_annotation
+            is CapabilityResult
+        )
 
-    @pytest.mark.parametrize("value", [None, "", "null", "false", "123", '"quoted"', '{"field":null}', '[false,0,""]'])
-    async def test_nullable_string_survives_mcp_validation(self, value: str | None) -> None:
+    @pytest.mark.parametrize(
+        "value",
+        [
+            None,
+            "",
+            "null",
+            "false",
+            "123",
+            '"quoted"',
+            '{"field":null}',
+            '[false,0,""]',
+        ],
+    )
+    async def test_nullable_string_survives_mcp_validation(
+        self, value: str | None
+    ) -> None:
         """Nullable text must not be JSON-decoded by the MCP SDK."""
         mcp = MCPServer("test")
 
@@ -69,7 +86,9 @@ class TestToolHandler:
         schema = (await mcp.list_tools())[0].input_schema
         assert schema["required"] == ["required"]
         assert schema["properties"]["value"]["default"] is None
-        assert {choice["type"] for choice in schema["properties"]["value"]["anyOf"]} == {"string", "null"}
+        assert {
+            choice["type"] for choice in schema["properties"]["value"]["anyOf"]
+        } == {"string", "null"}
         result = await mcp.call_tool("echo", {"required": "null", "value": value})
         assert isinstance(result, CallToolResult)
         assert isinstance(result.structured_content, dict)
@@ -88,7 +107,9 @@ class TestToolHandler:
         with pytest.raises(ToolError, match="Input should be a valid string"):
             await mcp.call_tool("echo", {"value": value})
 
-    async def test_nullable_string_keeps_non_empty_default_and_wrapped_function(self) -> None:
+    async def test_nullable_string_keeps_non_empty_default_and_wrapped_function(
+        self,
+    ) -> None:
         mcp = MCPServer("test")
 
         @mcp.tool()
@@ -135,7 +156,10 @@ class TestToolHandler:
         parsed = decode_response(result)
         assert isinstance(parsed, dict)
         assert parsed["status"] == "error"
-        assert "Access denied" in parsed["error"]["message"] or "ACL" in parsed["error"]["message"]
+        assert (
+            "Access denied" in parsed["error"]["message"]
+            or "ACL" in parsed["error"]["message"]
+        )
 
     async def test_passes_args_and_kwargs(self) -> None:
         """Positional and keyword arguments are forwarded correctly."""
@@ -232,7 +256,7 @@ class TestRedactArgs:
                 "variables": {"email": "alice@example.com"},
                 "conditions": '[{"field": "x", "op": "=", "value": "secret"}]',
                 "text": "search for something private",
-            }
+            },
         )
         assert out["variables"] == _REDACTED
         assert out["conditions"] == _REDACTED
@@ -273,7 +297,9 @@ class TestRedactArgs:
                 password="hunter2",  # NOSONAR(S2068) - test fixture, not a credential
             )
 
-            tool_calls = [c for c in mock_ctx.call_args_list if c.args and c.args[0] == "tool"]
+            tool_calls = [
+                c for c in mock_ctx.call_args_list if c.args and c.args[0] == "tool"
+            ]
             assert tool_calls, "set_sentry_context('tool', ...) was never called"
             ctx_payload = tool_calls[-1].args[1]
             recorded_args = ctx_payload["args"]

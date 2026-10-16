@@ -1,11 +1,17 @@
 """Register the unified ServiceNow record-query tool."""
 
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
-from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.capabilities.contracts import CapabilityResult
-from servicenow_mcp.capabilities.records._query_modes import run_aggregate, run_list, run_single_record
-from servicenow_mcp.capabilities.records._query_parsing import AggregateOperation, LabelPair, Projection
+from servicenow_mcp.capabilities.records._query_modes import (
+    run_aggregate,
+    run_list,
+    run_single_record,
+)
+from servicenow_mcp.capabilities.records._query_parsing import (
+    AggregateOperation,
+    LabelPair,
+    Projection,
+)
 from servicenow_mcp.capabilities.records._query_preparation import (
     check_mode_conflicts,
     prepare_aggregate_request,
@@ -18,10 +24,14 @@ from servicenow_mcp.capabilities.records._query_preparation import (
 from servicenow_mcp.capabilities.records._query_preparation import (
     resolve_labels as prepare_resolved_labels,
 )
-from servicenow_mcp.config import Settings
 from servicenow_mcp.platform.client import ServiceNowClient, ServiceNowClientProvider
-from servicenow_mcp.platform.metadata._dictionary import DictionaryRegistry
-from servicenow_mcp.platform.metadata.choices import ChoiceRegistry
+
+if TYPE_CHECKING:
+    from servicenow_mcp.auth import OAuthPKCEProvider
+    from servicenow_mcp.capabilities.contracts import CapabilityResult
+    from servicenow_mcp.config import Settings
+    from servicenow_mcp.platform.metadata._dictionary import DictionaryRegistry
+    from servicenow_mcp.platform.metadata.choices import ChoiceRegistry
 
 
 class QueryCapability:
@@ -34,7 +44,9 @@ class QueryCapability:
         client_factory: ServiceNowClientProvider | None = None,
     ) -> None:
         """Bind the operation's platform and metadata dependencies."""
-        client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
+        client_factory = client_factory or (
+            lambda: ServiceNowClient(settings, auth_provider)
+        )
 
         self.auth_provider = auth_provider
         self.choices = choices
@@ -66,7 +78,9 @@ class QueryCapability:
 
         if sys_id:
             projection = prepare_single_record(sys_id, fields)
-            return await run_single_record(table, sys_id, projection, display_values, self.client_factory)
+            return await run_single_record(
+                table, sys_id, projection, display_values, self.client_factory
+            )
 
         list_projection = None
         if not aggregate:
@@ -75,17 +89,27 @@ class QueryCapability:
         warnings: list[str] = []
         prepared_query = encoded_query or ""
         if resolve_labels:
-            resolved = await prepare_resolved_labels(table, prepared_query, resolve_labels, self.choices)
+            resolved = await prepare_resolved_labels(
+                table, prepared_query, resolve_labels, self.choices
+            )
             prepared_query, label_warnings = resolved
             warnings.extend(label_warnings)
 
         if aggregate:
             aggregate_request = prepare_aggregate_request(
-                table, prepared_query, aggregate, group_by or [], self.settings
+                table,
+                prepared_query,
+                aggregate,
+                group_by or [],
+                self.settings,
             )
             if self.dictionary is not None:
-                warnings.extend(await validate_query_fields(table, prepared_query, self.dictionary))
-            return await run_aggregate(table, prepared_query, aggregate_request, self.client_factory, warnings)
+                warnings.extend(
+                    await validate_query_fields(table, prepared_query, self.dictionary)
+                )
+            return await run_aggregate(
+                table, prepared_query, aggregate_request, self.client_factory, warnings
+            )
 
         assert isinstance(list_projection, Projection)
         list_request = prepare_list_request(
@@ -97,7 +121,9 @@ class QueryCapability:
             self.settings,
         )
         if self.dictionary is not None:
-            warnings.extend(await validate_query_fields(table, prepared_query, self.dictionary))
+            warnings.extend(
+                await validate_query_fields(table, prepared_query, self.dictionary)
+            )
         return await run_list(
             table,
             prepared_query,

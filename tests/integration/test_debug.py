@@ -1,10 +1,14 @@
 """Integration tests for debug/trace tools against a live ServiceNow instance."""
 
+from typing import TYPE_CHECKING
+
 import pytest
 
-from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.config import Settings
 from servicenow_mcp.platform.client import ServiceNowClient
+
+if TYPE_CHECKING:
+    from servicenow_mcp.auth import OAuthPKCEProvider
+    from servicenow_mcp.config import Settings
 
 
 pytestmark = pytest.mark.integration
@@ -42,7 +46,9 @@ class TestDebug:
         assert isinstance(audit_r["records"], list)
         assert isinstance(journal_r["records"], list)
 
-    async def test_debug_integration_health(self, live_settings: Settings, live_auth: OAuthPKCEProvider) -> None:
+    async def test_debug_integration_health(
+        self, live_settings: Settings, live_auth: OAuthPKCEProvider
+    ) -> None:
         """Query ecc_queue for error entries."""
         async with ServiceNowClient(live_settings, live_auth) as client:
             ecc_result = await client.query_records(

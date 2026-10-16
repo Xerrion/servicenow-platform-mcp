@@ -7,7 +7,6 @@ import pytest
 
 from tests._mock_transport import HTTPMock, http_mock
 
-
 BASE = "https://test.service-now.com/api/now/table"
 
 
@@ -22,7 +21,11 @@ async def test_route_matches_method_and_path_and_records_calls() -> None:
 
 async def test_queued_responses_and_raised_exceptions() -> None:
     http_mock.post(f"{BASE}/incident").mock(
-        side_effect=[httpx2.Response(500), httpx2.ConnectError("synthetic"), httpx2.Response(201)]
+        side_effect=[
+            httpx2.Response(500),
+            httpx2.ConnectError("synthetic"),
+            httpx2.Response(201),
+        ],
     )
     async with httpx2.AsyncClient() as client:
         assert (await client.post(f"{BASE}/incident")).status_code == 500

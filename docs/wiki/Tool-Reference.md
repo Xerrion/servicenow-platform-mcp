@@ -700,7 +700,10 @@ choice, boolean, or integer values.
 the supported families in `flow.describe`, branch placement, and typed trigger/step/variable/interface pills.
 The preview shows the flow outline before and after. See `docs/flow-authoring.md` for fields and limits.
 Saved action/logic deletion requires explicit child handling and connected-branch cascade choices.
-Existing field metadata edits and Set Flow Variables are supported. Standard stages support create, update,
+Scalar flow-variable and subflow input/output declarations support `create_field`, `update_field`, and `delete_field`.
+New declarations can supply typed pills to later edits in the same request. Used declarations cannot be removed implicitly.
+Interface CRUD requires an unpublished triggerless subflow. Nested declaration CRUD remains unavailable.
+Set Flow Variables is supported. Standard stages support create, update,
 attach, detach, reorder, and removal after explicit detachment. Error-stage creation remains unavailable.
 See [experimental flow authoring](../flow-authoring.md) for native edit arguments and offline verification limits.
 Unverified family serializers return unavailable.

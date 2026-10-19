@@ -206,7 +206,15 @@ def register_tools(mcp: MCPServer, coordinator: MutationCoordinator) -> None:
                 from the complete draft list. Referenced definitions are not deleted. Connection overrides block deletion.
                 Dangling references fail. Values are never cleared automatically.
               set_variables: inputs mapping existing variable names to values, parent/after/before.
-              update_field: collection=inputs|outputs|flowVariables, name, label/hint. No type/identity changes.
+              create_field: collection=inputs|outputs|flowVariables, name, label, type=string|integer|boolean|reference|json.
+                reference requires a table name. Optional hint/maxsize. Subflow inputs accept mandatory boolean.
+                Subflow interfaces accept static default_value. Variables are initialized with set_variables.
+              update_field: collection, name, label/hint/type/reference/maxsize. Interfaces also accept default_value.
+                Only subflow inputs accept mandatory. Names cannot be renamed.
+                Identity/name remain fixed. Type/reference changes require no consumers and no stored value.
+              delete_field: collection, name. References, assignment targets, transforms, and scripts block removal.
+                Interface CRUD requires an unpublished triggerless subflow. Flow-owned interfaces retain label/hint edits only.
+                Scalar declarations only. New variables and input pills work in later edits within the same request.
               create_stage: label, value, optional duration (epoch-based timestamp), always_show boolean,
                 states (pending/in_progress/skipped/complete/error labels), ref for later stage edits.
               update_stage: stage key/ref, label/value/duration/always_show/states, or zero-based order.
@@ -214,7 +222,7 @@ def register_tools(mcp: MCPServer, coordinator: MutationCoordinator) -> None:
               delete_stage: stage key/ref. Detach all steps first. Dependent error stages block deletion.
                 These operations author standard stages, not flow-logic steps. For Each/Parallel children are excluded.
             Steps are referenced by sys_id, UI identifier, display order, or a ref alias.
-            The preview shows the flow outline before and after. Only inactive, unpublished drafts
+            The preview shows the flow outline and declaration changes. Only inactive, unpublished flow/subflow drafts
             are supported. Activation and execution are excluded.
             Apply the single-use preview_token with mutation_apply. The upstream API is undocumented.
             Apply uses independent semantic readback. Verify update-set capture. No automatic retries.

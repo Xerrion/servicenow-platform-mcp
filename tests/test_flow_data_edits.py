@@ -971,8 +971,11 @@ async def test_capture_blocker_is_explicit_and_does_not_enable_remaining_familie
     assert ledger["features"]["delete_saved_subflow"]["live_verified"] is False
     assert ledger["features"]["create_delete_stage"]["authorable"] is True
     assert ledger["features"]["create_delete_stage"]["live_verified"] is False
+    assert ledger["features"]["create_delete_interface_variable"]["authorable"] is True
+    assert (
+        ledger["features"]["create_delete_interface_variable"]["live_verified"] is False
+    )
     for family in (
-        "create_delete_interface_variable",
         "handler_creation",
         "record_triggers",
         "scheduled_triggers",

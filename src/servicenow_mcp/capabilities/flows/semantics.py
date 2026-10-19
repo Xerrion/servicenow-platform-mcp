@@ -418,8 +418,15 @@ def studio_semantics(
     if not isinstance(flow.get("id"), str) or not flow["id"]:
         _incomplete("flow.id", "Read the persisted flow identity.")
     _identity(flow["id"])
+    if flow.get("type") not in {"flow", "subflow"}:
+        _incomplete(
+            "flow.type", "Local validation requires a flow or subflow definition."
+        )
+    if flow["type"] == "subflow" and flow.get("triggerInstances"):
+        _incomplete(
+            "flow.triggerInstances", "Subflow definitions cannot contain triggers."
+        )
     prerequisites = {
-        "type": ("flow", "Local validation requires a flow definition."),
         "active": (
             False,
             "Local validation requires the flow active field to be the boolean false. Trigger activation is separate.",
@@ -821,11 +828,74 @@ def compare_saved(
     allow_updated_advance: bool = False,
     omitted_subflows: list[dict[str, str]] | None = None,
     generated_stages: set[str] | None = None,
+    generated_fields: list[dict[str, str]] | None = None,
+    removed_fields: list[dict[str, str]] | None = None,
 ) -> None:
     """Allow server IDs only for explicitly new steps. Existing identities cannot change."""
     # Tombstones are request instructions, not persisted settings. Only planned IDs may disappear.
     expected = copy.deepcopy(expected)
     actual = copy.deepcopy(actual)
+    for removed in removed_fields or []:
+        for side, definition in (("expected", expected), ("actual", actual)):
+            for section in ("inputs", "outputs", "flowVariables"):
+                for index, row in enumerate(definition.get(section, [])):
+                    if isinstance(row, dict) and any(
+                        removed.get(key) and row.get(key) == removed[key]
+                        for key in ("id", "uiUniqueId")
+                    ):
+                        raise SemanticMismatch(
+                            f"flow.{section}[{index}]",
+                            "DELETED_IDENTITY_RETAINED",
+                            side,
+                        )
+    # New scalar declarations carry client uiUniqueId in attributes. Database
+    # id is separate (bundle:22085,24010-24023,471965,458913-458917).
+    assigned_field_ids = {
+        section: [
+            row.get("id")
+            for row in actual.get(section, [])
+            if isinstance(row, dict) and row.get("id")
+        ]
+        for section in ("inputs", "outputs", "flowVariables")
+        if isinstance(actual.get(section), list)
+    }
+    for manifest in generated_fields or []:
+        section, name, uid = (
+            manifest[key] for key in ("collection", "name", "uiUniqueId")
+        )
+        if section not in {"inputs", "outputs", "flowVariables"}:
+            raise SemanticMismatch("flow", "INVALID_NEW_FIELD_MANIFEST")
+        wanted_rows, actual_rows = expected.get(section), actual.get(section)
+        if not isinstance(wanted_rows, list) or not isinstance(actual_rows, list):
+            raise SemanticMismatch(f"flow.{section}", "INCOMPLETE_SEMANTICS")
+        wanted_field = [
+            row
+            for row in wanted_rows
+            if isinstance(row, dict)
+            and row.get("name") == name
+            and row.get("uiUniqueId") == uid
+        ]
+        found_field = [
+            row
+            for row in actual_rows
+            if isinstance(row, dict)
+            and row.get("name") == name
+            and row.get("uiUniqueId") == uid
+        ]
+        if len(wanted_field) != 1 or wanted_field[0].get("id") or len(found_field) != 1:
+            raise SemanticMismatch(f"flow.{section}", "NEW_FIELD_IDENTITY_MISMATCH")
+        if "id" in found_field[0]:
+            identity = found_field[0]["id"]
+            if not isinstance(identity, str):
+                raise SemanticMismatch(
+                    f"flow.{section}.id", "INVALID_SERVER_IDENTITY", "actual"
+                )
+            _identity(identity, f"flow.{section}.id")
+            if assigned_field_ids[section].count(identity) != 1:
+                raise SemanticMismatch(
+                    f"flow.{section}.id", "DUPLICATE_IDENTITY", "actual"
+                )
+            found_field[0].pop("id")
     assigned_stage_ids = (
         [
             row.get("id")
@@ -983,6 +1053,8 @@ async def verify_saved(
     pending_deletions: dict[str, list[dict[str, str]]] | None = None,
     omitted_subflows: list[dict[str, str]] | None = None,
     generated_stages: set[str] | None = None,
+    generated_fields: list[dict[str, str]] | None = None,
+    removed_fields: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Verify the echo and a separate GET. Never retry a write or expose input values in errors."""
     phase = "request.echo"
@@ -995,6 +1067,8 @@ async def verify_saved(
             allow_updated_advance=True,
             omitted_subflows=omitted_subflows,
             generated_stages=generated_stages,
+            generated_fields=generated_fields,
+            removed_fields=removed_fields,
         )
         phase = "readback.get"
         actual = await client.studio_request(f"flow/{expected['id']}")
@@ -1007,6 +1081,8 @@ async def verify_saved(
             allow_updated_advance=True,
             omitted_subflows=omitted_subflows,
             generated_stages=generated_stages,
+            generated_fields=generated_fields,
+            removed_fields=removed_fields,
         )
         # Assigned IDs must also remain stable between the save response and independent read.
         phase = "echo.readback"

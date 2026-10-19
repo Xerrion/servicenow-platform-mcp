@@ -169,15 +169,18 @@ def ledger() -> dict[str, Any]:
             ),
             "field_metadata": entry(
                 True,
-                "Existing input/output/variable label and hint only. No identity or type changes.",
+                "Scalar declaration settings preserve identity and opaque metadata. Type/reference changes require "
+                "no surviving consumers. Existing flow-owned interfaces retain label/hint-only support.",
             ),
             "set_variables": entry(
                 True, "Observed Set Flow Variables inputs plus flowVariables mirror."
             ),
             "create_delete_interface_variable": entry(
-                False,
-                "Creation IDs, flattened child registration, and deletion semantics need a complete Studio "
-                "serialization contract.",
+                True,
+                "Top-level string/integer/boolean/reference/JSON flow variables and subflow input/output declarations. "
+                "Client UI IDs, complete-list omission, assigned database IDs, and dependency rejection. "
+                "Nested declaration CRUD, interface rename, and trigger-owned interfaces remain unavailable. "
+                "Source-derived offline regression only.",
             ),
             "stage_metadata": entry(
                 True,
@@ -227,7 +230,7 @@ def ledger() -> dict[str, Any]:
             ),
             "missing_contracts": (
                 "Guarded UI bootstrap blocked; no new request bodies captured. Need full serialized create/delete "
-                "interface/variable and error-stage examples, top-level order-zero "
+                "nested interface/variable and error-stage examples, top-level order-zero "
                 "wrappers, record/scheduled trigger dependent metadata, whole complex pills, and paired Try/Catch "
                 "moves."
             ),

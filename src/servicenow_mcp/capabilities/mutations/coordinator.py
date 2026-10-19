@@ -69,6 +69,15 @@ class MutationCoordinator:
         if isinstance(command, FlowCommand) and command.action == "add_subflow":
             gate_write("sys_hub_sub_flow_instance_v2", self.settings)
         if isinstance(command, FlowCommand) and command.action == "edit":
+            for edit in command.edits or []:
+                if edit.get("op") in {"create_field", "update_field", "delete_field"}:
+                    field_table = {
+                        "inputs": "sys_hub_flow_input",
+                        "outputs": "sys_hub_flow_output",
+                        "flowVariables": "sys_hub_flow_variable",
+                    }.get(str(edit.get("collection")))
+                    if field_table:
+                        gate_write(field_table, self.settings)
             if any(
                 edit.get("op")
                 in {

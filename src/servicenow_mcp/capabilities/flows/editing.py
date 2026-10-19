@@ -13,6 +13,7 @@ from servicenow_mcp.capabilities.contracts import CapabilityError, validate_payl
 from servicenow_mcp.capabilities.flows import (
     capture,
     data,
+    fields,
     semantics,
     stages,
     support,
@@ -34,6 +35,8 @@ OPS = {
     "delete_step",
     "update_inputs",
     "update_field",
+    "create_field",
+    "delete_field",
     "set_variables",
     "update_stage",
     "create_stage",
@@ -70,7 +73,9 @@ def _check_edit(edit: dict[str, Any]) -> None:
         "delete_step": {"step", "children", "cascade"},
         "update_inputs": {"step", "inputs"},
         "set_variables": {"inputs", *placement},
-        "update_field": {"collection", "name", "label", "hint"},
+        "create_field": {"collection", "name", *fields.SETTINGS},
+        "update_field": {"collection", "name", *fields.SETTINGS},
+        "delete_field": {"collection", "name"},
         "create_stage": {"label", "value", "duration", "always_show", "states", "ref"},
         "update_stage": {
             "stage",
@@ -114,10 +119,12 @@ def require_editable(flow: dict[str, Any], sys_id: str) -> None:
             )
     if (
         flow.get("id") != sys_id
-        or flow.get("type") != "flow"
+        or flow.get("type") not in {"flow", "subflow"}
         or flow.get("active") is not False
     ):
-        raise CapabilityError("Only inactive flows can be edited.")
+        raise CapabilityError("Only inactive flows or subflows can be edited.")
+    if flow.get("type") == "subflow" and flow["triggerInstances"]:
+        raise CapabilityError("Subflow drafts cannot contain triggers.")
     if (
         flow.get("status") != "draft"
         or flow.get("isPublished") is not False
@@ -643,6 +650,9 @@ async def plan(
     stage_links = stages.attachments(working) if stage_edits else {}
     stage_aliases: dict[str, str] = {}
     created_stages: list[str] = []
+    created_fields: list[dict[str, str]] = []
+    removed_fields: list[dict[str, str]] = []
+    reference_tables: set[str] = set()
     # Bind client stage UUIDs to this exact definition and edit list. Replanning
     # preview/apply must not create different stage keys.
     stage_seed = fingerprint(
@@ -654,6 +664,11 @@ async def plan(
         if flow.get("startingIndexOfErrorHandlingInstances", -1) != -1:
             raise CapabilityError(
                 "Top-level handler flows require an order-zero wrapper adapter before edits are available.",
+                "UNAVAILABLE",
+            )
+        if flow["type"] == "subflow" and (op == "set_trigger" or op in stages.OPS):
+            raise CapabilityError(
+                "Subflow trigger and stage authoring are unavailable in this adapter.",
                 "UNAVAILABLE",
             )
         if op in {"move_step", "delete_step", "insert_logic", "set_variables"}:
@@ -689,9 +704,62 @@ async def plan(
                     "Structural edits require family adapters for every existing flow-logic step.",
                     "UNAVAILABLE",
                 )
-        if op == "update_field":
-            _update_field(working, edit)
-            summary.append(f"{index}. Update declared field metadata")
+        if op in {"create_field", "update_field", "delete_field"}:
+            section = fields.collection(edit)
+            existing = next(
+                (
+                    row
+                    for row in working[section]
+                    if row.get("name") == edit.get("name")
+                ),
+                None,
+            )
+            if op == "delete_field" and existing is not None:
+                removed_fields.append(
+                    {
+                        "collection": section,
+                        **{
+                            key: existing[key]
+                            for key in ("id", "uiUniqueId")
+                            if isinstance(existing.get(key), str) and existing[key]
+                        },
+                    }
+                )
+            if (
+                op == "update_field"
+                and section != "flowVariables"
+                and flow["type"] == "flow"
+                and set(edit) <= {"op", "collection", "name", "label", "hint"}
+            ):
+                # Preserve the established metadata-only adapter for flow-owned interfaces.
+                _update_field(working, edit)
+            else:
+                changed = fields.edit_field(
+                    working,
+                    edit,
+                    roots,
+                    str(
+                        uuid.UUID(
+                            hex=fingerprint([stage_seed, "field", index])[:32],
+                            version=4,
+                        )
+                    ),
+                )
+                if changed is not None:
+                    created_fields.append(changed)
+                if op != "delete_field":
+                    declared = data.named(working[section], str(edit["name"]))
+                    if declared.get("type") == "reference":
+                        reference_tables.add(declared["reference"])
+                if (
+                    section == "flowVariables"
+                    and existing is not None
+                    and op == "update_field"
+                ):
+                    fields.refresh_assignments(roots, existing, set(edit))
+            summary.append(
+                f"{index}. {op.replace('_', ' ').capitalize()} {section}.{edit.get('name')}"
+            )
         elif op == "set_variables":
             definition = next(
                 (d for d in state["logic"] if d["type"] == "SETFLOWVARIABLES"), None
@@ -919,7 +987,10 @@ async def plan(
     for step in tree.walk(roots):
         step.raw.pop("_alias", None)
     payload = tree.flatten(working, roots)
-    if omitted_subflows:
+    if omitted_subflows or any(
+        edit.get("op") in {"create_field", "update_field", "delete_field"}
+        for edit in command.edits or []
+    ):
         _refresh_component_mirror(flow, payload)
     if stage_edits:
         stages.serialize(payload, roots, stage_links, flow)
@@ -928,6 +999,20 @@ async def plan(
     payload["triggerInstances"] = triggers
     payload.update(pending_deletions)
     trigger = triggers[0] if triggers else None
+    table_evidence = {}
+    for table in sorted(reference_tables):
+        check_table_access("sys_db_object")
+        rows = (
+            await client.query_records(
+                "sys_db_object", f"name={table}", fields=["name"], limit=2
+            )
+        )["records"]
+        if len(rows) != 1 or rows[0].get("name") != table:
+            raise CapabilityError(
+                "The declaration reference table is absent, ambiguous, or unreadable.",
+                "UNAVAILABLE",
+            )
+        table_evidence[table] = rows[0]
     usage = tree.used_pills(roots)
     if len(usage) > 100:
         raise CapabilityError(
@@ -1001,6 +1086,7 @@ async def plan(
     validate_payload(payload, field_name="flow", validate_keys=False)
     semantics.studio_semantics(payload, pending_deletions=pending_deletions)
     reference_evidence: dict[str, Any] = {
+        "declaration_tables": table_evidence,
         "pills": [
             {key: value for key, value in entry.items() if key != "usedInstances"}
             for entry in label_cache
@@ -1022,6 +1108,15 @@ async def plan(
         "pending_deletions": pending_deletions,
         "omitted_subflows": omitted_subflows,
         "created_stages": [key for key in created_stages if key in payload["stages"]],
+        "created_fields": [
+            row
+            for row in created_fields
+            if any(
+                item.get("uiUniqueId") == row["uiUniqueId"]
+                for item in payload[row["collection"]]
+            )
+        ],
+        "removed_fields": removed_fields,
         "reference_revision": fingerprint(reference_evidence),
     }
     trace_flow_preview_boundary(
@@ -1241,6 +1336,8 @@ async def preview(
         "verification": "offline_regression_only",
         "stages_before": stages.summary(flow, []),
         "stages": stages.summary(result["payload"], result["created_stages"]),
+        "fields_before": fields.summary(flow),
+        "fields": fields.summary(result["payload"]),
         "deleted_instances": {
             **result["pending_deletions"],
             **(
@@ -1332,6 +1429,8 @@ async def apply(
         pending_deletions=result["pending_deletions"],
         omitted_subflows=result["omitted_subflows"],
         generated_stages=set(result["created_stages"]),
+        generated_fields=result["created_fields"],
+        removed_fields=result["removed_fields"],
     )
     actual_outline = trigger_lines(saved["triggerInstances"]) + tree.outline(
         tree.build_tree(saved)

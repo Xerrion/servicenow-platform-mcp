@@ -26,19 +26,21 @@ The adapter does not use browser cookies, run server scripts, or write flow snap
 `flow_preview(action="edit", sys_id=..., edits=[...])` applies an ordered list of edits to one draft and
 saves the result with one request. The preview shows the flow outline before and after the change.
 
-| `op`                            | Fields                                                                  | Effect                                                                                                                                                                                                                                                                                                  |
-| ------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `set_trigger`                   | `type`, `inputs`, `replace`                                             | Authors `service_catalog`. Other catalog families return unavailable until their serializers are established.                                                                                                                                                                                           |
-| `insert_logic`                  | `logic`, `inputs`, `parent` or `after` or `before`, `ref`               | Adds If/Else If/Else, For Each, Try with paired Catch, Parallel/Parallel Branch, End, Exit Loop, or Skip Iteration.                                                                                                                                                                                     |
-| `move_step`                     | `step`, `parent` or `after` or `before`                                 | Moves an existing step, also into or out of a branch.                                                                                                                                                                                                                                                   |
-| `update_inputs`                 | `step`, `inputs`                                                        | Changes typed input values. Native objects and arrays use declared child schemas.                                                                                                                                                                                                                       |
-| `delete_step`                   | `step`, `children`, `cascade`                                           | Deletes saved actions or logic with ID tombstones. Deletes saved subflow calls by omission from the complete draft list, not by deleting the referenced definition. Child handling is `reject` (default), `delete`, or `promote`. Connected branches require `cascade=connected` and `children=delete`. |
-| `set_variables`                 | `inputs`, placement                                                     | Assigns existing flow variables through Set Flow Variables.                                                                                                                                                                                                                                             |
-| `update_field`                  | `collection`, `name`, `label`, `hint`                                   | Changes existing interface or variable metadata. Types and identities remain unchanged. Trigger-owned interfaces cannot change independently.                                                                                                                                                           |
-| `create_stage`                  | `label`, `value`, optional `duration`, `always_show`, `states`, `ref`   | Creates a standard stage definition. The optional ref addresses it in later edits.                                                                                                                                                                                                                      |
-| `update_stage`                  | `stage`, `label`, `value`, `duration`, `always_show`, `states`, `order` | Updates a standard stage without replacing unknown metadata. Order is a zero-based position.                                                                                                                                                                                                            |
-| `attach_stage` / `detach_stage` | `stage`, `step`                                                         | Explicitly attaches or detaches a stage at the beginning of a step. No implicit replacement.                                                                                                                                                                                                            |
-| `delete_stage`                  | `stage`                                                                 | Removes an unattached standard stage. Dependent error stages block removal.                                                                                                                                                                                                                             |
+| `op`                            | Fields                                                                                                       | Effect                                                                                                                                                                                                                                                                                                  |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `set_trigger`                   | `type`, `inputs`, `replace`                                                                                  | Authors `service_catalog`. Other catalog families return unavailable until their serializers are established.                                                                                                                                                                                           |
+| `insert_logic`                  | `logic`, `inputs`, `parent` or `after` or `before`, `ref`                                                    | Adds If/Else If/Else, For Each, Try with paired Catch, Parallel/Parallel Branch, End, Exit Loop, or Skip Iteration.                                                                                                                                                                                     |
+| `move_step`                     | `step`, `parent` or `after` or `before`                                                                      | Moves an existing step, also into or out of a branch.                                                                                                                                                                                                                                                   |
+| `update_inputs`                 | `step`, `inputs`                                                                                             | Changes typed input values. Native objects and arrays use declared child schemas.                                                                                                                                                                                                                       |
+| `delete_step`                   | `step`, `children`, `cascade`                                                                                | Deletes saved actions or logic with ID tombstones. Deletes saved subflow calls by omission from the complete draft list, not by deleting the referenced definition. Child handling is `reject` (default), `delete`, or `promote`. Connected branches require `cascade=connected` and `children=delete`. |
+| `set_variables`                 | `inputs`, placement                                                                                          | Assigns existing flow variables through Set Flow Variables.                                                                                                                                                                                                                                             |
+| `create_field`                  | `collection`, `name`, `label`, `type`, optional `reference`, `hint`, `maxsize`, `mandatory`, `default_value` | Creates a scalar variable or subflow interface declaration.                                                                                                                                                                                                                                             |
+| `update_field`                  | `collection`, `name`, declaration settings                                                                   | Updates metadata or an unused scalar's type/reference without changing its identity or name.                                                                                                                                                                                                            |
+| `delete_field`                  | `collection`, `name`                                                                                         | Removes an unused scalar declaration from the complete list. No automatic consumer cleanup.                                                                                                                                                                                                             |
+| `create_stage`                  | `label`, `value`, optional `duration`, `always_show`, `states`, `ref`                                        | Creates a standard stage definition. The optional ref addresses it in later edits.                                                                                                                                                                                                                      |
+| `update_stage`                  | `stage`, `label`, `value`, `duration`, `always_show`, `states`, `order`                                      | Updates a standard stage without replacing unknown metadata. Order is a zero-based position.                                                                                                                                                                                                            |
+| `attach_stage` / `detach_stage` | `stage`, `step`                                                                                              | Explicitly attaches or detaches a stage at the beginning of a step. No implicit replacement.                                                                                                                                                                                                            |
+| `delete_stage`                  | `stage`                                                                                                      | Removes an unattached standard stage. Dependent error stages block removal.                                                                                                                                                                                                                             |
 
 Steps are referenced by sys_id, UI identifier, 1-based display order, or the `ref` alias of a block added
 earlier in the same call. References are resolved before each edit changes the tree.
@@ -95,6 +97,61 @@ Otherwise, cleanup retains them. This adapter does not infer that configuration 
 Ordinary call deletion leaves `alerts` unchanged. Connection override cleanup is a separate native path
 (253620-253663); this adapter still blocks nonempty mappings rather than guessing which mapping to remove.
 
+### Variables and subflow interfaces
+
+`create_field`, `update_field`, and `delete_field` accept `collection="flowVariables"`, `"inputs"`, or `"outputs"`.
+Supported scalar types are `string`, `integer`, `boolean`, `reference`, and `json`.
+Variables work in inactive, unpublished flows and subflows. Interface CRUD requires an existing unpublished subflow without a trigger.
+Flow-owned and trigger-owned interfaces are not replaced. Existing flow interface label/hint edits remain supported.
+This increment edits existing subflow drafts. Header creation and action/subflow appending remain flow-only.
+
+Example: declare a variable, assign it, then consume its typed pill in another step:
+
+```json
+[
+  {
+    "op": "create_field",
+    "collection": "flowVariables",
+    "name": "total",
+    "label": "Total",
+    "type": "integer"
+  },
+  { "op": "set_variables", "inputs": { "total": 3 }, "after": "1" },
+  {
+    "op": "update_inputs",
+    "step": "ui-of-existing-log",
+    "inputs": { "log_message": "Total: {{flow_variable.total}}" }
+  }
+]
+```
+
+Use `subflow.<name>` for a declared subflow input. New declarations are available to later edits in the same request.
+Names are fixed lowercase identifiers, at most 80 characters. Labels must be unique within each collection.
+`reference` requires a readable exact table match. `maxsize` accepts 1-65000. `mandatory` is a JSON boolean for inputs only.
+`default_value` accepts static native scalar values for interfaces, not data pills. JSON defaults are valid JSON text.
+Initialize variables through `set_variables`, not declaration defaults. Runtime values remain outside local verification.
+Boolean declaration metadata uses Studio's false default. This does not prove runtime initialization.
+Nested Object/Array fields, dynamic types, declaration rename, and nested registration edits remain unavailable.
+Unrelated complex declarations and opaque metadata are preserved.
+
+Type/reference changes require no surviving consumers and no stored value. Defaults must remain valid for the resulting type.
+Removal rejects pill references, assignment targets, transform prescriptions, source links, and script dependencies.
+Update or remove those consumers explicitly before deleting the declaration. No values are silently cleared.
+Only supported native bindings can be changed. Scripts and unsupported assignment families may require Studio editing first.
+Local dependency checks cannot establish external callers of a subflow interface. Review caller compatibility before applying interface changes.
+
+Preview returns `summary.fields_before` and `summary.fields` with declared settings, not opaque metadata.
+New client UI identities remain stable across planning. Only new declarations may receive database IDs.
+Save echo and independent read must agree on assigned IDs. Existing IDs, all values, types, interfaces, and unknown settings remain strict.
+Removed identities cannot reappear under another field name. No new token or write endpoint is introduced.
+
+Source evidence: `addInputsOutputs` (local bundle:22076-22125), `deleteInputsOutputs` (22298-22312),
+scalar registration and mapping (22753-22826,24010-24023), variable reducer/modal (6382-6453,458852-459117),
+typed variable pills (232960-233028), complete flow save (99103-99170), and separate declaration database IDs (471965,458913-458917).
+Official local references: `create-flow-variables.md`, `flow-variables.md`, and `flow-logic-assign-subflow-outputs.md`
+under `docs/ServiceNowDocs/markdown/build-workflows/workflow-studio/`.
+These contracts are source-derived and fixture-tested, not live save verification.
+
 ### Standard stages
 
 Stages are separate from flow-logic steps. Create, update, attach, detach, and remove standard stages in one ordered edit request:
@@ -139,7 +196,7 @@ The complete flow save retains keyed `stages` (99104,350891). This adapter does 
 The local official reference is `docs/ServiceNowDocs/markdown/build-workflows/workflow-studio/add-stages.md`.
 These operations are source-grounded and offline-regression verified, not live save or execution verified.
 
-Unavailable: interface/variable creation and removal, error-stage creation, handler creation/toggling,
+Unavailable: nested interface/variable creation and removal, error-stage creation, handler creation/toggling,
 scheduled and record-trigger serialization, and dynamic family inputs without a dedicated adapter.
 Existing opaque settings remain unchanged. Stage attachments follow stable step identities during reordering.
 Detach a stage before deleting its step. Moving a previously attached step across parent regions requires a separate edit request.
@@ -335,14 +392,14 @@ The effect guard was not relaxed, and no alternative authenticated transport was
 
 The following bodies are still needed from a version-matched, safely isolated UI or sanitized existing fixtures:
 
-| Family                            | Smallest missing serializer evidence                                                                                                       |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| Inputs, outputs, variables        | Scalar and nested create/remove bodies with generated IDs, flattened child registrations, binding cleanup, and output assignment behavior. |
-| Error stages                      | Create/remove bodies with ancestor links and conditional ancestry. Standard-stage CRUD is implemented from local client source.            |
-| Top-level handler                 | Toggle-on/off bodies with hidden order-zero wrappers, enabled input, parent rewriting, and handler boundary index.                         |
-| Record/scheduled/dynamic triggers | Final native input values, regenerated interfaces, table dependencies, and stored timezone/schedule representation.                        |
-| Whole complex pills               | Object, Array.Object, and primitive Array bindings with value/children fields and complete source/target schemas.                          |
-| Try/Catch paired moves            | Pair movement across parent regions with connectedTo, children, order, and ancestry fields.                                                |
+| Family                            | Smallest missing serializer evidence                                                                                                                                      |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Nested inputs, outputs, variables | Nested create/remove bodies with flattened child registration, binding cleanup, and output assignment behavior. Scalar declaration CRUD is implemented from local source. |
+| Error stages                      | Create/remove bodies with ancestor links and conditional ancestry. Standard-stage CRUD is implemented from local client source.                                           |
+| Top-level handler                 | Toggle-on/off bodies with hidden order-zero wrappers, enabled input, parent rewriting, and handler boundary index.                                                        |
+| Record/scheduled/dynamic triggers | Final native input values, regenerated interfaces, table dependencies, and stored timezone/schedule representation.                                                       |
+| Whole complex pills               | Object, Array.Object, and primitive Array bindings with value/children fields and complete source/target schemas.                                                         |
+| Try/Catch paired moves            | Pair movement across parent regions with connectedTo, children, order, and ancestry fields.                                                                               |
 
 Further capture requires an authenticated editor bootstrap that works within the GET-only/no-worker boundary,
 or sanitized version-matched request fixtures. Do not permit the blocked POSTs merely to make the UI load.

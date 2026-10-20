@@ -175,6 +175,14 @@ def ledger() -> dict[str, Any]:
             "set_variables": entry(
                 True, "Observed Set Flow Variables inputs plus flowVariables mirror."
             ),
+            "output_assignment": entry(
+                True,
+                "Native Assign Subflow Outputs steps with ordered scalar rows. Create or update with assign_outputs, "
+                "remove a row with clear_output_assignment. Only unpublished triggerless subflows. "
+                "Literal/typed pills, independent readback, and explicit declaration deletion guards. "
+                "Loop/parallel placement, scripts, complex output values, and output-to-output pills remain unavailable. "
+                "Source-derived offline regression only.",
+            ),
             "create_delete_interface_variable": entry(
                 True,
                 "Top-level string/integer/boolean/reference/JSON flow variables and subflow input/output declarations. "

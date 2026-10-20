@@ -53,6 +53,15 @@ def children(item: dict[str, Any]) -> list[dict[str, Any]]:
     return result
 
 
+def output_assignment_value(row: dict[str, Any]) -> Any:
+    """Read only the documented element-mapping fallback for output rows."""
+    # Studio GET puts an output binding in displayValue with value blank
+    # (bundle:150470-150479). False and zero remain actual values.
+    if row.get("value") == "" and "displayValue" in row:
+        return row["displayValue"]
+    return row.get("value")
+
+
 def set_value(item: dict[str, Any], value: Any) -> None:
     """Serialize native complex values using Studio's observed children/value contract."""
     parameter = spec(item)

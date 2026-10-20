@@ -13,7 +13,7 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, NoReturn
 
 from servicenow_mcp.capabilities.contracts import CapabilityError, validate_payload
-from servicenow_mcp.capabilities.flows import tree
+from servicenow_mcp.capabilities.flows import data, tree
 from servicenow_mcp.validation import validate_sys_id
 
 if TYPE_CHECKING:
@@ -598,6 +598,11 @@ def studio_semantics(
                     path + ".flowVariables",
                     "The variable mirror must match the stored input bindings.",
                 )
+            if (
+                isinstance(logic_definition, dict)
+                and logic_definition.get("type") == "ASSIGNSUBFLOWOUTPUTS"
+            ):
+                _bindings(raw.get("outputsToAssign"), path + ".outputsToAssign")
             if "data" in raw:
                 values = raw.get("inputs")
                 if not isinstance(values, list) or not isinstance(raw["data"], dict):
@@ -605,9 +610,18 @@ def studio_semantics(
                         path + ".data",
                         "The binding mirror must be an object with a complete input list.",
                     )
-                if _json(raw["data"]) != _json(
-                    {item["name"]: item["value"] for item in values}
+                mirror = {item["name"]: item["value"] for item in raw["inputs"]}
+                if (
+                    isinstance(logic_definition, dict)
+                    and logic_definition.get("type") == "ASSIGNSUBFLOWOUTPUTS"
                 ):
+                    mirror.update(
+                        {
+                            item["name"]: data.output_assignment_value(item)
+                            for item in raw["outputsToAssign"]
+                        }
+                    )
+                if _json(raw["data"]) != _json(mirror):
                     _incomplete(
                         path + ".data",
                         "The binding mirror differs from the stored input values.",
@@ -835,6 +849,21 @@ def compare_saved(
     # Tombstones are request instructions, not persisted settings. Only planned IDs may disappear.
     expected = copy.deepcopy(expected)
     actual = copy.deepcopy(actual)
+    for definition in (expected, actual):
+        for step in [
+            *definition.get("flowLogicInstances", []),
+            *definition.get("componentInstances", []),
+        ]:
+            if (
+                not isinstance(step, dict)
+                or step.get("flowLogicDefinition", {}).get("type")
+                != "ASSIGNSUBFLOWOUTPUTS"
+            ):
+                continue
+            rows = step.get("outputsToAssign")
+            _bindings(rows, "flow.flowLogicInstances.outputsToAssign")
+            for row in rows:
+                row["value"] = data.output_assignment_value(row)
     for removed in removed_fields or []:
         for side, definition in (("expected", expected), ("actual", actual)):
             for section in ("inputs", "outputs", "flowVariables"):

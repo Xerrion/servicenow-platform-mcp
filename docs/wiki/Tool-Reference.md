@@ -703,6 +703,10 @@ Saved action/logic deletion requires explicit child handling and connected-branc
 Scalar flow-variable and subflow input/output declarations support `create_field`, `update_field`, and `delete_field`.
 New declarations can supply typed pills to later edits in the same request. Used declarations cannot be removed implicitly.
 Interface CRUD requires an unpublished triggerless subflow. Nested declaration CRUD remains unavailable.
+`assign_outputs` creates a native Assign Subflow Outputs step or updates selected rows with `step`.
+`clear_output_assignment` removes a named assignment row. Output declarations remain unchanged.
+Scalar literal values and typed pills are supported. Preview shows ordered assignments before and after.
+Clear assignments before deleting their declarations. Complex values and output-to-output pills remain unavailable.
 Set Flow Variables is supported. Standard stages support create, update,
 attach, detach, reorder, and removal after explicit detachment. Error-stage creation remains unavailable.
 See [experimental flow authoring](../flow-authoring.md) for native edit arguments and offline verification limits.

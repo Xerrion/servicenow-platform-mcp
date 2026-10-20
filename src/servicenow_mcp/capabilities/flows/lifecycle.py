@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from servicenow_mcp.capabilities.contracts import CapabilityError, CapabilityResult
 from servicenow_mcp.capabilities.flows import (
+    assignments,
     capture,
     data,
     editing,
@@ -350,6 +351,7 @@ async def validate_definition(
     try:
         semantics.studio_semantics(flow)
         roots = tree.build_tree(flow)
+        assignments.hydrate(roots)
     except semantics.IncompleteSemantics as exc:
         return {
             "valid": None,
@@ -428,7 +430,7 @@ async def validate_definition(
             ),
         )
     triggers = flow["triggerInstances"]
-    if len(triggers) != 1:
+    if flow["type"] == "flow" and len(triggers) != 1:
         diagnostics.append(
             diagnostic(
                 "TRIGGER_COUNT",
@@ -512,6 +514,7 @@ async def validate_definition(
         if step.kind == "flowlogic" and step.logic_type not in support.LOGIC_TYPES | {
             "CATCH",
             "SETFLOWVARIABLES",
+            assignments.KIND,
         }:
             diagnostics.append(
                 diagnostic(
@@ -674,6 +677,18 @@ async def validate_definition(
                     path + ".inputs",
                 ),
             )
+        if step.logic_type == assignments.KIND:
+            try:
+                assignments.validate(flow, roots)
+            except CapabilityError as exc:
+                diagnostics.append(
+                    diagnostic(
+                        "INVALID_OUTPUT_ASSIGNMENT",
+                        path + ".outputsToAssign",
+                        "Check output declarations, types, values, assignment targets, and placement.",
+                        incomplete=exc.code == "UNAVAILABLE",
+                    )
+                )
         for key in (
             "inputs",
             "outputsToAssign",

@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from servicenow_mcp.capabilities.contracts import CapabilityError, validate_payload
 from servicenow_mcp.capabilities.flows import (
+    assignments,
     capture,
     data,
     fields,
@@ -29,6 +30,7 @@ if TYPE_CHECKING:
 
 
 OPS = {
+    *assignments.OPS,
     "set_trigger",
     "insert_logic",
     "move_step",
@@ -73,6 +75,8 @@ def _check_edit(edit: dict[str, Any]) -> None:
         "delete_step": {"step", "children", "cascade"},
         "update_inputs": {"step", "inputs"},
         "set_variables": {"inputs", *placement},
+        "assign_outputs": {"outputs", "step", "ref", *placement},
+        "clear_output_assignment": {"step", "name"},
         "create_field": {"collection", "name", *fields.SETTINGS},
         "update_field": {"collection", "name", *fields.SETTINGS},
         "delete_field": {"collection", "name"},
@@ -619,7 +623,7 @@ async def load_state(command: FlowCommand, client: ServiceNowClient) -> dict[str
         )
     logic = (
         await client.studio_definitions("flow_logic")
-        if needs & {"insert_logic", "set_variables"}
+        if needs & {"insert_logic", "set_variables", *assignments.OPS}
         else []
     )
     triggers = (
@@ -637,6 +641,7 @@ async def plan(
         "planner.in", action=command.action, edits=command.edits, flow=flow
     )
     roots = tree.build_tree(flow)
+    assignments.hydrate(roots)
     triggers = list(copy.deepcopy(flow["triggerInstances"]))
     logic_by_name = {d["name"].lower(): d for d in state["logic"]}
     logic_by_name.update({d["type"].lower(): d for d in state["logic"]})
@@ -671,7 +676,11 @@ async def plan(
                 "Subflow trigger and stage authoring are unavailable in this adapter.",
                 "UNAVAILABLE",
             )
-        if op in {"move_step", "delete_step", "insert_logic", "set_variables"}:
+        if (
+            op in {"move_step", "delete_step", "insert_logic", "set_variables"}
+            or op == "assign_outputs"
+            and "step" not in edit
+        ):
             if tree.pills(
                 [flow.get("inputs"), flow.get("outputs"), flow.get("flowVariables")]
             ):
@@ -696,7 +705,9 @@ async def plan(
                                 "UNAVAILABLE",
                             )
             if any(
-                s.logic_type not in support.LOGIC_TYPES | {"CATCH", "SETFLOWVARIABLES"}
+                s.logic_type
+                not in support.LOGIC_TYPES
+                | {"CATCH", "SETFLOWVARIABLES", assignments.KIND}
                 for s in tree.walk(roots)
                 if s.kind == "flowlogic"
             ):
@@ -757,9 +768,72 @@ async def plan(
                     and op == "update_field"
                 ):
                     fields.refresh_assignments(roots, existing, set(edit))
+                if (
+                    section == "outputs"
+                    and existing is not None
+                    and op == "update_field"
+                ):
+                    assignments.refresh_metadata(roots, existing, set(edit))
             summary.append(
                 f"{index}. {op.replace('_', ' ').capitalize()} {section}.{edit.get('name')}"
             )
+        elif op in assignments.OPS:
+            assignments.require_subflow(working)
+            if "step" in edit:
+                if set(edit) & {"parent", "after", "before", "ref"}:
+                    raise CapabilityError(
+                        "Updating an assignment step cannot also change its placement or alias."
+                    )
+                siblings, position, _ = tree.find(
+                    roots,
+                    _resolve_alias(roots, _str(edit, "step", required=True)) or "",
+                )
+                step = siblings[position]
+                current = [
+                    d
+                    for d in state["logic"]
+                    if d.get("id") == step.raw.get("definitionId")
+                    and d.get("type") == assignments.KIND
+                ]
+                if len(current) != 1 or current[0].get("userCanRead") is not True:
+                    raise CapabilityError(
+                        "The assignment step's current definition is unreadable or ambiguous.",
+                        "UNAVAILABLE",
+                    )
+            elif op == "clear_output_assignment":
+                raise CapabilityError("clear_output_assignment requires step and name.")
+            else:
+                definitions = [
+                    d for d in state["logic"] if d.get("type") == assignments.KIND
+                ]
+                if (
+                    len(definitions) != 1
+                    or definitions[0].get("userCanRead") is not True
+                ):
+                    raise CapabilityError(
+                        "Assign Subflow Outputs is unavailable in the instance catalog.",
+                        "UNAVAILABLE",
+                    )
+                definition = definitions[0]
+                step = tree.new_logic_step(flow["id"], definition, {})
+                step.raw["uiUniqueIdentifier"] = str(
+                    uuid.UUID(
+                        hex=fingerprint([stage_seed, "output_assignment", index])[:32],
+                        version=4,
+                    )
+                )
+                tree.insert(
+                    roots,
+                    step,
+                    parent=_resolve_alias(roots, _str(edit, "parent")),
+                    after=_resolve_alias(roots, _str(edit, "after")),
+                    before=_resolve_alias(roots, _str(edit, "before")),
+                )
+                created.append(step.uid)
+                if alias := _str(edit, "ref"):
+                    step.raw["_alias"] = alias
+            assignments.update(working, step, edit)
+            summary.append(f"{index}. {op.replace('_', ' ').capitalize()}")
         elif op == "set_variables":
             definition = next(
                 (d for d in state["logic"] if d["type"] == "SETFLOWVARIABLES"), None
@@ -988,7 +1062,8 @@ async def plan(
         step.raw.pop("_alias", None)
     payload = tree.flatten(working, roots)
     if omitted_subflows or any(
-        edit.get("op") in {"create_field", "update_field", "delete_field"}
+        edit.get("op")
+        in {"create_field", "update_field", "delete_field", *assignments.OPS}
         for edit in command.edits or []
     ):
         _refresh_component_mirror(flow, payload)
@@ -999,6 +1074,7 @@ async def plan(
     payload["triggerInstances"] = triggers
     payload.update(pending_deletions)
     trigger = triggers[0] if triggers else None
+    assignments.validate(payload, roots)
     table_evidence = {}
     for table in sorted(reference_tables):
         check_table_access("sys_db_object")
@@ -1338,6 +1414,8 @@ async def preview(
         "stages": stages.summary(result["payload"], result["created_stages"]),
         "fields_before": fields.summary(flow),
         "fields": fields.summary(result["payload"]),
+        "output_assignments_before": assignments.summary(tree.build_tree(flow)),
+        "output_assignments": assignments.summary(tree.build_tree(result["payload"])),
         "deleted_instances": {
             **result["pending_deletions"],
             **(

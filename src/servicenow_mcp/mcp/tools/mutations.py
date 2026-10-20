@@ -206,6 +206,13 @@ def register_tools(mcp: MCPServer, coordinator: MutationCoordinator) -> None:
                 from the complete draft list. Referenced definitions are not deleted. Connection overrides block deletion.
                 Dangling references fail. Values are never cleared automatically.
               set_variables: inputs mapping existing variable names to values, parent/after/before.
+              assign_outputs: outputs mapping declared output names to native scalar values or typed pills.
+                Without step, inserts a native Assign Subflow Outputs step using parent/after/before and optional ref.
+                With step, updates named rows and appends missing rows. Unmentioned rows retain their order and values.
+              clear_output_assignment: step, name. Removes that assignment row, not the declared output or logic step.
+                Assignments require an unpublished triggerless subflow. Declare outputs first, including within the same edits.
+                Blank value assigns an empty value. Clearing removes the row. Used output declarations cannot be deleted.
+                Loop/parallel assignments, scripts, complex output values, and output-to-output pills are unavailable.
               create_field: collection=inputs|outputs|flowVariables, name, label, type=string|integer|boolean|reference|json.
                 reference requires a table name. Optional hint/maxsize. Subflow inputs accept mandatory boolean.
                 Subflow interfaces accept static default_value. Variables are initialized with set_variables.

@@ -34,6 +34,8 @@ saves the result with one request. The preview shows the flow outline before and
 | `update_inputs`                 | `step`, `inputs`                                                                                             | Changes typed input values. Native objects and arrays use declared child schemas.                                                                                                                                                                                                                       |
 | `delete_step`                   | `step`, `children`, `cascade`                                                                                | Deletes saved actions or logic with ID tombstones. Deletes saved subflow calls by omission from the complete draft list, not by deleting the referenced definition. Child handling is `reject` (default), `delete`, or `promote`. Connected branches require `cascade=connected` and `children=delete`. |
 | `set_variables`                 | `inputs`, placement                                                                                          | Assigns existing flow variables through Set Flow Variables.                                                                                                                                                                                                                                             |
+| `assign_outputs`                | `outputs`, optional `step` or placement and `ref`                                                            | Creates a native Assign Subflow Outputs step or updates selected assignment rows. Scalar values and typed pills only.                                                                                                                                                                                   |
+| `clear_output_assignment`       | `step`, `name`                                                                                               | Removes one assignment row. The declared output and logic step remain.                                                                                                                                                                                                                                  |
 | `create_field`                  | `collection`, `name`, `label`, `type`, optional `reference`, `hint`, `maxsize`, `mandatory`, `default_value` | Creates a scalar variable or subflow interface declaration.                                                                                                                                                                                                                                             |
 | `update_field`                  | `collection`, `name`, declaration settings                                                                   | Updates metadata or an unused scalar's type/reference without changing its identity or name.                                                                                                                                                                                                            |
 | `delete_field`                  | `collection`, `name`                                                                                         | Removes an unused scalar declaration from the complete list. No automatic consumer cleanup.                                                                                                                                                                                                             |
@@ -151,6 +153,67 @@ typed variable pills (232960-233028), complete flow save (99103-99170), and sepa
 Official local references: `create-flow-variables.md`, `flow-variables.md`, and `flow-logic-assign-subflow-outputs.md`
 under `docs/ServiceNowDocs/markdown/build-workflows/workflow-studio/`.
 These contracts are source-derived and fixture-tested, not live save verification.
+
+### Output assignments
+
+`assign_outputs` assigns declared scalar outputs in an existing inactive, unpublished subflow without a trigger.
+The operation creates native `ASSIGNSUBFLOWOUTPUTS` flow logic from the instance catalog.
+It writes ordered `outputsToAssign` rows and the corresponding `data` mirror, not ordinary action inputs.
+Declare the output first. Declaration and assignment can occur in the same edit request:
+
+```json
+[
+  {
+    "op": "create_field",
+    "collection": "outputs",
+    "name": "total",
+    "label": "Total",
+    "type": "integer"
+  },
+  {
+    "op": "assign_outputs",
+    "outputs": { "total": "{{ui-of-earlier-producer.count}}" },
+    "after": "ui-of-last-step",
+    "ref": "return"
+  },
+  { "op": "assign_outputs", "step": "return", "outputs": { "total": 0 } }
+]
+```
+
+Replace the example UI identifiers with identities from the current flow read.
+Without `step`, the operation inserts a step using optional `parent`, `after`, or `before` placement.
+Without placement, it appends at the root. `ref` addresses that new step in later edits.
+With `step`, it updates the named rows and appends missing rows in request order.
+Unmentioned rows retain their values, metadata, and relative order. Updating cannot also change placement or alias.
+Use `move_step` separately when placement must change. Producer visibility is checked after all edits.
+
+Supported targets are `string`, `integer`, `boolean`, `reference`, and `json` declarations.
+Values use the existing native type checks, reference-table compatibility, and typed pill resolver.
+False, zero, and empty string remain distinct values. JSON values require valid JSON text.
+Output-to-output pills, inline scripts, whole complex values, and assignments inside loops or parallel branches remain unavailable.
+Assignments do not create independently consumable step outputs.
+
+To remove a row, use `{"op":"clear_output_assignment","step":"return","name":"total"}`.
+Assigning `""` sets an empty value. Removing a row stops that step from assigning the output.
+An earlier assignment may still supply the output. Use `delete_step` to remove an entire assignment step.
+Clear or delete every assignment before deleting the declared output or changing its type/reference.
+No assignment or declaration is removed implicitly.
+
+Preview includes `summary.output_assignments_before` and `summary.output_assignments` in step and row order.
+Sensitive target values are masked. Opaque settings stay in the payload without entering the summary.
+New assignment step identities remain stable between preview and apply.
+Saved step IDs and unrelated metadata must remain unchanged. Assigned IDs must agree between echo and independent GET.
+Studio's output element mapping can return a blank `value` with the binding in `displayValue`.
+Only that source-proven fallback is reconciled. The display field, actual value, mirror, target, and metadata remain checked.
+The native logic-instance table policy and existing revision/context/authorization checks apply.
+No new endpoint or remote execution operation is introduced.
+
+Local source: two-column selection/value rows (bundle:293955-294228),
+`updateInstance` and `setOutputsToAssignToInstance` (207223-207332),
+`fillInstanceFieldData` (150454-150481), complete-save serialization (23462-23469),
+and assignment creation from the catalog (473867-473903).
+The official local reference is `docs/ServiceNowDocs/markdown/build-workflows/workflow-studio/flow-logic-assign-subflow-outputs.md`.
+These contracts are source-derived and fixture-tested. Live saves and runtime output behavior are not verified.
 
 ### Standard stages
 
@@ -392,14 +455,14 @@ The effect guard was not relaxed, and no alternative authenticated transport was
 
 The following bodies are still needed from a version-matched, safely isolated UI or sanitized existing fixtures:
 
-| Family                            | Smallest missing serializer evidence                                                                                                                                      |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Nested inputs, outputs, variables | Nested create/remove bodies with flattened child registration, binding cleanup, and output assignment behavior. Scalar declaration CRUD is implemented from local source. |
-| Error stages                      | Create/remove bodies with ancestor links and conditional ancestry. Standard-stage CRUD is implemented from local client source.                                           |
-| Top-level handler                 | Toggle-on/off bodies with hidden order-zero wrappers, enabled input, parent rewriting, and handler boundary index.                                                        |
-| Record/scheduled/dynamic triggers | Final native input values, regenerated interfaces, table dependencies, and stored timezone/schedule representation.                                                       |
-| Whole complex pills               | Object, Array.Object, and primitive Array bindings with value/children fields and complete source/target schemas.                                                         |
-| Try/Catch paired moves            | Pair movement across parent regions with connectedTo, children, order, and ancestry fields.                                                                               |
+| Family                            | Smallest missing serializer evidence                                                                                                                                                                                                                                   |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Nested inputs, outputs, variables | Native array child packing is identified at bundle:23273-23319. Nested declaration and complex assignment adapters, child identity reconciliation, and regression coverage remain unimplemented. Scalar declaration CRUD and scalar output assignment are implemented. |
+| Error stages                      | Create/remove bodies with ancestor links and conditional ancestry. Standard-stage CRUD is implemented from local client source.                                                                                                                                        |
+| Top-level handler                 | Toggle-on/off bodies with hidden order-zero wrappers, enabled input, parent rewriting, and handler boundary index.                                                                                                                                                     |
+| Record/scheduled/dynamic triggers | Final native input values, regenerated interfaces, table dependencies, and stored timezone/schedule representation.                                                                                                                                                    |
+| Whole complex pills               | Object, Array.Object, and primitive Array bindings with value/children fields and complete source/target schemas.                                                                                                                                                      |
+| Try/Catch paired moves            | Pair movement across parent regions with connectedTo, children, order, and ancestry fields.                                                                                                                                                                            |
 
 Further capture requires an authenticated editor bootstrap that works within the GET-only/no-worker boundary,
 or sanitized version-matched request fixtures. Do not permit the blocked POSTs merely to make the UI load.

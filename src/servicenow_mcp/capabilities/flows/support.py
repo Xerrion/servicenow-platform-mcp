@@ -143,13 +143,16 @@ def ledger() -> dict[str, Any]:
             ),
             "complex_inputs": entry(
                 True,
-                "Object and Array children require a complete declared schema. All whole object/array pills and "
-                "raw script/parameter replacement are unavailable.",
+                "Object and Array children require a complete declared schema. Whole complex pills use native "
+                "value bindings without child values. Raw script/parameter replacement remains unavailable.",
             ),
             "whole_complex_pills": entry(
-                False,
-                "No guarded UI save-body capture. Need serialized whole Object and Array pill inputs plus complete "
-                "source/target child schemas, including references and cardinality.",
+                True,
+                "Whole Object and Array.String/Integer/Boolean/Object pills in action/subflow inputs and output assignments. "
+                "Same recursive field names/types, compatible reference tables, one array item schema, and producer visibility required. "
+                "Action/subflow producer snapshots are read independently and bound to preview. "
+                "Declared subflow inputs also produce whole pills. No schema replacement, dynamic inference, "
+                "output-to-output pills, or arbitrary array indexing. Source-derived offline regression only.",
             ),
             "try_catch_pair_moves": entry(
                 False,
@@ -181,7 +184,7 @@ def ledger() -> dict[str, Any]:
                 "remove a row with clear_output_assignment. Only unpublished triggerless subflows. "
                 "Literal/typed pills, independent readback, and explicit declaration deletion guards. "
                 "Nested literals and scalar leaf pills use declared children. Array.String/Integer/Boolean/Object values are supported. "
-                "Loop/parallel placement, scripts, whole Object/Array pills, and output-to-output pills remain unavailable. "
+                "Whole pills require proven compatible schemas. Loop/parallel placement, scripts, and output-to-output pills remain unavailable. "
                 "Source-derived offline regression only.",
             ),
             "create_delete_interface_variable": entry(
@@ -249,7 +252,7 @@ def ledger() -> dict[str, Any]:
             "missing_contracts": (
                 "Guarded UI bootstrap blocked; no new request bodies captured. Need full serialized create/delete "
                 "nested interface/variable and error-stage examples, top-level order-zero "
-                "wrappers, record/scheduled trigger dependent metadata, whole complex pills, and paired Try/Catch "
+                "wrappers, record/scheduled trigger dependent metadata, dynamic complex schema adoption, and paired Try/Catch "
                 "moves."
             ),
         },

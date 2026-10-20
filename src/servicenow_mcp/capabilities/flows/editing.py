@@ -7,6 +7,7 @@ existing steps into a branch. The result is validated and saved in one PUT.
 
 import copy
 import uuid
+from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
 from servicenow_mcp.capabilities.contracts import CapabilityError, validate_payload
@@ -284,6 +285,8 @@ class PillResolver:
         self.cache: dict[str, dict[str, Any]] = {}
         self.dictionary_cache: dict[tuple[str, str], dict[str, str]] = {}
         self.table_cache: dict[tuple[str, str], bool] = {}
+        self.schemas: dict[str, dict[str, Any]] = {}
+        self.definition_cache: dict[str, dict[str, Any]] = {}
 
     async def resolve(
         self, pill: str, consumer: tree.Step | None = None
@@ -369,6 +372,8 @@ class PillResolver:
                 else:
                     kind = data.value_type(output)
                     parameter = data.spec(output)
+                    if kind.kind in declarations.LABELS:
+                        self.schemas[pill] = copy.deepcopy(parameter)
                     self.cache[pill] = {
                         "name": pill,
                         "label": label
@@ -426,28 +431,49 @@ class PillResolver:
             self.cache[pill] = await self._field(pill, label, table, path[1:])
         return self.cache[pill]
 
-    async def validate(self, item: dict[str, Any], consumer: tree.Step) -> None:
-        for binding in data.bindings([item]):
+    async def validate(
+        self,
+        item: dict[str, Any],
+        consumer: tree.Step,
+        declared: dict[str, Any] | None = None,
+    ) -> None:
+        for binding, parameter in self._bindings(item, declared):
             value = binding.get("value")
             for pill in tree.pills(value):
                 resolved = await self.resolve(pill, consumer)
                 source = data.ValueType(
                     resolved["type"], resolved.get("reference") or ""
                 )
-                target = data.value_type(binding)
+                target = data.value_type(parameter)
                 interpolated = value != "{{" + pill + "}}"
                 data.compatible(source, target, interpolated=interpolated)
                 if not interpolated and (
                     target.kind == "object" or target.kind.startswith("array.")
                 ):
-                    raise CapabilityError(
-                        "Whole object/array pills require a captured serializer and structural schema "
-                        "compatibility adapter. Use declared leaf fields.",
-                        "UNAVAILABLE",
-                    )
+                    if binding.get("scriptActive") or any(
+                        data.spec(parameter).get(key)
+                        for key in ("readonly", "readOnly", "read_only")
+                    ):
+                        raise CapabilityError(
+                            "Whole complex pill targets cannot be scripted or read-only.",
+                            "UNAVAILABLE",
+                        )
+                    if binding.get("children"):
+                        raise CapabilityError(
+                            "Whole complex pills cannot coexist with child values."
+                        )
+                    schema = self.schemas.get(pill)
+                    if schema is None:
+                        raise CapabilityError(
+                            "The whole-pill producer schema is unavailable.",
+                            "UNAVAILABLE",
+                        )
+                    await self._structure(schema, parameter)
+                    produced = await self._whole_schema(pill, consumer)
+                    await self._structure(produced, parameter)
                 if not interpolated and target.kind == "choice":
                     allowed = {
-                        c["value"] for c in data.spec(binding).get("choices", [])
+                        c["value"] for c in data.spec(parameter).get("choices", [])
                     }
                     produced = {c["value"] for c in resolved.get("choices") or []}
                     if not allowed or not produced or not produced <= allowed:
@@ -462,6 +488,213 @@ class PillResolver:
                     raise CapabilityError(
                         "The pill reference table is incompatible with the input."
                     )
+
+    def _bindings(
+        self, item: dict[str, Any], declared: dict[str, Any] | None = None
+    ) -> Iterator[tuple[dict[str, Any], dict[str, Any]]]:
+        parameter = declared if declared is not None else data.spec(item)
+        yield item, parameter
+        actual_children = item.get("children", [])
+        if not isinstance(actual_children, list) or any(
+            not isinstance(child, dict) for child in actual_children
+        ):
+            raise CapabilityError("Complex input values are malformed.", "UNAVAILABLE")
+        if not actual_children:
+            return
+        kind = data.value_type(parameter).kind
+        if declared is not None and kind in declarations.LABELS:
+            schema = data.children(parameter)
+            for child in actual_children:
+                target = (
+                    data.child(parameter, child["name"].split(".")[-1])
+                    if kind == "object"
+                    else schema[0]
+                )
+                yield from self._bindings(child, target)
+        else:
+            for child in actual_children:
+                yield from self._bindings(child)
+
+    async def _whole_schema(self, pill: str, consumer: tree.Step) -> dict[str, Any]:
+        await self.resolve(pill, consumer)
+        schema = self.schemas.get(pill)
+        if schema is None:
+            raise CapabilityError(
+                "The whole-pill producer schema is unavailable.", "UNAVAILABLE"
+            )
+        prefix, _, path = pill.partition(".")
+        producer = self.scope.steps.get(prefix)
+        if producer is None and prefix != "subflow":
+            raise CapabilityError(
+                "Whole pills require a declared subflow input or a supported step output.",
+                "UNAVAILABLE",
+            )
+        if producer is not None:
+            if producer.kind not in {"action", "subflow"}:
+                raise CapabilityError(
+                    "Whole pills from this flow-logic family require another schema adapter.",
+                    "UNAVAILABLE",
+                )
+            identity = str(
+                producer.raw[
+                    "actionTypeSysId" if producer.kind == "action" else "subflowSysId"
+                ]
+            )
+            key = producer.kind + "/" + identity
+            if key not in self.definition_cache:
+                if len(self.definition_cache) >= 100:
+                    raise CapabilityError(
+                        "Whole-pill validation supports at most 100 producer definitions.",
+                        "UNAVAILABLE",
+                    )
+                check_table_access(
+                    "sys_hub_action_type_definition"
+                    if producer.kind == "action"
+                    else "sys_hub_flow"
+                )
+                current = await self.client.studio_request(
+                    "action/action_types/" + identity
+                    if producer.kind == "action"
+                    else "flow/" + identity,
+                    minimal=producer.kind == "subflow",
+                )
+                if (
+                    current.get("id") != identity
+                    or current.get("security", {}).get("can_read") is not True
+                ):
+                    raise CapabilityError(
+                        "The current whole-pill producer definition is unreadable.",
+                        "UNAVAILABLE",
+                    )
+                if producer.kind == "action" and (
+                    current.get("entitled") is not True
+                    or current.get("state") != "published"
+                    or current.get("is_snapshot") is not True
+                ):
+                    raise CapabilityError(
+                        "Whole action pills require an entitled published snapshot.",
+                        "UNAVAILABLE",
+                    )
+                if producer.kind == "subflow" and (
+                    current.get("type") != "subflow"
+                    or current.get("isFlowEntitled") is not True
+                    or current.get("snapshot") is not True
+                    or current.get("masterSnapshot") is not True
+                ):
+                    raise CapabilityError(
+                        "Whole subflow pills require an entitled published snapshot.",
+                        "UNAVAILABLE",
+                    )
+                self.definition_cache[key] = current
+            current_schema = data.named(
+                self.definition_cache[key].get("outputs"), path.split(".")[0]
+            )
+            for segment in path.split(".")[1:]:
+                current_schema = data.child(current_schema, segment)
+            # Both directions establish that embedded saved schema has not
+            # drifted from the independent definition used for this preview.
+            await self._structure(current_schema, schema)
+            await self._structure(schema, current_schema)
+            schema = current_schema
+        return schema
+
+    async def _structure(
+        self, source: dict[str, Any], target: dict[str, Any], depth: int = 0
+    ) -> None:
+        if depth > 10:
+            raise CapabilityError(
+                "Complex pill schemas support at most ten levels.", "UNAVAILABLE"
+            )
+        produced, wanted = data.value_type(source), data.value_type(target)
+        if any(
+            kind.kind in {"reference", "document_id"} and not kind.reference
+            for kind in (produced, wanted)
+        ):
+            raise CapabilityError(
+                "Whole-pill reference fields require declared source and target tables.",
+                "UNAVAILABLE",
+            )
+        allowed = fields.INTERFACE_TYPES.keys() | {"choice", "document_id"}
+        if produced.kind not in allowed or wanted.kind not in allowed:
+            raise CapabilityError(
+                "This whole-pill field type requires another schema adapter.",
+                "UNAVAILABLE",
+            )
+        data.compatible(produced, wanted, interpolated=False)
+        if (
+            wanted.reference
+            and produced.reference
+            and not await self._is_table(produced.reference, wanted.reference)
+        ):
+            raise CapabilityError(
+                "A complex pill reference field has an incompatible table."
+            )
+        if wanted.kind in declarations.LABELS:
+            # No schema is inferred from an absent children member. An explicit
+            # empty Object is a known empty schema, not dynamic JSON.
+            def children(row: dict[str, Any]) -> list[dict[str, Any]]:
+                parameter = data.spec(row)
+                if "children" not in parameter:
+                    raise CapabilityError(
+                        "The complex pill schema is incomplete.", "UNAVAILABLE"
+                    )
+                if (
+                    parameter.get("dynamic")
+                    or parameter.get("data_structure")
+                    or parameter.get("dependent_on")
+                ):
+                    raise CapabilityError(
+                        "Dynamic whole-pill schemas require another adapter.",
+                        "UNAVAILABLE",
+                    )
+                return data.children(row)
+
+            left, right = children(source), children(target)
+            if wanted.kind == "object":
+
+                def named(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+                    if any(
+                        not isinstance(row.get("name"), str) or not row["name"]
+                        for row in rows
+                    ):
+                        raise CapabilityError(
+                            "Complex pill fields require readable names.", "UNAVAILABLE"
+                        )
+                    result = {row["name"].split(".")[-1]: row for row in rows}
+                    if len(result) != len(rows):
+                        raise CapabilityError(
+                            "Complex pill field names are ambiguous.", "UNAVAILABLE"
+                        )
+                    return result
+
+                left, right = named(left), named(right)
+                if set(left) != set(right):
+                    raise CapabilityError(
+                        "Whole Object pills require the same declared field names."
+                    )
+                for name in right:
+                    await self._structure(left[name], right[name], depth + 1)
+            else:
+                if (
+                    wanted.kind not in declarations.ARRAYS
+                    or len(left) != 1
+                    or len(right) != 1
+                    or data.value_type(left[0]).kind != declarations.ARRAYS[wanted.kind]
+                    or data.value_type(right[0]).kind
+                    != declarations.ARRAYS[wanted.kind]
+                ):
+                    raise CapabilityError(
+                        "Whole Array pills require one supported declared item schema.",
+                        "UNAVAILABLE",
+                    )
+                await self._structure(left[0], right[0], depth + 1)
+        elif wanted.kind == "choice":
+            allowed = {row["value"] for row in data.spec(target).get("choices", [])}
+            actual = {row["value"] for row in data.spec(source).get("choices", [])}
+            if not allowed or not actual or not actual <= allowed:
+                raise CapabilityError(
+                    "Whole-pill choice fields require compatible declared choice sets."
+                )
 
     async def _is_table(self, source: str, target: str) -> bool:
         check_table_access("sys_db_object")
@@ -1077,10 +1310,21 @@ async def plan(
     for step in tree.walk(roots):
         step.raw.pop("_alias", None)
     payload = tree.flatten(working, roots)
-    if omitted_subflows or any(
-        edit.get("op")
-        in {"create_field", "update_field", "delete_field", *assignments.OPS}
-        for edit in command.edits or []
+    whole_bindings = any(
+        data.whole_pill(item.get("value"))
+        and data.value_type(item).kind in declarations.LABELS
+        for step in tree.walk(roots + tree.build_tree(flow))
+        for key in ("inputs", "outputsToAssign")
+        for item in data.bindings(step.raw.get(key, []))
+    )
+    if (
+        omitted_subflows
+        or whole_bindings
+        or any(
+            edit.get("op")
+            in {"create_field", "update_field", "delete_field", *assignments.OPS}
+            for edit in command.edits or []
+        )
     ):
         _refresh_component_mirror(flow, payload)
     if stage_edits:
@@ -1160,7 +1404,12 @@ async def plan(
             "decisionTableInputs",
         ):
             for item in step.raw.get(key, []):
-                await resolver.validate(item, step)
+                parameter = (
+                    data.named(payload["outputs"], item["name"])
+                    if key == "outputsToAssign" and step.logic_type == assignments.KIND
+                    else None
+                )
+                await resolver.validate(item, step, parameter)
     previous_cache = {
         entry["name"]: entry
         for entry in flow["label_cache"]
@@ -1178,6 +1427,8 @@ async def plan(
     validate_payload(payload, field_name="flow", validate_keys=False)
     semantics.studio_semantics(payload, pending_deletions=pending_deletions)
     reference_evidence: dict[str, Any] = {
+        "complex_schemas": resolver.schemas,
+        "complex_definitions": resolver.definition_cache,
         "declaration_tables": table_evidence,
         "pills": [
             {key: value for key, value in entry.items() if key != "usedInstances"}

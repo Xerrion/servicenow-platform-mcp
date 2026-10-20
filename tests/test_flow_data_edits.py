@@ -912,7 +912,7 @@ async def test_stage_attached_step_cannot_silently_disappear(settings):
 @pytest.mark.parametrize(
     "kind", ["object", "array.object", "array.string", "array.integer"]
 )
-async def test_unverified_whole_complex_pills_never_stage(settings, kind):
+async def test_unreadable_whole_complex_producer_never_stages(settings, kind):
     flow = typed_flow()
     flow["actionInstances"][0]["actionType"]["outputs"].append(
         {"name": "complex", "type": kind, "children": []}
@@ -925,6 +925,9 @@ async def test_unverified_whole_complex_pills_never_stage(settings, kind):
         },
     )
     coordinator, tools = fixtures(settings, flow)
+    http_mock.get(
+        f"{BASE}/api/now/processflow/action/action_types/{flow['actionInstances'][0]['actionTypeSysId']}"
+    ).respond(403, json={"error": {"message": "unreadable"}})
     result = await preview(
         tools,
         [
@@ -936,7 +939,9 @@ async def test_unverified_whole_complex_pills_never_stage(settings, kind):
         ],
     )
     assert result["status"] == "error", result
-    assert result["error"]["code"] == "UNAVAILABLE", result
+    assert result["error"]["code"] == (
+        "FORBIDDEN" if kind == "object" else "UNAVAILABLE"
+    ), result
     assert len(coordinator.store) == 0
 
 
@@ -975,11 +980,12 @@ async def test_capture_blocker_is_explicit_and_does_not_enable_remaining_familie
     assert (
         ledger["features"]["create_delete_interface_variable"]["live_verified"] is False
     )
+    assert ledger["features"]["whole_complex_pills"]["authorable"] is True
+    assert ledger["features"]["whole_complex_pills"]["live_verified"] is False
     for family in (
         "handler_creation",
         "record_triggers",
         "scheduled_triggers",
-        "whole_complex_pills",
         "try_catch_pair_moves",
     ):
         assert ledger["features"][family]["authorable"] is False

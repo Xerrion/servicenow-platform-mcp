@@ -122,6 +122,12 @@ def _read(row: dict[str, Any], declared: dict[str, Any]) -> Any:
     """Check a complete wire value against the independent current declaration."""
     kind = _check_type(row, declared)
     if kind in declarations.LABELS:
+        if data.whole_pill(row.get("value")):
+            if _children(row):
+                raise CapabilityError(
+                    "Whole output pills cannot coexist with child values."
+                )
+            return row["value"]
         if row.get("value") != "" or row.get("displayValue", "") != "":
             raise CapabilityError(
                 "Complex assignment parents require blank wire values and serialized children.",
@@ -156,10 +162,13 @@ def _read(row: dict[str, Any], declared: dict[str, Any]) -> Any:
 def _write(row: dict[str, Any], declared: dict[str, Any], value: Any) -> None:
     """Serialize the same children/value shape as constructInstanceValuesForArrays."""
     kind = _check_type(row, declared)
+    if kind in declarations.LABELS and data.whole_pill(value):
+        row.update(value=value, displayValue=value, children=[])
+        return
     if kind == "object":
         if not isinstance(value, dict):
             raise CapabilityError(
-                "Object outputs require a native object. Whole-object pills remain unavailable."
+                "Object outputs require a native object or one exact whole-object pill."
             )
         schema = _object_schema(declared)
         if set(value) - set(schema):
@@ -193,7 +202,7 @@ def _write(row: dict[str, Any], declared: dict[str, Any], value: Any) -> None:
     elif kind in declarations.ARRAYS:
         if not isinstance(value, list):
             raise CapabilityError(
-                "Array outputs require a native array. Whole-array pills remain unavailable."
+                "Array outputs require a native array or one exact whole-array pill."
             )
         parameter = _item_schema(declared)
         existing = _children(row)
@@ -309,6 +318,8 @@ def summary(roots: list[tree.Step]) -> list[dict[str, Any]]:
         if is_sensitive_field(row["name"]):
             return MASK_VALUE
         kind = data.value_type(row).kind
+        if data.whole_pill(row.get("value")):
+            return row["value"]
         if kind == "object":
             return {child["name"]: value(child) for child in _children(row)}
         if kind in declarations.ARRAYS:

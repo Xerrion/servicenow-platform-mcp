@@ -201,6 +201,10 @@ def register_tools(mcp: MCPServer, coordinator: MutationCoordinator) -> None:
               update_inputs: step, inputs. Native objects and arrays require declared child schemas.
                 Pills use trigger paths, <producer UI ID>.<output>, flow_variable.<name>, or subflow.<input>.
                 Type, cardinality, reference tables, and producer visibility are checked after all edits.
+                Whole Object/Array.String/Integer/Boolean/Object pills use one exact {{producer.path}} value and no child values.
+                Source and target must have the same recursive Object fields and types. Array item schemas must match.
+                Published action/subflow producer definitions are read independently. Subflow input schemas are also supported.
+                References require compatible tables. No implicit schema replacement or dynamic schema inference.
               delete_step: step, children=reject|delete|promote. Connected branches need cascade=connected
                 and children=delete. Saved action/logic deletion uses tombstones. Saved subflow calls are omitted
                 from the complete draft list. Referenced definitions are not deleted. Connection overrides block deletion.
@@ -216,7 +220,8 @@ def register_tools(mcp: MCPServer, coordinator: MutationCoordinator) -> None:
                 Nested values may mix literals and scalar leaf pills. Each named output replaces its complete value.
                 Omitted object fields use declared defaults or empty values. Unmentioned output rows remain unchanged.
                 Assign a nested field inside its parent Object value, not as a separate dotted output target.
-                Loop/parallel assignments, scripts, whole Object/Array pills, and output-to-output pills are unavailable.
+                Whole Object/Array pills are supported for compatible schemas, including inside native complex values.
+                Loop/parallel assignments, scripts, and output-to-output pills are unavailable.
               create_field: collection=inputs|outputs|flowVariables, name, label, type=string|integer|boolean|reference|json.
                 reference requires a table name. Optional hint/maxsize. Subflow inputs accept mandatory boolean.
                 Subflow interfaces accept static default_value. Variables are initialized with set_variables.

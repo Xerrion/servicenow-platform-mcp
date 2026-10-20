@@ -697,8 +697,10 @@ async def validate_definition(
             "decisionTableInputs",
         ):
             try:
-                for item in data.bindings(step.raw.get(key, [])):
-                    if item.get("scriptActive"):
+                for item in step.raw.get(key, []):
+                    if any(
+                        binding.get("scriptActive") for binding in data.bindings([item])
+                    ):
                         diagnostics.append(
                             diagnostic(
                                 "UNVERIFIED_SCRIPT",
@@ -709,7 +711,13 @@ async def validate_definition(
                         )
                         continue
                     try:
-                        await resolver.validate(item, step)
+                        parameter = (
+                            data.named(flow["outputs"], item["name"])
+                            if key == "outputsToAssign"
+                            and step.logic_type == assignments.KIND
+                            else None
+                        )
+                        await resolver.validate(item, step, parameter)
                     except CapabilityError as exc:
                         diagnostics.append(
                             diagnostic(

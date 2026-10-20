@@ -710,7 +710,9 @@ Array item schemas register automatically. Used descendants block destructive ch
 Scalar values, native Objects, and Array.String/Integer/Boolean/Object values are supported, including nested scalar leaf pills.
 Each named output replaces its complete value. Object keys are local child names. Unmentioned output rows remain unchanged.
 Preview shows ordered native values before and after. Clear assignments before deleting their declarations.
-Whole Object/Array pills and output-to-output pills remain unavailable.
+Whole Object/Array.String/Integer/Boolean/Object pills are supported when recursive source and target schemas match.
+Use one exact expression without child values. Producer snapshots are independently read and bound to preview.
+Source-field projection, dynamic schemas, and output-to-output pills remain unavailable.
 Set Flow Variables is supported. Standard stages support create, update,
 attach, detach, reorder, and removal after explicit detachment. Error-stage creation remains unavailable.
 See [experimental flow authoring](../flow-authoring.md) for native edit arguments and offline verification limits.

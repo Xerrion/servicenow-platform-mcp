@@ -71,6 +71,12 @@ def child(item: dict[str, Any], name: str) -> dict[str, Any]:
     return matches[0]
 
 
+def whole_pill(value: Any) -> str | None:
+    if isinstance(value, str) and (match := tree.PILL.fullmatch(value)):
+        return str(match.group(1))
+    return None
+
+
 def output_assignment_value(row: dict[str, Any]) -> Any:
     """Read only the documented element-mapping fallback for output rows."""
     # Studio GET puts an output binding in displayValue with value blank
@@ -102,6 +108,8 @@ def output_assignment_mirror(row: dict[str, Any]) -> Any:
         return restored
 
     kind = value_type(row).kind
+    if whole_pill(row.get("value")):
+        return row["value"]
     if kind == "array.object":
         return [ui_item(child) for child in row.get("children", [])]
     if kind in declarations.ARRAYS:
@@ -123,6 +131,11 @@ def set_value(item: dict[str, Any], value: Any) -> None:
         unmatched = tree.PILL.sub("", value)
         if "{{" in unmatched or "}}" in unmatched:
             raise CapabilityError("The input contains a malformed pill reference.")
+    if value_type(item).kind in declarations.LABELS and whole_pill(value):
+        # Studio skips complex value construction for a whole pill. The saved
+        # representation has no child values (bundle:23453,23465,23559-23562).
+        item.update(value=value, displayValue="", children=[])
+        return
     if isinstance(value, dict | list):
         kind = value_type(item).kind
         current_children = item.get("children", [])

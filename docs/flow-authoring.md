@@ -70,8 +70,8 @@ No new capability has live save verification in this phase.
 Pills reference trigger outputs, `<producer UI ID>.<output path>`, `flow_variable.<name>`, or declared `subflow.<input>` fields.
 The editor checks producer order, branch/loop scope, parallel path isolation and joins, and Try/Catch status visibility.
 Reference fields require compatible tables. Collections cannot substitute for scalar values.
-Whole Object and all Array pills require captured serializer evidence and a schema compatibility adapter.
-They remain unavailable, including primitive-array pills. Declared complex leaf fields work.
+Whole Object and Array.String/Integer/Boolean/Object pills are supported for proven compatible schemas.
+Use one exact pill value. Source and target must have matching recursive field names, types, and array item schemas.
 Moves, deletions, and input updates revalidate all remaining bindings. Dangling references fail without clearing input values.
 Record paths use bounded `sys_dictionary` inheritance reads. Each edit supports at most 100 distinct pills and ten path fields.
 The editor rebuilds `label_cache` from the bindings in use.
@@ -216,7 +216,7 @@ Scalar leaf types can change only without consumers or stored values. Replace co
 New input leaves can supply typed pills such as `{{subflow.payload.count}}` in later edits of the same preview.
 Collection pills still require supported loop or complex-value adapters. This increment does not allow arbitrary array indexing.
 Outputs with nested schemas accept native Object/Array assignment values as described below.
-Complex defaults and whole Object/Array pills remain unavailable.
+Complex defaults remain unavailable. Whole Object/Array pills require the schema checks described below.
 
 Studio restricts flow variables to scalar types (bundle:11156,344267-344269).
 Nested flow-variable creation therefore remains unavailable. This restriction does not affect existing scalar variable authoring.
@@ -272,7 +272,7 @@ Use `move_step` separately when placement must change. Producer visibility is ch
 Supported targets are `string`, `integer`, `boolean`, `reference`, `json`, `object`, and supported Array declarations.
 Values use the existing native type checks, reference-table compatibility, and typed pill resolver.
 False, zero, and empty string remain distinct values. JSON values require valid JSON text.
-Output-to-output pills, inline scripts, whole Object/Array pills, and assignments inside loops or parallel branches remain unavailable.
+Output-to-output pills, inline scripts, and assignments inside loops or parallel branches remain unavailable.
 Assignments do not create independently consumable step outputs.
 
 To remove a row, use `{"op":"clear_output_assignment","step":"return","name":"total"}`.
@@ -346,12 +346,70 @@ Sensitive child values are masked recursively, including fields inside Array.Obj
 Save comparison checks every child value, ordering, count, type, identity, display field, and unknown setting.
 This increment adds no blanket normalization for complex values. An unexpected server representation returns `UNKNOWN_OUTCOME` without replay.
 Empty-parent values are not interpreted as display substitutes for complex parents.
-Schema defaults, whole Object/Array pills, unsupported array subtypes, inline scripts, and remote execution remain outside this increment.
+Complex schema defaults, unsupported array subtypes, inline scripts, and remote execution remain outside this increment.
 
 Local source: Object/Array editing (293995-294036,244898-245012), Array.Object item construction (93333-93353),
 recursive nested updates (16252-16301,207263-207300), and complete-save serialization (23462-23535).
 Array read reconstruction is documented at 23564-23710. The adapter currently consumes the strict saved wire form.
 These forms are source-derived and fixture-tested, not live save or execution verified.
+
+#### Whole Object and Array pills
+
+`update_inputs` and `assign_outputs` accept one exact whole Object/Array pill such as `"{{producer-ui.payload}}"`.
+Supported complex kinds are `object`, `array.string`, `array.integer`, `array.boolean`, and `array.object`.
+Consumers can be existing action inputs, saved subflow-call inputs, or declared subflow output assignments.
+Whole pills also work inside a native complex value when the selected child schema matches.
+
+```json
+[
+  {
+    "op": "update_inputs",
+    "step": "consumer-ui",
+    "inputs": { "payload": "{{producer-ui.payload}}" }
+  },
+  {
+    "op": "assign_outputs",
+    "outputs": { "result": "{{subflow.request}}" },
+    "after": "consumer-ui"
+  }
+]
+```
+
+This fragment requires compatible existing input/output declarations and actual producer/consumer identities.
+Use a producer step's UI identity and output path, or `subflow.<input path>` for a declared subflow input.
+New subflow input declarations can supply a whole pill in later edits of the same preview.
+Output declarations are not independent producers. Output-to-output bindings remain unavailable.
+
+The adapter preserves fixed target schemas instead of adopting a producer's different structure.
+Object schemas must declare the same local child names recursively. Field order and declaration labels need not match.
+Field types must be compatible at every level. Reference fields require known compatible tables using the existing inheritance checks.
+Arrays require one item schema matching the array kind. Item names can differ. Nested Object item fields follow the same Object checks.
+Choice leaves require a nonempty declared producer choice set contained in the target choice set.
+The adapter does not infer fields from JSON, dynamic schemas, missing `children`, defaults, or sample values.
+Missing/extra Object fields, ambiguous names, wrong item types, unknown schemas, or unsupported array kinds reject the preview.
+No source-field superset projection or missing-field default filling is implied by a whole binding.
+These are structural checks. They do not prove runtime values satisfy mandatory/maximum-length constraints or contain non-null data.
+
+Action and saved subflow-call producers require an independently readable, entitled published snapshot definition.
+The selected current output schema must agree with the saved producer schema before it can supply a whole pill.
+The current definition and complete source schema enter the preview fingerprint and are checked again at apply.
+Producer visibility, order, branch isolation, reference tables, and dangling-reference checks still apply after all edits.
+Trigger and flow-logic whole-schema producers remain unavailable. Arbitrary array indexing is not supported.
+
+The native value is the pill expression, not a JSON string representing a binding.
+Serialized `children` contains no literal values. Explicitly replacing a literal value with a whole pill removes its child values.
+The target's parameter/declaration schema and unknown parent metadata remain unchanged.
+Output assignments store the pill in `value`, `displayValue`, and `data`. Input pills keep their existing empty-display convention.
+Whole Array pills remain expressions in the mirror instead of turning into an empty array.
+Returning to a literal value uses the existing declared schema. It does not reuse stale child literals.
+Saved whole pills with child values are rejected. Save echo and independent GET compare the exact path, display, mirror, schema, and metadata.
+This increment adds no whole-pill readback exemptions.
+
+Local source: whole-pill save branching (23453-23468), exact Array pill read form (23559-23562),
+whole-structure replacement confirmation (244180-244224), and output parent handling (207263-207295).
+The source shows broader UI structure adoption at 22216-22224. This adapter deliberately preserves declared target schemas.
+Local official reference: `docs/ServiceNowDocs/markdown/build-workflows/workflow-studio/complex-data.md`.
+Source-derived regression tests establish these forms offline. Live save and execution behavior remain unverified.
 
 ### Standard stages
 
@@ -595,11 +653,10 @@ The following bodies are still needed from a version-matched, safely isolated UI
 
 | Family                            | Smallest missing serializer evidence                                                                                                                                                                                                  |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Unsupported complex forms         | Nested declarations and literal/leaf-pill complex assignments are implemented. Additional array subtypes, dynamic schemas, and whole-object pill bindings need adapters. Complex flow variables are excluded by Studio's type picker. |
+| Unsupported complex forms         | Nested declarations, literal/leaf-pill assignments, and schema-checked whole pills are implemented. Additional array subtypes and dynamic schema adoption need adapters. Complex flow variables are excluded by Studio's type picker. |
 | Error stages                      | Create/remove bodies with ancestor links and conditional ancestry. Standard-stage CRUD is implemented from local client source.                                                                                                       |
 | Top-level handler                 | Toggle-on/off bodies with hidden order-zero wrappers, enabled input, parent rewriting, and handler boundary index.                                                                                                                    |
 | Record/scheduled/dynamic triggers | Final native input values, regenerated interfaces, table dependencies, and stored timezone/schedule representation.                                                                                                                   |
-| Whole complex pills               | Object, Array.Object, and primitive Array bindings with value/children fields and complete source/target schemas.                                                                                                                     |
 | Try/Catch paired moves            | Pair movement across parent regions with connectedTo, children, order, and ancestry fields.                                                                                                                                           |
 
 Further capture requires an authenticated editor bootstrap that works within the GET-only/no-worker boundary,

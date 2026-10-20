@@ -75,9 +75,38 @@ def output_assignment_value(row: dict[str, Any]) -> Any:
     """Read only the documented element-mapping fallback for output rows."""
     # Studio GET puts an output binding in displayValue with value blank
     # (bundle:150470-150479). False and zero remain actual values.
+    if (
+        row.get("type") in declarations.LABELS
+        or spec(row).get("type") in declarations.LABELS
+    ):
+        return row.get("value")
     if row.get("value") == "" and "displayValue" in row:
         return row["displayValue"]
     return row.get("value")
+
+
+def output_assignment_mirror(row: dict[str, Any]) -> Any:
+    """Rebuild the pre-save UI data mirror from a serialized output row.
+
+    fillInstanceFieldData runs before constructInstanceValuesForArrays clones
+    the instances (bundle:207329-207331,150470-150479,23449). Array values in
+    data therefore remain arrays when output wire parents become blank.
+    """
+
+    def ui_item(item: dict[str, Any]) -> dict[str, Any]:
+        restored = copy.deepcopy(item)
+        if "children" in item:
+            restored["children"] = [ui_item(child) for child in item["children"]]
+        if value_type(item).kind in declarations.ARRAYS:
+            restored["value"] = output_assignment_mirror(item)
+        return restored
+
+    kind = value_type(row).kind
+    if kind == "array.object":
+        return [ui_item(child) for child in row.get("children", [])]
+    if kind in declarations.ARRAYS:
+        return [child["value"] for child in row.get("children", [])]
+    return output_assignment_value(row)
 
 
 def set_value(item: dict[str, Any], value: Any) -> None:

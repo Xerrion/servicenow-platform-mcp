@@ -617,7 +617,7 @@ def studio_semantics(
                 ):
                     mirror.update(
                         {
-                            item["name"]: data.output_assignment_value(item)
+                            item["name"]: data.output_assignment_mirror(item)
                             for item in raw["outputsToAssign"]
                         }
                     )

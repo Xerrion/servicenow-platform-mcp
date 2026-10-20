@@ -177,10 +177,11 @@ def ledger() -> dict[str, Any]:
             ),
             "output_assignment": entry(
                 True,
-                "Native Assign Subflow Outputs steps with ordered scalar rows. Create or update with assign_outputs, "
+                "Native Assign Subflow Outputs steps with ordered scalar, Object, and Array rows. Create or update with assign_outputs, "
                 "remove a row with clear_output_assignment. Only unpublished triggerless subflows. "
                 "Literal/typed pills, independent readback, and explicit declaration deletion guards. "
-                "Loop/parallel placement, scripts, complex output values, and output-to-output pills remain unavailable. "
+                "Nested literals and scalar leaf pills use declared children. Array.String/Integer/Boolean/Object values are supported. "
+                "Loop/parallel placement, scripts, whole Object/Array pills, and output-to-output pills remain unavailable. "
                 "Source-derived offline regression only.",
             ),
             "create_delete_interface_variable": entry(
@@ -196,7 +197,7 @@ def ledger() -> dict[str, Any]:
                 "Ordered child registration, attributes/fieldFacetMap array item packing, fixed item identities, "
                 "typed input leaf pills, and recursive deletion guards. Complex flow variables are excluded by "
                 "Studio's type picker. Direct nested Reference/JSON creation, Array.Reference/Array.Array/Choice, "
-                "complex defaults, type replacement, and complex output assignments remain unavailable. "
+                "complex defaults and type replacement remain unavailable. "
                 "Source-derived offline regression only.",
             ),
             "stage_metadata": entry(

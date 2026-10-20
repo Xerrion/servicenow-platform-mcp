@@ -707,8 +707,10 @@ Use `parent` with a local name when creating children. Update or delete children
 Array item schemas register automatically. Used descendants block destructive changes. Complex flow variables remain unavailable.
 `assign_outputs` creates a native Assign Subflow Outputs step or updates selected rows with `step`.
 `clear_output_assignment` removes a named assignment row. Output declarations remain unchanged.
-Scalar literal values and typed pills are supported. Preview shows ordered assignments before and after.
-Clear assignments before deleting their declarations. Complex values and output-to-output pills remain unavailable.
+Scalar values, native Objects, and Array.String/Integer/Boolean/Object values are supported, including nested scalar leaf pills.
+Each named output replaces its complete value. Object keys are local child names. Unmentioned output rows remain unchanged.
+Preview shows ordered native values before and after. Clear assignments before deleting their declarations.
+Whole Object/Array pills and output-to-output pills remain unavailable.
 Set Flow Variables is supported. Standard stages support create, update,
 attach, detach, reorder, and removal after explicit detachment. Error-stage creation remains unavailable.
 See [experimental flow authoring](../flow-authoring.md) for native edit arguments and offline verification limits.

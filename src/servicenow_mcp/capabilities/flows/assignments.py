@@ -9,7 +9,7 @@ import copy
 from typing import Any
 
 from servicenow_mcp.capabilities.contracts import CapabilityError
-from servicenow_mcp.capabilities.flows import data, fields, tree
+from servicenow_mcp.capabilities.flows import data, declarations, fields, tree
 from servicenow_mcp.policy import MASK_VALUE, is_sensitive_field, mask_sensitive_fields
 
 KIND = "ASSIGNSUBFLOWOUTPUTS"
@@ -50,13 +50,9 @@ def hydrate(roots: list[tree.Step]) -> None:
 
 def _declaration(flow: dict[str, Any], name: str) -> dict[str, Any]:
     declared = data.named(flow["outputs"], name)
-    if (
-        declared.get("type") not in fields.TYPES
-        or declared.get("parent")
-        or declared.get("children")
-    ):
+    if declared.get("type") not in fields.INTERFACE_TYPES or declared.get("parent"):
         raise CapabilityError(
-            "Output assignment currently supports top-level scalar declarations only.",
+            "Output assignment requires a supported top-level declaration.",
             "UNAVAILABLE",
         )
     if declared.get("readonly") or declared.get("readOnly"):
@@ -64,10 +60,173 @@ def _declaration(flow: dict[str, Any], name: str) -> dict[str, Any]:
     return declared
 
 
+def _children(row: dict[str, Any]) -> list[dict[str, Any]]:
+    children = row.get("children", [])
+    if not isinstance(children, list) or any(
+        not isinstance(child, dict) or not isinstance(child.get("name"), str)
+        for child in children
+    ):
+        raise CapabilityError(
+            "Complex assignment children are incomplete.", "UNAVAILABLE"
+        )
+    return children
+
+
+def _object_schema(declared: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    children = data.children(declared)
+    names = [child["name"].split(".")[-1] for child in children]
+    if len(names) != len(set(names)):
+        raise CapabilityError(
+            "The Object declaration has ambiguous child names.", "UNAVAILABLE"
+        )
+    return dict(zip(names, children, strict=True))
+
+
+def _item_schema(declared: dict[str, Any]) -> dict[str, Any]:
+    children = data.children(declared)
+    kind = data.value_type(declared).kind
+    if (
+        kind not in declarations.ARRAYS
+        or len(children) != 1
+        or data.value_type(children[0]).kind != declarations.ARRAYS[kind]
+    ):
+        raise CapabilityError(
+            "The Array declaration requires one supported item schema.", "UNAVAILABLE"
+        )
+    return children[0]
+
+
+def _check_type(row: dict[str, Any], declared: dict[str, Any]) -> str:
+    if data.value_type(row) != data.value_type(declared):
+        raise CapabilityError(
+            "The saved assignment type differs from its output declaration."
+        )
+    kind = data.value_type(declared).kind
+    if kind not in fields.INTERFACE_TYPES:
+        raise CapabilityError(
+            "This output value requires another serializer.", "UNAVAILABLE"
+        )
+    if any(
+        row.get(key) for key in ("scriptActive", "readonly", "readOnly", "read_only")
+    ) or any(
+        data.spec(declared).get(key)
+        for key in ("scriptActive", "readonly", "readOnly", "read_only")
+    ):
+        raise CapabilityError(
+            "Scripted or read-only output values cannot be edited.", "UNAVAILABLE"
+        )
+    return kind
+
+
+def _read(row: dict[str, Any], declared: dict[str, Any]) -> Any:
+    """Check a complete wire value against the independent current declaration."""
+    kind = _check_type(row, declared)
+    if kind in declarations.LABELS:
+        if row.get("value") != "" or row.get("displayValue", "") != "":
+            raise CapabilityError(
+                "Complex assignment parents require blank wire values and serialized children.",
+                "UNAVAILABLE",
+            )
+        children = _children(row)
+        if kind == "object":
+            schema = _object_schema(declared)
+            names = [child["name"] for child in children]
+            if len(names) != len(set(names)) or set(names) != set(schema):
+                raise CapabilityError(
+                    "Object assignment children differ from the declared schema."
+                )
+            return {
+                child["name"]: _read(child, schema[child["name"]]) for child in children
+            }
+        item = _item_schema(declared)
+        if any(child["name"] != item["name"].split(".")[-1] for child in children):
+            raise CapabilityError(
+                "Array assignment item names differ from the declared schema."
+            )
+        return [_read(child, item) for child in children]
+    if _children(row):
+        raise CapabilityError("Scalar output values cannot contain child bindings.")
+    if "value" not in row:
+        raise CapabilityError("An output binding has no stored value.", "UNAVAILABLE")
+    probe = {**copy.deepcopy(row), "parameter": copy.deepcopy(data.spec(declared))}
+    data.set_value(probe, row["value"])
+    return row["value"]
+
+
+def _write(row: dict[str, Any], declared: dict[str, Any], value: Any) -> None:
+    """Serialize the same children/value shape as constructInstanceValuesForArrays."""
+    kind = _check_type(row, declared)
+    if kind == "object":
+        if not isinstance(value, dict):
+            raise CapabilityError(
+                "Object outputs require a native object. Whole-object pills remain unavailable."
+            )
+        schema = _object_schema(declared)
+        if set(value) - set(schema):
+            raise CapabilityError("The Object output value contains undeclared fields.")
+        existing = {child["name"]: child for child in _children(row)}
+        children = []
+        for name, parameter in schema.items():
+            binding = {
+                **copy.deepcopy(parameter),
+                **copy.deepcopy(existing.get(name, {})),
+                "name": name,
+            }
+            if (
+                name not in existing
+                and data.value_type(parameter).kind in declarations.LABELS
+            ):
+                binding["children"] = []
+            child_kind = data.value_type(parameter).kind
+            default = (
+                {}
+                if child_kind == "object"
+                else []
+                if child_kind in declarations.ARRAYS
+                else parameter.get(
+                    "defaultValue", False if child_kind == "boolean" else ""
+                )
+            )
+            _write(binding, parameter, value.get(name, default))
+            children.append(binding)
+        row.update(value="", displayValue="", children=children)
+    elif kind in declarations.ARRAYS:
+        if not isinstance(value, list):
+            raise CapabilityError(
+                "Array outputs require a native array. Whole-array pills remain unavailable."
+            )
+        parameter = _item_schema(declared)
+        existing = _children(row)
+        children = []
+        for index, element in enumerate(value):
+            binding = {
+                **copy.deepcopy(parameter),
+                **copy.deepcopy(existing[index] if index < len(existing) else {}),
+                "name": parameter["name"].split(".")[-1],
+            }
+            if (
+                index >= len(existing)
+                and data.value_type(parameter).kind in declarations.LABELS
+            ):
+                binding["children"] = []
+            _write(binding, parameter, element)
+            children.append(binding)
+        row.update(value="", displayValue="", children=children)
+    else:
+        probe = {**copy.deepcopy(row), "parameter": copy.deepcopy(data.spec(declared))}
+        data.set_value(probe, value)
+        row.update(value=probe["value"], displayValue=probe["displayValue"])
+        if row.get("children"):
+            raise CapabilityError("A scalar output cannot retain undeclared children.")
+
+
 def _mirror(step: tree.Step) -> None:
     step.raw["data"] = {
-        item["name"]: item["value"]
-        for item in step.raw["inputs"] + step.raw["outputsToAssign"]
+        **{item["name"]: item["value"] for item in step.raw["inputs"]},
+        **{
+            item["name"]: data.output_assignment_mirror(item)
+            for item in step.raw["outputsToAssign"]
+        },
     }
 
 
@@ -98,15 +257,16 @@ def update(flow: dict[str, Any], step: tree.Step, edit: dict[str, Any]) -> None:
                     "displayValue": "",
                     "scriptActive": False,
                 }
+                if declared["type"] in declarations.LABELS:
+                    row["children"] = []
                 rows.append(row)
-            if data.value_type(row) != data.value_type(declared):
-                raise CapabilityError(
-                    "The saved assignment type differs from its output declaration."
-                )
-            data.set_value(row, value)
+            else:
+                _read(row, declared)
+            _write(row, declared, value)
             # Studio's output wire fields carry the same value (472030).
             # GET may put it in displayValue with value blank (150470-150479).
-            row["displayValue"] = value
+            if declared["type"] not in declarations.LABELS:
+                row["displayValue"] = value
     _mirror(step)
 
 
@@ -127,12 +287,7 @@ def validate(flow: dict[str, Any], roots: list[tree.Step]) -> None:
             )
         for row in rows:
             declared = _declaration(flow, row["name"])
-            if data.value_type(row) != data.value_type(declared):
-                raise CapabilityError(
-                    "The assignment type differs from its output declaration."
-                )
-            probe = {**copy.deepcopy(row), "parameter": copy.deepcopy(declared)}
-            data.set_value(probe, row["value"])
+            _read(row, declared)
 
 
 def refresh_metadata(
@@ -150,6 +305,18 @@ def refresh_metadata(
 
 
 def summary(roots: list[tree.Step]) -> list[dict[str, Any]]:
+    def value(row: dict[str, Any]) -> Any:
+        if is_sensitive_field(row["name"]):
+            return MASK_VALUE
+        kind = data.value_type(row).kind
+        if kind == "object":
+            return {child["name"]: value(child) for child in _children(row)}
+        if kind in declarations.ARRAYS:
+            return [value(child) for child in _children(row)]
+        return mask_sensitive_fields({"value": data.output_assignment_value(row)})[
+            "value"
+        ]
+
     return [
         {
             "step": step.uid,
@@ -158,11 +325,7 @@ def summary(roots: list[tree.Step]) -> list[dict[str, Any]]:
                 {
                     "name": row["name"],
                     "type": data.value_type(row).kind,
-                    "value": MASK_VALUE
-                    if is_sensitive_field(row["name"])
-                    else mask_sensitive_fields(
-                        {"value": data.output_assignment_value(row)}
-                    )["value"],
+                    "value": value(row),
                 }
                 for row in _rows(step)
             ],

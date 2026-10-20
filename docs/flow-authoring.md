@@ -215,7 +215,7 @@ Scalar leaf types can change only without consumers or stored values. Replace co
 
 New input leaves can supply typed pills such as `{{subflow.payload.count}}` in later edits of the same preview.
 Collection pills still require supported loop or complex-value adapters. This increment does not allow arbitrary array indexing.
-Outputs can be declared with nested schemas, but `assign_outputs` still supports scalar targets only.
+Outputs with nested schemas accept native Object/Array assignment values as described below.
 Complex defaults and whole Object/Array pills remain unavailable.
 
 Studio restricts flow variables to scalar types (bundle:11156,344267-344269).
@@ -238,7 +238,7 @@ The implementation is source-derived and fixture-tested. Live saves and runtime 
 
 ### Output assignments
 
-`assign_outputs` assigns declared scalar outputs in an existing inactive, unpublished subflow without a trigger.
+`assign_outputs` assigns declared outputs in an existing inactive, unpublished subflow without a trigger.
 The operation creates native `ASSIGNSUBFLOWOUTPUTS` flow logic from the instance catalog.
 It writes ordered `outputsToAssign` rows and the corresponding `data` mirror, not ordinary action inputs.
 Declare the output first. Declaration and assignment can occur in the same edit request:
@@ -269,10 +269,10 @@ With `step`, it updates the named rows and appends missing rows in request order
 Unmentioned rows retain their values, metadata, and relative order. Updating cannot also change placement or alias.
 Use `move_step` separately when placement must change. Producer visibility is checked after all edits.
 
-Supported targets are `string`, `integer`, `boolean`, `reference`, and `json` declarations.
+Supported targets are `string`, `integer`, `boolean`, `reference`, `json`, `object`, and supported Array declarations.
 Values use the existing native type checks, reference-table compatibility, and typed pill resolver.
 False, zero, and empty string remain distinct values. JSON values require valid JSON text.
-Output-to-output pills, inline scripts, whole complex values, and assignments inside loops or parallel branches remain unavailable.
+Output-to-output pills, inline scripts, whole Object/Array pills, and assignments inside loops or parallel branches remain unavailable.
 Assignments do not create independently consumable step outputs.
 
 To remove a row, use `{"op":"clear_output_assignment","step":"return","name":"total"}`.
@@ -296,6 +296,62 @@ Local source: two-column selection/value rows (bundle:293955-294228),
 and assignment creation from the catalog (473867-473903).
 The official local reference is `docs/ServiceNowDocs/markdown/build-workflows/workflow-studio/flow-logic-assign-subflow-outputs.md`.
 These contracts are source-derived and fixture-tested. Live saves and runtime output behavior are not verified.
+
+#### Complex output values
+
+Assign a declared Object with a native object. Use local child names as keys.
+Assign Array.String, Array.Integer, Array.Boolean, and Array.Object with native arrays.
+Object fields and Array.Object elements can contain nested Objects and supported Arrays.
+Scalar leaves can mix literals and typed pills from earlier producers or declared subflow inputs.
+
+For the `payload` and `rows` schemas declared earlier:
+
+```json
+{
+  "op": "assign_outputs",
+  "outputs": {
+    "payload": {
+      "count": "{{ui-of-earlier-producer.count}}",
+      "rows": [
+        { "message": "First row" },
+        { "message": "Count: {{ui-of-earlier-producer.count}}" }
+      ]
+    }
+  },
+  "after": "ui-of-last-step"
+}
+```
+
+Replace the example producer and placement identifiers with identities from the current flow read.
+Each named output replaces its complete value. Unmentioned output rows remain unchanged.
+Omitted Object fields use declared scalar defaults, false for booleans without defaults, or empty values.
+Omitted nested Objects expand their declared fields. Omitted Arrays become empty arrays.
+An unknown field or a value with the wrong type rejects the preview.
+JSON text does not substitute for a native Object or Array. Only `json` leaves accept JSON text.
+False, zero, empty string, empty Object, and empty Array retain their native distinctions.
+
+Only top-level outputs are selectable assignment rows, matching Studio's two-column picker (294176-294180).
+Set a child through its parent's Object value. Dotted target names and array indexes are not separate assignment operations.
+`clear_output_assignment` still removes the whole named row. Use an empty native array to replace an array's contents.
+The existing declaration guards reject deletion or type changes while a parent assignment remains.
+
+The native save stores blank complex-parent `value` and `displayValue` fields, with actual values in recursive `children`.
+Primitive Arrays have one child binding per element. Array.Object has one Object node per element.
+Element metadata follows the declared item schema. Existing binding metadata survives updates by field name or array position.
+Studio builds `data` before serializing the cloned output rows. Its top-level Array values remain arrays while wire parents become blank.
+Array.Object mirror entries contain Object nodes, including nested array values. The adapter checks this mirror against serialized children.
+Preview reconstructs native values for review without copying opaque metadata.
+Sensitive child values are masked recursively, including fields inside Array.Object elements.
+
+Save comparison checks every child value, ordering, count, type, identity, display field, and unknown setting.
+This increment adds no blanket normalization for complex values. An unexpected server representation returns `UNKNOWN_OUTCOME` without replay.
+Empty-parent values are not interpreted as display substitutes for complex parents.
+Schema defaults, whole Object/Array pills, unsupported array subtypes, inline scripts, and remote execution remain outside this increment.
+
+Local source: Object/Array editing (293995-294036,244898-245012), Array.Object item construction (93333-93353),
+recursive nested updates (16252-16301,207263-207300), and complete-save serialization (23462-23535).
+Array read reconstruction is documented at 23564-23710. The adapter currently consumes the strict saved wire form.
+These forms are source-derived and fixture-tested, not live save or execution verified.
 
 ### Standard stages
 
@@ -537,14 +593,14 @@ The effect guard was not relaxed, and no alternative authenticated transport was
 
 The following bodies are still needed from a version-matched, safely isolated UI or sanitized existing fixtures:
 
-| Family                                      | Smallest missing serializer evidence                                                                                                                                                                                                                                        |
-| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Complex values and unsupported declarations | Nested subflow Object and supported Array declaration CRUD are implemented. Complex assignment values, additional array subtypes, dynamic schemas, and whole-object pill bindings require additional adapters. Complex flow variables are excluded by Studio's type picker. |
-| Error stages                                | Create/remove bodies with ancestor links and conditional ancestry. Standard-stage CRUD is implemented from local client source.                                                                                                                                             |
-| Top-level handler                           | Toggle-on/off bodies with hidden order-zero wrappers, enabled input, parent rewriting, and handler boundary index.                                                                                                                                                          |
-| Record/scheduled/dynamic triggers           | Final native input values, regenerated interfaces, table dependencies, and stored timezone/schedule representation.                                                                                                                                                         |
-| Whole complex pills                         | Object, Array.Object, and primitive Array bindings with value/children fields and complete source/target schemas.                                                                                                                                                           |
-| Try/Catch paired moves                      | Pair movement across parent regions with connectedTo, children, order, and ancestry fields.                                                                                                                                                                                 |
+| Family                            | Smallest missing serializer evidence                                                                                                                                                                                                  |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Unsupported complex forms         | Nested declarations and literal/leaf-pill complex assignments are implemented. Additional array subtypes, dynamic schemas, and whole-object pill bindings need adapters. Complex flow variables are excluded by Studio's type picker. |
+| Error stages                      | Create/remove bodies with ancestor links and conditional ancestry. Standard-stage CRUD is implemented from local client source.                                                                                                       |
+| Top-level handler                 | Toggle-on/off bodies with hidden order-zero wrappers, enabled input, parent rewriting, and handler boundary index.                                                                                                                    |
+| Record/scheduled/dynamic triggers | Final native input values, regenerated interfaces, table dependencies, and stored timezone/schedule representation.                                                                                                                   |
+| Whole complex pills               | Object, Array.Object, and primitive Array bindings with value/children fields and complete source/target schemas.                                                                                                                     |
+| Try/Catch paired moves            | Pair movement across parent regions with connectedTo, children, order, and ancestry fields.                                                                                                                                           |
 
 Further capture requires an authenticated editor bootstrap that works within the GET-only/no-worker boundary,
 or sanitized version-matched request fixtures. Do not permit the blocked POSTs merely to make the UI load.

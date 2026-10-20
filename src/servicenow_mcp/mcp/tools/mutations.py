@@ -203,6 +203,14 @@ def register_tools(mcp: MCPServer, coordinator: MutationCoordinator) -> None:
                 Classic schedules use the instance timezone. No timezone conversion, Recurrence, or saved trigger definitions.
               update_trigger: nonempty inputs. Preserves trigger identity, other values, and opaque metadata.
               remove_trigger: no fields. Removes the saved instance with a native ID tombstone. Used pills block removal.
+              set_error_handler: enabled=boolean. Creates current-catalog native top-level Try/Catch wrappers when enabled=true.
+                Disabling a populated handler preserves its contents as read-only. Disabling an empty handler removes the wrappers.
+                This configures draft error handling only. It does not activate, publish, or execute the flow.
+              remove_error_handler: no fields. Requires an empty handler. Delete or move its contents explicitly first.
+                parent=main|error_handler selects a native wrapper region for supported insert_logic/move_step operations.
+                error_handler.<catalog output path> pills resolve to the Catch UI identity. Use leaf paths from preview error_handler.outputs.
+                Error Status pills are visible only inside their handler. Main-step outputs cannot cross into it.
+                The handler contains at most ten actions, flow-logic steps, or subflow calls. Legacy/sandwich wrapper contracts are unavailable.
               insert_logic: logic (If, Else If, Else, For Each, Try, Parallel, Parallel Branch, End,
                 Exit Loop, Skip Iteration), inputs, and one of parent,
                 after, or before. ref names the new block for later edits in the same call.
@@ -252,7 +260,12 @@ def register_tools(mcp: MCPServer, coordinator: MutationCoordinator) -> None:
               update_stage: stage key/ref, label/value/duration/always_show/states, or zero-based order.
               attach_stage/detach_stage: stage key/ref and step. One stage per step. No implicit replacement.
               delete_stage: stage key/ref. Detach all steps first. Dependent error stages block deletion.
-                These operations author standard stages, not flow-logic steps. For Each/Parallel children are excluded.
+                create_stage(type=error): step and optional ref only. Creates and attaches a conditional Error state.
+                The last eligible standard-stage attachment before the enclosing If/Else If/Else supplies its ancestor.
+                Error names and ancestry are native and cannot be renamed. update_stage supports duration, always_show, and state labels.
+                delete_stage removes the error state. detach_stage also removes it, matching Studio. Recreate to attach elsewhere.
+                Error stages report state only. They neither throw exceptions nor enable a handler or activate the flow.
+                These operations author stage state, not flow-logic steps. For Each/Parallel children are excluded.
             Steps are referenced by sys_id, UI identifier, display order, or a ref alias.
             The preview shows the flow outline and declaration changes. Only inactive, unpublished flow/subflow drafts
             are supported. Activation and execution are excluded.

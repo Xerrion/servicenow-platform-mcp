@@ -1,4 +1,4 @@
-"""Native standard-stage edits. Stage attachments use stable step identities in memory."""
+"""Native standard and conditional error stages with stable in-memory attachments."""
 
 import re
 from datetime import UTC, datetime
@@ -116,6 +116,7 @@ def edit_stage(
     links: dict[str, list[str]],
     aliases: dict[str, str],
     new_id: str,
+    sources: dict[str, tuple[str, str, str]],
 ) -> str:
     """Use createStage/addNewFlowStage/deleteStandardStage's keyed wire shape.
 
@@ -124,6 +125,11 @@ def edit_stage(
     """
     stages = flow["stages"]
     op = edit["op"]
+    if op == "create_stage" and edit.get("type", "standard") not in {
+        "standard",
+        "error",
+    }:
+        raise CapabilityError("Stage type must be standard or error.")
     if op == "create_stage":
         key = new_id
         if key in stages:
@@ -152,17 +158,67 @@ def edit_stage(
         stage = {
             "stageId": key,
             "componentIndexes": [],
-            "label": _text(edit, "label"),
-            "value": _text(edit, "value"),
+            "label": _text(edit, "label") if edit.get("type") != "error" else "",
+            "value": _text(edit, "value") if edit.get("type") != "error" else "",
             "duration": "1970-01-01 00:00:00",
             "type": "standard",
             "order": max(orders, default=-1) + 1,
             "alwaysShow": True,
             "states": dict(STATES),
         }
+        if edit.get("type") == "error":
+            if set(edit) - {"op", "type", "step", "ref"}:
+                raise CapabilityError(
+                    "Error stage creation accepts type, step, and ref. Its name and ancestor are derived natively."
+                )
+            ref = edit.get("step")
+            if not isinstance(ref, str) or not ref:
+                raise CapabilityError(
+                    "Error stage creation requires a conditional step attachment."
+                )
+            siblings, position, _ = tree.find(roots, ref)
+            step = siblings[position]
+            ancestry = error_ancestry(flow, roots, links, step.uid)
+            stage.update(
+                type="error",
+                order=None,
+                label="Set current stage state to:  [Error]",
+                value="Set current stage state to:  [Error]",
+                **ancestry,
+            )
+            sources[key] = (
+                ancestry["ancestorStageId"],
+                list(tree.walk(roots))[ancestry["ancestorArrPos"]].uid,
+                ancestry["ancestralIfElseLogic"],
+            )
+            if any(
+                s.get("type") == "error"
+                and all(
+                    s.get(k) == stage[k]
+                    for k in (
+                        "ancestorStageId",
+                        "ancestorArrPos",
+                        "ancestralIfElseLogic",
+                    )
+                )
+                for s in stages.values()
+            ):
+                raise CapabilityError(
+                    "An error stage already exists for this conditional ancestor. Edit it explicitly."
+                )
+            if any(step.uid in values for values in links.values()):
+                raise CapabilityError(
+                    "Remove the existing stage attachment at this step explicitly first."
+                )
+        elif "step" in edit:
+            raise CapabilityError(
+                "Standard stage creation uses a separate attach_stage edit."
+            )
         _metadata(stage, edit)
         stages[key] = stage
         links[key] = []
+        if stage["type"] == "error":
+            links[key] = [step.uid]
     else:
         ref = edit.get("stage")
         if not isinstance(ref, str) or not ref:
@@ -172,11 +228,40 @@ def edit_stage(
         if (
             not isinstance(stage, dict)
             or stage.get("stageId") != key
-            or stage.get("type") != "standard"
+            or stage.get("type") not in {"standard", "error"}
         ):
             raise CapabilityError(
-                "This operation requires an existing standard stage.", "UNAVAILABLE"
+                "This operation requires an existing native stage.", "UNAVAILABLE"
             )
+        if stage["type"] == "error":
+            # deleteFlowStage dispatches deleteErrorStage for an error state,
+            # even for a non-permanent attachment removal (204353-204409).
+            if op in {"delete_stage", "detach_stage"}:
+                if op == "detach_stage" and edit.get("step") not in links[key]:
+                    raise CapabilityError(
+                        "The error stage is not attached to this step."
+                    )
+                del stages[key]
+                del links[key]
+            elif op == "attach_stage":
+                raise CapabilityError(
+                    "Error stages attach during creation. Remove and recreate the error stage at its new step.",
+                    "UNAVAILABLE",
+                )
+            elif op == "update_stage":
+                if set(edit) - {
+                    "op",
+                    "stage",
+                    "duration",
+                    "always_show",
+                    "states",
+                } or not set(edit) & {"duration", "always_show", "states"}:
+                    raise CapabilityError(
+                        "Error stage updates accept duration, always_show, and states. Native error labels and ancestry cannot be renamed."
+                    )
+                _metadata(stage, edit)
+            assert isinstance(key, str)
+            return key
         if op == "delete_stage":
             if links[key] or any(
                 s.get("ancestorStageId") == key for s in stages.values()
@@ -186,7 +271,9 @@ def edit_stage(
                 )
             order = stage.get("order")
             if type(order) is not int or any(
-                type(s.get("order")) is not int for s in stages.values()
+                type(s.get("order")) is not int
+                for s in stages.values()
+                if s.get("type") == "standard"
             ):
                 raise CapabilityError(
                     "Existing stage orders are incomplete.", "UNAVAILABLE"
@@ -194,7 +281,7 @@ def edit_stage(
             del stages[key]
             del links[key]
             for remaining in stages.values():
-                if remaining["order"] > order:
+                if remaining.get("type") == "standard" and remaining["order"] > order:
                     remaining["order"] -= 1
         elif op in {"attach_stage", "detach_stage"}:
             ref = edit.get("step")
@@ -303,6 +390,7 @@ def serialize(
     roots: list[tree.Step],
     links: dict[str, list[str]],
     original: dict[str, Any],
+    sources: dict[str, tuple[str, str, str]],
 ) -> None:
     ordered = list(tree.walk(roots))
     positions = {step.uid: index for index, step in enumerate(ordered)}
@@ -317,13 +405,6 @@ def serialize(
         )
         for index in stage["componentIndexes"]
     }
-    # Error stages carry additional ancestor positions. No adapter rewrites them.
-    if any(stage.get("type") == "error" for stage in flow["stages"].values()) and [
-        (step.uid, step.raw["parent"]) for step in ordered
-    ] != [(step.uid, step.raw["parent"]) for step in original_ordered]:
-        raise CapabilityError(
-            "Structural edits with error-stage ancestry are unavailable.", "UNAVAILABLE"
-        )
     scope = data.Scope(roots)
     for key, uids in links.items():
         indexes = []
@@ -336,6 +417,9 @@ def serialize(
             if (
                 uid in originally_attached
                 and original_parents[uid] != step.raw["parent"]
+                and not _wrapper_parent_change(
+                    original_parents[uid], step.raw["parent"], roots, original
+                )
             ):
                 raise CapabilityError(
                     "Detach a stage before moving its step across parent regions."
@@ -353,6 +437,31 @@ def serialize(
                 )
             indexes.append(positions[uid])
         flow["stages"][key]["componentIndexes"] = sorted(indexes)
+    for key, stage in flow["stages"].items():
+        if stage.get("type") != "error":
+            continue
+        if not links[key]:
+            raise CapabilityError(
+                "An error stage must have a native attachment. Remove detached error stages explicitly.",
+                "UNAVAILABLE",
+            )
+        for uid in links[key]:
+            ancestry = error_ancestry(flow, roots, links, uid)
+            source = sources.get(key)
+            if (
+                not source
+                or (
+                    ancestry["ancestorStageId"],
+                    ordered[ancestry["ancestorArrPos"]].uid,
+                    ancestry["ancestralIfElseLogic"],
+                )
+                != source
+            ):
+                raise CapabilityError(
+                    "The error stage source changed. Remove and recreate it explicitly."
+                )
+            stage.update(ancestry)
+    error_sources(flow, roots, links)
 
 
 def summary(flow: dict[str, Any], created: list[str]) -> list[dict[str, Any]]:
@@ -372,6 +481,9 @@ def summary(flow: dict[str, Any], created: list[str]) -> list[dict[str, Any]]:
                     "order",
                     "type",
                     "componentIndexes",
+                    "ancestorStageId",
+                    "ancestorArrPos",
+                    "ancestralIfElseLogic",
                 )
                 if field in row
             },
@@ -391,3 +503,106 @@ def summary(flow: dict[str, Any], created: list[str]) -> list[dict[str, Any]]:
         for key, row in flow["stages"].items()
         if isinstance(row, dict)
     ]
+
+
+def error_ancestry(
+    flow: dict[str, Any], roots: list[tree.Step], links: dict[str, list[str]], uid: str
+) -> dict[str, Any]:
+    """obtainStageDataForInstance/getPreviousAncestorStageInfo:184141-184197,184316-184355."""
+    ordered = list(tree.walk(roots))
+    positions = {s.uid: i for i, s in enumerate(ordered)}
+    scope = data.Scope(roots)
+    if uid not in positions:
+        raise CapabilityError("The error stage target step is absent.")
+    target = ordered[positions[uid]]
+    branch = next(
+        (
+            s
+            for s in reversed(scope.parents[uid])
+            if s.logic_type in {"IF", "ELSEIF", "ELSE"}
+        ),
+        None,
+    )
+    if branch is None or target.logic_type in {
+        "IF",
+        "ELSE",
+        "ELSEIF",
+        "TOP_LEVEL_TRY",
+        "TOP_LEVEL_CATCH",
+    }:
+        raise CapabilityError(
+            "Attach the error state to a step inside If/Else If/Else, not the conditional wrapper itself."
+        )
+    candidates = [
+        (positions[attached], key, attached)
+        for key, attached_uids in links.items()
+        if flow["stages"][key].get("type") == "standard"
+        for attached in attached_uids
+        if attached in positions
+        and positions[attached] <= positions[branch.uid]
+        and len(scope.parents[attached]) <= len(scope.parents[branch.uid])
+        and ordered[positions[attached]].raw.get("errorHandlingInstance", False)
+        == target.raw.get("errorHandlingInstance", False)
+    ]
+    if not candidates:
+        raise CapabilityError(
+            "Attach a standard stage before the conditional branch first."
+        )
+    position, key, _ = max(candidates)
+    return {
+        "ancestorStageId": key,
+        "ancestorArrPos": position,
+        "ancestralIfElseLogic": branch.uid,
+    }
+
+
+def _wrapper_parent_change(
+    before: str, after: str, roots: list[tree.Step], original: dict[str, Any]
+) -> bool:
+    """A hidden Try wrapper changes parent ownership without moving stage scope."""
+    wrappers = {
+        s.uid
+        for s in tree.walk([*roots, *tree.build_tree(original)])
+        if s.logic_type == "TOP_LEVEL_TRY"
+    }
+    return (not before and after in wrappers) or (not after and before in wrappers)
+
+
+def error_sources(
+    flow: dict[str, Any], roots: list[tree.Step], links: dict[str, list[str]]
+) -> dict[str, tuple[str, str, str]]:
+    ordered = list(tree.walk(roots))
+    sources: dict[str, tuple[str, str, str]] = {}
+    ancestors: set[tuple[str, str, str]] = set()
+    for key, stage in flow["stages"].items():
+        if stage.get("type") != "error":
+            continue
+        position = stage.get("ancestorArrPos")
+        if (
+            type(position) is not int
+            or not 0 <= position < len(ordered)
+            or not links[key]
+        ):
+            raise CapabilityError(
+                "The error stage requires a complete source and attachment.",
+                "UNAVAILABLE",
+            )
+        for uid in links[key]:
+            ancestry = error_ancestry(flow, roots, links, uid)
+            if any(stage.get(k) != value for k, value in ancestry.items()):
+                raise CapabilityError(
+                    "The error stage ancestry contradicts its source topology.",
+                    "UNAVAILABLE",
+                )
+        sources[key] = (
+            stage["ancestorStageId"],
+            ordered[position].uid,
+            stage["ancestralIfElseLogic"],
+        )
+        if sources[key] in ancestors:
+            raise CapabilityError(
+                "Multiple error stages claim the same conditional source.",
+                "UNAVAILABLE",
+            )
+        ancestors.add(sources[key])
+    return sources

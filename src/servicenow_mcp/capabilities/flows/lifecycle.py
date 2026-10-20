@@ -11,9 +11,13 @@ from servicenow_mcp.capabilities.flows import (
     capture,
     data,
     editing,
+    handlers,
     semantics,
     support,
     tree,
+)
+from servicenow_mcp.capabilities.flows import (
+    stages as stage_edits,
 )
 from servicenow_mcp.capabilities.flows import (
     triggers as trigger_edits,
@@ -378,6 +382,7 @@ async def validate_definition(
         }
     try:
         tree.validate_structure(roots)
+        handlers.validate(flow, roots)
     except CapabilityError:
         diagnostics.append(
             diagnostic(
@@ -385,15 +390,6 @@ async def validate_definition(
                 "flowLogicInstances",
                 "Check branch adjacency, Try/Catch pairing, parallel paths, loop-control placement, and terminal "
                 "siblings.",
-            ),
-        )
-    if flow.get("startingIndexOfErrorHandlingInstances", -1) != -1:
-        diagnostics.append(
-            diagnostic(
-                "UNAVAILABLE_HANDLER",
-                "flowLogicInstances",
-                "Top-level handler wrapper validation is unavailable.",
-                incomplete=True,
             ),
         )
     for collection in ("inputs", "outputs", "flowVariables"):
@@ -423,7 +419,13 @@ async def validate_definition(
                 )
             ):
                 raise ValueError("Stage attachment")
-    except ValueError, TypeError:
+        if isinstance(stages, dict) and any(
+            s.get("type") == "error" for s in stages.values()
+        ):
+            stage_edits.error_sources(
+                flow, roots, stage_edits.attachments(copy.deepcopy(flow))
+            )
+    except ValueError, TypeError, CapabilityError:
         diagnostics.append(
             diagnostic(
                 "UNAVAILABLE_STAGE_ATTACHMENTS",
@@ -529,6 +531,7 @@ async def validate_definition(
             "CATCH",
             "SETFLOWVARIABLES",
             assignments.KIND,
+            *handlers.TYPES,
         }:
             diagnostics.append(
                 diagnostic(

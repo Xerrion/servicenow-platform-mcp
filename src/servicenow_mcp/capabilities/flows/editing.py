@@ -17,6 +17,7 @@ from servicenow_mcp.capabilities.flows import (
     data,
     declarations,
     fields,
+    handlers,
     semantics,
     stages,
     support,
@@ -35,6 +36,7 @@ if TYPE_CHECKING:
 
 
 OPS = {
+    *handlers.OPS,
     *assignments.OPS,
     "set_trigger",
     "update_trigger",
@@ -76,6 +78,8 @@ def _inputs(edit: dict[str, Any]) -> dict[str, Any]:
 def _check_edit(edit: dict[str, Any]) -> None:
     placement = {"parent", "after", "before"}
     allowed = {
+        "set_error_handler": {"enabled"},
+        "remove_error_handler": set(),
         "set_trigger": {"type", "inputs", "replace"},
         "update_trigger": {"inputs"},
         "remove_trigger": set(),
@@ -89,7 +93,16 @@ def _check_edit(edit: dict[str, Any]) -> None:
         "create_field": {"collection", "name", "parent", *fields.SETTINGS},
         "update_field": {"collection", "name", *fields.SETTINGS},
         "delete_field": {"collection", "name"},
-        "create_stage": {"label", "value", "duration", "always_show", "states", "ref"},
+        "create_stage": {
+            "label",
+            "value",
+            "duration",
+            "always_show",
+            "states",
+            "ref",
+            "type",
+            "step",
+        },
         "update_stage": {
             "stage",
             "label",
@@ -883,7 +896,8 @@ async def load_state(command: FlowCommand, client: ServiceNowClient) -> dict[str
         )
     logic = (
         await client.studio_definitions("flow_logic")
-        if needs & {"insert_logic", "set_variables", *assignments.OPS}
+        if needs & {"insert_logic", "set_variables", *assignments.OPS, *handlers.OPS}
+        or handlers.pair(tree.build_tree(flow))
         else []
     )
     triggers = (
@@ -901,6 +915,9 @@ async def plan(
         "planner.in", action=command.action, edits=command.edits, flow=flow
     )
     roots = tree.build_tree(flow)
+    handlers.validate(flow, roots)
+    if handlers.pair(roots):
+        handlers.check_catalog(roots, state["logic"])
     assignments.hydrate(roots)
     triggers = list(copy.deepcopy(flow["triggerInstances"]))
     logic_by_name = {d["name"].lower(): d for d in state["logic"]}
@@ -911,8 +928,16 @@ async def plan(
     pending_deletions: dict[str, list[dict[str, str]]] = {}
     omitted_subflows: list[dict[str, str]] = []
     working = copy.deepcopy(flow)
-    stage_edits = any(edit.get("op") in stages.OPS for edit in command.edits or [])
+    stage_edits = any(
+        edit.get("op") in stages.OPS | handlers.OPS for edit in command.edits or []
+    ) or (
+        isinstance(flow["stages"], dict)
+        and any(s.get("type") == "error" for s in flow["stages"].values())
+    )
     stage_links = stages.attachments(working) if stage_edits else {}
+    stage_sources = (
+        stages.error_sources(working, roots, stage_links) if stage_edits else {}
+    )
     stage_aliases: dict[str, str] = {}
     created_stages: list[str] = []
     created_fields: list[dict[str, str]] = []
@@ -927,18 +952,20 @@ async def plan(
     for index, edit in enumerate(command.edits or [], start=1):
         _check_edit(edit)
         op = _str(edit, "op", required=True) or ""
-        if flow.get("startingIndexOfErrorHandlingInstances", -1) != -1:
-            raise CapabilityError(
-                "Top-level handler flows require an order-zero wrapper adapter before edits are available.",
-                "UNAVAILABLE",
-            )
         if flow["type"] == "subflow" and (op in trigger_edits.OPS or op in stages.OPS):
             raise CapabilityError(
                 "Subflow trigger and stage authoring are unavailable in this adapter.",
                 "UNAVAILABLE",
             )
         if (
-            op in {"move_step", "delete_step", "insert_logic", "set_variables"}
+            op
+            in {
+                "move_step",
+                "delete_step",
+                "insert_logic",
+                "set_variables",
+                *handlers.OPS,
+            }
             or op == "assign_outputs"
             and "step" not in edit
         ):
@@ -968,7 +995,7 @@ async def plan(
             if any(
                 s.logic_type
                 not in support.LOGIC_TYPES
-                | {"CATCH", "SETFLOWVARIABLES", assignments.KIND}
+                | {"CATCH", "SETFLOWVARIABLES", assignments.KIND, *handlers.TYPES}
                 for s in tree.walk(roots)
                 if s.kind == "flowlogic"
             ):
@@ -976,7 +1003,27 @@ async def plan(
                     "Structural edits require family adapters for every existing flow-logic step.",
                     "UNAVAILABLE",
                 )
-        if op in {"create_field", "update_field", "delete_field"}:
+        if op in handlers.OPS:
+            removed = handlers.edit(
+                working,
+                roots,
+                edit,
+                state["logic"],
+                str(uuid.UUID(hex=fingerprint([stage_seed, "handler", index])[:32])),
+            )
+            if removed:
+                pending_deletions.setdefault("deletedFlowLogicInstances", []).extend(
+                    removed
+                )
+            summary.append(
+                f"{index}. {op} "
+                + (
+                    str(edit.get("enabled"))
+                    if op == "set_error_handler"
+                    else "empty wrappers"
+                )
+            )
+        elif op in {"create_field", "update_field", "delete_field"}:
             section = fields.collection(edit)
             existing = next(
                 (
@@ -1254,6 +1301,11 @@ async def plan(
                     "The flow-logic definition is unreadable.", "UNAVAILABLE"
                 )
             step = tree.new_logic_step(flow["id"], definition, _inputs(edit))
+            # A new error stage can reference this branch in the same preview.
+            # Preserve that reviewed ancestry across preview/apply replanning.
+            step.raw["uiUniqueIdentifier"] = str(
+                uuid.UUID(hex=fingerprint([stage_seed, "logic", index])[:32], version=4)
+            )
             for item in step.raw["inputs"]:
                 data.set_value(item, item["value"])
             tree.insert(
@@ -1266,6 +1318,10 @@ async def plan(
             created.append(step.uid)
             alias = _str(edit, "ref")
             if alias:
+                if alias in {"main", "error_handler"}:
+                    raise CapabilityError(
+                        "main and error_handler are reserved branch aliases."
+                    )
                 step.raw["_alias"] = alias
             if step.logic_type == "TRY":
                 catch_def = next(
@@ -1276,12 +1332,23 @@ async def plan(
                         "Try requires the instance Catch definition.", "UNAVAILABLE"
                     )
                 catch = tree.new_logic_step(flow["id"], catch_def, {})
+                catch.raw["uiUniqueIdentifier"] = str(
+                    uuid.UUID(
+                        hex=fingerprint([stage_seed, "catch", index])[:32], version=4
+                    )
+                )
                 catch.raw["connectedTo"] = step.uid
                 tree.insert(roots, catch, parent=None, after=step.uid, before=None)
             summary.append(f"{index}. Insert {definition['name']}")
         elif op in {"move_step", "delete_step", "update_inputs"}:
             label = _str(edit, "step", required=True) or ""
             ref = _resolve_alias(roots, label) or ""
+            siblings, position, _ = tree.find(roots, ref)
+            if siblings[position].logic_type in handlers.TYPES:
+                raise CapabilityError(
+                    "Use handler operations for hidden wrapper settings. Wrapper moves and generic deletion are unavailable."
+                )
+            handlers.require_enabled(roots, ref)
             if op == "delete_step":
                 siblings, position, _ = tree.find(roots, ref)
                 removed = siblings[position]
@@ -1375,6 +1442,16 @@ async def plan(
                 _update_inputs(siblings[position], _inputs(edit))
                 summary.append(f"{index}. Update inputs of step {label}")
         elif op in stages.OPS:
+            tree.renumber(roots)
+            if isinstance(edit.get("stage"), str):
+                key = stage_aliases.get(edit["stage"], edit["stage"])
+                for uid in stage_links.get(key, []):
+                    handlers.require_enabled(roots, uid)
+            if "step" in edit:
+                handlers.require_enabled(
+                    roots,
+                    _resolve_alias(roots, _str(edit, "step", required=True)) or "",
+                )
             identity = stage_aliases.get(str(edit.get("stage")), edit.get("stage"))
             existing_stage = (
                 working["stages"].get(identity) if isinstance(identity, str) else None
@@ -1402,13 +1479,71 @@ async def plan(
                     str(
                         uuid.UUID(hex=fingerprint([stage_seed, index])[:32], version=4)
                     ),
+                    stage_sources,
                 )
                 if op == "create_stage":
                     created_stages.append(identity)
             summary.append(f"{index}. {op.replace('_', ' ').capitalize()} {identity}")
     for step in tree.walk(roots):
         step.raw.pop("_alias", None)
+        rebound_handler_alias = False
+        for key in (
+            "inputs",
+            "outputsToAssign",
+            "dynamicInputs",
+            "workflowInputs",
+            "decisionTableInputs",
+        ):
+            for item in data.bindings(step.raw.get(key, [])):
+                value = item.get("value")
+                if not isinstance(value, str) or not any(
+                    pill.startswith("error_handler.") for pill in tree.pills(value)
+                ):
+                    continue
+                wrappers = handlers.pair(roots)
+                if wrappers is None:
+                    raise CapabilityError(
+                        "The error_handler pill alias requires a native handler."
+                    )
+                item["value"] = tree.PILL.sub(
+                    lambda match, uid=wrappers[1].uid: (
+                        "{{" + uid + match[1][len("error_handler") :] + "}}"
+                        if match[1].startswith("error_handler.")
+                        else match[0]
+                    ),
+                    value,
+                )
+                rebound_handler_alias = True
+                if "data" in step.raw and item.get("name") in step.raw["data"]:
+                    step.raw["data"][item["name"]] = item["value"]
+        if (
+            rebound_handler_alias
+            and step.logic_type == assignments.KIND
+            and "data" in step.raw
+        ):
+            for row in step.raw["outputsToAssign"]:
+                step.raw["data"][row["name"]] = data.output_assignment_mirror(row)
+        if rebound_handler_alias and step.logic_type == "SETFLOWVARIABLES":
+            step.raw["flowVariables"] = copy.deepcopy(step.raw["inputs"])
     payload = tree.flatten(working, roots)
+    handlers.serialize(payload, roots, flow)
+    original_wrappers = handlers.pair(tree.build_tree(flow))
+    if original_wrappers and not handlers.pair(roots):
+        removed_uids = {s.uid for s in original_wrappers}
+        if any(
+            pill.partition(".")[0] in removed_uids
+            for pill in tree.pills(
+                [
+                    working["inputs"],
+                    working["outputs"],
+                    working["flowVariables"],
+                    working.get("pharmacy"),
+                ]
+            )
+        ):
+            raise CapabilityError(
+                "Remove handler pill defaults and transforms explicitly before removing its wrappers."
+            )
     whole_bindings = any(
         data.whole_pill(item.get("value"))
         and data.value_type(item).kind in declarations.LABELS
@@ -1418,6 +1553,8 @@ async def plan(
     )
     if (
         omitted_subflows
+        or handlers.pair(roots)
+        or any(edit.get("op") in handlers.OPS for edit in command.edits or [])
         or whole_bindings
         or any(
             edit.get("op")
@@ -1427,7 +1564,7 @@ async def plan(
     ):
         _refresh_component_mirror(flow, payload)
     if stage_edits:
-        stages.serialize(payload, roots, stage_links, flow)
+        stages.serialize(payload, roots, stage_links, flow, stage_sources)
     else:
         _preserve_stage_attachments(flow, payload, roots)
     payload["triggerInstances"] = triggers
@@ -1738,10 +1875,21 @@ def _resolve_alias(roots: list[tree.Step], ref: str | None) -> str | None:
     """
     if ref is None:
         return None
+    if ref in {"error_handler", "main"}:
+        wrappers = handlers.pair(roots)
+        if wrappers is None:
+            raise CapabilityError(
+                "This branch alias requires an existing error handler."
+            )
+        uid = wrappers[1 if ref == "error_handler" else 0].uid
+        handlers.require_enabled(roots, uid)
+        return uid
     for step in tree.walk(roots):
         if step.raw.get("_alias") == ref:
+            handlers.require_enabled(roots, step.uid)
             return step.uid
     siblings, index, _ = tree.find(roots, ref)
+    handlers.require_enabled(roots, siblings[index].uid)
     return siblings[index].uid
 
 
@@ -1794,6 +1942,8 @@ async def preview(
         "fields": fields.summary(result["payload"]),
         "output_assignments_before": assignments.summary(tree.build_tree(flow)),
         "output_assignments": assignments.summary(tree.build_tree(result["payload"])),
+        "error_handler_before": handlers.summary(flow),
+        "error_handler": handlers.summary(result["payload"]),
         "triggers_before": trigger_edits.summary(flow["triggerInstances"]),
         "triggers": trigger_edits.summary(result["payload"]["triggerInstances"]),
         "deleted_instances": {

@@ -525,7 +525,8 @@ async def test_capability_ledger_distinguishes_authorable_and_unverified(setting
     result = decode_response(await tools["flow"](action="describe"))
     ledger = result["data"]["authoring"]
     assert ledger["features"]["step_output_pills"]["authorable"] is True
-    assert ledger["features"]["handler_creation"]["authorable"] is False
+    assert ledger["features"]["handler_creation"]["authorable"] is True
+    assert ledger["features"]["handler_creation"]["live_verified"] is False
     assert ledger["features"]["scheduled_triggers"]["live_verified"] is False
 
 
@@ -982,12 +983,12 @@ async def test_capture_blocker_is_explicit_and_does_not_enable_remaining_familie
     )
     assert ledger["features"]["whole_complex_pills"]["authorable"] is True
     assert ledger["features"]["whole_complex_pills"]["live_verified"] is False
+    for family in ("handler_creation", "handler_toggle"):
+        assert ledger["features"][family]["authorable"] is True
+        assert ledger["features"][family]["live_verified"] is False
     for family in ("record_triggers", "scheduled_triggers"):
         assert ledger["features"][family]["authorable"] is True
         assert ledger["features"][family]["live_verified"] is False
-    for family in (
-        "handler_creation",
-        "try_catch_pair_moves",
-    ):
+    for family in ("try_catch_pair_moves",):
         assert ledger["features"][family]["authorable"] is False
         assert ledger["features"][family]["live_verified"] is False

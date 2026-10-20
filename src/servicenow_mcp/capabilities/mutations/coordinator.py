@@ -86,6 +86,13 @@ class MutationCoordinator:
                     "delete_stage",
                     "attach_stage",
                     "detach_stage",
+                    "set_error_handler",
+                    "remove_error_handler",
+                    "move_step",
+                    "delete_step",
+                    "insert_logic",
+                    "set_variables",
+                    "assign_outputs",
                 }
                 for edit in command.edits or []
             ):

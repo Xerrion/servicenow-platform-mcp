@@ -13,7 +13,7 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, NoReturn
 
 from servicenow_mcp.capabilities.contracts import CapabilityError, validate_payload
-from servicenow_mcp.capabilities.flows import data, declarations, tree
+from servicenow_mcp.capabilities.flows import data, declarations, handlers, tree
 from servicenow_mcp.validation import validate_sys_id
 
 if TYPE_CHECKING:
@@ -533,7 +533,12 @@ def studio_semantics(
                 order = int(order_raw)
             except ValueError:
                 _incomplete(path + ".order", "The step order must parse as an integer.")
-            if order < 1 or order in orders:
+            top_try = (
+                kind == "flowlogic"
+                and raw.get("flowLogicDefinition", {}).get("type") == "TOP_LEVEL_TRY"
+                and raw.get("parent") == ""
+            )
+            if order < (0 if top_try else 1) or order in orders:
                 _incomplete(
                     path + ".order",
                     "Step orders must be positive and unique across all step collections.",
@@ -702,6 +707,11 @@ def studio_semantics(
     # The client reconstructs this entire UI family after GET. Missing fields are
     # not missing topology, but explicit caches must agree before they are ignored.
     metadata = tree.ui_metadata(tree.build_tree(flow))
+    if any(
+        row.get("flowLogicDefinition", {}).get("type") == handlers.TRY
+        for row in flow["flowLogicInstances"]
+    ):
+        handlers.validate(flow, tree.build_tree(flow))
     for collection in COLLECTIONS:
         for index, raw in enumerate(flow[collection]):
             expected = metadata[raw["uiUniqueIdentifier"]]

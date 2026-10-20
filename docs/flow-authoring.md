@@ -205,6 +205,120 @@ Local official references: `flow-triggers.md` describes classic flow triggers an
 `create-scheduled-trigger.md` describes a different saved Recurrence contract, which remains excluded.
 Source-derived tests cover all supported families offline. No live save or scheduling behavior is verified.
 
+### Error handlers
+
+| `op`                   | Fields            | Effect                                                                           |
+| ---------------------- | ----------------- | -------------------------------------------------------------------------------- |
+| `set_error_handler`    | `enabled` boolean | Creates/enables a handler or disables it with native content-preservation rules. |
+| `remove_error_handler` | None              | Removes an empty handler and restores main root ownership.                       |
+
+`set_error_handler` accepts `enabled=true` or `enabled=false` for an inactive unpublished flow or subflow.
+Enabling a draft without a handler creates native `TOP_LEVEL_TRY` and `TOP_LEVEL_CATCH` instances from the current readable catalog.
+The hidden Try has order zero. Existing root steps become its children without changing their identities or values.
+The Catch starts the separate handler region. The native `startOfErrorHandlingInstances` index follows its array position.
+Preview includes `error_handler_before` and `error_handler`, including region identities, enabled state, handler steps, and catalog output paths.
+
+```json
+[
+  { "op": "set_error_handler", "enabled": true },
+  { "op": "move_step", "step": "existing-log-ui-id", "parent": "error_handler" }
+]
+```
+
+Replace the step ID with an existing step. `parent="main"` selects the hidden Try region.
+Supported `insert_logic` operations can populate either region. Existing actions and saved subflow calls can move into the handler.
+Placement without a parent defaults to the main region. Use stable IDs or branch aliases when orders change.
+Wrapper identities cannot be moved, deleted, or configured through generic step operations.
+
+Disabling a populated handler changes the Catch's native `enabled` input and marks its contents read-only.
+The steps, parameters, opaque settings, and identities remain present. Enable the handler before editing those contents.
+Disabling an empty handler removes the wrappers and restores normal root ownership, matching Studio.
+`remove_error_handler` also requires an empty handler. Delete or move its contents explicitly first.
+Saved wrapper removal uses flow-logic ID tombstones. Stage indexes follow the retained step identities.
+Neither operation activates, publishes, compiles, or executes the flow.
+
+The handler supports at most ten actions, logic steps, or subflow calls. Paired logic counts as separate instances.
+Legacy fallback Try wrappers and sandwich/Parallel handler wrapping remain unavailable.
+Use the current instance catalog. The adapter does not create guessed definition IDs or enable a missing platform feature.
+
+#### Handler data pills
+
+Preview lists the Catch definition's actual variable paths and types under `error_handler.outputs`.
+Use `{{error_handler.<catalog leaf path>}}` in an input during the same ordered preview.
+The planner replaces the alias with the Catch UI identity before serialization.
+The adapter does not assume a fixed Error Status variable name or synthesize its fields.
+The test catalog uses deliberately synthetic variable names to check this boundary.
+
+Error Status leaf pills are visible only inside their handler. Main-step outputs cannot cross into the handler.
+Trigger inputs and declared flow/subflow values retain their existing rules.
+Whole Object/Array pills from flow logic remain unsupported.
+Surviving pill consumers, interface defaults, transforms, and inline scripts block unsafe wrapper removal or renumbering.
+
+Local source: `errorHandlingToggledSaga` (477258-477299), `updateInputsEnabledFlag` (163491-163498),
+`buildComponentInstancesWithErrorHandling` (163513-163524), `updateActionInstanceIndices` (156510-156513),
+and `setErrorHandlingInstancesReadOnly` (204244-204299).
+The normal save path restores wrapper parents before splitting the three step lists (99076-99079,99193-99197).
+Local official references: `flow-error-handler.md` and `add-error-handler-flow.md`.
+All new behavior has source-derived offline tests. No live handler save or execution is verified.
+
+### Conditional error stages
+
+| `op`           | Error-stage fields                           | Effect                                                      |
+| -------------- | -------------------------------------------- | ----------------------------------------------------------- |
+| `create_stage` | `type="error"`, `step`, optional `ref`       | Creates and attaches the Error state with derived ancestry. |
+| `update_stage` | `stage`, `duration`, `always_show`, `states` | Changes supported settings without replacing its identity.  |
+| `detach_stage` | `stage`, `step`                              | Removes the Error state and its attachment.                 |
+| `delete_stage` | `stage`                                      | Removes the Error state and its attachment.                 |
+
+An error stage reports the current stage's Error state. It does not throw an exception, stop execution, or create an error handler.
+Use the existing stage operations with `create_stage(type="error")`:
+
+```json
+[
+  { "op": "create_stage", "label": "Work", "value": "work", "ref": "work" },
+  { "op": "attach_stage", "stage": "work", "step": "existing-first-step" },
+  {
+    "op": "insert_logic",
+    "logic": "If",
+    "inputs": { "condition": "true" },
+    "after": "existing-first-step",
+    "ref": "failed"
+  },
+  { "op": "move_step", "step": "existing-second-step", "parent": "failed" },
+  {
+    "op": "create_stage",
+    "type": "error",
+    "step": "existing-second-step",
+    "ref": "failure_state"
+  }
+]
+```
+
+Replace both step IDs. The example supplies a literal condition for the serialization example, not a production failure detector.
+An error stage attaches during creation. It requires an enclosing If/Else If/Else branch and an eligible preceding standard-stage attachment.
+The planner derives `ancestorStageId`, `ancestorArrPos`, and `ancestralIfElseLogic` from the current tree.
+It uses Studio's native Error label/value and null order. It does not accept caller-supplied ancestor indexes or arbitrary error labels.
+Stages remain excluded from loops, Parallel, and sandwich blocks. Subflow stage authoring remains unavailable in this adapter.
+
+`update_stage` accepts duration, state labels, and `always_show` for an error stage.
+Its identity and opaque metadata remain unchanged. Its native label, value, order, and source cannot be renamed.
+`delete_stage` removes the keyed error state, including its attachment.
+`detach_stage` also removes the error state, matching Studio's `deleteFlowStage` dispatch.
+There is no detached reusable error-stage state. To attach elsewhere, remove the old error stage and create another explicitly.
+`attach_stage` remains the standard-stage operation.
+
+Existing guards block changes or removal of a standard stage with dependent error states.
+Stage indexes and error ancestor positions follow stable step identities during supported reordering and wrapper insertion/removal.
+A change in source stage, source attachment, or conditional ancestor is rejected. Remove and recreate the error state explicitly.
+Duplicate error states for one conditional source and implicit replacement of another stage attachment are rejected.
+New client stage keys remain stable across preview/apply. Only new stages may receive database IDs, and echo/GET must agree.
+
+Local source: `createErrorStage` and `extractAncestorInfoForErrorStage` (184141-184165),
+`getPreviousAncestorStageInfo` (184179-184197), `obtainStageDataForInstance` (184316-184355),
+`deleteFlowStage`/`deleteErrorStage` (204353-204409), and sibling cleanup (204446-204457).
+Local official references: `add-stages.md` and `flow-designer-stages.md`.
+All new behavior has source-derived offline tests. No live error-stage save or runtime state display is verified.
+
 ### Variables and subflow interfaces
 
 `create_field`, `update_field`, and `delete_field` accept `collection="flowVariables"`, `"inputs"`, or `"outputs"`.
@@ -550,7 +664,8 @@ Detach every attachment before deleting a stage, including within the same edit 
 Another stage at the same step must be detached explicitly before replacement. Attached step deletion is rejected.
 Stages cannot attach inside For Each, Parallel, or sandwich blocks, before Else/Else If, or at a grouping block's first child.
 Existing attached steps cannot move across parent regions in the same request. Error-stage ancestry blocks structural edits.
-Error-stage creation and modification remain unavailable. Dependent error stages block parent-stage updates, detachment, and removal.
+Conditional error-stage creation and settings use the adapter described above.
+Dependent error stages block parent-stage updates, detachment, and removal.
 Legacy metadata-only stage records retain the existing label/value adapter.
 
 Source contracts: `createStage` (bundle:184105-184139), default states (1461-1463),
@@ -561,7 +676,7 @@ The complete flow save retains keyed `stages` (99104,350891). This adapter does 
 The local official reference is `docs/ServiceNowDocs/markdown/build-workflows/workflow-studio/add-stages.md`.
 These operations are source-grounded and offline-regression verified, not live save or execution verified.
 
-Unavailable: nested flow-variable creation, unsupported array subtypes, error-stage creation, handler creation/toggling,
+Unavailable: nested flow-variable creation, unsupported array subtypes, legacy/sandwich handler wrapper contracts,
 saved Recurrence/timezone-specific trigger serialization, and dynamic family inputs without a dedicated adapter.
 Existing opaque settings remain unchanged. Stage attachments follow stable step identities during reordering.
 Detach a stage before deleting its step. Moving a previously attached step across parent regions requires a separate edit request.
@@ -760,8 +875,8 @@ The following bodies are still needed from a version-matched, safely isolated UI
 | Family                            | Smallest missing serializer evidence                                                                                                                                                                                                  |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Unsupported complex forms         | Nested declarations, literal/leaf-pill assignments, and schema-checked whole pills are implemented. Additional array subtypes and dynamic schema adoption need adapters. Complex flow variables are excluded by Studio's type picker. |
-| Error stages                      | Create/remove bodies with ancestor links and conditional ancestry. Standard-stage CRUD is implemented from local client source.                                                                                                       |
-| Top-level handler                 | Toggle-on/off bodies with hidden order-zero wrappers, enabled input, parent rewriting, and handler boundary index.                                                                                                                    |
+| Error stages                      | Native conditional creation, settings, deletion, and stable ancestry reindexing are implemented. Runtime state display remains unverified.                                                                                            |
+| Top-level handler                 | Native catalog wrapper creation/toggling/removal is implemented. Legacy fallback wrappers and sandwich/Parallel order projections remain unavailable.                                                                                 |
 | Saved Recurrence/dynamic triggers | Classic record and daily/weekly/monthly/run-once/repeat draft triggers are implemented. Saved Recurrence/timezone-specific contracts and external interface regeneration still need adapters.                                         |
 | Try/Catch paired moves            | Pair movement across parent regions with connectedTo, children, order, and ancestry fields.                                                                                                                                           |
 

@@ -292,9 +292,20 @@ class Scope:
         consumer_region = self.parents[consumer.uid]
         if producer is consumer:
             raise CapabilityError("An input cannot reference its own step output.")
-        if producer.raw.get("errorHandlingInstance", False) != consumer.raw.get(
-            "errorHandlingInstance", False
-        ):
+        if producer.logic_type == "TOP_LEVEL_CATCH":
+            if any(parent.uid == producer.uid for parent in consumer_region):
+                return
+            raise CapabilityError(
+                "Error Status pills are visible only inside their handler."
+            )
+        producer_handler = producer.raw.get("errorHandlingInstance", False) or any(
+            parent.logic_type == "TOP_LEVEL_CATCH"
+            for parent in (*producer_region, producer)
+        )
+        consumer_handler = consumer.raw.get("errorHandlingInstance", False) or any(
+            parent.logic_type == "TOP_LEVEL_CATCH" for parent in consumer_region
+        )
+        if producer_handler != consumer_handler:
             raise CapabilityError(
                 "A reference cannot cross the top-level error-handler boundary."
             )

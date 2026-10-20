@@ -702,6 +702,10 @@ Trigger edits support Service Catalog, record created/updated/created-or-updated
 `update_trigger` changes static inputs while preserving identity. `remove_trigger` removes the instance with native tombstones.
 Used trigger references block source replacement/removal. Classic schedules use instance timezone and never activate a flow.
 Saved Recurrence, business-calendar, and timezone override contracts remain unavailable.
+`set_error_handler(enabled=boolean)` creates or toggles native draft error handling. Disabled populated handlers retain their contents as read-only.
+`remove_error_handler` requires an empty handler. `main` and `error_handler` select native parent regions for supported logic insertion and step moves.
+`create_stage(type="error", step=...)` creates a conditional Error state with derived standard-stage ancestry.
+Error-stage updates preserve identity. Detaching or deleting an error stage removes it. These operations do not activate or execute a flow.
 The preview shows the flow outline before and after. See `docs/flow-authoring.md` for fields and limits.
 Saved action/logic deletion requires explicit child handling and connected-branch cascade choices.
 Scalar flow-variable and subflow input/output declarations support `create_field`, `update_field`, and `delete_field`.
@@ -718,7 +722,8 @@ Whole Object/Array.String/Integer/Boolean/Object pills are supported when recurs
 Use one exact expression without child values. Producer snapshots are independently read and bound to preview.
 Source-field projection, dynamic schemas, and output-to-output pills remain unavailable.
 Set Flow Variables is supported. Standard stages support create, update,
-attach, detach, reorder, and removal after explicit detachment. Error-stage creation remains unavailable.
+attach, detach, reorder, and removal after explicit detachment.
+Conditional error stages attach at creation and preserve their derived ancestry. Detach removes the error state, matching Studio.
 See [experimental flow authoring](../flow-authoring.md) for native edit arguments and offline verification limits.
 Unverified family serializers return unavailable.
 Optional `expected_scope`, `expected_update_set`, and existing-flow `expected_revision` bind the preview to explicit context.

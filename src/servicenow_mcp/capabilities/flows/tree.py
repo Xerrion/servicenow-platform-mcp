@@ -89,8 +89,8 @@ def walk(roots: list[Step]) -> Iterator[Step]:
 
 
 def find(roots: list[Step], ref: str) -> Location:
-    """Locate a step by sys_id, UI identifier, or 1-based display order."""
-    position = 0
+    """Locate a step by sys_id, UI identifier, or native display order (hidden Try is zero)."""
+    position = -1 if roots and roots[0].logic_type == "TOP_LEVEL_TRY" else 0
 
     def visit(siblings: list[Step], parent: Step | None) -> Location | None:
         nonlocal position
@@ -129,6 +129,14 @@ def insert(
     anchor = after or before
     if anchor:
         siblings, index, anchor_parent = find(roots, anchor)
+        if siblings[index].logic_type in {"TOP_LEVEL_TRY", "TOP_LEVEL_CATCH"}:
+            raise CapabilityError(
+                "Use main or error_handler as parent, not a hidden wrapper as an anchor."
+            )
+        if siblings[index].raw.get("readOnly"):
+            raise CapabilityError(
+                "Enable the handler before inserting at a read-only step."
+            )
         if parent and (
             anchor_parent is None
             or parent not in (anchor_parent.raw.get("id"), anchor_parent.uid)
@@ -139,6 +147,10 @@ def insert(
     if parent:
         container_siblings, index, _ = find(roots, parent)
         container = container_siblings[index]
+        if container.raw.get("readOnly"):
+            raise CapabilityError(
+                "Enable the handler before inserting into its read-only branch."
+            )
         if container.kind != "flowlogic":
             raise CapabilityError("Only flow-logic blocks can contain steps.")
         if (
@@ -152,7 +164,10 @@ def insert(
             )
         container.children.append(step)
         return
-    roots.append(step)
+    if roots and roots[0].logic_type == "TOP_LEVEL_TRY":
+        roots[0].children.append(step)
+    else:
+        roots.append(step)
 
 
 UI_FIELDS = frozenset(
@@ -200,7 +215,7 @@ def ui_metadata(roots: list[Step]) -> dict[str, dict[str, Any]]:
 
 def renumber(roots: list[Step]) -> None:
     """Write global order, parent links, and Studio ancestry fields back into each step."""
-    order = 0
+    order = -1 if roots and roots[0].logic_type == "TOP_LEVEL_TRY" else 0
     metadata = ui_metadata(roots)
 
     def visit(siblings: list[Step], parent: Step | None) -> None:
@@ -210,9 +225,27 @@ def renumber(roots: list[Step]) -> None:
             step.raw.update(
                 order=order, parent=parent.uid if parent else "", **metadata[step.uid]
             )
+            if "arrayPosition" in step.raw:
+                step.raw["arrayPosition"] = (
+                    order
+                    if roots and roots[0].logic_type == "TOP_LEVEL_TRY"
+                    else order - 1
+                )
             visit(step.children, step)
 
     visit(roots, None)
+    if roots and roots[0].logic_type == "TOP_LEVEL_TRY":
+        handler_ids = {s.uid for s in walk(roots[1:])}
+        for s in walk(roots):
+            if (
+                s.logic_type != "TOP_LEVEL_CATCH"
+                or "errorHandlingInstance" not in s.raw
+            ):
+                s.raw["errorHandlingInstance"] = s.uid in handler_ids
+    else:
+        for s in walk(roots):
+            if "errorHandlingInstance" in s.raw:
+                s.raw["errorHandlingInstance"] = False
 
 
 def validate_structure(roots: list[Step]) -> None:

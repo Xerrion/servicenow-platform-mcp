@@ -212,17 +212,19 @@ def ledger() -> dict[str, Any]:
                 True,
                 "Native keyed standard stages with client stageId and optional assigned id. "
                 "Explicit attach/detach uses stable step identities. Attached or referenced stages cannot be deleted. "
-                "Error-stage creation remains unavailable. Source-derived offline regression only.",
+                "Conditional error stages attach during create_stage(type=error); detach removes their keyed state. "
+                "Explicit error-stage deletion, duration/state/display updates, and stable ancestry reindexing. Source-derived offline regression only.",
             ),
             "handler_toggle": entry(
-                False,
-                "The enabled input is known, but hidden wrapper order and complete save/readback shape remain "
-                "unverified.",
+                True,
+                "set_error_handler(enabled=boolean) uses the native Catch enabled input. Populated disabled handlers retain read-only contents. "
+                "Disabling an empty handler unwraps it. No flow activation or execution. Source-derived offline regression only.",
             ),
             "handler_creation": entry(
-                False,
-                "Studio uses hidden TOP_LEVEL_TRY/CATCH, order zero, and parent rewriting. Round-trip "
-                "serialization is not established.",
+                True,
+                "Current catalog TOP_LEVEL_TRY/CATCH wrappers, order zero, parent regions, and boundary index. "
+                "main/error_handler placement aliases and catalog-defined Error Status leaf pills. remove_error_handler requires an empty handler. "
+                "Legacy wrappers and sandwich/Parallel handler wrapping remain unavailable. Source-derived offline regression only.",
             ),
             "scheduled_triggers": entry(
                 True,
@@ -256,8 +258,7 @@ def ledger() -> dict[str, Any]:
             ),
             "missing_contracts": (
                 "Guarded UI bootstrap blocked; no new request bodies captured. Need full serialized create/delete "
-                "nested interface/variable and error-stage examples, top-level order-zero "
-                "wrappers, saved Recurrence/timezone trigger contracts, dynamic complex schema adoption, and paired Try/Catch "
+                "remaining nested interface/variable variants, saved Recurrence/timezone trigger contracts, dynamic complex schema adoption, and paired Try/Catch "
                 "moves."
             ),
         },

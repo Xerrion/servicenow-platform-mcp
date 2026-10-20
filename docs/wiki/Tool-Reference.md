@@ -702,7 +702,9 @@ The preview shows the flow outline before and after. See `docs/flow-authoring.md
 Saved action/logic deletion requires explicit child handling and connected-branch cascade choices.
 Scalar flow-variable and subflow input/output declarations support `create_field`, `update_field`, and `delete_field`.
 New declarations can supply typed pills to later edits in the same request. Used declarations cannot be removed implicitly.
-Interface CRUD requires an unpublished triggerless subflow. Nested declaration CRUD remains unavailable.
+Interface CRUD requires an unpublished triggerless subflow. Object and Array.String/Integer/Boolean/Object schemas support nested CRUD.
+Use `parent` with a local name when creating children. Update or delete children by their full declaration path.
+Array item schemas register automatically. Used descendants block destructive changes. Complex flow variables remain unavailable.
 `assign_outputs` creates a native Assign Subflow Outputs step or updates selected rows with `step`.
 `clear_output_assignment` removes a named assignment row. Output declarations remain unchanged.
 Scalar literal values and typed pills are supported. Preview shows ordered assignments before and after.

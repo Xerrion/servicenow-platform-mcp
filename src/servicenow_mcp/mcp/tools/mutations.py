@@ -216,12 +216,19 @@ def register_tools(mcp: MCPServer, coordinator: MutationCoordinator) -> None:
               create_field: collection=inputs|outputs|flowVariables, name, label, type=string|integer|boolean|reference|json.
                 reference requires a table name. Optional hint/maxsize. Subflow inputs accept mandatory boolean.
                 Subflow interfaces accept static default_value. Variables are initialized with set_variables.
+                Subflow interfaces also support object, array.string, array.integer, array.boolean, array.object.
+                To add a child, supply parent as a declaration path and name as a local identifier.
+                Arrays register one fixed item schema automatically: <array path>.<local array name>_child0.
+                Add Array.Object fields under that item path. New nested input leaf pills use subflow.<path>.
               update_field: collection, name, label/hint/type/reference/maxsize. Interfaces also accept default_value.
                 Only subflow inputs accept mandatory. Names cannot be renamed.
                 Identity/name remain fixed. Type/reference changes require no consumers and no stored value.
+                Nested name is a full declaration path. Array item type is fixed. Complex type replacement is unavailable.
               delete_field: collection, name. References, assignment targets, transforms, and scripts block removal.
                 Interface CRUD requires an unpublished triggerless subflow. Flow-owned interfaces retain label/hint edits only.
-                Scalar declarations only. New variables and input pills work in later edits within the same request.
+                Object removal includes its declared children. Used descendants block removal. Array items cannot be deleted separately.
+                Complex flow variables, complex defaults, direct nested Reference/JSON creation, and Array.Reference/Array.Array/Choice are unavailable.
+                New variables and input pills work in later edits within the same request.
               create_stage: label, value, optional duration (epoch-based timestamp), always_show boolean,
                 states (pending/in_progress/skipped/complete/error labels), ref for later stage edits.
               update_stage: stage key/ref, label/value/duration/always_show/states, or zero-based order.

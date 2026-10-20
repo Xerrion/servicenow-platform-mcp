@@ -187,7 +187,16 @@ def ledger() -> dict[str, Any]:
                 True,
                 "Top-level string/integer/boolean/reference/JSON flow variables and subflow input/output declarations. "
                 "Client UI IDs, complete-list omission, assigned database IDs, and dependency rejection. "
-                "Nested declaration CRUD, interface rename, and trigger-owned interfaces remain unavailable. "
+                "Interface rename and trigger-owned interfaces remain unavailable. "
+                "Source-derived offline regression only.",
+            ),
+            "nested_interface_declarations": entry(
+                True,
+                "Subflow input/output Object and Array.String/Integer/Boolean/Object declaration CRUD. "
+                "Ordered child registration, attributes/fieldFacetMap array item packing, fixed item identities, "
+                "typed input leaf pills, and recursive deletion guards. Complex flow variables are excluded by "
+                "Studio's type picker. Direct nested Reference/JSON creation, Array.Reference/Array.Array/Choice, "
+                "complex defaults, type replacement, and complex output assignments remain unavailable. "
                 "Source-derived offline regression only.",
             ),
             "stage_metadata": entry(

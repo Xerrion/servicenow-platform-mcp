@@ -14,6 +14,7 @@ from servicenow_mcp.capabilities.flows import (
     assignments,
     capture,
     data,
+    declarations,
     fields,
     semantics,
     stages,
@@ -77,7 +78,7 @@ def _check_edit(edit: dict[str, Any]) -> None:
         "set_variables": {"inputs", *placement},
         "assign_outputs": {"outputs", "step", "ref", *placement},
         "clear_output_assignment": {"step", "name"},
-        "create_field": {"collection", "name", *fields.SETTINGS},
+        "create_field": {"collection", "name", "parent", *fields.SETTINGS},
         "update_field": {"collection", "name", *fields.SETTINGS},
         "delete_field": {"collection", "name"},
         "create_stage": {"label", "value", "duration", "always_show", "states", "ref"},
@@ -364,7 +365,7 @@ class PillResolver:
                         )
                         self.cache[pill] = resolved
                         break
-                    output = data.named(data.children(output), field)
+                    output = data.child(output, field)
                 else:
                     kind = data.value_type(output)
                     parameter = data.spec(output)
@@ -720,21 +721,22 @@ async def plan(
             existing = next(
                 (
                     row
-                    for row in working[section]
-                    if row.get("name") == edit.get("name")
+                    for path, row in declarations.walk(working[section])
+                    if path == edit.get("name")
                 ),
                 None,
             )
             if op == "delete_field" and existing is not None:
-                removed_fields.append(
+                removed_fields.extend(
                     {
                         "collection": section,
                         **{
-                            key: existing[key]
+                            key: node[key]
                             for key in ("id", "uiUniqueId")
-                            if isinstance(existing.get(key), str) and existing[key]
+                            if isinstance(node.get(key), str) and node[key]
                         },
                     }
+                    for _, node in declarations.walk([existing])
                 )
             if (
                 op == "update_field"
@@ -759,21 +761,35 @@ async def plan(
                 if changed is not None:
                     created_fields.append(changed)
                 if op != "delete_field":
-                    declared = data.named(working[section], str(edit["name"]))
-                    if declared.get("type") == "reference":
-                        reference_tables.add(declared["reference"])
+                    changed_name = str(edit["name"])
+                    if edit.get("parent"):
+                        changed_name = str(edit["parent"]) + "." + changed_name
+                    for path, declared in declarations.walk(working[section]):
+                        if path != changed_name:
+                            continue
+                        if declared.get("type") == "reference":
+                            reference_tables.add(declared["reference"])
                 if (
                     section == "flowVariables"
                     and existing is not None
                     and op == "update_field"
                 ):
-                    fields.refresh_assignments(roots, existing, set(edit))
+                    fields.refresh_assignments(
+                        roots,
+                        data.named(working[section], str(edit["name"])),
+                        set(edit),
+                    )
                 if (
                     section == "outputs"
                     and existing is not None
                     and op == "update_field"
+                    and "." not in str(edit["name"])
                 ):
-                    assignments.refresh_metadata(roots, existing, set(edit))
+                    assignments.refresh_metadata(
+                        roots,
+                        data.named(working[section], str(edit["name"])),
+                        set(edit),
+                    )
             summary.append(
                 f"{index}. {op.replace('_', ' ').capitalize()} {section}.{edit.get('name')}"
             )
@@ -1189,7 +1205,7 @@ async def plan(
             for row in created_fields
             if any(
                 item.get("uiUniqueId") == row["uiUniqueId"]
-                for item in payload[row["collection"]]
+                for _, item in declarations.walk(payload[row["collection"]])
             )
         ],
         "removed_fields": removed_fields,

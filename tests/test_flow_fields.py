@@ -953,12 +953,13 @@ async def test_unrelated_complex_interface_and_stage_are_not_rewritten(settings)
     )
     assert planned["payload"]["inputs"][0] == nested
     assert planned["payload"]["stages"] == flow["stages"]
-    with pytest.raises(CapabilityError, match="scalar"):
-        await plan(
-            settings,
-            flow,
-            [{"op": "delete_field", "collection": "inputs", "name": "opaque_object"}],
-        )
+    removed = await plan(
+        settings,
+        flow,
+        [{"op": "delete_field", "collection": "inputs", "name": "opaque_object"}],
+    )
+    assert removed["payload"]["inputs"] == []
+    assert removed["payload"]["stages"] == flow["stages"]
 
 
 async def test_new_declaration_native_protocol_preview_and_apply(settings):

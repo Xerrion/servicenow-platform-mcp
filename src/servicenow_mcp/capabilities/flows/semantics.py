@@ -13,7 +13,7 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, NoReturn
 
 from servicenow_mcp.capabilities.contracts import CapabilityError, validate_payload
-from servicenow_mcp.capabilities.flows import data, tree
+from servicenow_mcp.capabilities.flows import data, declarations, tree
 from servicenow_mcp.validation import validate_sys_id
 
 if TYPE_CHECKING:
@@ -867,7 +867,9 @@ def compare_saved(
     for removed in removed_fields or []:
         for side, definition in (("expected", expected), ("actual", actual)):
             for section in ("inputs", "outputs", "flowVariables"):
-                for index, row in enumerate(definition.get(section, [])):
+                for index, (_, row) in enumerate(
+                    declarations.walk(definition.get(section, []))
+                ):
                     if isinstance(row, dict) and any(
                         removed.get(key) and row.get(key) == removed[key]
                         for key in ("id", "uiUniqueId")
@@ -877,12 +879,13 @@ def compare_saved(
                             "DELETED_IDENTITY_RETAINED",
                             side,
                         )
-    # New scalar declarations carry client uiUniqueId in attributes. Database
-    # id is separate (bundle:22085,24010-24023,471965,458913-458917).
+    # New declarations carry client uiUniqueId in attributes or fieldFacetMap.
+    # Database id is separate, including persisted Object children
+    # (bundle:22032-22035,471965,472158,458913-458917).
     assigned_field_ids = {
         section: [
             row.get("id")
-            for row in actual.get(section, [])
+            for _, row in declarations.walk(actual.get(section, []))
             if isinstance(row, dict) and row.get("id")
         ]
         for section in ("inputs", "outputs", "flowVariables")
@@ -899,17 +902,13 @@ def compare_saved(
             raise SemanticMismatch(f"flow.{section}", "INCOMPLETE_SEMANTICS")
         wanted_field = [
             row
-            for row in wanted_rows
-            if isinstance(row, dict)
-            and row.get("name") == name
-            and row.get("uiUniqueId") == uid
+            for path, row in declarations.walk(wanted_rows)
+            if isinstance(row, dict) and path == name and row.get("uiUniqueId") == uid
         ]
         found_field = [
             row
-            for row in actual_rows
-            if isinstance(row, dict)
-            and row.get("name") == name
-            and row.get("uiUniqueId") == uid
+            for path, row in declarations.walk(actual_rows)
+            if isinstance(row, dict) and path == name and row.get("uiUniqueId") == uid
         ]
         if len(wanted_field) != 1 or wanted_field[0].get("id") or len(found_field) != 1:
             raise SemanticMismatch(f"flow.{section}", "NEW_FIELD_IDENTITY_MISMATCH")

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from servicenow_mcp.capabilities.contracts import CapabilityError
-from servicenow_mcp.capabilities.flows import tree
+from servicenow_mcp.capabilities.flows import declarations, tree
 from servicenow_mcp.validation import validate_sys_id
 
 if TYPE_CHECKING:
@@ -47,10 +47,28 @@ def named(items: Any, name: str) -> dict[str, Any]:
 
 
 def children(item: dict[str, Any]) -> list[dict[str, Any]]:
-    result = spec(item).get("children", [])
+    parameter = spec(item)
+    if parameter.get("type") in declarations.ARRAYS and any(
+        "child_name" in parameter.get(key, {})
+        for key in ("attributes", "fieldFacetMap")
+    ):
+        return declarations.unpack(parameter, recursive=False)["children"]
+    result = parameter.get("children", [])
     if not isinstance(result, list) or any(not isinstance(i, dict) for i in result):
         raise CapabilityError("The complex field schema is incomplete.", "UNAVAILABLE")
     return result
+
+
+def child(item: dict[str, Any], name: str) -> dict[str, Any]:
+    rows = children(item)
+    matches = [
+        row
+        for row in rows
+        if isinstance(row.get("name"), str) and row["name"].split(".")[-1] == name
+    ]
+    if len(matches) != 1:
+        raise CapabilityError("The nested producer field is absent or ambiguous.")
+    return matches[0]
 
 
 def output_assignment_value(row: dict[str, Any]) -> Any:

@@ -225,12 +225,17 @@ def ledger() -> dict[str, Any]:
                 "serialization is not established.",
             ),
             "scheduled_triggers": entry(
-                False,
-                "Schedule/timezone-specific serializer is not established. Catalog presence does not enable authoring.",
+                True,
+                "Classic daily/weekly/monthly/run_once/repeat draft triggers with native epoch time/duration and date/time fields. "
+                "set_trigger, update_trigger, remove_trigger; instance timezone only. Explicit schedule values required. "
+                "Saved Recurrence/business-calendar/timezone-specific triggers remain unavailable. Source-derived offline regression only.",
             ),
             "record_triggers": entry(
-                False,
-                "Record-dependent flow interface regeneration is not established. Existing configuration is preserved.",
+                True,
+                "record_create/record_update/record_create_or_update draft triggers from the current catalog. "
+                "Static conditions, catalog run/session/user choices, descriptor-backed table metadata, internal_link current-record pills, "
+                "explicit replacement/removal with dependency rejection. System/Requested Item tables, JavaScript conditions, "
+                "saved/template triggers, and nonempty parsed-condition metadata updates remain unavailable. Source-derived offline regression only.",
             ),
             "service_catalog_trigger": entry(
                 True, "Observed native trigger serializer and trigger output schema."
@@ -252,7 +257,7 @@ def ledger() -> dict[str, Any]:
             "missing_contracts": (
                 "Guarded UI bootstrap blocked; no new request bodies captured. Need full serialized create/delete "
                 "nested interface/variable and error-stage examples, top-level order-zero "
-                "wrappers, record/scheduled trigger dependent metadata, dynamic complex schema adoption, and paired Try/Catch "
+                "wrappers, saved Recurrence/timezone trigger contracts, dynamic complex schema adoption, and paired Try/Catch "
                 "moves."
             ),
         },

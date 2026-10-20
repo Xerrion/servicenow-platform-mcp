@@ -171,6 +171,21 @@ class FlowDesignerApiClient(ServiceNowRequestClient):
             )
         return result
 
+    async def studio_table_descriptor(self, table: str) -> dict[str, Any]:
+        """Read Studio's record-trigger display-field descriptor (bundle:164322)."""
+        validate_identifier(table)
+        if "." in table:
+            raise ValueError("The descriptor requires a single table name.")
+        response = await self._ensure_client().get(
+            f"{self._settings.servicenow_instance_url}/api/now/processflow/table/{table}/descriptor",
+            headers=await self._headers(),
+        )
+        self._raise_for_flow_read_status(response)
+        result = self._extract_json_result(response)
+        if not isinstance(result, dict) or not isinstance(result.get("data"), dict):
+            raise ServiceNowMCPError("Studio returned an incomplete table descriptor.")
+        return result["data"]
+
     def _raise_for_flow_read_status(self, response: httpx2.Response) -> None:
         """Require a completed Table API response for a Flow Designer read."""
         self._raise_for_status(response)

@@ -698,6 +698,10 @@ choice, boolean, or integer values.
 `edit` applies ordered structural changes to an inactive draft in one save. Each edit has an `op`:
 `set_trigger`, `insert_logic`, `move_step`, `update_inputs`, or `delete_step`. It supports triggers,
 the supported families in `flow.describe`, branch placement, and typed trigger/step/variable/interface pills.
+Trigger edits support Service Catalog, record created/updated/created-or-updated, and classic daily/weekly/monthly/run-once/repeat families.
+`update_trigger` changes static inputs while preserving identity. `remove_trigger` removes the instance with native tombstones.
+Used trigger references block source replacement/removal. Classic schedules use instance timezone and never activate a flow.
+Saved Recurrence, business-calendar, and timezone override contracts remain unavailable.
 The preview shows the flow outline before and after. See `docs/flow-authoring.md` for fields and limits.
 Saved action/logic deletion requires explicit child handling and connected-branch cascade choices.
 Scalar flow-variable and subflow input/output declarations support `create_field`, `update_field`, and `delete_field`.

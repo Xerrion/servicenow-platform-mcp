@@ -193,7 +193,16 @@ def register_tools(mcp: MCPServer, coordinator: MutationCoordinator) -> None:
             add_subflow requires sys_id and a published subflow definition subflow_sys_id.
             inputs is a native object of static scalar values for add_action and add_subflow.
             edit requires sys_id and edits: an ordered native array of 1-50 objects with an op key.
-              set_trigger: type=service_catalog, static inputs, replace. Other trigger families are unavailable.
+              set_trigger: type=service_catalog|record_create|record_update|record_create_or_update|daily|weekly|monthly|run_once|repeat,
+                static native inputs, replace=true to replace an existing trigger. No activation or execution.
+                Record inputs: table, condition (static encoded query), and run/session/user choices from the current catalog.
+                Changing tables requires explicit conditions and consumers updated first. Current-record pills use <trigger label>_1.current.
+                daily: glide_time='1970-01-01 HH:MM:SS'. weekly also needs day_of_week from the catalog choice list.
+                monthly also needs integer day 1-31. run_once: glide_date_time='YYYY-MM-DD HH:MM:SS'.
+                repeat: glide_duration is an epoch-based timestamp after '1970-01-01 00:00:00', at least the catalog minimum.
+                Classic schedules use the instance timezone. No timezone conversion, Recurrence, or saved trigger definitions.
+              update_trigger: nonempty inputs. Preserves trigger identity, other values, and opaque metadata.
+              remove_trigger: no fields. Removes the saved instance with a native ID tombstone. Used pills block removal.
               insert_logic: logic (If, Else If, Else, For Each, Try, Parallel, Parallel Branch, End,
                 Exit Loop, Skip Iteration), inputs, and one of parent,
                 after, or before. ref names the new block for later edits in the same call.

@@ -22,6 +22,9 @@ from servicenow_mcp.capabilities.flows import (
     support,
     tree,
 )
+from servicenow_mcp.capabilities.flows import (
+    triggers as trigger_edits,
+)
 from servicenow_mcp.capabilities.mutations.models import FlowCommand, fingerprint
 from servicenow_mcp.policy import check_table_access
 from servicenow_mcp.telemetry import trace_flow_preview_boundary
@@ -34,6 +37,8 @@ if TYPE_CHECKING:
 OPS = {
     *assignments.OPS,
     "set_trigger",
+    "update_trigger",
+    "remove_trigger",
     "insert_logic",
     "move_step",
     "delete_step",
@@ -72,6 +77,8 @@ def _check_edit(edit: dict[str, Any]) -> None:
     placement = {"parent", "after", "before"}
     allowed = {
         "set_trigger": {"type", "inputs", "replace"},
+        "update_trigger": {"inputs"},
+        "remove_trigger": set(),
         "insert_logic": {"logic", "inputs", "ref", *placement},
         "move_step": {"step", *placement},
         "delete_step": {"step", "children", "cascade"},
@@ -159,6 +166,13 @@ def trigger_catalog(categories: list[dict[str, Any]]) -> dict[str, dict[str, Any
         if not isinstance(triggers, dict):
             raise CapabilityError("Studio returned an unexpected trigger catalog.")
         for definition in triggers.values():
+            if (
+                not isinstance(definition.get("type"), str)
+                or definition["type"] in catalog
+            ):
+                raise CapabilityError(
+                    "Studio returned an ambiguous trigger catalog.", "UNAVAILABLE"
+                )
             catalog[definition["type"]] = {
                 **definition,
                 "triggerType": category["name"],
@@ -176,7 +190,11 @@ def new_trigger(
     values = []
     for spec in definition.get("inputs", []):
         parameter = spec["parameter"]
-        value = inputs.get(spec["name"], spec.get("default_value") or "")
+        if spec["name"] in inputs and parameter.get("readonly"):
+            raise CapabilityError("The requested trigger input is read-only.")
+        value = inputs.get(
+            spec["name"], spec.get("default_value", parameter.get("defaultValue", ""))
+        )
         if isinstance(value, dict | list) or tree.pills(value):
             raise CapabilityError(
                 "This trigger accepts static scalar configuration only."
@@ -185,10 +203,15 @@ def new_trigger(
             raise CapabilityError(
                 f"The {definition['label']} trigger requires input '{spec['name']}'."
             )
-        choices = parameter.get("choices") or []
-        if choices and value not in ("", *(c["value"] for c in choices)):
+        choices = trigger_edits.choices(spec)
+        default = spec.get("default_value", parameter.get("defaultValue", ""))
+        if (
+            choices
+            and value not in ("", *choices)
+            and not (spec["name"] not in inputs and value == default)
+        ):
             raise CapabilityError(
-                f"'{value}' is not an allowed value for trigger input '{spec['name']}'."
+                f"The value is not allowed for trigger input '{spec['name']}'."
             )
         values.append(
             {
@@ -209,6 +232,8 @@ def new_trigger(
                 "isNew": False,
             },
         )
+        if spec.get("choiceList"):
+            values[-1]["choiceList"] = copy.deepcopy(spec["choiceList"])
     outputs = [
         {
             "name": spec["name"],
@@ -235,8 +260,8 @@ def new_trigger(
         "label": definition["label"],
         "type": definition["type"],
         "triggerType": definition["triggerType"],
-        "inputs": values,
-        "outputs": outputs,
+        "inputs": sorted(values, key=lambda row: row["order"]),
+        "outputs": sorted(outputs, key=lambda row: row["order"]),
         "scopeName": flow.get("scopeName", "global"),
         "scopeLabel": flow.get("scopeDisplayName", "Global"),
         "scopeLogo": "",
@@ -409,20 +434,21 @@ class PillResolver:
             f"{trigger_name}\u279b{output['parameter'].get('label') or output['label']}"
         )
         if len(path) == 1:
-            reference = output["parameter"].get("reference", "")
+            resolved_type = trigger_edits.output_type(self.trigger, output)
+            reference = resolved_type.reference
             return {
                 "name": pill,
                 "label": label,
                 "reference": reference,
                 "reference_display": output["parameter"].get("reference_display", ""),
-                "type": output["type"],
-                "base_type": output["type"],
+                "type": resolved_type.kind,
+                "base_type": resolved_type.kind,
                 "parent_table_name": None,
                 "column_name": None,
                 "choices": None,
                 "attributes": output["parameter"].get("attributes"),
             }
-        table = output["parameter"].get("reference")
+        table = trigger_edits.output_type(self.trigger, output).reference
         if not table:
             raise CapabilityError(
                 f"Trigger output '{path[0]}' is not a record and has no fields."
@@ -861,7 +887,7 @@ async def load_state(command: FlowCommand, client: ServiceNowClient) -> dict[str
         else []
     )
     triggers = (
-        await client.studio_definitions("triggers") if "set_trigger" in needs else []
+        await client.studio_definitions("triggers") if needs & trigger_edits.OPS else []
     )
     return {"flow": flow, "logic": logic, "triggers": triggers}
 
@@ -892,6 +918,7 @@ async def plan(
     created_fields: list[dict[str, str]] = []
     removed_fields: list[dict[str, str]] = []
     reference_tables: set[str] = set()
+    trigger_evidence: dict[str, Any] = {}
     # Bind client stage UUIDs to this exact definition and edit list. Replanning
     # preview/apply must not create different stage keys.
     stage_seed = fingerprint(
@@ -905,7 +932,7 @@ async def plan(
                 "Top-level handler flows require an order-zero wrapper adapter before edits are available.",
                 "UNAVAILABLE",
             )
-        if flow["type"] == "subflow" and (op == "set_trigger" or op in stages.OPS):
+        if flow["type"] == "subflow" and (op in trigger_edits.OPS or op in stages.OPS):
             raise CapabilityError(
                 "Subflow trigger and stage authoring are unavailable in this adapter.",
                 "UNAVAILABLE",
@@ -1118,7 +1145,41 @@ async def plan(
                 before=_resolve_alias(roots, _str(edit, "before")),
             )
             summary.append(f"{index}. Assign flow variables")
-        elif op == "set_trigger":
+        elif op in trigger_edits.OPS:
+            if len(triggers) > 1:
+                raise CapabilityError(
+                    "This trigger adapter requires at most one trigger.", "UNAVAILABLE"
+                )
+            if op in {"update_trigger", "remove_trigger"}:
+                if not triggers:
+                    raise CapabilityError(
+                        "The flow has no trigger to update or remove."
+                    )
+                trigger_edits.require_supported(triggers[0])
+            if op == "remove_trigger":
+                if triggers[0].get("id"):
+                    pending_deletions.setdefault("deletedTriggers", []).append(
+                        {"id": triggers[0]["id"]}
+                    )
+                triggers = []
+                summary.append(f"{index}. Remove trigger")
+                continue
+            if op == "update_trigger":
+                definition = catalog.get(triggers[0]["type"])
+                if definition is None:
+                    raise CapabilityError(
+                        "The saved trigger definition is unavailable in the current catalog.",
+                        "UNAVAILABLE",
+                    )
+                trigger_edits.update(triggers[0], definition, _inputs(edit))
+                trigger_evidence[str(index)] = await trigger_edits.prepare(
+                    triggers[0],
+                    definition,
+                    client,
+                    resolver=PillResolver(client, triggers[0]),
+                )
+                summary.append(f"{index}. Update trigger inputs")
+                continue
             kind = _str(edit, "type", required=True) or ""
             definition = catalog.get(kind)
             if definition is None:
@@ -1129,16 +1190,54 @@ async def plan(
                 raise CapabilityError(
                     "The flow already has a trigger. Set replace=true to swap it."
                 )
-            if kind != "service_catalog":
+            if kind not in trigger_edits.SUPPORTED:
                 raise CapabilityError(
                     "This trigger is discovered but its family serializer is unavailable.",
                     "UNAVAILABLE",
                 )
+            trigger_edits.require_supported(definition)
+            if (
+                definition.get("userCanRead") is False
+                or definition.get("security", {}).get("can_read") is False
+            ):
+                raise CapabilityError(
+                    "The trigger definition is unreadable.", "UNAVAILABLE"
+                )
+            if triggers:
+                trigger_edits.require_supported(triggers[0])
             if triggers and triggers[0].get("id"):
                 pending_deletions.setdefault("deletedTriggers", []).append(
                     {"id": triggers[0]["id"]}
                 )
-            triggers = [new_trigger(flow, definition, _inputs(edit))]
+            inputs = _inputs(edit)
+            if (
+                kind in trigger_edits.SCHEDULED
+                and not trigger_edits.SCHEDULE_INPUTS[kind].keys() <= inputs.keys()
+            ):
+                raise CapabilityError(
+                    "Supply every native schedule input explicitly. Clock defaults are not selected automatically."
+                )
+            triggers = [new_trigger(flow, definition, inputs)]
+            if kind != "service_catalog":
+                # Native blank conditions use ^EQ. Never choose wall-clock
+                # schedule defaults or silently replace explicit scalar values.
+                for item in triggers[0]["inputs"]:
+                    if item["type"] == "conditions":
+                        if item["value"] == "":
+                            item["value"] = "^EQ"
+                        item["displayValue"] = item["value"]
+                    if item["type"] in {
+                        "glide_time",
+                        "glide_date_time",
+                        "glide_duration",
+                    }:
+                        item["displayValue"] = item["value"]
+                trigger_evidence[str(index)] = await trigger_edits.prepare(
+                    triggers[0],
+                    definition,
+                    client,
+                    resolver=PillResolver(client, triggers[0]),
+                )
             summary.append(f"{index}. Set trigger {definition['label']}")
         elif op == "insert_logic":
             kind = (_str(edit, "logic", required=True) or "").lower()
@@ -1332,6 +1431,17 @@ async def plan(
     else:
         _preserve_stage_attachments(flow, payload, roots)
     payload["triggerInstances"] = triggers
+    if any(edit.get("op") in trigger_edits.OPS for edit in command.edits or []):
+        trigger_edits.check_dependencies(
+            flow["triggerInstances"],
+            triggers,
+            payload,
+            roots,
+            replaced=any(
+                edit["op"] in {"set_trigger", "remove_trigger"}
+                for edit in command.edits or []
+            ),
+        )
     payload.update(pending_deletions)
     trigger = triggers[0] if triggers else None
     assignments.validate(payload, roots)
@@ -1427,6 +1537,7 @@ async def plan(
     validate_payload(payload, field_name="flow", validate_keys=False)
     semantics.studio_semantics(payload, pending_deletions=pending_deletions)
     reference_evidence: dict[str, Any] = {
+        "trigger_dependencies": trigger_evidence,
         "complex_schemas": resolver.schemas,
         "complex_definitions": resolver.definition_cache,
         "declaration_tables": table_evidence,
@@ -1683,6 +1794,8 @@ async def preview(
         "fields": fields.summary(result["payload"]),
         "output_assignments_before": assignments.summary(tree.build_tree(flow)),
         "output_assignments": assignments.summary(tree.build_tree(result["payload"])),
+        "triggers_before": trigger_edits.summary(flow["triggerInstances"]),
+        "triggers": trigger_edits.summary(result["payload"]["triggerInstances"]),
         "deleted_instances": {
             **result["pending_deletions"],
             **(

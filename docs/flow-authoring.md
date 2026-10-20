@@ -28,7 +28,9 @@ saves the result with one request. The preview shows the flow outline before and
 
 | `op`                            | Fields                                                                                                                 | Effect                                                                                                                                                                                                                                                                                                  |
 | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `set_trigger`                   | `type`, `inputs`, `replace`                                                                                            | Authors `service_catalog`. Other catalog families return unavailable until their serializers are established.                                                                                                                                                                                           |
+| `set_trigger`                   | `type`, `inputs`, `replace`                                                                                            | Authors Service Catalog, record create/update/create-or-update, or classic daily/weekly/monthly/run-once/repeat draft trigger configuration.                                                                                                                                                            |
+| `update_trigger`                | `inputs`                                                                                                               | Updates selected static trigger inputs without replacing its identity or opaque metadata.                                                                                                                                                                                                               |
+| `remove_trigger`                | None                                                                                                                   | Removes the saved instance with an ID tombstone. Used references block removal.                                                                                                                                                                                                                         |
 | `insert_logic`                  | `logic`, `inputs`, `parent` or `after` or `before`, `ref`                                                              | Adds If/Else If/Else, For Each, Try with paired Catch, Parallel/Parallel Branch, End, Exit Loop, or Skip Iteration.                                                                                                                                                                                     |
 | `move_step`                     | `step`, `parent` or `after` or `before`                                                                                | Moves an existing step, also into or out of a branch.                                                                                                                                                                                                                                                   |
 | `update_inputs`                 | `step`, `inputs`                                                                                                       | Changes typed input values. Native objects and arrays use declared child schemas.                                                                                                                                                                                                                       |
@@ -98,6 +100,110 @@ When `TRIM_FLOW_PAYLOAD` is enabled, cleanup selects `FLOW_SCHEMA` fields (35083
 Otherwise, cleanup retains them. This adapter does not infer that configuration or drop unknown top-level settings.
 Ordinary call deletion leaves `alerts` unchanged. Connection override cleanup is a separate native path
 (253620-253663); this adapter still blocks nonempty mappings rather than guessing which mapping to remove.
+
+### Record and classic scheduled triggers
+
+These operations configure an inactive unpublished V2 flow draft.
+They do not create an active schedule or a separate saved trigger definition.
+`set_trigger` creates a trigger, or replaces it only with `replace=true`.
+`update_trigger` changes selected input values while preserving the trigger ID, other inputs, and opaque settings.
+`remove_trigger` removes the instance using native `deletedTriggers` ID tombstones for saved instances.
+Subflow triggers, saved/template triggers, external triggers, and newer Recurrence/business-calendar definitions are not supported.
+All operations use the existing single preview/apply draft PUT. They never publish, activate, run, or register a schedule separately.
+
+#### Record triggers
+
+Use `record_create`, `record_update`, or `record_create_or_update` from the current instance trigger catalog.
+The instance definition supplies every parameter, choice value, default, and output schema.
+
+```json
+[
+  {
+    "op": "set_trigger",
+    "type": "record_create",
+    "inputs": {
+      "table": "incident",
+      "condition": "active=true",
+      "run_flow_in": "background"
+    }
+  },
+  {
+    "op": "update_inputs",
+    "step": "ui-of-existing-log",
+    "inputs": { "log_message": "Created: {{Created_1.current.number}}" }
+  }
+]
+```
+
+Replace the step ID and use the current catalog's trigger label for the pill prefix.
+`current` is typed through its catalog `internal_link` to the selected table without replacing the output parameter schema.
+Record-field pills use the existing inherited dictionary resolver.
+The table must have an exact readable `sys_db_object` entry and Studio table descriptor with a display field.
+Table input metadata and dependent condition fields follow the native table/dependency reducers.
+System tables and Requested Item (`sc_req_item`) are excluded. Use the dedicated Service Catalog family for Requested Item.
+
+`condition` accepts a static encoded query. Blank conditions serialize as Studio's `^EQ`.
+The adapter checks referenced dictionary fields using bounded reads, up to 50 clauses and ten fields per path.
+Common comparisons, IN, empty checks, text operators, change checks, and static date operators are supported.
+JavaScript, NQ query segments, ordering/grouping directives, and unsupported operators are rejected.
+Changing `table` requires explicit values for every condition input. Conditions and consumers are never cleared implicitly.
+Existing nonempty parsed-condition metadata blocks condition updates until its metadata adapter exists.
+
+Run/session/user/extended-table settings use exact native catalog choices, including `run_on_extended`, `run_when_setting`,
+`run_flow_in`, `run_when_user_setting`, and `run_when_user_list` where offered.
+User lists are comma-separated sys_ids. Selecting an include/exclude user mode requires a nonempty list.
+The catalog supplies any additional Updated/Created-or-Updated run-mode parameter. No run-mode key or choice value is invented.
+Omitted inputs retain catalog defaults. An explicit choice must occur in the current choice list.
+The fixture catalog contains a legacy `run_flow_in="any"` default outside its choice list.
+That exact omitted default is preserved. Explicit edits must use a listed value, such as `background` or `foreground`.
+Run-as/role settings outside the trigger remain unchanged.
+
+#### Classic schedules
+
+The five classic families use these exact input contracts:
+
+| Type       | Native inputs                                                               |
+| ---------- | --------------------------------------------------------------------------- |
+| `daily`    | `glide_time="1970-01-01 HH:MM:SS"`                                          |
+| `weekly`   | `day_of_week` from the current catalog choice list, plus `glide_time`       |
+| `monthly`  | Native integer `integer` from 1-31, plus `glide_time`                       |
+| `run_once` | `glide_date_time="YYYY-MM-DD HH:MM:SS"`                                     |
+| `repeat`   | `glide_duration="YYYY-MM-DD HH:MM:SS"`, measured from `1970-01-01 00:00:00` |
+
+```json
+[
+  {
+    "op": "set_trigger",
+    "type": "daily",
+    "inputs": { "glide_time": "1970-01-01 09:30:00" }
+  },
+  { "op": "update_trigger", "inputs": { "glide_time": "1970-01-01 10:00:00" } }
+]
+```
+
+Supply schedule values explicitly. No current clock value, next hour, or inferred timezone enters the preview.
+Classic schedules use the instance timezone. The adapter does not convert values to the OAuth user's timezone or UTC.
+`run_once` accepts past dates as configuration, matching Studio. This does not authorize activation or execution.
+Repeat durations must be positive and meet the catalog's `minimum_seconds` when present. One day is `1970-01-02 00:00:00`.
+Weekly choices are instance supplied. No weekday-to-number translation is guessed.
+Unknown extra schedule inputs, timezone overrides, end dates, or Recurrence configuration return unavailable.
+This adapter does not establish runtime DST handling, queue timing, or monthly dates absent from a particular month.
+
+#### Preview and verification
+
+Preview exposes `triggers_before` and `triggers` with static inputs and classic schedule timezone ownership.
+The complete definition catalog, table descriptor, and condition dictionary evidence bind the preview and are read again at apply.
+Removing/replacing a trigger or changing its source table rejects surviving pills, default/transform references, and inline trigger scripts.
+Update consumers explicitly first. Source-preserving input updates keep existing pill paths valid.
+Echo and independent GET must agree on the new assigned trigger ID. Existing IDs, values, outputs, and opaque settings remain strict.
+An uncertain write still returns `UNKNOWN_OUTCOME` and is never replayed automatically.
+
+Local source: catalog-to-instance construction (58112-58179), native time/duration/condition defaults (203551-203605),
+trigger input updates and deletion (204942-205069), dependent table fields (156320-156374),
+record descriptor read (164322-164328,446879-446893), output internal links (63341-63368), and classic schedule fields (96437-96464).
+Local official references: `flow-triggers.md` describes classic flow triggers and instance timezone.
+`create-scheduled-trigger.md` describes a different saved Recurrence contract, which remains excluded.
+Source-derived tests cover all supported families offline. No live save or scheduling behavior is verified.
 
 ### Variables and subflow interfaces
 
@@ -456,7 +562,7 @@ The local official reference is `docs/ServiceNowDocs/markdown/build-workflows/wo
 These operations are source-grounded and offline-regression verified, not live save or execution verified.
 
 Unavailable: nested flow-variable creation, unsupported array subtypes, error-stage creation, handler creation/toggling,
-scheduled and record-trigger serialization, and dynamic family inputs without a dedicated adapter.
+saved Recurrence/timezone-specific trigger serialization, and dynamic family inputs without a dedicated adapter.
 Existing opaque settings remain unchanged. Stage attachments follow stable step identities during reordering.
 Detach a stage before deleting its step. Moving a previously attached step across parent regions requires a separate edit request.
 Structural edits with inline-script order references fail rather than rewrite scripts.
@@ -656,7 +762,7 @@ The following bodies are still needed from a version-matched, safely isolated UI
 | Unsupported complex forms         | Nested declarations, literal/leaf-pill assignments, and schema-checked whole pills are implemented. Additional array subtypes and dynamic schema adoption need adapters. Complex flow variables are excluded by Studio's type picker. |
 | Error stages                      | Create/remove bodies with ancestor links and conditional ancestry. Standard-stage CRUD is implemented from local client source.                                                                                                       |
 | Top-level handler                 | Toggle-on/off bodies with hidden order-zero wrappers, enabled input, parent rewriting, and handler boundary index.                                                                                                                    |
-| Record/scheduled/dynamic triggers | Final native input values, regenerated interfaces, table dependencies, and stored timezone/schedule representation.                                                                                                                   |
+| Saved Recurrence/dynamic triggers | Classic record and daily/weekly/monthly/run-once/repeat draft triggers are implemented. Saved Recurrence/timezone-specific contracts and external interface regeneration still need adapters.                                         |
 | Try/Catch paired moves            | Pair movement across parent regions with connectedTo, children, order, and ancestry fields.                                                                                                                                           |
 
 Further capture requires an authenticated editor bootstrap that works within the GET-only/no-worker boundary,

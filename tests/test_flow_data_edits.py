@@ -982,10 +982,11 @@ async def test_capture_blocker_is_explicit_and_does_not_enable_remaining_familie
     )
     assert ledger["features"]["whole_complex_pills"]["authorable"] is True
     assert ledger["features"]["whole_complex_pills"]["live_verified"] is False
+    for family in ("record_triggers", "scheduled_triggers"):
+        assert ledger["features"][family]["authorable"] is True
+        assert ledger["features"][family]["live_verified"] is False
     for family in (
         "handler_creation",
-        "record_triggers",
-        "scheduled_triggers",
         "try_catch_pair_moves",
     ):
         assert ledger["features"][family]["authorable"] is False

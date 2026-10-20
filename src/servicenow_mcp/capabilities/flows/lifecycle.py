@@ -15,6 +15,9 @@ from servicenow_mcp.capabilities.flows import (
     support,
     tree,
 )
+from servicenow_mcp.capabilities.flows import (
+    triggers as trigger_edits,
+)
 from servicenow_mcp.capabilities.flows.capture import scalar
 from servicenow_mcp.capabilities.mutations.models import fingerprint
 from servicenow_mcp.policy import check_table_access, is_sensitive_field
@@ -439,7 +442,7 @@ async def validate_definition(
             ),
         )
     for trigger in triggers:
-        if trigger.get("type") != "service_catalog":
+        if trigger.get("type") not in trigger_edits.SUPPORTED:
             diagnostics.append(
                 diagnostic(
                     "UNAVAILABLE_TRIGGER",
@@ -458,18 +461,28 @@ async def validate_definition(
                     "Trigger inputs cannot depend on flow outputs.",
                 ),
             )
-        if trigger.get("type") == "service_catalog":
+        if trigger.get("type") in trigger_edits.SUPPORTED:
             try:
                 catalog = editing.trigger_catalog(
                     await client.studio_definitions("triggers")
                 )
-                definition = catalog.get("service_catalog")
+                definition = catalog.get(trigger["type"])
                 if not definition or definition.get("id") != trigger.get(
                     "triggerDefinitionId"
                 ):
                     raise ValueError("Definition mismatch")
                 parameters = [spec["parameter"] for spec in definition["inputs"]]
                 dependency_evidence["trigger"] = definition
+                if trigger["type"] != "service_catalog":
+                    trigger_edits.validate_values(trigger, definition)
+                    # Dependency checks operate on a copy so read-only local
+                    # validation never repairs saved table metadata.
+                    dependency_evidence["trigger_tables"] = await trigger_edits.prepare(
+                        copy.deepcopy(trigger),
+                        definition,
+                        client,
+                        resolver=editing.PillResolver(client, trigger),
+                    )
                 if schema_types(trigger.get("outputs")) != schema_types(
                     definition.get("outputs")
                 ):
@@ -481,11 +494,12 @@ async def validate_definition(
                             incomplete=True,
                         ),
                     )
-                diagnostics.extend(
-                    check_bindings(
-                        trigger["inputs"], parameters, "triggerInstances.inputs"
+                if trigger["type"] == "service_catalog":
+                    diagnostics.extend(
+                        check_bindings(
+                            trigger["inputs"], parameters, "triggerInstances.inputs"
+                        )
                     )
-                )
             except Exception:  # noqa: BLE001 — deliberately convert unexpected failures to safe diagnostics
                 diagnostics.append(
                     diagnostic(

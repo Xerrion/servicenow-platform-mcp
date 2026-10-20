@@ -975,7 +975,18 @@ async def status(
             ):
                 raise ValueError("Incomplete context")
             if scalar(context["flow"]) not in {sys_id, master, latest}:
-                raise ValueError("Unrelated context")
+                version_id = scalar(context["flow"]) or ""
+                validate_sys_id(version_id)
+                check_table_access("sys_hub_flow_snapshot")
+                version = await client.studio_request(
+                    f"flow/{version_id}", minimal=True
+                )
+                if (
+                    version.get("id") != version_id
+                    or version.get("parentFlow") != sys_id
+                    or version.get("snapshot") is not True
+                ):
+                    raise ValueError("Unrelated context")
             context_state = scalar(context["state"])
             execution.update(
                 state=context_state,

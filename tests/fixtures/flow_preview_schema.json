@@ -9,7 +9,13 @@
           "create",
           "add_action",
           "add_subflow",
-          "edit"
+          "edit",
+          "activate",
+          "publish",
+          "deactivate",
+          "test",
+          "validate_remote",
+          "run"
         ],
         "title": "Action",
         "type": "string"
@@ -61,6 +67,22 @@
         ],
         "default": null,
         "title": "Description"
+      },
+      "flow_type": {
+        "anyOf": [
+          {
+            "enum": [
+              "flow",
+              "subflow"
+            ],
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Flow Type"
       },
       "action_type_sys_id": {
         "anyOf": [

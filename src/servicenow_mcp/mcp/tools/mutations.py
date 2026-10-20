@@ -168,11 +168,23 @@ def register_tools(mcp: MCPServer, coordinator: MutationCoordinator) -> None:
         @mcp.tool(annotations=PREVIEW_ANNOTATIONS)
         @tool_handler
         async def flow_preview(
-            action: Literal["create", "add_action", "add_subflow", "edit"],
+            action: Literal[
+                "create",
+                "add_action",
+                "add_subflow",
+                "edit",
+                "activate",
+                "publish",
+                "deactivate",
+                "test",
+                "validate_remote",
+                "run",
+            ],
             sys_id: str | None = None,
             name: str | None = None,
             scope: str | None = None,
             description: str | None = None,
+            flow_type: Literal["flow", "subflow"] | None = None,
             action_type_sys_id: str | None = None,
             subflow_sys_id: str | None = None,
             inputs: dict[str, JsonValue] | None = None,
@@ -181,9 +193,22 @@ def register_tools(mcp: MCPServer, coordinator: MutationCoordinator) -> None:
             expected_update_set: str | None = None,
             expected_revision: str | None = None,
         ) -> CapabilityResult:
-            """Preview experimental Workflow Studio draft authoring without changing ServiceNow.
+            """Preview Workflow Studio authoring or an explicitly selected lifecycle effect without changing ServiceNow.
 
             create requires name and explicit scope sys_id (or global). description is optional.
+            flow_type=flow|subflow selects creation type. Omit for flow. A new subflow is inactive, unpublished, and triggerless.
+            Lifecycle actions require sys_id plus expected_scope, expected_update_set, and expected_revision.
+              activate: flow-only. Publishes its snapshot AND enables triggers. This can start real work after activation.
+              publish: subflow-only. Publishes a callable subflow and can update versions used by parent flows.
+                Flow publish-only is unavailable because snapshot publication activates flows.
+              deactivate: active flow-only. Disables new trigger starts. Does not cancel existing executions or unpublish a subflow.
+              test: executes the saved inactive draft asynchronously with real action side effects. inputs supplies static scalar
+                subflow input values or supported classic trigger output values. Record tests require explicit triggering record sys_ids.
+                Returns an exact execution context ID and observed state, not a promise of successful completion.
+                Use flow.status with execution_sys_id for bounded read-only follow-up. Never replay an uncertain test.
+              validate_remote and run: explicitly unavailable. No separate compiler or production-run contract exists in the local source.
+                flow.validate remains read-only local validation. Saving and testing are not aliases for remote validation or production run.
+            Lifecycle preview binds complete current definitions/dependencies. Apply sends one explicit effect and independently reads its outcome.
             Optional strict context binding: expected_scope and expected_update_set are required together.
             Existing flows also require expected_revision (sys_mod_count from flow.status).
             Binding reads the current application/update set and never switches them.
@@ -214,7 +239,13 @@ def register_tools(mcp: MCPServer, coordinator: MutationCoordinator) -> None:
               insert_logic: logic (If, Else If, Else, For Each, Try, Parallel, Parallel Branch, End,
                 Exit Loop, Skip Iteration), inputs, and one of parent,
                 after, or before. ref names the new block for later edits in the same call.
-              move_step: step, and one of parent, after, or before.
+              insert_action: action_type_sys_id (published snapshot), inputs, optional ref and parent/after/before.
+              insert_subflow: subflow_sys_id (published definition), inputs, optional ref and parent/after/before.
+                Both insert into existing structured drafts, including enabled handler branches. Inputs use the existing scalar/complex serializers.
+                Published readable/entitled snapshots and their inputs bind the preview. Dynamic/dependent insertion inputs remain unavailable.
+                Later edits can use {{ref.output_path}} and placement refs. Subflow calls wait for completion.
+              move_step: step, and one of parent, after, or before. Moving Try includes its paired Catch and both subtrees.
+                Catch cannot move independently. Pair moves recheck stages, handler regions, and all pill dependencies.
               update_inputs: step, inputs. Native objects and arrays require declared child schemas.
                 Pills use trigger paths, <producer UI ID>.<output>, flow_variable.<name>, or subflow.<input>.
                 Type, cardinality, reference tables, and producer visibility are checked after all edits.
@@ -267,8 +298,7 @@ def register_tools(mcp: MCPServer, coordinator: MutationCoordinator) -> None:
                 Error stages report state only. They neither throw exceptions nor enable a handler or activate the flow.
                 These operations author stage state, not flow-logic steps. For Each/Parallel children are excluded.
             Steps are referenced by sys_id, UI identifier, display order, or a ref alias.
-            The preview shows the flow outline and declaration changes. Only inactive, unpublished flow/subflow drafts
-            are supported. Activation and execution are excluded.
+            Draft authoring supports only inactive, unpublished flow/subflow drafts. Lifecycle effects require their explicit action names.
             Apply the single-use preview_token with mutation_apply. The upstream API is undocumented.
             Apply uses independent semantic readback. Verify update-set capture. No automatic retries.
             flow.describe reports adapter support separately from catalog discovery and live verification.
@@ -280,6 +310,7 @@ def register_tools(mcp: MCPServer, coordinator: MutationCoordinator) -> None:
                     name=name,
                     scope=scope,
                     description=description,
+                    flow_type=flow_type,
                     action_type_sys_id=action_type_sys_id,
                     subflow_sys_id=subflow_sys_id,
                     inputs=inputs,

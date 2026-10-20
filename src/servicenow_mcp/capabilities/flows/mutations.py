@@ -4,7 +4,7 @@ import copy
 from typing import TYPE_CHECKING, Any
 
 from servicenow_mcp.capabilities.contracts import CapabilityError, validate_payload
-from servicenow_mcp.capabilities.flows import capture, editing, semantics
+from servicenow_mcp.capabilities.flows import capture, editing, effects, semantics
 from servicenow_mcp.capabilities.mutations.models import FlowCommand, fingerprint
 from servicenow_mcp.policy import check_table_access, mask_sensitive_fields
 from servicenow_mcp.validation import sanitize_query_value, validate_sys_id
@@ -37,7 +37,7 @@ async def create_properties(
         "name": command.name,
         "description": command.description or "",
         "scope": command.scope,
-        "type": "flow",
+        "type": command.flow_type or "flow",
         "active": False,
         "status": "draft",
         "runAs": "user",
@@ -88,10 +88,12 @@ def require_editable_draft(flow: dict[str, Any], sys_id: str) -> None:
         )
     if (
         flow.get("id") != sys_id
-        or flow.get("type") != "flow"
+        or flow.get("type") not in {"flow", "subflow"}
         or flow.get("active") is not False
     ):
-        raise CapabilityError("Only inactive flows can be edited by draft authoring.")
+        raise CapabilityError(
+            "Only inactive flows or subflows can be edited by draft authoring."
+        )
     if (
         flow.get("status") != "draft"
         or flow.get("isPublished") is not False
@@ -102,14 +104,18 @@ def require_editable_draft(flow: dict[str, Any], sys_id: str) -> None:
         raise CapabilityError("Studio does not report write access to this flow.")
     semantics.studio_semantics(flow)
     # The initial adapter cannot safely round-trip data pills, complex logic, or partial ACL views.
+    if flow["type"] == "subflow" and flow["triggerInstances"]:
+        raise CapabilityError("Subflow drafts cannot contain triggers.")
     if any(
         flow.get(k)
         for k in (
             "triggerInstances",
             "flowLogicInstances",
-            "inputs",
-            "outputs",
-            "flowVariables",
+            *(
+                []
+                if flow["type"] == "subflow"
+                else ["inputs", "outputs", "flowVariables"]
+            ),
             "stages",
             "label_cache",
         )
@@ -306,6 +312,8 @@ async def preview(
 async def _preview(
     command: FlowCommand, client: ServiceNowClient
 ) -> tuple[dict[str, Any], str | None]:
+    if command.action in effects.OPS:
+        return await effects.preview(command, client)
     if command.action == "edit":
         return await editing.preview(command, client)
     if command.action == "create":
@@ -354,6 +362,8 @@ async def apply(
             "STALE_PREVIEW",
         )
     result = await _apply(command, revision, client, binding_context=context)
+    if command.action == "test":
+        return result
     result["capture"] = await capture.verify_after(
         command, client, result["sys_id"], context
     )
@@ -367,6 +377,8 @@ async def _apply(
     *,
     binding_context: dict[str, Any] | None,
 ) -> dict[str, Any]:
+    if command.action in effects.OPS:
+        return await effects.apply(command, expected, client, binding_context)
     if command.action == "edit":
         return await editing.apply(
             command, expected, client, binding_context=binding_context

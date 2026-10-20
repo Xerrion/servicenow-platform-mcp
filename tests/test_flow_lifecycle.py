@@ -573,13 +573,13 @@ async def test_lifecycle_ledger_does_not_alias_effects(settings):
     assert ledger["status"]["available"] is True
     for operation in (
         "validate_remote",
-        "publish",
-        "activate",
-        "deactivate",
-        "test",
         "run",
     ):
         assert ledger[operation]["available"] is False
+        assert ledger[operation]["reason"]
+    for operation in ("publish", "activate", "deactivate", "test"):
+        assert ledger[operation]["available"] is True
+        assert ledger[operation]["live_verified"] is False
         assert ledger[operation]["reason"]
     assert ledger["test"]["effect"] == "execution"
     assert not http_mock.calls

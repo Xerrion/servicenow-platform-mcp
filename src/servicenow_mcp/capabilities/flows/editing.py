@@ -6,6 +6,7 @@ existing steps into a branch. The result is validated and saved in one PUT.
 """
 
 import copy
+import re
 import uuid
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
@@ -13,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 from servicenow_mcp.capabilities.contracts import CapabilityError, validate_payload
 from servicenow_mcp.capabilities.flows import (
     assignments,
+    calls,
     capture,
     data,
     declarations,
@@ -36,6 +38,8 @@ if TYPE_CHECKING:
 
 
 OPS = {
+    "insert_action",
+    "insert_subflow",
     *handlers.OPS,
     *assignments.OPS,
     "set_trigger",
@@ -78,6 +82,8 @@ def _inputs(edit: dict[str, Any]) -> dict[str, Any]:
 def _check_edit(edit: dict[str, Any]) -> None:
     placement = {"parent", "after", "before"}
     allowed = {
+        "insert_action": {"action_type_sys_id", "inputs", "ref", *placement},
+        "insert_subflow": {"subflow_sys_id", "inputs", "ref", *placement},
         "set_error_handler": {"enabled"},
         "remove_error_handler": set(),
         "set_trigger": {"type", "inputs", "replace"},
@@ -944,6 +950,7 @@ async def plan(
     removed_fields: list[dict[str, str]] = []
     reference_tables: set[str] = set()
     trigger_evidence: dict[str, Any] = {}
+    call_evidence: dict[str, Any] = {}
     # Bind client stage UUIDs to this exact definition and edit list. Replanning
     # preview/apply must not create different stage keys.
     stage_seed = fingerprint(
@@ -964,6 +971,8 @@ async def plan(
                 "delete_step",
                 "insert_logic",
                 "set_variables",
+                "insert_action",
+                "insert_subflow",
                 *handlers.OPS,
             }
             or op == "assign_outputs"
@@ -1003,7 +1012,56 @@ async def plan(
                     "Structural edits require family adapters for every existing flow-logic step.",
                     "UNAVAILABLE",
                 )
-        if op in handlers.OPS:
+        if op in {"insert_action", "insert_subflow"}:
+            subflow = op == "insert_subflow"
+            identity = (
+                _str(
+                    edit,
+                    "subflow_sys_id" if subflow else "action_type_sys_id",
+                    required=True,
+                )
+                or ""
+            )
+            definition = await calls.definition(
+                working, identity, subflow=subflow, client=client
+            )
+            call_evidence[str(index)] = definition
+            step = calls.step(
+                working,
+                definition,
+                _inputs(edit),
+                subflow=subflow,
+                uid=str(
+                    uuid.UUID(
+                        hex=fingerprint([stage_seed, "call", index])[:32], version=4
+                    )
+                ),
+            )
+            tree.insert(
+                roots,
+                step,
+                parent=_resolve_alias(roots, _str(edit, "parent")),
+                after=_resolve_alias(roots, _str(edit, "after")),
+                before=_resolve_alias(roots, _str(edit, "before")),
+            )
+            if alias := _str(edit, "ref"):
+                if (
+                    not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", alias)
+                    or alias in {"main", "error_handler"}
+                    or alias in {s.uid for s in tree.walk(roots)}
+                    or any(
+                        s.raw.get("_alias") == alias
+                        for s in tree.walk(roots)
+                        if s is not step
+                    )
+                ):
+                    raise CapabilityError(
+                        "Call ref must be unique and cannot use a reserved branch alias."
+                    )
+                step.raw["_alias"] = alias
+            created.append(step.uid)
+            summary.append(f"{index}. Insert {definition['name']}")
+        elif op in handlers.OPS:
             removed = handlers.edit(
                 working,
                 roots,
@@ -1427,15 +1485,7 @@ async def plan(
                 before = _resolve_alias(roots, _str(edit, "before"))
                 if ref in (parent, after, before):
                     raise CapabilityError("A step cannot be moved relative to itself.")
-                moved = tree.detach(roots, ref)
-                if moved.logic_type in {"TRY", "CATCH"}:
-                    raise CapabilityError(
-                        "Moving a Try/Catch pair is unavailable. Move its children explicitly.",
-                        "UNAVAILABLE",
-                    )
-                if parent and any(parent == s.uid for s in tree.walk([moved])):
-                    raise CapabilityError("A block cannot be moved into itself.")
-                tree.insert(roots, moved, parent=parent, after=after, before=before)
+                tree.move(roots, ref, parent=parent, after=after, before=before)
                 summary.append(f"{index}. Move step {label}")
             else:
                 siblings, position, _ = tree.find(roots, ref)
@@ -1484,6 +1534,27 @@ async def plan(
                 if op == "create_stage":
                     created_stages.append(identity)
             summary.append(f"{index}. {op.replace('_', ' ').capitalize()} {identity}")
+    pill_aliases = {
+        s.raw["_alias"]: s.uid for s in tree.walk(roots) if s.raw.get("_alias")
+    }
+    reserved_producers = {
+        "main",
+        "error_handler",
+        "flow_variable",
+        "subflow",
+        *[s.uid for s in tree.walk(roots)],
+    }
+    if triggers:
+        reserved_producers.add(trigger_pill_prefix(triggers[0]))
+    if set(pill_aliases) & reserved_producers or len(pill_aliases) != sum(
+        bool(s.raw.get("_alias")) for s in tree.walk(roots)
+    ):
+        raise CapabilityError(
+            "Step refs must be unique and cannot replace native producer names or UI identities."
+        )
+    wrappers = handlers.pair(roots)
+    if wrappers:
+        pill_aliases["error_handler"] = wrappers[1].uid
     for step in tree.walk(roots):
         step.raw.pop("_alias", None)
         rebound_handler_alias = False
@@ -1497,18 +1568,17 @@ async def plan(
             for item in data.bindings(step.raw.get(key, [])):
                 value = item.get("value")
                 if not isinstance(value, str) or not any(
-                    pill.startswith("error_handler.") for pill in tree.pills(value)
+                    pill.partition(".")[0] in pill_aliases for pill in tree.pills(value)
                 ):
                     continue
-                wrappers = handlers.pair(roots)
-                if wrappers is None:
-                    raise CapabilityError(
-                        "The error_handler pill alias requires a native handler."
-                    )
                 item["value"] = tree.PILL.sub(
-                    lambda match, uid=wrappers[1].uid: (
-                        "{{" + uid + match[1][len("error_handler") :] + "}}"
-                        if match[1].startswith("error_handler.")
+                    lambda match: (
+                        "{{"
+                        + pill_aliases[match[1].partition(".")[0]]
+                        + "."
+                        + match[1].partition(".")[2]
+                        + "}}"
+                        if match[1].partition(".")[0] in pill_aliases
                         else match[0]
                     ),
                     value,
@@ -1553,6 +1623,7 @@ async def plan(
     )
     if (
         omitted_subflows
+        or call_evidence
         or handlers.pair(roots)
         or any(edit.get("op") in handlers.OPS for edit in command.edits or [])
         or whole_bindings
@@ -1674,6 +1745,7 @@ async def plan(
     validate_payload(payload, field_name="flow", validate_keys=False)
     semantics.studio_semantics(payload, pending_deletions=pending_deletions)
     reference_evidence: dict[str, Any] = {
+        "calls": call_evidence,
         "trigger_dependencies": trigger_evidence,
         "complex_schemas": resolver.schemas,
         "complex_definitions": resolver.definition_cache,

@@ -483,7 +483,9 @@ A missing trigger activation field does not reject local validation. The flow's 
 Unknown or unsupported Studio representations remain `valid=null`, `complete=false`. The validator does not repair them.
 `status` requires `sys_id`; optional `execution_sys_id` reads one exact existing execution context.
 Draft/published status, active state, version references, capture metadata, and session context are separate results.
-Unknown state never authorizes replay. Remote publish/activate/deactivate/test/run remain explicitly unavailable in the lifecycle ledger.
+Unknown state never authorizes replay. Explicit lifecycle effects use `flow_preview` and `mutation_apply`, not this read-only tool.
+Subflow publish, flow activate/deactivate, and saved-draft test have source-derived offline adapters.
+Independent remote validation and production run remain unavailable. Test is not a run alias.
 
 | Sections                                                                                                            | Available in             |
 | ------------------------------------------------------------------------------------------------------------------- | ------------------------ |
@@ -681,6 +683,21 @@ The intended non-production instance, local policy, enabled group, and ServiceNo
 The server does not enforce human approval.
 
 ### `flow_preview`
+
+`create` accepts optional `flow_type="subflow"` for an inactive triggerless subflow header.
+Ordered edits support `insert_action` and `insert_subflow` with independently read published snapshots and branch placement.
+Moving Try moves its linked Catch and both subtrees. Catch cannot move independently.
+
+Lifecycle actions require `expected_scope`, `expected_update_set`, and `expected_revision`:
+
+- `activate`: publishes a flow snapshot and enables triggers. Activation can start real work.
+- `publish`: publishes a callable subflow. Flow publish-only is unavailable because the flow snapshot operation activates it.
+- `deactivate`: disables new trigger starts for an active published flow. Existing executions continue.
+- `test`: executes the saved inactive draft with real side effects and explicit static scalar inputs. Returns an exact execution context and observed state.
+
+Preview sends no effect. Only `mutation_apply` dispatches it once. Unknown outcomes never permit automatic replay.
+Follow a test through `flow.status` with the returned `execution_sys_id`. Runtime and snapshot content remain unverified.
+`validate_remote` and `run` return an exact unsupported-contract error. Neither saving nor testing is an alias for those operations.
 
 Experimental authoring through the undocumented Workflow Studio `/api/now/processflow` API.
 Enable `flow_write` or `full`. Preview performs reads only. Apply the returned token with `mutation_apply` after review.

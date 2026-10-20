@@ -171,6 +171,62 @@ class FlowDesignerApiClient(ServiceNowRequestClient):
             )
         return result
 
+    async def studio_lifecycle(
+        self, sys_id: str, operation: str, payload: dict[str, Any] | None = None
+    ) -> Any:
+        """Effect-only Studio endpoints, never exposed through a read resource.
+
+        publishFlowToServer:97561; deactivateFlowCall:97570;
+        sendTestToServer:448105. No retries or redirect following.
+        """
+        validate_sys_id(sys_id)
+        if operation not in {"snapshot", "subflow", "deactivate", "test"}:
+            raise ValueError("Unsupported Studio lifecycle effect.")
+        if (operation == "deactivate") != (payload is None):
+            raise ValueError("Lifecycle payload does not match the endpoint.")
+        response = await self._ensure_client().request(
+            "GET" if operation == "deactivate" else "POST",
+            f"{self._settings.servicenow_instance_url}/api/now/processflow/flow/{sys_id}/{operation}",
+            headers=await self._headers(),
+            json=payload,
+            follow_redirects=False,
+        )
+        self._raise_for_status(response)
+        result = self._extract_json_result(response)
+        if (
+            response.status_code != 200
+            or not isinstance(result, dict)
+            or (
+                "errorCode" in result
+                and (type(result["errorCode"]) is not int or result["errorCode"] != 0)
+            )
+            or result.get("errorMessage")
+            or result.get("error")
+            or "data" not in result
+        ):
+            raise ServiceNowMCPError(
+                "Studio lifecycle response did not establish a completed result."
+            )
+        return result["data"]
+
+    async def flow_test_record(self, table: str, sys_id: str) -> dict[str, Any]:
+        """Read one explicitly selected test record identity and revision synchronously."""
+        validate_identifier(table)
+        validate_sys_id(sys_id)
+        response = await self._ensure_client().get(
+            self._table_url(table, sys_id),
+            headers=await self._headers(),
+            params={
+                "sysparm_fields": "sys_id,sys_mod_count",
+                "sysparm_display_value": "false",
+            },
+        )
+        self._raise_for_flow_read_status(response)
+        result = self._extract_json_result(response)
+        if not isinstance(result, dict):
+            raise ServiceNowMCPError("Test record identity response is incomplete.")
+        return result
+
     async def studio_table_descriptor(self, table: str) -> dict[str, Any]:
         """Read Studio's record-trigger display-field descriptor (bundle:164322)."""
         validate_identifier(table)

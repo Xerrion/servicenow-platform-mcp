@@ -68,6 +68,23 @@ class MutationCoordinator:
             gate_write("sys_hub_action_instance_v2", self.settings)
         if isinstance(command, FlowCommand) and command.action == "add_subflow":
             gate_write("sys_hub_sub_flow_instance_v2", self.settings)
+        if isinstance(command, FlowCommand) and command.action in {
+            "activate",
+            "publish",
+            "deactivate",
+            "test",
+        }:
+            gate_write("sys_hub_flow_snapshot", self.settings)
+            for component in (
+                "sys_hub_action_instance_v2",
+                "sys_hub_sub_flow_instance_v2",
+                "sys_hub_flow_logic_instance_v2",
+                "sys_hub_trigger_instance_v2",
+                "sys_hub_flow_stage",
+            ):
+                gate_write(component, self.settings)
+            if command.action == "test":
+                gate_write("sys_flow_context", self.settings)
         if isinstance(command, FlowCommand) and command.action == "edit":
             for edit in command.edits or []:
                 if edit.get("op") in {"create_field", "update_field", "delete_field"}:
@@ -93,6 +110,8 @@ class MutationCoordinator:
                     "insert_logic",
                     "set_variables",
                     "assign_outputs",
+                    "insert_action",
+                    "insert_subflow",
                 }
                 for edit in command.edits or []
             ):
@@ -178,8 +197,12 @@ class MutationCoordinator:
             )
         if isinstance(command, FlowCommand):
             limitations.append(
-                "Experimental undocumented Workflow Studio API. No activation, execution, or update-set guarantee.",
+                "Experimental undocumented Workflow Studio API. Source-derived offline verification only. Child-artifact capture is not established."
             )
+            if command.action in {"activate", "publish", "deactivate", "test"}:
+                limitations.append(
+                    "This is an explicit lifecycle effect. Test executes real actions. Activate publishes and enables triggers. Existing executions are not cancelled by deactivation."
+                )
         data = MutationPreview(
             family=command.family,
             action=command.action,

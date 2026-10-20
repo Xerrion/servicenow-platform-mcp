@@ -30,6 +30,34 @@ def ledger() -> dict[str, Any]:
 
     return {
         "adapter": ADAPTER,
+        "completion_scope": {
+            "implemented": [
+                "inactive flow/subflow headers",
+                "ordered published call insertion",
+                "supported logic trees and paired Try/Catch moves",
+                "classic triggers",
+                "variables and nested subflow interfaces",
+                "native output assignments and schema-bound complex pills",
+                "standard/error stages",
+                "top-level handlers",
+                "local validation and exact execution status",
+                "explicit context-bound activate/publish/deactivate/test",
+            ],
+            "core_contract_gaps": [
+                "No independent compiler/remote-validator contract in local Studio source",
+                "No independent production-run endpoint/version contract in local Studio source",
+                "No flow publish-only operation: native snapshot publication activates",
+            ],
+            "variant_gaps": [
+                "saved Recurrence/business-calendar/timezone triggers",
+                "dynamic/dependent call-input insertion",
+                "sandwich/legacy handler order projections",
+                "complex/list test inputs",
+                "additional array subtypes and dynamic schema adoption",
+            ],
+            "live_effect_verification": False,
+            "snapshot_content_verified": False,
+        },
         "contract_capture": {
             "state": "blocked_bootstrap",
             "method": "unsaved Studio UI with default-deny request interception",
@@ -85,38 +113,47 @@ def ledger() -> dict[str, Any]:
             "validate_remote": {
                 "available": False,
                 "effect": "potential_compile_or_persistence",
-                "reason": "No separate remote compile/validation request-response contract established.",
+                "reason": "Studio 27 has no independent compiler/validator endpoint in the local source. Save persists; snapshot publishes/activates; test executes. None is a validation alias.",
             },
             "publish": {
-                "available": False,
-                "effect": "publication",
+                "available": True,
+                "verification": "source_derived_offline_only",
+                "live_verified": False,
+                "effect": "callable_subflow_publication",
                 "reason": (
-                    "Installed publishFlowToServer uses POST flow/{id}/snapshot for flows and /subflow for "
-                    "subflows. No separate flow publish-only contract established; activation must not be aliased."
+                    "Subflow-only POST flow/{id}/subflow. Flow snapshot publication also activates, so flow publish-only is rejected. "
+                    "Strict context, dependency, echo/GET, header, and snapshot-ownership checks. Snapshot content is not independently compared."
                 ),
             },
             "activate": {
-                "available": False,
-                "effect": "activation",
+                "available": True,
+                "verification": "source_derived_offline_only",
+                "live_verified": False,
+                "effect": "publication_and_trigger_activation",
                 "reason": (
-                    "Snapshot POST request is observed, but complete response, dependency/version preconditions, "
-                    "and OAuth effect reconciliation are unverified."
+                    "Flow-only snapshot POST with complete saved draft. Enables triggers and can cause real work. "
+                    "Single-use context-bound preview and independent outcome reads. No automatic replay. No live effect verification."
                 ),
             },
             "deactivate": {
-                "available": False,
+                "available": True,
+                "verification": "source_derived_offline_only",
+                "live_verified": False,
                 "effect": "deactivation",
                 "reason": (
-                    "Installed deactivateFlowCall uses effectful GET flow/{id}/deactivate. Response/OAuth/context "
-                    "contract is unverified. Never call as a read."
+                    "Effectful GET flow/{id}/deactivate is dispatched only by mutation_apply. Never a read tool. "
+                    "Active published flow-only; independent content/header checks preserve publication version. Does not cancel contexts."
                 ),
             },
             "test": {
-                "available": False,
+                "available": True,
+                "verification": "source_derived_offline_only",
+                "live_verified": False,
                 "effect": "execution",
                 "reason": (
-                    "sendTestToServer posts flow, outputMap, runOnThread to flow/{id}/test. Input mapping, "
-                    "returned context, async states, and OAuth contract are incomplete."
+                    "Explicit saved-draft test POST with flow, outputMap, runOnThread=false. Static scalar subflow/classic trigger mapping only. "
+                    "Test records are revision-bound. Returns exact independently read context state, not completion. "
+                    "Bounded flow.status follow-up, no replay or polling effects. Runtime and snapshot content remain unverified."
                 ),
             },
             "run": {
@@ -130,6 +167,14 @@ def ledger() -> dict[str, Any]:
             for kind in sorted(LOGIC_TYPES)
         },
         "features": {
+            "structured_call_insertion": entry(
+                True,
+                "insert_action/insert_subflow use independently read published snapshots, existing native input serializers, placement/pill aliases, and tree/dependency validation. Structured drafts and enabled handler branches supported. Dynamic/dependent call-input insertion remains unavailable. Source-derived offline only.",
+            ),
+            "subflow_creation": entry(
+                True,
+                "create(flow_type=subflow) uses native property POST with an inactive triggerless draft. Independent type/property/identity readback. Source-derived offline only.",
+            ),
             "step_output_pills": entry(
                 True, "Stable UI producer ID and readable output schema required."
             ),
@@ -155,9 +200,9 @@ def ledger() -> dict[str, Any]:
                 "output-to-output pills, or arbitrary array indexing. Source-derived offline regression only.",
             ),
             "try_catch_pair_moves": entry(
-                False,
-                "No guarded UI save-body capture. Need pair movement payloads with connectedTo, children, parent, "
-                "order, and ancestry before and after.",
+                True,
+                "move_step on Try moves its adjacent identity-linked Catch and both subtrees. Independent Catch moves are rejected. "
+                "Stage, handler, script, and pill guards remain in force. Source-derived offline regression only.",
             ),
             "delete_saved_action_logic": entry(
                 True,
@@ -258,8 +303,8 @@ def ledger() -> dict[str, Any]:
             ),
             "missing_contracts": (
                 "Guarded UI bootstrap blocked; no new request bodies captured. Need full serialized create/delete "
-                "remaining nested interface/variable variants, saved Recurrence/timezone trigger contracts, dynamic complex schema adoption, and paired Try/Catch "
-                "moves."
+                "remaining nested interface/variable variants, saved Recurrence/timezone trigger contracts, dynamic complex schema adoption, "
+                "and any independent production-run/compiler endpoint. Lifecycle effects have offline adapters, not live proof."
             ),
         },
     }

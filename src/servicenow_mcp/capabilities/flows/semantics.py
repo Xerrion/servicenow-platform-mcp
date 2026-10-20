@@ -1154,6 +1154,11 @@ async def verify_created(
     """Read a newly created draft independently and verify the requested properties."""
     try:
         validate_sys_id(echo["id"])
+        if properties.get("type") == "subflow" and any(
+            key not in echo or _json(value) != _json(echo[key])
+            for key, value in properties.items()
+        ):
+            _incomplete()
         actual = await client.studio_request(f"flow/{echo['id']}")
         parsed = studio_semantics(actual)
         if parsed.identity != echo["id"] or parsed.steps or actual["triggerInstances"]:

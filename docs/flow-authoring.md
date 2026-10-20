@@ -10,6 +10,7 @@ The adapter does not use browser cookies, run server scripts, or write flow snap
 ## Supported operations
 
 1. `flow_preview(action="create", name="Example draft", scope="global")` previews an inactive flow header.
+   Set `flow_type="subflow"` to create an inactive triggerless subflow instead.
    For a scoped application, supply its resolved `sys_scope.sys_id`. Scope has no inferred default.
 2. `flow_preview(action="add_action", sys_id="<flow sys_id>", action_type_sys_id="<published action snapshot sys_id>", inputs={...})`
    previews appending one action with static string, choice, boolean, or integer inputs.
@@ -204,6 +205,45 @@ record descriptor read (164322-164328,446879-446893), output internal links (633
 Local official references: `flow-triggers.md` describes classic flow triggers and instance timezone.
 `create-scheduled-trigger.md` describes a different saved Recurrence contract, which remains excluded.
 Source-derived tests cover all supported families offline. No live save or scheduling behavior is verified.
+
+### Structured calls and paired moves
+
+`insert_action` and `insert_subflow` add calls inside an existing structured draft, including an enabled handler.
+They accept `inputs`, optional `ref`, and the existing `parent`/`after`/`before` placement fields.
+Action insertion requires a published snapshot `action_type_sys_id`.
+Subflow insertion requires a published root `subflow_sys_id` and resolves its exact active snapshot independently.
+Read access, entitlement, cross-scope public access, self-call rejection, and the complete definition bind the preview.
+
+```json
+[
+  {
+    "op": "insert_action",
+    "action_type_sys_id": "<published-action-snapshot-sys-id>",
+    "inputs": { "message": "Example" },
+    "parent": "error_handler",
+    "ref": "notify"
+  },
+  {
+    "op": "update_inputs",
+    "step": "<later-step-ui-id>",
+    "inputs": { "message": "{{notify.<declared-output-name>}}" }
+  }
+]
+```
+
+Replace all placeholders and use actual declared input/output names.
+`inputs` uses the existing scalar and declared complex serializers. Later edits can use `ref` as a placement or pill producer alias.
+Aliases become stable native UI identities before serialization. Subflow calls wait for completion.
+Dynamic/dependent insertion parameters remain unsupported. No snapshot schema is inferred or replaced.
+The older `add_action`/`add_subflow` header-append actions retain their narrower compatibility contract.
+
+`move_step` on a Try moves its adjacent linked Catch and both complete subtrees together.
+An independent Catch move is rejected. The pair retains persisted identities, `connectedTo`, values, and opaque metadata.
+Placement inside either subtree, self-relative anchors, broken pairs, invalid scope, script renumbering, or dangling pills are rejected.
+Existing stage and handler guards apply across parent regions.
+Local source: `gatherLogicBlock`, `gatherCatch`, and `gatherCatchBlock` (154568-154706).
+Native call construction: `buildNewActionInstance` and `buildNewSubflowInstance` (156128-156263).
+These operations are source-derived and offline-tested, not live-verified.
 
 ### Error handlers
 
@@ -743,7 +783,8 @@ Step ordering includes both actions and subflow calls. Existing steps remain unc
 They retain the persisted subflow snapshot reference, decoded inputs, V2 version, order, parent, and wait setting.
 Structural counts include these calls. Truncation metadata identifies bounded, unreadable, or malformed sections.
 Unknown dataset counts are null. A subflow snapshot reference does not establish a numeric publication version.
-No activation, publication, execution, credential handling, or automatic retry is exposed.
+Draft saves never activate, publish, or execute. The separate explicit lifecycle actions below can cause those effects.
+No automatic retry is exposed.
 
 ## Local preview boundary trace
 
@@ -842,19 +883,58 @@ This establishes flow-header capture metadata only, not payload equality or capt
 Unbound legacy calls remain compatible and report `capture.state="unverified"` explicitly.
 The installed concourse picker response shape is source-grounded but OAuth compatibility was not live-verified.
 
-## Lifecycle contract gaps and safe capture
+## Explicit lifecycle effects and remaining contract gaps
 
-`flow.describe.authoring.lifecycle` reports each operation separately. No remote lifecycle effect is enabled.
-The installed Studio client `designer-bundle.min.js` version `27.0.13` establishes these request-side facts:
+`flow_preview` accepts explicit lifecycle actions. Preview performs reads only.
+Apply requires the single-use token, exact revision, application, and update set from the preview.
+It never switches session context. Production policy blocks all lifecycle effects.
+Lifecycle commands require `expected_scope`, `expected_update_set`, and `expected_revision` even when draft authoring does not.
+Activate/publish/test require complete local semantic and dependency validation.
+Deactivate requires an active published flow with complete structural evidence.
+Subflow publication can update the version used by parent flows. It is not an isolated metadata operation.
 
-| Operation             | Observed contract                                                                              | Missing evidence                                                                                                                             |
-| --------------------- | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| Local validate        | Read-only checks implemented here                                                              | Runtime behavior is not established by local validity.                                                                                       |
-| Remote validate       | No standalone compile request established                                                      | Request, side effects, response, dependency/version preconditions.                                                                           |
-| Flow publish/activate | `publishFlowToServer` posts cleaned flow data to `flow/{id}/snapshot`; subflows use `/subflow` | Separate flow publish-only semantics, complete success/error/async schemas, OAuth and reconciliation. Publication must not alias activation. |
-| Deactivate            | `deactivateFlowCall` uses effectful GET `flow/{id}/deactivate`                                 | Complete response, revision/context conditions, reconciliation. GET does not make this operation read-only.                                  |
-| Test                  | `sendTestToServer` posts `{flow, outputMap, runOnThread}` to `flow/{id}/test`                  | Trigger-specific input mapping, context/version response and async reconciliation. Test is execution and can change records.                 |
-| Run                   | No independent callable contract established                                                   | Endpoint, typed inputs, target version/mode, dependency revision, result/context status. Test is not an alias.                               |
+| Action            | Effect and supported contract                                                                                                                                        |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `activate`        | Flow-only snapshot POST. Publishes a snapshot and enables triggers. Activation can start real work.                                                                  |
+| `publish`         | Subflow-only publication POST. Makes the published subflow callable. Flow publish-only is rejected because Studio's flow snapshot operation also activates.          |
+| `deactivate`      | Active flow-only effectful GET. Stops new trigger starts, not existing executions. It does not unpublish subflows.                                                   |
+| `test`            | Executes the exact saved inactive draft with real action side effects. Sends `flow`, `outputMap`, and `runOnThread=false`.                                           |
+| `validate_remote` | Unavailable. No independent compile/validation endpoint exists in the inspected local client. Saving persists, snapshot publication activates, and testing executes. |
+| `run`             | Unavailable. No independent production-run endpoint/version contract exists in the inspected local client. Test is not a run alias.                                  |
+
+For example, `flow_preview(action="test", sys_id=..., inputs=..., expected_scope=..., expected_update_set=..., expected_revision=...)`
+previews a real execution request. It does not execute until its token is applied.
+`inputs` supports static scalar subflow input values or supported classic trigger outputs.
+Supply every scalar subflow input explicitly, including optional inputs. Complex/list test mappings remain unsupported.
+Record-trigger tests require explicit record sys_ids. The adapter reads their identity and revision and binds both to the preview.
+Hidden test outputs cannot be overridden. Trigger-linked table names must match the configured table.
+
+The test response's `data` is the execution context ID (`testFlowSuccess(sendTest.data)` in the local source).
+Apply reads that exact context and checks flow/snapshot ownership, then verifies that the saved draft and header did not change.
+Queued, waiting, and in-progress results return `execution_succeeded=null`. A returned context does not establish completion.
+Use `flow(action="status", sys_id=..., execution_sys_id=...)` for bounded read-only follow-up. There is no automatic execution retry or unbounded polling.
+Unknown or unreadable post-dispatch results return `UNKNOWN_OUTCOME`. If a valid context ID was received, the error retains that ID for inspection.
+
+Publication/deactivation require matching save echo, independent Studio GET, and header state.
+Only the action's explicit lifecycle fields may change. Existing IDs, content, and opaque settings remain strict.
+Publication also checks the independently read snapshot identity, owner, type, and master-snapshot flags.
+Snapshot content and runtime behavior remain unverified. Responses report `snapshot_content_verified=false`.
+Strict Customer Update checks remain in force for publication/deactivation. Test does not assert a configuration capture.
+Conservative rejection or `UNKNOWN_OUTCOME` does not authorize replay.
+
+Source: `publishFlowToServer`/`deactivateFlowCall` (97561-97577), `saveFlowSaga` response handling (99271-99297),
+`showMessage` flow activation versus subflow publication (31224-31247), `sendTestToServer` (448105-448118),
+trigger test mapping (448249-448274), subflow test dispatch (448428-448441), and context response (448297-448301).
+All lifecycle implementations use source-derived offline fixtures. No live activation, publication, deactivation, test, or runtime proof was added.
+
+### Completion scope
+
+The supported package covers draft flow/subflow creation, structured calls, supported logic trees, paired Try/Catch moves,
+classic triggers, declarations, output assignments, complex pills, stages, handlers, local validation/status, and explicit lifecycle effects.
+`flow.describe.authoring.completion_scope` separates delivered families from core contract gaps and optional platform variants.
+The package does not claim all Workflow Studio variants or live runtime proof.
+The remaining core gaps are independent remote compilation/validation, independent production run, and flow publication without activation.
+The inspected source provides no separate safe endpoint for those operations. The tools reject them rather than alias another effect.
 
 Local official sources are `flow-test.md`, `flow-activate.md`, `publish-subflow.md`, and `flow-execution-details.md`
 under `docs/ServiceNowDocs/markdown/build-workflows/workflow-studio/`. The current-update-set behavior is documented in
@@ -878,12 +958,12 @@ The following bodies are still needed from a version-matched, safely isolated UI
 | Error stages                      | Native conditional creation, settings, deletion, and stable ancestry reindexing are implemented. Runtime state display remains unverified.                                                                                            |
 | Top-level handler                 | Native catalog wrapper creation/toggling/removal is implemented. Legacy fallback wrappers and sandwich/Parallel order projections remain unavailable.                                                                                 |
 | Saved Recurrence/dynamic triggers | Classic record and daily/weekly/monthly/run-once/repeat draft triggers are implemented. Saved Recurrence/timezone-specific contracts and external interface regeneration still need adapters.                                         |
-| Try/Catch paired moves            | Pair movement across parent regions with connectedTo, children, order, and ancestry fields.                                                                                                                                           |
+| Try/Catch paired moves            | Native pair movement is implemented with identity, topology, stage, and pill checks. Sandwich/legacy order projections remain excluded.                                                                                               |
 
 Further capture requires an authenticated editor bootstrap that works within the GET-only/no-worker boundary,
 or sanitized version-matched request fixtures. Do not permit the blocked POSTs merely to make the UI load.
 Blocked requests cannot establish success responses, OAuth effect behavior, runtime results, or capture guarantees.
-All remote lifecycle response gaps remain open.
+Live lifecycle compatibility and runtime outcomes remain unverified. Independent compiler and production-run contracts remain absent from the inspected source.
 
 After a timeout or incomplete response, inspect the exact target before another preview.
 For create, resolve the reviewed name and scope before retrying to avoid a duplicate.

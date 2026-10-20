@@ -116,6 +116,41 @@ def detach(roots: list[Step], ref: str) -> Step:
     return siblings.pop(index)
 
 
+def move(
+    roots: list[Step],
+    ref: str,
+    *,
+    parent: str | None,
+    after: str | None,
+    before: str | None,
+) -> None:
+    """Move Try together with its Catch and both subtrees (bundle:154568-154706)."""
+    siblings, position, _ = find(roots, ref)
+    step = siblings[position]
+    if step.logic_type == "CATCH":
+        raise CapabilityError("Move the paired Try. Catch cannot move independently.")
+    block = [step]
+    if step.logic_type == "TRY":
+        if (
+            position + 1 >= len(siblings)
+            or siblings[position + 1].logic_type != "CATCH"
+            or siblings[position + 1].raw.get("connectedTo") != step.uid
+        ):
+            raise CapabilityError(
+                "Try movement requires its adjacent, identity-linked Catch."
+            )
+        block.append(siblings[position + 1])
+    members = {s.uid for s in walk(block)}
+    if any(target in members for target in (parent, after, before) if target):
+        raise CapabilityError(
+            "A block cannot move into or relative to its own pair or descendants."
+        )
+    del siblings[position : position + len(block)]
+    insert(roots, step, parent=parent, after=after, before=before)
+    if len(block) == 2:
+        insert(roots, block[1], parent=None, after=step.uid, before=None)
+
+
 def insert(
     roots: list[Step],
     step: Step,

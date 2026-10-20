@@ -990,5 +990,5 @@ async def test_capture_blocker_is_explicit_and_does_not_enable_remaining_familie
         assert ledger["features"][family]["authorable"] is True
         assert ledger["features"][family]["live_verified"] is False
     for family in ("try_catch_pair_moves",):
-        assert ledger["features"][family]["authorable"] is False
+        assert ledger["features"][family]["authorable"] is True
         assert ledger["features"][family]["live_verified"] is False

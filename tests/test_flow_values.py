@@ -10,7 +10,10 @@ from typing import Any
 import pytest
 
 from servicenow_mcp.capabilities.flows import _flow_values
-from servicenow_mcp.capabilities.flows._flow_values import decode_values, looks_compressed
+from servicenow_mcp.capabilities.flows._flow_values import (
+    decode_values,
+    looks_compressed,
+)
 
 
 def _encode(payload: Any) -> str:
@@ -72,8 +75,12 @@ def test_looks_compressed_returns_false_for_non_string() -> None:
     # call below to keep this deliberate misuse exercise green.
     none_sentinel: Any = None
     int_sentinel: Any = 123
-    assert looks_compressed(none_sentinel) is False  # NOSONAR(S5655) deliberate non-str input
-    assert looks_compressed(int_sentinel) is False  # NOSONAR(S5655) deliberate non-str input
+    assert (
+        looks_compressed(none_sentinel) is False
+    )  # NOSONAR(S5655) deliberate non-str input
+    assert (
+        looks_compressed(int_sentinel) is False
+    )  # NOSONAR(S5655) deliberate non-str input
 
 
 # ---------------------------------------------------------------------------

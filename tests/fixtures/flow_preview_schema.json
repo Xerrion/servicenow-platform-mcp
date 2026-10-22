@@ -1,0 +1,189 @@
+{
+  "input": {
+    "$defs": {
+      "JsonValue": {}
+    },
+    "properties": {
+      "action": {
+        "enum": [
+          "create",
+          "add_action",
+          "add_subflow",
+          "edit",
+          "activate",
+          "publish",
+          "deactivate",
+          "test",
+          "validate_remote",
+          "run"
+        ],
+        "title": "Action",
+        "type": "string"
+      },
+      "sys_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Sys Id"
+      },
+      "name": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Name"
+      },
+      "scope": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Scope"
+      },
+      "description": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Description"
+      },
+      "flow_type": {
+        "anyOf": [
+          {
+            "enum": [
+              "flow",
+              "subflow"
+            ],
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Flow Type"
+      },
+      "action_type_sys_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Action Type Sys Id"
+      },
+      "subflow_sys_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Subflow Sys Id"
+      },
+      "inputs": {
+        "anyOf": [
+          {
+            "additionalProperties": {
+              "$ref": "#/$defs/JsonValue"
+            },
+            "type": "object"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Inputs"
+      },
+      "edits": {
+        "anyOf": [
+          {
+            "items": {
+              "additionalProperties": {
+                "$ref": "#/$defs/JsonValue"
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Edits"
+      },
+      "expected_scope": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Expected Scope"
+      },
+      "expected_update_set": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Expected Update Set"
+      },
+      "expected_revision": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Expected Revision"
+      }
+    },
+    "required": [
+      "action"
+    ],
+    "title": "flow_previewArguments",
+    "type": "object",
+    "additionalProperties": false
+  },
+  "shared_output_and_annotations": "record_preview"
+}

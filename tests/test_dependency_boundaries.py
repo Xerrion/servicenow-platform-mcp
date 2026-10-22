@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-
 SOURCE = Path(__file__).parents[1] / "src/servicenow_mcp"
 
 
@@ -21,14 +20,18 @@ def test_lower_layers_have_no_transport_imports(directory: str) -> None:
     violations = []
     for path in (SOURCE / directory).rglob("*.py"):
         for node in ast.walk(ast.parse(path.read_text())):
-            names = (
-                [node.module or ""]
-                if isinstance(node, ast.ImportFrom)
-                else [alias.name for alias in node.names]
-                if isinstance(node, ast.Import)
-                else []
-            )
+            if isinstance(node, ast.ImportFrom):
+                names = [node.module or ""]
+            elif isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            else:
+                continue
             for name in names:
-                if any(name == prefix or name.startswith(prefix + ".") for prefix in forbidden):
-                    violations.append(f"{path.relative_to(SOURCE)}:{node.lineno}: {name}")
+                if any(
+                    name == prefix or name.startswith(prefix + ".")
+                    for prefix in forbidden
+                ):
+                    violations.append(
+                        f"{path.relative_to(SOURCE)}:{node.lineno}: {name}"
+                    )
     assert not violations, "\n".join(violations)

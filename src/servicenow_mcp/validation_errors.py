@@ -1,6 +1,9 @@
 """Privacy-safe translation of Pydantic validation failures."""
 
-from pydantic import ValidationError
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pydantic import ValidationError
 
 
 def safe_validation_error(exc: ValidationError) -> ValueError:

@@ -1,17 +1,23 @@
 """Tests for ChoiceRegistry lazy-loaded choice list cache."""
 
 import asyncio
-from typing import cast
+from typing import TYPE_CHECKING, cast
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx2 import Response
 
 from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.config import Settings
-from servicenow_mcp.platform.client import ServiceNowClientProvider
-from servicenow_mcp.platform.metadata.choices import ChoiceRegistry, _group_choice_records, _merge_with_defaults
+from servicenow_mcp.platform.metadata.choices import (
+    ChoiceRegistry,
+    _group_choice_records,
+    _merge_with_defaults,
+)
 from tests._mock_transport import http_mock
+
+if TYPE_CHECKING:
+    from servicenow_mcp.config import Settings
+    from servicenow_mcp.platform.client import ServiceNowClientProvider
 
 
 BASE_URL = "https://test.service-now.com"
@@ -23,10 +29,14 @@ def auth_provider(settings: Settings) -> OAuthPKCEProvider:
     return OAuthPKCEProvider(settings)
 
 
-def _make_registry_with_defaults(settings: Settings, auth_provider: OAuthPKCEProvider) -> ChoiceRegistry:
+def _make_registry_with_defaults(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> ChoiceRegistry:
     """Create a ChoiceRegistry pre-populated with OOTB defaults (no network)."""
     registry = ChoiceRegistry(settings, auth_provider)
-    registry._metadata_cache.seed("all", {k: dict(v) for k, v in ChoiceRegistry._DEFAULTS.items()})
+    registry._metadata_cache.seed(
+        "all", {k: dict(v) for k, v in ChoiceRegistry._DEFAULTS.items()}
+    )
     return registry
 
 
@@ -35,7 +45,9 @@ class TestChoiceRegistryDefaults:
 
     @pytest.mark.asyncio()
     async def test_resolve_known_label_returns_value(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """resolve() should return the stored value for a known label."""
         registry = _make_registry_with_defaults(settings, auth_provider)
@@ -45,7 +57,9 @@ class TestChoiceRegistryDefaults:
 
     @pytest.mark.asyncio()
     async def test_resolve_unknown_label_returns_passthrough(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """resolve() should passthrough an unrecognized label as-is."""
         registry = _make_registry_with_defaults(settings, auth_provider)
@@ -55,7 +69,9 @@ class TestChoiceRegistryDefaults:
 
     @pytest.mark.asyncio()
     async def test_resolve_unknown_table_returns_passthrough(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """resolve() should passthrough when the table is not tracked."""
         registry = _make_registry_with_defaults(settings, auth_provider)
@@ -65,7 +81,9 @@ class TestChoiceRegistryDefaults:
 
     @pytest.mark.asyncio()
     async def test_resolve_unknown_field_returns_passthrough(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """resolve() should passthrough when the field is not tracked."""
         registry = _make_registry_with_defaults(settings, auth_provider)
@@ -74,7 +92,9 @@ class TestChoiceRegistryDefaults:
         assert result == "open"
 
     @pytest.mark.asyncio()
-    async def test_get_choices_returns_default_map(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_get_choices_returns_default_map(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         """get_choices() should return the full label-to-value dict for a known table/field."""
         registry = _make_registry_with_defaults(settings, auth_provider)
 
@@ -88,7 +108,9 @@ class TestChoiceRegistryDefaults:
 
     @pytest.mark.asyncio()
     async def test_get_choices_unknown_returns_empty(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """get_choices() should return an empty dict for an unknown table/field pair."""
         registry = _make_registry_with_defaults(settings, auth_provider)
@@ -102,7 +124,9 @@ class TestChoiceRegistryFetch:
 
     @pytest.mark.asyncio()
     async def test_fetch_merges_instance_data_over_defaults(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """Instance data should override defaults while preserving non-overridden entries."""
         # Mock sys_choice response: override "open" value for incident.state
@@ -117,10 +141,10 @@ class TestChoiceRegistryFetch:
                             "value": "99",
                             "label": "Open",
                         },
-                    ]
+                    ],
                 },
                 headers={"X-Total-Count": "1"},
-            )
+            ),
         )
 
         registry = ChoiceRegistry(settings, auth_provider)
@@ -133,14 +157,16 @@ class TestChoiceRegistryFetch:
         assert closed == "7"
 
     @pytest.mark.asyncio()
-    async def test_fetch_only_happens_once(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_fetch_only_happens_once(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         """Repeated resolve() calls should only trigger one HTTP fetch."""
         route = http_mock.get(f"{BASE_URL}/api/now/table/sys_choice").mock(
             return_value=Response(
                 200,
                 json={"result": []},
                 headers={"X-Total-Count": "0"},
-            )
+            ),
         )
 
         registry = ChoiceRegistry(settings, auth_provider)
@@ -152,11 +178,15 @@ class TestChoiceRegistryFetch:
 
     @pytest.mark.asyncio()
     async def test_fresh_hit_precedes_client_creation(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """A fresh choices hit does not call the client factory."""
         client_factory = AsyncMock(side_effect=AssertionError("client factory called"))
-        registry = ChoiceRegistry(settings, auth_provider, cast("ServiceNowClientProvider", client_factory))
+        registry = ChoiceRegistry(
+            settings, auth_provider, cast("ServiceNowClientProvider", client_factory)
+        )
         registry._metadata_cache.seed("all", {("incident", "state"): {"open": "1"}})
 
         assert await registry.resolve("incident", "state", "open") == "1"
@@ -164,7 +194,9 @@ class TestChoiceRegistryFetch:
 
     @pytest.mark.asyncio()
     async def test_fetch_adds_custom_instance_values(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """Instance-only choices not in defaults should be available after fetch."""
         http_mock.get(f"{BASE_URL}/api/now/table/sys_choice").mock(
@@ -178,10 +210,10 @@ class TestChoiceRegistryFetch:
                             "value": "77",
                             "label": "Awaiting Approval",
                         },
-                    ]
+                    ],
                 },
                 headers={"X-Total-Count": "1"},
-            )
+            ),
         )
 
         registry = ChoiceRegistry(settings, auth_provider)
@@ -190,19 +222,24 @@ class TestChoiceRegistryFetch:
         assert result == "77"
 
     @pytest.mark.asyncio()
-    async def test_concurrent_fetch_shares_load(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_concurrent_fetch_shares_load(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         """Concurrent resolve() calls should share one HTTP fetch."""
         route = http_mock.get(f"{BASE_URL}/api/now/table/sys_choice").mock(
             return_value=Response(
                 200,
                 json={"result": []},
                 headers={"X-Total-Count": "0"},
-            )
+            ),
         )
 
         registry = ChoiceRegistry(settings, auth_provider)
         # Fire 10 concurrent resolve calls
-        tasks = [asyncio.create_task(registry.resolve("incident", "state", "open")) for _ in range(10)]
+        tasks = [
+            asyncio.create_task(registry.resolve("incident", "state", "open"))
+            for _ in range(10)
+        ]
         results = await asyncio.gather(*tasks)
 
         # All should return the default passthrough or default value
@@ -215,7 +252,9 @@ class TestChoiceRegistryLabelNormalization:
     """Test label normalization behavior (spaces, case)."""
 
     @pytest.mark.asyncio()
-    async def test_label_with_spaces_normalized(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_label_with_spaces_normalized(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         """Labels with spaces should be stored as underscore-separated lowercase keys."""
         http_mock.get(f"{BASE_URL}/api/now/table/sys_choice").mock(
             return_value=Response(
@@ -228,10 +267,10 @@ class TestChoiceRegistryLabelNormalization:
                             "value": "2",
                             "label": "In Progress",
                         },
-                    ]
+                    ],
                 },
                 headers={"X-Total-Count": "1"},
-            )
+            ),
         )
 
         registry = ChoiceRegistry(settings, auth_provider)
@@ -239,7 +278,9 @@ class TestChoiceRegistryLabelNormalization:
         assert result == "2"
 
     @pytest.mark.asyncio()
-    async def test_label_case_insensitive(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_label_case_insensitive(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         """Labels like 'NEW' should be stored as the lowercase key 'new'."""
         http_mock.get(f"{BASE_URL}/api/now/table/sys_choice").mock(
             return_value=Response(
@@ -252,10 +293,10 @@ class TestChoiceRegistryLabelNormalization:
                             "value": "1",
                             "label": "NEW",
                         },
-                    ]
+                    ],
                 },
                 headers={"X-Total-Count": "1"},
-            )
+            ),
         )
 
         registry = ChoiceRegistry(settings, auth_provider)
@@ -263,7 +304,9 @@ class TestChoiceRegistryLabelNormalization:
         assert result == "1"
 
     @pytest.mark.asyncio()
-    async def test_label_with_mixed_case_and_spaces(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_label_with_mixed_case_and_spaces(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         """'Root Cause Analysis' should normalize to 'root_cause_analysis'."""
         http_mock.get(f"{BASE_URL}/api/now/table/sys_choice").mock(
             return_value=Response(
@@ -276,10 +319,10 @@ class TestChoiceRegistryLabelNormalization:
                             "value": "4",
                             "label": "Root Cause Analysis",
                         },
-                    ]
+                    ],
                 },
                 headers={"X-Total-Count": "1"},
-            )
+            ),
         )
 
         registry = ChoiceRegistry(settings, auth_provider)
@@ -344,14 +387,18 @@ class TestChoiceRegistryExceptionPaths:
 
     @pytest.mark.asyncio()
     async def test_concurrent_waiter_shares_in_flight_load(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """A second concurrent caller shares the first caller's in-flight load."""
         gate = asyncio.Event()
 
         original_fetch = ChoiceRegistry._fetch_from_instance
 
-        async def slow_fetch(self_inner: ChoiceRegistry) -> dict[tuple[str, str], dict[str, str]]:
+        async def slow_fetch(
+            self_inner: ChoiceRegistry,
+        ) -> dict[tuple[str, str], dict[str, str]]:
             """Delay fetch so the second caller shares the pending load."""
             await gate.wait()
             return await original_fetch(self_inner)
@@ -361,7 +408,7 @@ class TestChoiceRegistryExceptionPaths:
                 200,
                 json={"result": []},
                 headers={"X-Total-Count": "0"},
-            )
+            ),
         )
 
         registry = ChoiceRegistry(settings, auth_provider)
@@ -384,11 +431,15 @@ class TestChoiceRegistryExceptionPaths:
 
     @pytest.mark.asyncio()
     async def test_ensure_fetched_falls_back_on_fetch_error(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """When _fetch_from_instance raises, the registry should fall back to OOTB defaults."""
         http_mock.get(f"{BASE_URL}/api/now/table/sys_choice").mock(
-            return_value=Response(500, json={"error": {"message": "Internal Server Error"}})
+            return_value=Response(
+                500, json={"error": {"message": "Internal Server Error"}}
+            ),
         )
 
         registry = ChoiceRegistry(settings, auth_provider)
@@ -399,7 +450,9 @@ class TestChoiceRegistryExceptionPaths:
 
     @pytest.mark.asyncio()
     async def test_fetch_from_instance_empty_defaults(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """An empty tracked set returns an empty mapping without an HTTP request."""
         registry = ChoiceRegistry(settings, auth_provider)

@@ -26,7 +26,10 @@ class CodeSearchApiClient(ServiceNowRequestClient):
         extended_matching: bool | None = None,
     ) -> dict[str, Any]:
         """Search script tables; None keeps the search group's context default."""
-        params = {"term": term, "search_group": search_group or "sn_codesearch.Default Search Group"}
+        params = {
+            "term": term,
+            "search_group": search_group or "sn_codesearch.Default Search Group",
+        }
         if table:
             params["table"] = table
         if limit is not None:
@@ -41,12 +44,16 @@ class CodeSearchApiClient(ServiceNowRequestClient):
         self._raise_for_status(response)
         return self._extract_json_result(response)
 
-    async def code_search_tables(self, search_group: str | None = None) -> dict[str, Any]:
+    async def code_search_tables(
+        self, search_group: str | None = None
+    ) -> dict[str, Any]:
         """Get tables searched by a code search group."""
         response = await self._ensure_client().get(
             self._code_search_tables_url(),
             headers=await self._headers(),
-            params={"search_group": search_group or "sn_codesearch.Default Search Group"},
+            params={
+                "search_group": search_group or "sn_codesearch.Default Search Group"
+            },
         )
         self._raise_for_status(response)
         return self._extract_json_result(response)

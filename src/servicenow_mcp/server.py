@@ -10,9 +10,15 @@ from servicenow_mcp.telemetry import configure_diagnostic_logging
 def _format_configuration_error(exc: ValidationError) -> str:
     """Describe invalid settings without including submitted values."""
     details = []
-    for error in exc.errors(include_url=False, include_context=False, include_input=False):
+    for error in exc.errors(
+        include_url=False, include_context=False, include_input=False
+    ):
         location = error["loc"]
-        setting = ".".join(str(part).upper() for part in location) if location else "CONFIGURATION"
+        setting = (
+            ".".join(str(part).upper() for part in location)
+            if location
+            else "CONFIGURATION"
+        )
         details.append(f"- {setting}: {error['msg']}")
     return "\n".join(
         [

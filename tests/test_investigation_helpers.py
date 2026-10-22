@@ -12,7 +12,6 @@ from servicenow_mcp.capabilities.investigations.helpers import (
     parse_int_param,
 )
 
-
 # ── parse_int_param ──────────────────────────────────────────────────────
 
 
@@ -113,7 +112,9 @@ class TestBuildInvestigationResult:
         assert "provenance" not in result
         assert result["finding_count"] == 1
         assert result["findings"] is findings
-        assert findings == [{"category": "stuck_flow", "element_id": "sys_flow_context:fc001"}]
+        assert findings == [
+            {"category": "stuck_flow", "element_id": "sys_flow_context:fc001"}
+        ]
 
     def test_sets_finding_count_from_list_length(self) -> None:
         """finding_count reflects the actual length of the findings list."""
@@ -166,7 +167,9 @@ class TestFetchAndExplain:
         client = AsyncMock()
         client.get_record.return_value = test_record
 
-        def build_explanation(_table: str, _sys_id: str, record: dict[str, Any]) -> list[str]:
+        def build_explanation(
+            _table: str, _sys_id: str, record: dict[str, Any]
+        ) -> list[str]:
             return [f"Flow '{record['name']}' is stuck."]
 
         result = await fetch_and_explain(
@@ -276,7 +279,9 @@ class TestFetchAndExplain:
 
         received_records: list[dict[str, Any]] = []
 
-        def capture_explanation(_table: str, _sys_id: str, record: dict[str, Any]) -> list[str]:
+        def capture_explanation(
+            _table: str, _sys_id: str, record: dict[str, Any]
+        ) -> list[str]:
             received_records.append(record)
             return ["explained"]
 

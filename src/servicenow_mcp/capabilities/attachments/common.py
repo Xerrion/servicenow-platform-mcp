@@ -4,19 +4,24 @@ import base64
 import binascii
 from typing import Any
 
-from servicenow_mcp.validation import resolve_ref_value, validate_identifier, validate_sys_id
-
+from servicenow_mcp.validation import (
+    resolve_ref_value,
+    validate_identifier,
+    validate_sys_id,
+)
 
 MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
 
 
-def ensure_attachment_size_value_within_limit(size_bytes: int, *, operation: str) -> None:
+def ensure_attachment_size_value_within_limit(
+    size_bytes: int, *, operation: str
+) -> None:
     """Raise ValueError when an attachment size exceeds the supported MCP transfer limit."""
     if size_bytes <= MAX_ATTACHMENT_BYTES:
         return
     raise ValueError(
         f"Attachment {operation} size {size_bytes} bytes exceeds the maximum supported size of "
-        f"{MAX_ATTACHMENT_BYTES} bytes"
+        f"{MAX_ATTACHMENT_BYTES} bytes",
     )
 
 
@@ -76,14 +81,18 @@ def get_attachment_size_bytes(metadata: dict[str, Any]) -> int:
     try:
         size_bytes = int(raw_size)
     except ValueError as exc:
-        raise ValueError("Attachment metadata field 'size_bytes' must be an integer") from exc
+        raise ValueError(
+            "Attachment metadata field 'size_bytes' must be an integer"
+        ) from exc
 
     if size_bytes < 0:
         raise ValueError("Attachment metadata field 'size_bytes' must be non-negative")
     return size_bytes
 
 
-def build_attachment_download_payload(metadata: dict[str, Any], content: bytes) -> dict[str, Any]:
+def build_attachment_download_payload(
+    metadata: dict[str, Any], content: bytes
+) -> dict[str, Any]:
     """Build a stable attachment download response payload."""
     return {
         "sys_id": get_attachment_sys_id(metadata),

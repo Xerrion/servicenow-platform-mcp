@@ -10,12 +10,12 @@ still determine what you can read or change.
 
 ## Start with your task
 
-| What you want to do | Where to start |
-| --- | --- |
-| Connect for the first time or check an existing connection | [[Getting-Started]] |
-| Find tickets, read work notes, review request answers, or prepare a ticket update | [[ITSM-Work]] |
-| Understand tables, scripts, flows, or instance issues | [[Instance-Development]] |
-| Install the server or prepare the connection for other users | [Installation guide](https://github.com/Xerrion/servicenow-platform-mcp/blob/main/INSTALL.md) |
+| What you want to do                                                               | Where to start                                                                                |
+| --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Connect for the first time or check an existing connection                        | [[Getting-Started]]                                                                           |
+| Find tickets, read work notes, review request answers, or prepare a ticket update | [[ITSM-Work]]                                                                                 |
+| Understand tables, scripts, flows, or instance issues                             | [[Instance-Development]]                                                                      |
+| Install the server or prepare the connection for other users                      | [Installation guide](https://github.com/Xerrion/servicenow-platform-mcp/blob/main/INSTALL.md) |
 
 If the connection is already available in your AI app, try:
 

@@ -1,5 +1,6 @@
 """Tests for utility functions."""
 
+from typing import Never
 from unittest.mock import AsyncMock
 
 import httpx2
@@ -10,7 +11,12 @@ from servicenow_mcp.errors import ForbiddenError
 from servicenow_mcp.mcp.errors import safe_tool_call
 from servicenow_mcp.mcp.outputs import error_result
 from servicenow_mcp.query_builder import ServiceNowQuery
-from servicenow_mcp.validation import resolve_ref_value, sanitize_query_value, validate_identifier, validate_sys_id
+from servicenow_mcp.validation import (
+    resolve_ref_value,
+    sanitize_query_value,
+    validate_identifier,
+    validate_sys_id,
+)
 from tests.helpers import decode_response
 
 
@@ -29,7 +35,11 @@ class TestNativeResults:
             warnings=["Results incomplete"],
             truncation={"nodes": {"continuation": "Read another page"}},
         )
-        assert value.to_payload()["pagination"] == {"offset": 0, "limit": 5, "total": 20}
+        assert value.to_payload()["pagination"] == {
+            "offset": 0,
+            "limit": 5,
+            "total": 20,
+        }
         assert value.to_payload()["warnings"] == ["Results incomplete"]
 
     def test_native_error_is_not_success(self):
@@ -49,16 +59,24 @@ class TestServiceNowQuery:
         assert ServiceNowQuery().equals("active", "true").build() == "active=true"
 
     def test_greater_or_equal(self) -> None:
-        assert ServiceNowQuery().greater_or_equal("http_status", "400").build() == "http_status>=400"
+        assert (
+            ServiceNowQuery().greater_or_equal("http_status", "400").build()
+            == "http_status>=400"
+        )
 
     def test_like(self) -> None:
-        assert ServiceNowQuery().like("source", "incident").build() == "sourceLIKEincident"
+        assert (
+            ServiceNowQuery().like("source", "incident").build() == "sourceLIKEincident"
+        )
 
     def test_is_empty(self) -> None:
         assert ServiceNowQuery().is_empty("window_end").build() == "window_endISEMPTY"
 
     def test_is_not_empty(self) -> None:
-        assert ServiceNowQuery().is_not_empty("assigned_to").build() == "assigned_toISNOTEMPTY"
+        assert (
+            ServiceNowQuery().is_not_empty("assigned_to").build()
+            == "assigned_toISNOTEMPTY"
+        )
 
     def test_hours_ago(self) -> None:
         result = ServiceNowQuery().hours_ago("sys_created_on", 24).build()
@@ -70,9 +88,16 @@ class TestServiceNowQuery:
 
     def test_chaining_multiple_conditions(self) -> None:
         result = (
-            ServiceNowQuery().equals("active", "true").equals("priority", "1").hours_ago("sys_created_on", 24).build()
+            ServiceNowQuery()
+            .equals("active", "true")
+            .equals("priority", "1")
+            .hours_ago("sys_created_on", 24)
+            .build()
         )
-        assert result == "active=true^priority=1^sys_created_on>=javascript:gs.hoursAgoStart(24)"
+        assert (
+            result
+            == "active=true^priority=1^sys_created_on>=javascript:gs.hoursAgoStart(24)"
+        )
 
     def test_empty_build_returns_empty_string(self) -> None:
         assert ServiceNowQuery().build() == ""
@@ -183,15 +208,30 @@ class TestServiceNowQueryOrConditions:
     """Test OR condition methods."""
 
     def test_or_equals(self) -> None:
-        result = ServiceNowQuery().equals("active", "true").or_equals("priority", "1").build()
+        result = (
+            ServiceNowQuery()
+            .equals("active", "true")
+            .or_equals("priority", "1")
+            .build()
+        )
         assert result == "active=true^ORpriority=1"
 
     def test_or_starts_with(self) -> None:
-        result = ServiceNowQuery().equals("active", "true").or_starts_with("name", "inc").build()
+        result = (
+            ServiceNowQuery()
+            .equals("active", "true")
+            .or_starts_with("name", "inc")
+            .build()
+        )
         assert result == "active=true^ORnameSTARTSWITHinc"
 
     def test_or_condition_with_contains(self) -> None:
-        result = ServiceNowQuery().equals("active", "true").or_condition("script", "CONTAINS", "test").build()
+        result = (
+            ServiceNowQuery()
+            .equals("active", "true")
+            .or_condition("script", "CONTAINS", "test")
+            .build()
+        )
         assert result == "active=true^ORscriptCONTAINStest"
 
     def test_or_condition_unknown_operator_raises(self) -> None:
@@ -211,11 +251,21 @@ class TestServiceNowQueryOrderBy:
     """Test order_by method."""
 
     def test_order_by_ascending(self) -> None:
-        result = ServiceNowQuery().equals("active", "true").order_by("sys_created_on").build()
+        result = (
+            ServiceNowQuery()
+            .equals("active", "true")
+            .order_by("sys_created_on")
+            .build()
+        )
         assert result == "active=true^ORDERBYsys_created_on"
 
     def test_order_by_descending(self) -> None:
-        result = ServiceNowQuery().equals("active", "true").order_by("sys_created_on", descending=True).build()
+        result = (
+            ServiceNowQuery()
+            .equals("active", "true")
+            .order_by("sys_created_on", descending=True)
+            .build()
+        )
         assert result == "active=true^ORDERBYDESCsys_created_on"
 
     def test_order_by_validates_field(self) -> None:
@@ -247,7 +297,12 @@ class TestServiceNowQueryInList:
         assert result == "descriptionINa^^b,c"
 
     def test_in_list_chained(self) -> None:
-        result = ServiceNowQuery().equals("active", "true").in_list("state", ["1", "2"]).build()
+        result = (
+            ServiceNowQuery()
+            .equals("active", "true")
+            .in_list("state", ["1", "2"])
+            .build()
+        )
         assert result == "active=true^stateIN1,2"
 
     def test_in_list_empty_list(self) -> None:
@@ -283,16 +338,17 @@ class TestSafeToolCall:
 
     async def test_success_passthrough(self) -> None:
         """Successful fn return passes through unchanged."""
-        fn = AsyncMock(return_value='{"status": "ok"}')
+        expected = operation_result(data={"status": "ok"})
+        fn = AsyncMock(return_value=expected)
 
         result = await safe_tool_call(fn)
-        assert result == '{"status": "ok"}'
+        assert result is expected
 
     async def test_acl_error_returns_acl_envelope(self) -> None:
         """ACLError is caught and formatted as ACL denial."""
         from servicenow_mcp.errors import ACLError
 
-        async def fn() -> str:
+        async def fn() -> Never:
             raise ACLError("ACL blocked incident")
 
         result = await safe_tool_call(fn)
@@ -306,7 +362,7 @@ class TestSafeToolCall:
     async def test_forbidden_error_returns_forbidden_envelope(self) -> None:
         """ForbiddenError is caught and formatted as generic forbidden."""
 
-        async def fn() -> str:
+        async def fn() -> Never:
             raise ForbiddenError("insufficient role")
 
         result = await safe_tool_call(fn)
@@ -327,7 +383,7 @@ class TestSafeToolCall:
         their own arms with verbose messages — see the curated-error tests.
         """
 
-        async def fn() -> str:
+        async def fn() -> Never:
             raise RuntimeError("something broke")
 
         result = await safe_tool_call(fn)
@@ -340,10 +396,12 @@ class TestSafeToolCall:
         assert "correlation_id" not in parsed
 
     async def test_get_timeout_returns_query_narrowing_advice(self) -> None:
-        async def fn() -> str:
+        async def fn() -> Never:
             raise httpx2.ReadTimeout(
                 "private request details",
-                request=httpx2.Request("GET", "https://test.service-now.com/api/now/table/incident"),
+                request=httpx2.Request(
+                    "GET", "https://test.service-now.com/api/now/table/incident"
+                ),
             )
 
         result = await safe_tool_call(fn)
@@ -370,10 +428,12 @@ class TestSafeToolCall:
         timeout_type: type[httpx2.TimeoutException],
         phase: str,
     ) -> None:
-        async def fn() -> str:
+        async def fn() -> Never:
             raise timeout_type(
                 "private request details",
-                request=httpx2.Request(method, "https://test.service-now.com/api/now/table/incident"),
+                request=httpx2.Request(
+                    method, "https://test.service-now.com/api/now/table/incident"
+                ),
             )
 
         result = await safe_tool_call(fn)
@@ -387,7 +447,7 @@ class TestSafeToolCall:
         assert "private request details" not in message
 
     async def test_timeout_without_request_has_no_query_advice(self) -> None:
-        async def fn() -> str:
+        async def fn() -> Never:
             raise httpx2.PoolTimeout("private request details")
 
         message = decode_response(await safe_tool_call(fn))["error"]["message"]
@@ -415,7 +475,10 @@ class TestResolveRefValue:
 
     def test_dict_with_display_value_only(self) -> None:
         """Dicts with only display_value fall back to it when value is absent."""
-        val = {"display_value": "My Workflow", "link": "https://instance.service-now.com/api/..."}
+        val = {
+            "display_value": "My Workflow",
+            "link": "https://instance.service-now.com/api/...",
+        }
         assert resolve_ref_value(val) == "My Workflow"
 
     def test_dict_with_value_only(self) -> None:
@@ -467,13 +530,19 @@ class TestValidateIdentifierDictCoercion:
 
     def test_dict_with_valid_display_value(self) -> None:
         """Dict containing a valid identifier in display_value is accepted."""
-        ref = {"display_value": "sys_user", "link": "https://instance.service-now.com/api/..."}
+        ref = {
+            "display_value": "sys_user",
+            "link": "https://instance.service-now.com/api/...",
+        }
         # Should not raise
         validate_identifier(ref)
 
     def test_dict_with_invalid_display_value_raises(self) -> None:
         """Dict containing an invalid identifier still raises ValueError."""
-        ref = {"display_value": "INVALID IDENTIFIER!", "link": "https://instance.service-now.com/api/..."}
+        ref = {
+            "display_value": "INVALID IDENTIFIER!",
+            "link": "https://instance.service-now.com/api/...",
+        }
         with pytest.raises(ValueError, match="Invalid identifier"):
             validate_identifier(ref)
 
@@ -493,7 +562,10 @@ class TestSanitizeQueryValueDictCoercion:
 
     def test_dict_with_display_value(self) -> None:
         """Dict containing a display_value is resolved before sanitizing."""
-        ref = {"display_value": "some^value", "link": "https://instance.service-now.com/api/..."}
+        ref = {
+            "display_value": "some^value",
+            "link": "https://instance.service-now.com/api/...",
+        }
         result = sanitize_query_value(ref)
         assert result == "some^^value"
 
@@ -550,9 +622,9 @@ class TestValidationErrorTranslation:
         class Probe(BaseModel):
             secret_field: int
 
-        async def fn() -> str:
+        async def fn() -> Never:
             Probe.model_validate({"secret_field": "private-input-value"})
-            return ""
+            raise AssertionError("Expected Probe validation to fail")
 
         with patch("servicenow_mcp.mcp.errors.sentry_capture") as capture:
             result = await safe_tool_call(fn)

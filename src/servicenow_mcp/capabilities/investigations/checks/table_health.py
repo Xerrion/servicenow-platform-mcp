@@ -1,11 +1,17 @@
 """Investigation: comprehensive health report for a single table."""
 
 import asyncio
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
 
-from servicenow_mcp.capabilities.investigations.checks._models import HealthIndicatorFinding, ParamSpec, param_specs
-from servicenow_mcp.capabilities.investigations.helpers import build_investigation_result, parse_int_param
-from servicenow_mcp.platform.client import ServiceNowClient
+from servicenow_mcp.capabilities.investigations.checks._models import (
+    HealthIndicatorFinding,
+    ParamSpec,
+    param_specs,
+)
+from servicenow_mcp.capabilities.investigations.helpers import (
+    build_investigation_result,
+    parse_int_param,
+)
 from servicenow_mcp.policy import (
     INTERNAL_QUERY_LIMIT,
     check_table_access,
@@ -14,10 +20,19 @@ from servicenow_mcp.policy import (
 from servicenow_mcp.query_builder import ServiceNowQuery
 from servicenow_mcp.validation import validate_identifier
 
+if TYPE_CHECKING:
+    from servicenow_mcp.platform.client import ServiceNowClient
+
 
 PARAMS: Final[dict[str, dict[str, Any]]] = param_specs(
-    table=ParamSpec(type="str", required=True, default=None, description="Table name to analyze."),
-    hours=ParamSpec(type="int|None", default=None, description="Lookback window in hours; omit to query all history."),
+    table=ParamSpec(
+        type="str", required=True, default=None, description="Table name to analyze."
+    ),
+    hours=ParamSpec(
+        type="int|None",
+        default=None,
+        description="Lookback window in hours; omit to query all history.",
+    ),
 )
 
 
@@ -33,7 +48,9 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
     """
     table = params.get("table")
     if not table:
-        return build_investigation_result("table_health", [], error="Missing required parameter: table")
+        return build_investigation_result(
+            "table_health", [], error="Missing required parameter: table"
+        )
 
     validate_identifier(table)
     check_table_access(table)

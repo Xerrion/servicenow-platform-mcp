@@ -7,13 +7,14 @@ when the package is missing or no DSN is configured.
 """
 
 import logging
-from collections.abc import Generator
 from contextlib import contextmanager
+from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as pkg_version
 from typing import TYPE_CHECKING, Any
 
-
 if TYPE_CHECKING:
+    from collections.abc import Generator
+
     from sentry_sdk.types import Event, Hint
 
     from servicenow_mcp.config import Settings
@@ -29,7 +30,7 @@ logger = logging.getLogger(__name__)
 def _load_release() -> str:
     try:
         return f"servicenow-platform-mcp@{pkg_version('servicenow-platform-mcp')}"
-    except Exception:
+    except ValueError, PackageNotFoundError:
         return "servicenow-platform-mcp@unknown"
 
 
@@ -84,7 +85,7 @@ def setup_sentry(settings: Settings) -> None:
     Args:
         settings: Application settings containing Sentry configuration.
     """
-    global _initialized  # noqa: PLW0603
+    global _initialized
 
     if _initialized:
         return
@@ -110,7 +111,7 @@ def setup_sentry(settings: Settings) -> None:
         dsn=dsn,
         environment=environment,
         release=_RELEASE,
-        send_default_pii=False,
+        data_collection={"user_info": False},
         include_local_variables=False,
         disabled_integrations=[StdlibIntegration()],
         integrations=integrations,
@@ -193,11 +194,15 @@ def sentry_tool_scope(tool: str) -> Generator[None]:
         yield
 
 
-def add_sentry_breadcrumb(category: str, data: dict[str, Any], *, is_error: bool = False) -> None:
+def add_sentry_breadcrumb(
+    category: str, data: dict[str, Any], *, is_error: bool = False
+) -> None:
     """Add bounded caller-curated evidence to the active tool's request history."""
     if not HAS_SENTRY or not _initialized:
         return
-    sentry_sdk.add_breadcrumb(category=category, data=data, level="error" if is_error else "info")
+    sentry_sdk.add_breadcrumb(
+        category=category, data=data, level="error" if is_error else "info"
+    )
 
 
 def shutdown_sentry() -> None:
@@ -205,7 +210,7 @@ def shutdown_sentry() -> None:
 
     Safe to call multiple times or when Sentry was never initialized.
     """
-    global _initialized  # noqa: PLW0603
+    global _initialized
 
     if HAS_SENTRY and _initialized:
         try:

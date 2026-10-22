@@ -1,9 +1,13 @@
 """Tests for policy engine."""
 
+from typing import TYPE_CHECKING
+
 import pytest
 
-from servicenow_mcp.config import Settings
 from servicenow_mcp.errors import PolicyError, QuerySafetyError
+
+if TYPE_CHECKING:
+    from servicenow_mcp.config import Settings
 
 
 class TestDenyList:
@@ -197,14 +201,18 @@ class TestQuerySafety:
         """Limit is capped at max_row_limit."""
         from servicenow_mcp.policy import enforce_query_safety
 
-        result = enforce_query_safety("incident", "active=true", limit=500, settings=settings)
+        result = enforce_query_safety(
+            "incident", "active=true", limit=500, settings=settings
+        )
         assert result["limit"] <= settings.max_row_limit
 
     def test_default_limit_applied(self, settings: Settings) -> None:
         """Default limit is applied when none specified."""
         from servicenow_mcp.policy import enforce_query_safety
 
-        result = enforce_query_safety("incident", "active=true", limit=None, settings=settings)
+        result = enforce_query_safety(
+            "incident", "active=true", limit=None, settings=settings
+        )
         assert result["limit"] == settings.max_row_limit
 
     def test_large_table_requires_date_filter(self, settings: Settings) -> None:
@@ -232,7 +240,9 @@ class TestQuerySafety:
         from servicenow_mcp.policy import enforce_query_safety
 
         # Should not raise
-        result = enforce_query_safety("incident", "active=true", limit=50, settings=settings)
+        result = enforce_query_safety(
+            "incident", "active=true", limit=50, settings=settings
+        )
         assert result["limit"] == 50
 
     def test_date_filter_bypass_substring_in_value(self, settings: Settings) -> None:
@@ -275,14 +285,18 @@ class TestQuerySafety:
         """Limit of 0 is floored to 1."""
         from servicenow_mcp.policy import enforce_query_safety
 
-        result = enforce_query_safety("incident", "active=true", limit=0, settings=settings)
+        result = enforce_query_safety(
+            "incident", "active=true", limit=0, settings=settings
+        )
         assert result["limit"] == 1
 
     def test_limit_negative_floored_to_one(self, settings: Settings) -> None:
         """Negative limit is floored to 1."""
         from servicenow_mcp.policy import enforce_query_safety
 
-        result = enforce_query_safety("incident", "active=true", limit=-5, settings=settings)
+        result = enforce_query_safety(
+            "incident", "active=true", limit=-5, settings=settings
+        )
         assert result["limit"] == 1
 
 
@@ -353,7 +367,9 @@ class TestNestedSensitiveFieldMasking:
         """A sensitive key inside a nested dict is masked."""
         from servicenow_mcp.policy import MASK_VALUE, mask_sensitive_fields
 
-        record = {"outer": {"password": "x", "name": "alice"}}  # NOSONAR S2068 - test fixture, not a real credential
+        record = {
+            "outer": {"password": "x", "name": "alice"}
+        }  # NOSONAR S2068 - test fixture, not a real credential
         masked = mask_sensitive_fields(record)
 
         assert masked["outer"]["password"] == MASK_VALUE
@@ -381,7 +397,9 @@ class TestNestedSensitiveFieldMasking:
         """Nested dict in the input is not mutated."""
         from servicenow_mcp.policy import mask_sensitive_fields
 
-        nested = {"password": "secret"}  # NOSONAR S2068 - test fixture, not a real credential
+        nested = {
+            "password": "secret"
+        }  # NOSONAR S2068 - test fixture, not a real credential
         record = {"outer": nested}
         mask_sensitive_fields(record)
 
@@ -391,7 +409,9 @@ class TestNestedSensitiveFieldMasking:
         """Sensitive keys inside list[dict] structures are masked."""
         from servicenow_mcp.policy import MASK_VALUE, mask_sensitive_fields
 
-        record = {"items": [{"password": "x"}, {"safe": "y"}]}  # NOSONAR S2068 - test fixture, not a real credential
+        record = {
+            "items": [{"password": "x"}, {"safe": "y"}]
+        }  # NOSONAR S2068 - test fixture, not a real credential
         masked = mask_sensitive_fields(record)
 
         assert masked["items"][0]["password"] == MASK_VALUE

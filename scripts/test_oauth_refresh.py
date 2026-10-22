@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# ruff: noqa: T201
 """Test ServiceNow public-client PKCE and refresh-token grants with curl."""
 
 from __future__ import annotations
@@ -20,7 +19,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, cast, final, override
 from urllib.parse import parse_qs, urlencode, urlsplit
-
 
 DEFAULT_REDIRECT_URI = "http://127.0.0.1:8765/oauth/callback"
 DEFAULT_SCOPE = "useraccount"
@@ -74,7 +72,9 @@ class _CallbackServer(ThreadingHTTPServer):
 
     daemon_threads: bool = True
 
-    def __init__(self, address: tuple[str, int], callback_path: str, expected_state: str) -> None:
+    def __init__(
+        self, address: tuple[str, int], callback_path: str, expected_state: str
+    ) -> None:
         super().__init__(address, _CallbackHandler)
         self.callback_path: str = callback_path
         self.expected_state: str = expected_state
@@ -95,21 +95,35 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         code = query.get("code", [""])[0]
         error = query.get("error", [""])[0]
 
-        if parsed.path != server.callback_path or not secrets.compare_digest(state, server.expected_state):
-            self._respond(HTTPStatus.BAD_REQUEST, "Invalid OAuth callback. You can close this tab.")
+        if parsed.path != server.callback_path or not secrets.compare_digest(
+            state, server.expected_state
+        ):
+            self._respond(
+                HTTPStatus.BAD_REQUEST,
+                "Invalid OAuth callback. You can close this tab.",
+            )
             return
         if error:
             server.oauth_error = error
             server.completed.set()
-            self._respond(HTTPStatus.BAD_REQUEST, "ServiceNow denied authorization. You can close this tab.")
+            self._respond(
+                HTTPStatus.BAD_REQUEST,
+                "ServiceNow denied authorization. You can close this tab.",
+            )
             return
         if not code or "\r" in code or "\n" in code:
-            self._respond(HTTPStatus.BAD_REQUEST, "Missing authorization code. You can close this tab.")
+            self._respond(
+                HTTPStatus.BAD_REQUEST,
+                "Missing authorization code. You can close this tab.",
+            )
             return
 
         server.authorization_code = code
         server.completed.set()
-        self._respond(HTTPStatus.OK, "Authorization received. Return to the terminal; you can close this tab.")
+        self._respond(
+            HTTPStatus.OK,
+            "Authorization received. Return to the terminal; you can close this tab.",
+        )
 
     @override
     def log_message(self, format: str, *args: object) -> None:
@@ -133,7 +147,9 @@ def _curl_quote(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"')
 
 
-def _curl_token_request(token_url: str, fields: dict[str, str]) -> tuple[int, dict[str, Any]]:
+def _curl_token_request(
+    token_url: str, fields: dict[str, str]
+) -> tuple[int, dict[str, Any]]:
     """POST a token request through curl without placing token values in argv."""
     config_lines = [
         f'url = "{_curl_quote(token_url)}"',
@@ -142,7 +158,10 @@ def _curl_token_request(token_url: str, fields: dict[str, str]) -> tuple[int, di
         "show-error",
         'header = "Accept: application/json"',
     ]
-    config_lines.extend(f'data-urlencode = "{_curl_quote(key)}={_curl_quote(value)}"' for key, value in fields.items())
+    config_lines.extend(
+        f'data-urlencode = "{_curl_quote(key)}={_curl_quote(value)}"'
+        for key, value in fields.items()
+    )
     config_lines.append('write-out = "\\n%{http_code}"')
     config = "\n".join(config_lines) + "\n"
 
@@ -154,7 +173,10 @@ def _curl_token_request(token_url: str, fields: dict[str, str]) -> tuple[int, di
         check=False,
     )
     if completed.returncode != 0:
-        detail = completed.stderr.strip() or f"curl exited with status {completed.returncode}"
+        detail = (
+            completed.stderr.strip()
+            or f"curl exited with status {completed.returncode}"
+        )
         raise RuntimeError(detail)
 
     body, separator, status_text = completed.stdout.rpartition("\n")
@@ -163,9 +185,13 @@ def _curl_token_request(token_url: str, fields: dict[str, str]) -> tuple[int, di
     try:
         payload = json.loads(body)
     except json.JSONDecodeError as exc:
-        raise RuntimeError(f"ServiceNow returned non-JSON content (HTTP {status_text}).") from exc
+        raise RuntimeError(
+            f"ServiceNow returned non-JSON content (HTTP {status_text})."
+        ) from exc
     if not isinstance(payload, dict):
-        raise RuntimeError(f"ServiceNow returned an unexpected JSON value (HTTP {status_text}).")
+        raise TypeError(
+            f"ServiceNow returned an unexpected JSON value (HTTP {status_text})."
+        )
     return int(status_text), payload
 
 
@@ -175,8 +201,10 @@ def _safe_summary(label: str, status: int, payload: dict[str, Any]) -> None:
         "http_status": status,
         "token_type": payload.get("token_type"),
         "expires_in": payload.get("expires_in"),
-        "has_access_token": isinstance(payload.get("access_token"), str) and bool(payload["access_token"]),
-        "has_refresh_token": isinstance(payload.get("refresh_token"), str) and bool(payload["refresh_token"]),
+        "has_access_token": isinstance(payload.get("access_token"), str)
+        and bool(payload["access_token"]),
+        "has_refresh_token": isinstance(payload.get("refresh_token"), str)
+        and bool(payload["refresh_token"]),
         "error": payload.get("error"),
         "error_description": payload.get("error_description"),
     }
@@ -212,7 +240,9 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--timeout",
         type=int,
-        default=int(settings.get("SERVICENOW_OAUTH_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS)),
+        default=int(
+            settings.get("SERVICENOW_OAUTH_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS)
+        ),
         help=f"Seconds to wait for browser authorization (default: {DEFAULT_TIMEOUT_SECONDS})",
     )
     return parser.parse_args()
@@ -222,10 +252,16 @@ def main() -> int:
     """Run authorization-code and refresh-token grants and report redacted results."""
     args = _parse_args()
     if not args.instance_url:
-        print("Missing instance URL. Set SERVICENOW_INSTANCE_URL or pass --instance-url.", file=sys.stderr)
+        print(
+            "Missing instance URL. Set SERVICENOW_INSTANCE_URL or pass --instance-url.",
+            file=sys.stderr,
+        )
         return 2
     if not args.client_id:
-        print("Missing OAuth client ID. Set SERVICENOW_OAUTH_CLIENT_ID or pass --client-id.", file=sys.stderr)
+        print(
+            "Missing OAuth client ID. Set SERVICENOW_OAUTH_CLIENT_ID or pass --client-id.",
+            file=sys.stderr,
+        )
         return 2
     if shutil.which("curl") is None:
         print("curl is required but was not found on PATH.", file=sys.stderr)
@@ -235,8 +271,14 @@ def main() -> int:
         return 2
 
     redirect = urlsplit(args.redirect_uri)
-    if redirect.scheme != "http" or redirect.hostname != "127.0.0.1" or redirect.port is None:
-        print("The redirect URI must use http://127.0.0.1:<port>/<path>.", file=sys.stderr)
+    if (
+        redirect.scheme != "http"
+        or redirect.hostname != "127.0.0.1"
+        or redirect.port is None
+    ):
+        print(
+            "The redirect URI must use http://127.0.0.1:<port>/<path>.", file=sys.stderr
+        )
         return 2
 
     verifier = secrets.token_urlsafe(64)
@@ -260,7 +302,10 @@ def main() -> int:
         server = _CallbackServer(("127.0.0.1", redirect.port), redirect.path, state)
     except OSError as exc:
         print(f"Cannot bind callback port {redirect.port}: {exc}", file=sys.stderr)
-        print("Stop the MCP server or another listener using that port, then retry.", file=sys.stderr)
+        print(
+            "Stop the MCP server or another listener using that port, then retry.",
+            file=sys.stderr,
+        )
         return 2
 
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -268,7 +313,9 @@ def main() -> int:
     try:
         print("Opening ServiceNow authorization in the default browser...")
         if not webbrowser.open(authorization_url, new=1):
-            print("The browser could not be opened automatically. Open this URL manually:")
+            print(
+                "The browser could not be opened automatically. Open this URL manually:"
+            )
             print(authorization_url)
         if not server.completed.wait(args.timeout):
             print("Timed out waiting for the OAuth callback.", file=sys.stderr)
@@ -277,7 +324,9 @@ def main() -> int:
             print("ServiceNow denied OAuth authorization.", file=sys.stderr)
             return 2
         if not server.authorization_code:
-            print("The callback did not contain an authorization code.", file=sys.stderr)
+            print(
+                "The callback did not contain an authorization code.", file=sys.stderr
+            )
             return 2
         authorization_code = server.authorization_code
     finally:
@@ -299,8 +348,14 @@ def main() -> int:
         )
         _safe_summary("Authorization-code exchange", status, token_payload)
         refresh_token = token_payload.get("refresh_token")
-        if status != HTTPStatus.OK or not isinstance(refresh_token, str) or not refresh_token:
-            print("No usable refresh token was issued; the refresh test cannot continue.")
+        if (
+            status != HTTPStatus.OK
+            or not isinstance(refresh_token, str)
+            or not refresh_token
+        ):
+            print(
+                "No usable refresh token was issued; the refresh test cannot continue."
+            )
             return 1
 
         refresh_status, refresh_payload = _curl_token_request(
@@ -322,7 +377,9 @@ def main() -> int:
         authorization_code = ""
         verifier = ""
 
-    print("Success: ServiceNow accepted a public-client refresh grant without a client secret.")
+    print(
+        "Success: ServiceNow accepted a public-client refresh grant without a client secret."
+    )
     print("No tokens were printed or persisted by this script.")
     return 0
 

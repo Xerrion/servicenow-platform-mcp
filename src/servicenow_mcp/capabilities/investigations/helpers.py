@@ -1,12 +1,15 @@
 """Shared helpers for investigation modules."""
 
-from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from servicenow_mcp.capabilities.contracts import CapabilityError
-from servicenow_mcp.platform.client import ServiceNowClient
 from servicenow_mcp.policy import check_table_access, mask_sensitive_fields
 from servicenow_mcp.validation import validate_identifier
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from servicenow_mcp.platform.client import ServiceNowClient
 
 
 def parse_int_param(params: dict[str, Any], key: str, default: int) -> int:
@@ -22,7 +25,9 @@ def parse_int_param(params: dict[str, Any], key: str, default: int) -> int:
 def validate_params(params: dict[str, Any], specs: dict[str, dict[str, Any]]) -> None:
     """Check each named investigation's declared native parameter contract."""
     if set(params) - specs.keys():
-        raise CapabilityError("Unsupported investigation parameter. Check investigate.describe.")
+        raise CapabilityError(
+            "Unsupported investigation parameter. Check investigate.describe."
+        )
     for key, spec in specs.items():
         value = params.get(key)
         if value is None:
@@ -35,7 +40,8 @@ def validate_params(params: dict[str, Any], specs: dict[str, dict[str, Any]]) ->
             if kind == "int"
             else isinstance(value, str)
             if kind == "str"
-            else isinstance(value, list) and all(isinstance(item, str) for item in value)
+            else isinstance(value, list)
+            and all(isinstance(item, str) for item in value)
             if kind == "list[str]"
             else False
         )
@@ -57,10 +63,14 @@ def parse_element_id(
         ValueError: If format is invalid or table is not in the allowed set.
     """
     if ":" not in element_id:
-        raise ValueError(f"Invalid element_id format: expected 'table:sys_id', got '{element_id}'")
+        raise ValueError(
+            f"Invalid element_id format: expected 'table:sys_id', got '{element_id}'"
+        )
     table, sys_id = element_id.split(":", 1)
     if allowed_tables is not None and table not in allowed_tables:
-        raise ValueError(f"Table '{table}' is not in the allowed tables: {allowed_tables}")
+        raise ValueError(
+            f"Table '{table}' is not in the allowed tables: {allowed_tables}"
+        )
     return table, sys_id
 
 

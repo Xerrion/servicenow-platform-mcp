@@ -14,7 +14,6 @@ from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.config import Settings
 from servicenow_mcp.platform.client import ServiceNowClient
 
-
 # Apply the integration marker to every test in this directory
 pytestmark = pytest.mark.integration
 
@@ -32,7 +31,9 @@ def live_auth(live_settings: Settings) -> OAuthPKCEProvider:
 
 
 @pytest_asyncio.fixture(scope="session")
-async def incident_sys_id(live_settings: Settings, live_auth: OAuthPKCEProvider) -> str | None:
+async def incident_sys_id(
+    live_settings: Settings, live_auth: OAuthPKCEProvider
+) -> str | None:
     """Discover a real active incident sys_id for tests that need one."""
     async with ServiceNowClient(live_settings, live_auth) as client:
         result = await client.query_records(
@@ -44,11 +45,14 @@ async def incident_sys_id(live_settings: Settings, live_auth: OAuthPKCEProvider)
     records = result["records"]
     if not records:
         return None
-    return records[0].get("sys_id", "")
+    sys_id = records[0].get("sys_id")
+    return sys_id if isinstance(sys_id, str) else None
 
 
 @pytest_asyncio.fixture(scope="session")
-async def update_set_sys_id(live_settings: Settings, live_auth: OAuthPKCEProvider) -> str | None:
+async def update_set_sys_id(
+    live_settings: Settings, live_auth: OAuthPKCEProvider
+) -> str | None:
     """Discover a real update set sys_id for change intelligence tests."""
     async with ServiceNowClient(live_settings, live_auth) as client:
         result = await client.query_records(
@@ -60,11 +64,14 @@ async def update_set_sys_id(live_settings: Settings, live_auth: OAuthPKCEProvide
     records = result["records"]
     if not records:
         return None
-    return records[0].get("sys_id", "")
+    sys_id = records[0].get("sys_id")
+    return sys_id if isinstance(sys_id, str) else None
 
 
 @pytest_asyncio.fixture(scope="session")
-async def business_rule_sys_id(live_settings: Settings, live_auth: OAuthPKCEProvider) -> str | None:
+async def business_rule_sys_id(
+    live_settings: Settings, live_auth: OAuthPKCEProvider
+) -> str | None:
     """Discover a real business rule sys_id for metadata tests."""
     async with ServiceNowClient(live_settings, live_auth) as client:
         result = await client.query_records(
@@ -76,11 +83,14 @@ async def business_rule_sys_id(live_settings: Settings, live_auth: OAuthPKCEProv
     records = result["records"]
     if not records:
         return None
-    return records[0].get("sys_id", "")
+    sys_id = records[0].get("sys_id")
+    return sys_id if isinstance(sys_id, str) else None
 
 
 @pytest_asyncio.fixture(scope="session")
-async def change_request_sys_id(live_settings: Settings, live_auth: OAuthPKCEProvider) -> str | None:
+async def change_request_sys_id(
+    live_settings: Settings, live_auth: OAuthPKCEProvider
+) -> str | None:
     """Discover a real change request sys_id for domain tests."""
     async with ServiceNowClient(live_settings, live_auth) as client:
         result = await client.query_records(
@@ -92,11 +102,14 @@ async def change_request_sys_id(live_settings: Settings, live_auth: OAuthPKCEPro
     records = result["records"]
     if not records:
         return None
-    return records[0].get("sys_id", "")
+    sys_id = records[0].get("sys_id")
+    return sys_id if isinstance(sys_id, str) else None
 
 
 @pytest_asyncio.fixture(scope="session")
-async def cmdb_ci_sys_id(live_settings: Settings, live_auth: OAuthPKCEProvider) -> str | None:
+async def cmdb_ci_sys_id(
+    live_settings: Settings, live_auth: OAuthPKCEProvider
+) -> str | None:
     """Discover a real CMDB configuration item sys_id for domain tests."""
     async with ServiceNowClient(live_settings, live_auth) as client:
         result = await client.query_records(
@@ -108,11 +121,14 @@ async def cmdb_ci_sys_id(live_settings: Settings, live_auth: OAuthPKCEProvider) 
     records = result["records"]
     if not records:
         return None
-    return records[0].get("sys_id", "")
+    sys_id = records[0].get("sys_id")
+    return sys_id if isinstance(sys_id, str) else None
 
 
 @pytest_asyncio.fixture(scope="session")
-async def problem_sys_id(live_settings: Settings, live_auth: OAuthPKCEProvider) -> str | None:
+async def problem_sys_id(
+    live_settings: Settings, live_auth: OAuthPKCEProvider
+) -> str | None:
     """Discover a real problem sys_id for domain tests."""
     async with ServiceNowClient(live_settings, live_auth) as client:
         result = await client.query_records(
@@ -124,11 +140,14 @@ async def problem_sys_id(live_settings: Settings, live_auth: OAuthPKCEProvider) 
     records = result["records"]
     if not records:
         return None
-    return records[0].get("sys_id", "")
+    sys_id = records[0].get("sys_id")
+    return sys_id if isinstance(sys_id, str) else None
 
 
 @pytest_asyncio.fixture(scope="session")
-async def sc_request_sys_id(live_settings: Settings, live_auth: OAuthPKCEProvider) -> str | None:
+async def sc_request_sys_id(
+    live_settings: Settings, live_auth: OAuthPKCEProvider
+) -> str | None:
     """Discover a real service catalog request sys_id for domain tests."""
     async with ServiceNowClient(live_settings, live_auth) as client:
         result = await client.query_records(
@@ -140,11 +159,14 @@ async def sc_request_sys_id(live_settings: Settings, live_auth: OAuthPKCEProvide
     records = result["records"]
     if not records:
         return None
-    return records[0].get("sys_id", "")
+    sys_id = records[0].get("sys_id")
+    return sys_id if isinstance(sys_id, str) else None
 
 
 @pytest_asyncio.fixture(scope="session")
-async def kb_article_sys_id(live_settings: Settings, live_auth: OAuthPKCEProvider) -> str | None:
+async def kb_article_sys_id(
+    live_settings: Settings, live_auth: OAuthPKCEProvider
+) -> str | None:
     """Discover a real knowledge article sys_id for domain tests."""
     async with ServiceNowClient(live_settings, live_auth) as client:
         result = await client.query_records(
@@ -156,4 +178,5 @@ async def kb_article_sys_id(live_settings: Settings, live_auth: OAuthPKCEProvide
     records = result["records"]
     if not records:
         return None
-    return records[0].get("sys_id", "")
+    sys_id = records[0].get("sys_id")
+    return sys_id if isinstance(sys_id, str) else None

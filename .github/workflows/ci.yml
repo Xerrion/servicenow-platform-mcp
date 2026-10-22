@@ -25,10 +25,13 @@ jobs:
           key: uv-${{ runner.os }}-${{ hashFiles('uv.lock') }}
 
       - name: Install dependencies
-        run: mise run install
+        run: mise run deps:python
 
       - name: Ruff check and format check
-        run: mise run lint
+        run: mise run lint:python
+
+      - name: Markdown lint and format check
+        run: mise run check:markdown
 
   type-check:
     name: Type Check
@@ -44,10 +47,10 @@ jobs:
           key: uv-${{ runner.os }}-${{ hashFiles('uv.lock') }}
 
       - name: Install dependencies
-        run: mise run install
+        run: mise run deps:python
 
       - name: ty
-        run: mise run typecheck
+        run: mise run typecheck:python
 
   test:
     name: Test (Python ${{ matrix.python-version }})
@@ -70,10 +73,10 @@ jobs:
           key: uv-${{ runner.os }}-py${{ matrix.python-version }}-${{ hashFiles('uv.lock') }}
 
       - name: Install dependencies
-        run: mise run install
+        run: mise run deps:python
 
       - name: Run tests
-        run: mise run test
+        run: mise run test:python
 
       - name: Upload coverage
         if: matrix.python-version == '3.14'

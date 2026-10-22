@@ -1,11 +1,18 @@
 """Investigation: detect conflicting or overlapping ACL rules."""
 
 from collections import defaultdict
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
 
-from servicenow_mcp.capabilities.investigations.checks._models import AclConflictFinding, AclRef, ParamSpec, param_specs
-from servicenow_mcp.capabilities.investigations.helpers import build_investigation_result, parse_element_id
-from servicenow_mcp.platform.client import ServiceNowClient
+from servicenow_mcp.capabilities.investigations.checks._models import (
+    AclConflictFinding,
+    AclRef,
+    ParamSpec,
+    param_specs,
+)
+from servicenow_mcp.capabilities.investigations.helpers import (
+    build_investigation_result,
+    parse_element_id,
+)
 from servicenow_mcp.policy import (
     INTERNAL_QUERY_LIMIT,
     check_table_access,
@@ -14,9 +21,14 @@ from servicenow_mcp.policy import (
 from servicenow_mcp.query_builder import ServiceNowQuery
 from servicenow_mcp.validation import validate_identifier
 
+if TYPE_CHECKING:
+    from servicenow_mcp.platform.client import ServiceNowClient
+
 
 PARAMS: Final[dict[str, dict[str, Any]]] = param_specs(
-    table=ParamSpec(type="str", required=True, default=None, description="Table name to check."),
+    table=ParamSpec(
+        type="str", required=True, default=None, description="Table name to check."
+    ),
 )
 
 
@@ -31,12 +43,19 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
     """
     table = params.get("table")
     if not table:
-        return build_investigation_result("acl_conflicts", [], error="Missing required parameter: table")
+        return build_investigation_result(
+            "acl_conflicts", [], error="Missing required parameter: table"
+        )
 
     check_table_access(table)
 
     # Query ACLs for the table name and field-level ACLs
-    query = ServiceNowQuery().equals("name", table).or_starts_with("name", f"{table}.").build()
+    query = (
+        ServiceNowQuery()
+        .equals("name", table)
+        .or_starts_with("name", f"{table}.")
+        .build()
+    )
     acl_result = await client.query_records(
         "sys_security_acl",
         query,
@@ -77,8 +96,11 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
                         )
                         for a in group
                     ],
-                    detail=f"ACL '{name}' (operation: {operation}) has {len(group)} overlapping rules with different conditions",
-                ).to_payload()
+                    detail=(
+                        f"ACL '{name}' (operation: {operation}) has "
+                        f"{len(group)} overlapping rules with different conditions"
+                    ),
+                ).to_payload(),
             )
 
     return build_investigation_result(
@@ -95,7 +117,11 @@ async def explain(client: ServiceNowClient, element_id: str) -> dict[str, Any]:
     element_id is an ACL sys_id or "sys_security_acl:sys_id".
     """
     try:
-        sys_id = parse_element_id(element_id, {"sys_security_acl"})[1] if ":" in element_id else element_id
+        sys_id = (
+            parse_element_id(element_id, {"sys_security_acl"})[1]
+            if ":" in element_id
+            else element_id
+        )
         validate_identifier(sys_id)
     except ValueError as e:
         return {"error": str(e)}

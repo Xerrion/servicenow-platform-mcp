@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import servicenow_mcp.sentry as sentry_mod
+from servicenow_mcp.capabilities.contracts import CapabilityResult
 from servicenow_mcp.sentry import (
     capture_exception,
     set_sentry_context,
@@ -13,7 +14,6 @@ from servicenow_mcp.sentry import (
     setup_sentry,
     shutdown_sentry,
 )
-
 
 _TEST_ENV: dict[str, str] = {
     "SERVICENOW_INSTANCE_URL": "https://test.service-now.com",
@@ -67,7 +67,9 @@ class TestSetupSentry:
 
     def test_calls_init_with_correct_args(self) -> None:
         """When DSN is set and SDK is available, sentry_sdk.init is called with correct args."""
-        settings = _make_settings(sentry_dsn="https://key@sentry.io/123", sentry_environment="staging")
+        settings = _make_settings(
+            sentry_dsn="https://key@sentry.io/123", sentry_environment="staging"
+        )
         mock_init = MagicMock()
 
         with (
@@ -82,9 +84,12 @@ class TestSetupSentry:
         call_kwargs = mock_init.call_args[1]
         assert call_kwargs["dsn"] == "https://key@sentry.io/123"
         assert call_kwargs["environment"] == "staging"
-        assert call_kwargs["send_default_pii"] is False
+        assert call_kwargs["data_collection"]["user_info"] is False
         assert call_kwargs["include_local_variables"] is False
-        assert [integration.identifier for integration in call_kwargs["disabled_integrations"]] == ["stdlib"]
+        assert [
+            integration.identifier
+            for integration in call_kwargs["disabled_integrations"]
+        ] == ["stdlib"]
         assert call_kwargs["integrations"] == []
         assert call_kwargs["traces_sample_rate"] == pytest.approx(0.1)
         assert call_kwargs["profiles_sample_rate"] is None
@@ -92,7 +97,9 @@ class TestSetupSentry:
 
     def test_falls_back_to_servicenow_env(self) -> None:
         """When sentry_environment is empty, falls back to servicenow_env."""
-        settings = _make_settings(sentry_dsn="https://key@sentry.io/123", servicenow_env="production")
+        settings = _make_settings(
+            sentry_dsn="https://key@sentry.io/123", servicenow_env="production"
+        )
         mock_init = MagicMock()
 
         with (
@@ -386,8 +393,8 @@ class TestSetSentryContextIntegration:
         from servicenow_mcp.mcp.handlers import tool_handler
 
         @tool_handler
-        async def my_tool(table: str) -> str:
-            return '{"status": "success"}'
+        async def my_tool(table: str) -> CapabilityResult:
+            return CapabilityResult(data=None)
 
         with (
             patch("servicenow_mcp.mcp.handlers.set_sentry_context") as mock_ctx,
@@ -415,14 +422,20 @@ class TestSetSentryContextIntegration:
         from servicenow_mcp.errors import ServerError
         from servicenow_mcp.platform.client import ServiceNowClient
 
-        mock_request = httpx2.Request("GET", "https://test.service-now.com/api/now/table/incident?limit=10")
-        mock_response = httpx2.Response(500, request=mock_request, json={"error": {"message": "Server error"}})
+        mock_request = httpx2.Request(
+            "GET", "https://test.service-now.com/api/now/table/incident?limit=10"
+        )
+        mock_response = httpx2.Response(
+            500, request=mock_request, json={"error": {"message": "Server error"}}
+        )
 
         settings = _make_settings()
         auth = OAuthPKCEProvider(settings)
         client = ServiceNowClient(settings, auth)
 
-        with patch("servicenow_mcp.platform._client_transport.set_sentry_context") as mock_ctx:
+        with patch(
+            "servicenow_mcp.platform._client_transport.set_sentry_context"
+        ) as mock_ctx:
             with pytest.raises(ServerError):
                 client._raise_for_status(mock_response)
             mock_ctx.assert_called_once_with(

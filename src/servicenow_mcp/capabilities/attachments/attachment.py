@@ -10,9 +10,8 @@ action-dispatching surface:
 
 from __future__ import annotations
 
-from typing import Final, NoReturn
+from typing import TYPE_CHECKING, Final, NoReturn
 
-from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.capabilities.attachments.common import (
     build_attachment_download_payload,
     ensure_attachment_size_value_within_limit,
@@ -23,15 +22,20 @@ from servicenow_mcp.capabilities.attachments.common import (
 )
 from servicenow_mcp.capabilities.contracts import CapabilityError, CapabilityResult
 from servicenow_mcp.capabilities.contracts import result as operation_result
-from servicenow_mcp.config import Settings
 from servicenow_mcp.errors import NotFoundError
 from servicenow_mcp.platform.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.policy import check_table_access, mask_sensitive_fields
 from servicenow_mcp.query_builder import ServiceNowQuery
 from servicenow_mcp.validation import validate_identifier, validate_sys_id
 
+if TYPE_CHECKING:
+    from servicenow_mcp.auth import OAuthPKCEProvider
+    from servicenow_mcp.config import Settings
 
-_VALID_READ_ACTIONS: Final[frozenset[str]] = frozenset({"list", "get", "download", "download_by_name"})
+
+_VALID_READ_ACTIONS: Final[frozenset[str]] = frozenset(
+    {"list", "get", "download", "download_by_name"}
+)
 
 
 # ---------------------------------------------------------------------------
@@ -103,8 +107,8 @@ def _validate_read_identifier_shapes(
     """Validate identifier shapes and table access for the read-side actions.
 
     Raises ``ValueError`` from ``validate_sys_id`` / ``validate_identifier`` and
-    ``PolicyError`` from ``check_table_access`` so the MCP boundary reports the failure. ``_validate_read_args`` has already
-    confirmed which identifiers are required for the requested action.
+    ``PolicyError`` from ``check_table_access`` so the MCP boundary reports the failure.
+    ``_validate_read_args`` has already confirmed which identifiers are required for the requested action.
     """
     if sys_id:
         validate_sys_id(sys_id)
@@ -145,7 +149,12 @@ async def _run_list(
     table_sys_id: str,
 ) -> CapabilityResult:
     """Execute the ``list`` action: list attachment metadata for a parent record."""
-    query = ServiceNowQuery().equals("table_name", table).equals("table_sys_id", table_sys_id).build()
+    query = (
+        ServiceNowQuery()
+        .equals("table_name", table)
+        .equals("table_sys_id", table_sys_id)
+        .build()
+    )
     result = await client.list_attachments(query=query, limit=100, offset=0)
     masked = [mask_sensitive_fields(record) for record in result["records"]]
     return operation_result(
@@ -165,7 +174,9 @@ async def _run_download(client: ServiceNowClient, sys_id: str) -> CapabilityResu
     """Execute the ``download`` action: metadata-first then payload."""
     metadata = await client.get_attachment(sys_id)
     check_table_access(get_attachment_table_name(metadata))
-    ensure_attachment_size_value_within_limit(get_attachment_size_bytes(metadata), operation="download")
+    ensure_attachment_size_value_within_limit(
+        get_attachment_size_bytes(metadata), operation="download"
+    )
 
     content = await client.download_attachment(sys_id)
     if not isinstance(content, bytes):
@@ -173,7 +184,9 @@ async def _run_download(client: ServiceNowClient, sys_id: str) -> CapabilityResu
     ensure_attachment_size_within_limit(content, operation="download")
 
     return operation_result(
-        data=build_attachment_download_payload(mask_sensitive_fields(metadata), content),
+        data=build_attachment_download_payload(
+            mask_sensitive_fields(metadata), content
+        ),
     )
 
 
@@ -201,17 +214,28 @@ async def _run_download_by_name(
     result = await client.query_records(
         "sys_attachment",
         query,
-        fields=["sys_id", "table_name", "table_sys_id", "file_name", "content_type", "size_bytes"],
+        fields=[
+            "sys_id",
+            "table_name",
+            "table_sys_id",
+            "file_name",
+            "content_type",
+            "size_bytes",
+        ],
         limit=2,
     )
     records = result["records"]
     if not records:
-        raise NotFoundError(f"Attachment '{file_name}' was not found for table '{table}' and record '{table_sys_id}'")
+        raise NotFoundError(
+            f"Attachment '{file_name}' was not found for table '{table}' and record '{table_sys_id}'"
+        )
 
     metadata = records[0]
     attachment_sys_id = get_attachment_sys_id(metadata)
     check_table_access(get_attachment_table_name(metadata))
-    ensure_attachment_size_value_within_limit(get_attachment_size_bytes(metadata), operation="download")
+    ensure_attachment_size_value_within_limit(
+        get_attachment_size_bytes(metadata), operation="download"
+    )
 
     content = await client.download_attachment(attachment_sys_id)
     if not isinstance(content, bytes):
@@ -220,10 +244,14 @@ async def _run_download_by_name(
 
     warnings: list[str] | None = None
     if len(records) > 1:
-        warnings = ["Multiple attachments matched; returned the earliest created attachment"]
+        warnings = [
+            "Multiple attachments matched; returned the earliest created attachment"
+        ]
 
     return operation_result(
-        data=build_attachment_download_payload(mask_sensitive_fields(metadata), content),
+        data=build_attachment_download_payload(
+            mask_sensitive_fields(metadata), content
+        ),
         warnings=warnings,
     )
 
@@ -241,7 +269,9 @@ class AttachmentCapability:
         client_factory: ServiceNowClientProvider | None = None,
     ) -> None:
         """Bind the operation's platform and metadata dependencies."""
-        client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
+        client_factory = client_factory or (
+            lambda: ServiceNowClient(settings, auth_provider)
+        )
 
         self.auth_provider = auth_provider
         self.client_factory = client_factory
@@ -269,4 +299,6 @@ class AttachmentCapability:
 
         # --- 3. Dispatch -------------------------------------------------
         async with self.client_factory() as client:
-            return await _dispatch_read_action(client, action, sys_id, table, table_sys_id, file_name)
+            return await _dispatch_read_action(
+                client, action, sys_id, table, table_sys_id, file_name
+            )

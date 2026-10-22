@@ -1,16 +1,19 @@
 """Native attachment adapter."""
 
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
-from mcp.server import MCPServer
 from mcp.types import ToolAnnotations
 
-from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.capabilities.attachments.attachment import AttachmentCapability
 from servicenow_mcp.capabilities.contracts import CapabilityResult
-from servicenow_mcp.config import Settings
 from servicenow_mcp.mcp.handlers import tool_handler
-from servicenow_mcp.platform.client import ServiceNowClientProvider
+
+if TYPE_CHECKING:
+    from mcp.server import MCPServer
+
+    from servicenow_mcp.auth import OAuthPKCEProvider
+    from servicenow_mcp.config import Settings
+    from servicenow_mcp.platform.client import ServiceNowClientProvider
 
 
 def register_tools(
@@ -19,12 +22,17 @@ def register_tools(
     auth_provider: OAuthPKCEProvider,
     client_factory: ServiceNowClientProvider | None = None,
 ) -> None:
-    capability = AttachmentCapability(settings=settings, auth_provider=auth_provider, client_factory=client_factory)
+    capability = AttachmentCapability(
+        settings=settings, auth_provider=auth_provider, client_factory=client_factory
+    )
 
     @mcp.tool(
         annotations=ToolAnnotations(
-            read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=True
-        )
+            read_only_hint=True,
+            destructive_hint=False,
+            idempotent_hint=True,
+            open_world_hint=True,
+        ),
     )
     @tool_handler
     async def attachment(
@@ -46,5 +54,9 @@ def register_tools(
             table_sys_id: Parent record sys_id (for list, download_by_name).
             file_name: File name (for download_by_name)."""
         return await capability.attachment(
-            action=action, sys_id=sys_id, table=table, table_sys_id=table_sys_id, file_name=file_name
+            action=action,
+            sys_id=sys_id,
+            table=table,
+            table_sys_id=table_sys_id,
+            file_name=file_name,
         )

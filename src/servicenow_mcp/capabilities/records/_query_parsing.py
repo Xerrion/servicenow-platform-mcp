@@ -8,11 +8,14 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from servicenow_mcp.capabilities.contracts import CapabilityError
 from servicenow_mcp.validation import validate_identifier
 
-
-_VALID_AGGREGATE_OPS: Final[frozenset[str]] = frozenset({"count", "avg", "sum", "min", "max"})
+_VALID_AGGREGATE_OPS: Final[frozenset[str]] = frozenset(
+    {"count", "avg", "sum", "min", "max"}
+)
 _JOIN_PREFIX_RE: Final[re.Pattern[str]] = re.compile(r"^(?:NQ|OR|EQ)")
 _ORDER_PREFIXES: Final[tuple[str, ...]] = ("ORDERBYDESC", "ORDERBY")
-_FIELD_TOKEN_RE: Final[re.Pattern[str]] = re.compile(r"^[a-z][a-z0-9_]*(?:\.[a-z0-9_]+)*")
+_FIELD_TOKEN_RE: Final[re.Pattern[str]] = re.compile(
+    r"^[a-z][a-z0-9_]*(?:\.[a-z0-9_]+)*"
+)
 _COMPACT_RECORD_FIELDS: Final[tuple[str, ...]] = ("sys_id", "sys_updated_on")
 
 
@@ -30,13 +33,21 @@ class AggregatePlan(BaseModel):
     @property
     def is_empty(self) -> bool:
         """Return whether the plan contains no aggregate operation."""
-        return not (self.count or self.avg_fields or self.sum_fields or self.min_fields or self.max_fields)
+        return not (
+            self.count
+            or self.avg_fields
+            or self.sum_fields
+            or self.min_fields
+            or self.max_fields
+        )
 
 
 class LabelPair(BaseModel):
     """One parsed ``field=label`` choice-resolution directive."""
 
-    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True, extra="forbid", hide_input_in_errors=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(
+        frozen=True, extra="forbid", hide_input_in_errors=True
+    )
 
     field: str
     label: str
@@ -50,7 +61,9 @@ class LabelPair(BaseModel):
 
 
 class AggregateOperation(BaseModel):
-    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True, extra="forbid", hide_input_in_errors=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(
+        frozen=True, extra="forbid", hide_input_in_errors=True
+    )
     operation: Literal["count", "avg", "sum", "min", "max"]
     field: str | None = None
 
@@ -103,7 +116,9 @@ def parse_label_pairs(spec: list[LabelPair]) -> list[LabelPair]:
     return spec
 
 
-def parse_projection(fields: list[str] | Literal["*"] | None, *, compact_default: bool) -> Projection:
+def parse_projection(
+    fields: list[str] | Literal["*"] | None, *, compact_default: bool
+) -> Projection:
     """Parse a field projection, including sys_id for explicit field lists."""
     if fields == "*":
         return Projection(fields=None)
@@ -113,7 +128,10 @@ def parse_projection(fields: list[str] | Literal["*"] | None, *, compact_default
         raise CapabilityError("fields='*' must be used alone.")
     if not requested:
         if not compact_default:
-            raise CapabilityError("fields is required for list mode. Use a native field array or '*' for all fields.")
+            raise CapabilityError(
+                "fields is required for list mode. Use a native field array or '*' for all fields.",
+                missing_arguments=["fields"],
+            )
         requested = list(_COMPACT_RECORD_FIELDS)
 
     for name in requested:

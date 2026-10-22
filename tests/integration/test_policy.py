@@ -5,7 +5,6 @@ import pytest
 from servicenow_mcp.errors import PolicyError
 from servicenow_mcp.policy import check_table_access
 
-
 pytestmark = pytest.mark.integration
 
 

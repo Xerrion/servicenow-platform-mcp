@@ -1,18 +1,21 @@
 """Native audit adapter."""
 
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
-from mcp.server import MCPServer
 from mcp.types import ToolAnnotations
 
-from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.capabilities.audit.audit import AuditCapability
 from servicenow_mcp.capabilities.contracts import CapabilityResult
-from servicenow_mcp.config import Settings
 from servicenow_mcp.mcp.handlers import tool_handler
-from servicenow_mcp.platform.client import ServiceNowClientProvider
-from servicenow_mcp.platform.metadata._dictionary import DictionaryRegistry
-from servicenow_mcp.telemetry import HttpTelemetry
+
+if TYPE_CHECKING:
+    from mcp.server import MCPServer
+
+    from servicenow_mcp.auth import OAuthPKCEProvider
+    from servicenow_mcp.config import Settings
+    from servicenow_mcp.platform.client import ServiceNowClientProvider
+    from servicenow_mcp.platform.metadata._dictionary import DictionaryRegistry
+    from servicenow_mcp.telemetry import HttpTelemetry
 
 
 def register_tools(
@@ -33,12 +36,17 @@ def register_tools(
 
     @mcp.tool(
         annotations=ToolAnnotations(
-            read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=True
-        )
+            read_only_hint=True,
+            destructive_hint=False,
+            idempotent_hint=True,
+            open_world_hint=True,
+        ),
     )
     @tool_handler
     async def audit(
-        action: Literal["check_field", "check_fields", "check_table", "history", "describe"],
+        action: Literal[
+            "check_field", "check_fields", "check_table", "history", "describe"
+        ],
         table: str | None = None,
         field: str | None = None,
         fields: list[str] | None = None,

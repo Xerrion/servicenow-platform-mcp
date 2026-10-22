@@ -4,7 +4,6 @@ from typing import override
 
 from servicenow_mcp.validation import sanitize_query_value, validate_identifier
 
-
 # Operators recognised by ``or_condition()``.
 _ALLOWED_OPERATORS: frozenset[str] = frozenset(
     {
@@ -43,7 +42,7 @@ _ALLOWED_OPERATORS: frozenset[str] = frozenset(
         "VALCHANGES",
         "CHANGESFROM",
         "CHANGESTO",
-    }
+    },
 )
 
 
@@ -146,7 +145,9 @@ class ServiceNowQuery:
         """
         validate_identifier(field)
         if operator not in _ALLOWED_OPERATORS:
-            raise ValueError(f"Unknown operator: {operator!r}. Allowed: {sorted(_ALLOWED_OPERATORS)}")
+            raise ValueError(
+                f"Unknown operator: {operator!r}. Allowed: {sorted(_ALLOWED_OPERATORS)}"
+            )
         value = sanitize_query_value(value)
         self._parts.append(f"OR{field}{operator}{value}")
         return self

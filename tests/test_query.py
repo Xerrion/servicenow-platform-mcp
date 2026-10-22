@@ -2,18 +2,20 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock
 
 import httpx2
 import pytest
 
 from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.config import Settings
 from servicenow_mcp.platform.metadata.choices import ChoiceRegistry
 from servicenow_mcp.policy import DENIED_TABLES
 from tests._mock_transport import http_mock
 from tests.helpers import decode_response, get_registered_tools, get_tool_functions
+
+if TYPE_CHECKING:
+    from servicenow_mcp.config import Settings
 
 
 BASE_URL = "https://test.service-now.com"
@@ -50,7 +52,9 @@ class TestQueryMode:
     """Default mode: paginated record query."""
 
     async def test_large_table_contract_matches_date_constraint_policy(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         from mcp.server import MCPServer
 
@@ -65,18 +69,33 @@ class TestQueryMode:
 
     @pytest.mark.parametrize("total", [3, 50])
     async def test_capped_limit_uses_pagination_not_warning(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider, total: int
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
+        total: int,
     ) -> None:
         settings.max_row_limit = 5
         route = http_mock.get(f"{BASE_URL}/api/now/table/incident").mock(
             return_value=httpx2.Response(
                 200,
-                json={"result": [{"sys_id": "1", "number": "INC0001", "description": "unrequested"}]},
+                json={
+                    "result": [
+                        {
+                            "sys_id": "1",
+                            "number": "INC0001",
+                            "description": "unrequested",
+                        },
+                    ],
+                },
                 headers={"X-Total-Count": str(total)},
-            )
+            ),
         )
         tools = _register_and_get_tools(settings, auth_provider)
-        result = decode_response(await tools["query"](table="incident", fields=["number"], limit=100, offset=2))
+        result = decode_response(
+            await tools["query"](
+                table="incident", fields=["number"], limit=100, offset=2
+            )
+        )
 
         assert result["status"] == "success"
         assert "correlation_id" not in result
@@ -87,9 +106,13 @@ class TestQueryMode:
         assert route.calls.last.request.url.params["sysparm_limit"] == "5"
 
     @pytest.mark.asyncio()
-    async def test_query_mode_returns_records(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_query_mode_returns_records(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         """Returns matching records with pagination, sensitive fields masked."""
-        route = http_mock.get(f"{BASE_URL}/api/now/table/incident").mock(
+        route = http_mock.get(
+            f"{BASE_URL}/api/now/table/incident"
+        ).mock(
             return_value=httpx2.Response(
                 200,
                 json={
@@ -100,41 +123,62 @@ class TestQueryMode:
                             "password": "leak",  # NOSONAR(S2068) test fixture, masked at line 74
                         },
                         {"sys_id": "2", "number": "INC0002"},
-                    ]
+                    ],
                 },
                 headers={"X-Total-Count": "2"},
-            )
+            ),
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["query"](table="incident", encoded_query="active=true", fields=["number", "password"])
+        raw = await tools["query"](
+            table="incident", encoded_query="active=true", fields=["number", "password"]
+        )
         result = decode_response(raw)
 
         assert result["status"] == "success"
         assert len(result["data"]) == 2
         assert result["data"][0]["password"] == "***MASKED***"
-        assert route.calls.last.request.url.params["sysparm_fields"] == "sys_id,number,password"
+        assert (
+            route.calls.last.request.url.params["sysparm_fields"]
+            == "sys_id,number,password"
+        )
         assert result["pagination"] == {"offset": 0, "limit": 20, "total": 2}
         assert "selection" not in result
 
     @pytest.mark.parametrize("offset", [None, 0])
     async def test_first_page_avoids_upstream_pagination_rejection(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider, offset: int | None
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
+        offset: int | None,
     ) -> None:
         record = {"sys_id": "a" * 32, "asset_tag": "TEST001"}
 
         def handler(request: httpx2.Request) -> httpx2.Response:
             params = request.url.params
-            if "sysparm_offset" in params or params.get("sysparm_suppress_pagination_header") != "true":
-                return httpx2.Response(400, json={"error": {"message": "Pagination not supported"}})
-            return httpx2.Response(200, json={"result": [record]}, headers={"X-Total-Count": "1"})
+            if (
+                "sysparm_offset" in params
+                or params.get("sysparm_suppress_pagination_header") != "true"
+            ):
+                return httpx2.Response(
+                    400, json={"error": {"message": "Pagination not supported"}}
+                )
+            return httpx2.Response(
+                200, json={"result": [record]}, headers={"X-Total-Count": "1"}
+            )
 
-        route = http_mock.get(f"{BASE_URL}/api/now/table/alm_asset").mock(side_effect=handler)
+        route = http_mock.get(f"{BASE_URL}/api/now/table/alm_asset").mock(
+            side_effect=handler
+        )
         tools = _register_and_get_tools(settings, auth_provider)
         result = decode_response(
             await tools["query"](
-                table="alm_asset", encoded_query="active=true", fields=["asset_tag"], limit=100, offset=offset
-            )
+                table="alm_asset",
+                encoded_query="active=true",
+                fields=["asset_tag"],
+                limit=100,
+                offset=offset,
+            ),
         )
 
         assert result["status"] == "success"
@@ -144,13 +188,20 @@ class TestQueryMode:
         assert route.calls.last.request.url.params["sysparm_query"] == "active=true"
 
     async def test_unsupported_offset_pagination_is_not_replayed(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         route = http_mock.get(f"{BASE_URL}/api/now/table/alm_asset").respond(
-            400, json={"error": {"message": "Pagination not supported"}}
+            400,
+            json={"error": {"message": "Pagination not supported"}},
         )
         tools = _register_and_get_tools(settings, auth_provider)
-        result = decode_response(await tools["query"](table="alm_asset", fields=["asset_tag"], limit=100, offset=100))
+        result = decode_response(
+            await tools["query"](
+                table="alm_asset", fields=["asset_tag"], limit=100, offset=100
+            )
+        )
 
         assert result["status"] == "error"
         assert result["data"] is None
@@ -160,10 +211,14 @@ class TestQueryMode:
 
     @pytest.mark.asyncio()
     async def test_empty_page_with_nonzero_total_warns(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         http_mock.get(f"{BASE_URL}/api/now/table/syslog_transaction").mock(
-            return_value=httpx2.Response(200, json={"result": []}, headers={"X-Total-Count": "12"})
+            return_value=httpx2.Response(
+                200, json={"result": []}, headers={"X-Total-Count": "12"}
+            ),
         )
         tools = _register_and_get_tools(settings, auth_provider)
 
@@ -172,18 +227,25 @@ class TestQueryMode:
                 table="syslog_transaction",
                 encoded_query="sys_created_on>=2026-09-15",
                 fields=["url"],
-            )
+            ),
         )
 
         assert result["pagination"] == {"offset": 0, "limit": 20, "total": 12}
-        assert any("empty page" in warning and "ACL" in warning for warning in result["warnings"])
+        assert any(
+            "empty page" in warning and "ACL" in warning
+            for warning in result["warnings"]
+        )
 
     @pytest.mark.asyncio()
     async def test_omitted_fields_returns_error_without_io(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
-        result = decode_response(await tools["query"](table="incident", encoded_query="active=true"))
+        result = decode_response(
+            await tools["query"](table="incident", encoded_query="active=true")
+        )
 
         assert result["status"] == "error"
         assert "fields is required" in result["error"]["message"]
@@ -191,23 +253,31 @@ class TestQueryMode:
 
     @pytest.mark.asyncio()
     async def test_invalid_order_by_returns_error_without_io(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
-        result = decode_response(await tools["query"](table="incident", fields=["number"], order_by="bad-field"))
+        result = decode_response(
+            await tools["query"](
+                table="incident", fields=["number"], order_by="bad-field"
+            )
+        )
 
         assert result["status"] == "error"
         assert "Invalid identifier" in result["error"]["message"]
         assert not http_mock.calls
 
     @pytest.mark.asyncio()
-    async def test_star_requests_all_masked_fields(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_star_requests_all_masked_fields(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         route = http_mock.get(f"{BASE_URL}/api/now/table/incident").mock(
             return_value=httpx2.Response(
                 200,
                 json={"result": [{"sys_id": "1", "password": "secret"}]},
                 headers={"X-Total-Count": "1"},
-            )
+            ),
         )
         tools = _register_and_get_tools(settings, auth_provider)
         result = decode_response(await tools["query"](table="incident", fields="*"))
@@ -217,13 +287,26 @@ class TestQueryMode:
         assert "sysparm_fields" not in route.calls.last.request.url.params
         assert "selection" not in result
 
-    @pytest.mark.parametrize("fields", [["description", "active", "sys_mod_count", "sys_tags"], "*"])
+    @pytest.mark.parametrize(
+        "fields", [["description", "active", "sys_mod_count", "sys_tags"], "*"]
+    )
     async def test_explicit_fields_preserve_empty_and_system_values(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider, fields: str
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
+        fields: str,
     ) -> None:
-        record = {"sys_id": "1", "description": "", "active": False, "sys_mod_count": 0, "sys_tags": None}
+        record = {
+            "sys_id": "1",
+            "description": "",
+            "active": False,
+            "sys_mod_count": 0,
+            "sys_tags": None,
+        }
         http_mock.get(f"{BASE_URL}/api/now/table/incident").mock(
-            return_value=httpx2.Response(200, json={"result": [record]}, headers={"X-Total-Count": "1"})
+            return_value=httpx2.Response(
+                200, json={"result": [record]}, headers={"X-Total-Count": "1"}
+            ),
         )
         tools = _register_and_get_tools(settings, auth_provider)
         result = decode_response(await tools["query"](table="incident", fields=fields))
@@ -233,7 +316,9 @@ class TestQueryMode:
         assert "selection" not in result
 
     @pytest.mark.asyncio()
-    async def test_denied_table_returns_error(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_denied_table_returns_error(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         """Denied table is rejected with a policy error envelope."""
         denied = next(iter(DENIED_TABLES))
         tools = _register_and_get_tools(settings, auth_provider)
@@ -245,13 +330,17 @@ class TestQueryMode:
 
     @pytest.mark.asyncio()
     async def test_large_table_without_date_filter_returns_error(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """enforce_query_safety still gates large tables in unified query mode."""
         settings.large_table_names_csv = "syslog,sys_audit"
         dictionary = AsyncMock()
         tools = _register_and_get_tools(settings, auth_provider, dictionary=dictionary)
-        raw = await tools["query"](table="syslog", encoded_query="level=error", fields=["message"])
+        raw = await tools["query"](
+            table="syslog", encoded_query="level=error", fields=["message"]
+        )
         result = decode_response(raw)
 
         assert result["status"] == "error"
@@ -261,11 +350,15 @@ class TestQueryMode:
 
     @pytest.mark.asyncio()
     async def test_transaction_log_requires_date_filter_by_default(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
 
-        result = decode_response(await tools["query"](table="syslog_transaction", fields=["url"]))
+        result = decode_response(
+            await tools["query"](table="syslog_transaction", fields=["url"])
+        )
 
         assert result["status"] == "error"
         assert "date" in result["error"]["message"].lower()
@@ -273,7 +366,9 @@ class TestQueryMode:
 
     @pytest.mark.asyncio()
     async def test_sys_audit_query_masks_audit_values(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """sys_audit rows have oldvalue/newvalue masked when fieldname is sensitive."""
         http_mock.get(f"{BASE_URL}/api/now/table/sys_audit").mock(
@@ -287,11 +382,11 @@ class TestQueryMode:
                             "fieldname": "password",
                             "oldvalue": "old_pass",
                             "newvalue": "new_pass",
-                        }
-                    ]
+                        },
+                    ],
                 },
                 headers={"X-Total-Count": "1"},
-            )
+            ),
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
@@ -321,19 +416,25 @@ class TestSysIdMode:
 
     @pytest.mark.asyncio()
     async def test_sys_id_mode_returns_single_record(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """sys_id branch returns one record and no pagination key."""
         sys_id = "a" * 32
         http_mock.get(f"{BASE_URL}/api/now/table/incident/{sys_id}").mock(
             return_value=httpx2.Response(
                 200,
-                json={"result": {"sys_id": sys_id, "number": "INC0001", "secret": "shh"}},
-            )
+                json={
+                    "result": {"sys_id": sys_id, "number": "INC0001", "secret": "shh"}
+                },
+            ),
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["query"](table="incident", sys_id=sys_id, fields=["number", "secret"])
+        raw = await tools["query"](
+            table="incident", sys_id=sys_id, fields=["number", "secret"]
+        )
         result = decode_response(raw)
 
         assert result["status"] == "success"
@@ -344,36 +445,53 @@ class TestSysIdMode:
 
     @pytest.mark.asyncio()
     async def test_sys_id_omitted_fields_uses_compact_projection(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         sys_id = "a" * 32
         route = http_mock.get(f"{BASE_URL}/api/now/table/incident/{sys_id}").mock(
             return_value=httpx2.Response(
                 200,
-                json={"result": {"sys_id": sys_id, "sys_updated_on": "now", "description": "unrequested"}},
-            )
+                json={
+                    "result": {
+                        "sys_id": sys_id,
+                        "sys_updated_on": "now",
+                        "description": "unrequested",
+                    },
+                },
+            ),
         )
         tools = _register_and_get_tools(settings, auth_provider)
         result = decode_response(await tools["query"](table="incident", sys_id=sys_id))
 
         assert result["status"] == "success"
-        assert route.calls.last.request.url.params["sysparm_fields"] == "sys_id,sys_updated_on"
+        assert (
+            route.calls.last.request.url.params["sysparm_fields"]
+            == "sys_id,sys_updated_on"
+        )
         assert "selection" not in result
         assert result["data"] == {"sys_id": sys_id, "sys_updated_on": "now"}
 
     @pytest.mark.asyncio()
     async def test_invalid_projection_returns_error_without_io(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
-        result = decode_response(await tools["query"](table="incident", fields=["number", "bad-field"]))
+        result = decode_response(
+            await tools["query"](table="incident", fields=["number", "bad-field"])
+        )
 
         assert result["status"] == "error"
         assert "Invalid identifier" in result["error"]["message"]
 
     @pytest.mark.asyncio()
     async def test_sys_id_mode_with_invalid_sys_id_returns_error(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """Non-32-char-hex sys_id is rejected before any HTTP call."""
         tools = _register_and_get_tools(settings, auth_provider)
@@ -392,41 +510,60 @@ class TestSysIdMode:
 class TestAggregateMode:
     """Stats API mode."""
 
-    @pytest.mark.parametrize("group_by", [["state", "active"], ["request_item.state", "active"]])
+    @pytest.mark.parametrize(
+        "group_by", [["state", "active"], ["request_item.state", "active"]]
+    )
     async def test_multiple_group_fields(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider, group_by: str
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
+        group_by: str,
     ) -> None:
         """Validate each grouping field and preserve the Stats API CSV contract."""
         route = http_mock.get(f"{BASE_URL}/api/now/stats/sc_task").mock(
-            return_value=httpx2.Response(200, json={"result": []})
+            return_value=httpx2.Response(200, json={"result": []}),
         )
         tools = _register_and_get_tools(settings, auth_provider)
         result = decode_response(
-            await tools["query"](table="sc_task", aggregate=[{"operation": "count"}], group_by=group_by)
+            await tools["query"](
+                table="sc_task", aggregate=[{"operation": "count"}], group_by=group_by
+            ),
         )
         assert result["status"] == "success"
-        assert route.calls.last.request.url.params["sysparm_group_by"] == ",".join(group_by)
+        assert route.calls.last.request.url.params["sysparm_group_by"] == ",".join(
+            group_by
+        )
 
-    @pytest.mark.parametrize("group_by", [["state", "active^ORstate=3"], ["state", "", "active"], [""], ["state", ""]])
+    @pytest.mark.parametrize(
+        "group_by",
+        [["state", "active^ORstate=3"], ["state", "", "active"], [""], ["state", ""]],
+    )
     async def test_invalid_group_fields_fail_before_io(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider, group_by: str
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
+        group_by: str,
     ) -> None:
         """Malformed grouping fields must not reach the platform."""
         tools = _register_and_get_tools(settings, auth_provider)
         result = decode_response(
-            await tools["query"](table="sc_task", aggregate=[{"operation": "count"}], group_by=group_by)
+            await tools["query"](
+                table="sc_task", aggregate=[{"operation": "count"}], group_by=group_by
+            ),
         )
         assert result["status"] == "error"
         assert not http_mock.calls
 
     @pytest.mark.asyncio()
-    async def test_aggregate_mode_count(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_aggregate_mode_count(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         """`aggregate='count'` calls the Stats endpoint and returns the result dict."""
         route = http_mock.get(f"{BASE_URL}/api/now/stats/incident").mock(
             return_value=httpx2.Response(
                 200,
                 json={"result": {"stats": {"count": "42"}}},
-            )
+            ),
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
@@ -439,18 +576,24 @@ class TestAggregateMode:
         assert route.called
 
     @pytest.mark.asyncio()
-    async def test_aggregate_mode_avg_with_group_by(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_aggregate_mode_avg_with_group_by(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         """`aggregate='avg:priority'` + `group_by='state'` is forwarded to Stats."""
         route = http_mock.get(f"{BASE_URL}/api/now/stats/incident").mock(
             return_value=httpx2.Response(
                 200,
-                json={"result": [{"groupby_fields": [{"field": "state", "value": "1"}]}]},
-            )
+                json={
+                    "result": [{"groupby_fields": [{"field": "state", "value": "1"}]}]
+                },
+            ),
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["query"](
-            table="incident", aggregate=[{"operation": "avg", "field": "priority"}], group_by=["state"]
+            table="incident",
+            aggregate=[{"operation": "avg", "field": "priority"}],
+            group_by=["state"],
         )
         result = decode_response(raw)
 
@@ -462,11 +605,15 @@ class TestAggregateMode:
 
     @pytest.mark.asyncio()
     async def test_aggregate_mode_unknown_op_returns_error(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """`aggregate='median:foo'` rejects with valid-op list."""
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["query"](table="incident", aggregate=[{"operation": "median", "field": "foo"}])
+        raw = await tools["query"](
+            table="incident", aggregate=[{"operation": "median", "field": "foo"}]
+        )
         result = decode_response(raw)
 
         assert result["status"] == "error"
@@ -476,7 +623,9 @@ class TestAggregateMode:
 
     @pytest.mark.asyncio()
     async def test_group_by_without_aggregate_returns_error(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """`group_by` set without `aggregate` is rejected upfront."""
         tools = _register_and_get_tools(settings, auth_provider)
@@ -497,22 +646,31 @@ class TestResolveLabels:
 
     @pytest.mark.asyncio()
     async def test_resolve_labels_appends_resolved_value(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """Each resolved label is ANDed into encoded_query as `field=value`."""
         route = http_mock.get(f"{BASE_URL}/api/now/table/incident").mock(
-            return_value=httpx2.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+            return_value=httpx2.Response(
+                200, json={"result": []}, headers={"X-Total-Count": "0"}
+            ),
         )
 
         choices = ChoiceRegistry(settings, auth_provider)
-        choices.resolve = AsyncMock(side_effect=lambda _t, _f, label: {"open": "1", "high": "2"}[label])  # type: ignore[method-assign]
+        choices.resolve = AsyncMock(
+            side_effect=lambda _t, _f, label: {"open": "1", "high": "2"}[label]
+        )  # type: ignore[method-assign]
 
         tools = _register_and_get_tools(settings, auth_provider, choices=choices)
         raw = await tools["query"](
             table="incident",
             encoded_query="active=true",
             fields=["number"],
-            resolve_labels=[{"field": "state", "label": "open"}, {"field": "priority", "label": "high"}],
+            resolve_labels=[
+                {"field": "state", "label": "open"},
+                {"field": "priority", "label": "high"},
+            ],
         )
         result = decode_response(raw)
 
@@ -522,11 +680,15 @@ class TestResolveLabels:
 
     @pytest.mark.asyncio()
     async def test_resolve_labels_passthrough_emits_warning(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """A non-numeric label that resolves to itself triggers a warning."""
         http_mock.get(f"{BASE_URL}/api/now/table/incident").mock(
-            return_value=httpx2.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+            return_value=httpx2.Response(
+                200, json={"result": []}, headers={"X-Total-Count": "0"}
+            ),
         )
 
         choices = ChoiceRegistry(settings, auth_provider)
@@ -534,7 +696,9 @@ class TestResolveLabels:
 
         tools = _register_and_get_tools(settings, auth_provider, choices=choices)
         raw = await tools["query"](
-            table="incident", fields=["number"], resolve_labels=[{"field": "state", "label": "mystery"}]
+            table="incident",
+            fields=["number"],
+            resolve_labels=[{"field": "state", "label": "mystery"}],
         )
         result = decode_response(raw)
 
@@ -553,11 +717,15 @@ class TestModeConflicts:
 
     @pytest.mark.asyncio()
     async def test_conflicting_sys_id_and_aggregate_returns_error(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """sys_id + aggregate together is a usage error."""
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["query"](table="incident", sys_id="a" * 32, aggregate=[{"operation": "count"}])
+        raw = await tools["query"](
+            table="incident", sys_id="a" * 32, aggregate=[{"operation": "count"}]
+        )
         result = decode_response(raw)
 
         assert result["status"] == "error"
@@ -584,17 +752,27 @@ class TestExtractQueryFields:
             ("short_descriptionLIKEfoo", ["short_description"]),
             ("descriptionISEMPTY", ["description"]),
             ("assigned_to.name=Bob", ["assigned_to.name"]),
-            ("assigned_to.email=one^caller_id.email=two", ["assigned_to.email", "caller_id.email"]),
-            ("assigned_to.email=one^assigned_to.name=two", ["assigned_to.email", "assigned_to.name"]),
+            (
+                "assigned_to.email=one^caller_id.email=two",
+                ["assigned_to.email", "caller_id.email"],
+            ),
+            (
+                "assigned_to.email=one^assigned_to.name=two",
+                ["assigned_to.email", "assigned_to.name"],
+            ),
             ("ORDERBYDESCassigned_to.email", ["assigned_to.email"]),
             ("state=1^ORDERBYDESCsys_created_on", ["state", "sys_created_on"]),
             ("priority=1^NQstate=2", ["priority", "state"]),
             ("state=1^priority=2^state=3", ["state", "priority"]),
         ],
     )
-    def test_extracts_field_paths(self, encoded_query: str, expected: list[str]) -> None:
+    def test_extracts_field_paths(
+        self, encoded_query: str, expected: list[str]
+    ) -> None:
         """Complete paths are deduplicated and order-preserved."""
-        from servicenow_mcp.capabilities.records._query_parsing import extract_query_fields
+        from servicenow_mcp.capabilities.records._query_parsing import (
+            extract_query_fields,
+        )
 
         assert extract_query_fields(encoded_query) == expected
 
@@ -614,7 +792,9 @@ class TestFieldValidation:
         field_names: list[str],
     ) -> Any:
         from servicenow_mcp.platform.metadata._dictionary import DictionaryRegistry
-        from servicenow_mcp.platform.metadata._dictionary_models import FieldPathResolution
+        from servicenow_mcp.platform.metadata._dictionary_models import (
+            FieldPathResolution,
+        )
 
         dictionary = DictionaryRegistry(settings, auth_provider)
         dictionary.get_query_field_paths = AsyncMock(  # type: ignore[method-assign]
@@ -622,25 +802,38 @@ class TestFieldValidation:
                 FieldPathResolution(
                     path=name,
                     status="valid" if name in field_names else "unverified",
-                    reason=None if name in field_names else "field was not visible in dictionary metadata",
+                    reason=None
+                    if name in field_names
+                    else "field was not visible in dictionary metadata",
                 )
                 for name in names
-            ]
+            ],
         )
-        dictionary.get_all_fields = AsyncMock(side_effect=AssertionError("broad metadata lookup"))  # type: ignore[method-assign]
+        dictionary.get_all_fields = AsyncMock(
+            side_effect=AssertionError("broad metadata lookup")
+        )  # type: ignore[method-assign]
         return dictionary
 
     @pytest.mark.asyncio()
-    async def test_missing_field_is_unverified(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_missing_field_is_unverified(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         """A missing dictionary row does not prove that the filter was dropped."""
         http_mock.get(f"{BASE_URL}/api/now/table/u_custom").mock(
-            return_value=httpx2.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+            return_value=httpx2.Response(
+                200, json={"result": []}, headers={"X-Total-Count": "0"}
+            ),
         )
-        dictionary = self._stub_dictionary(settings, auth_provider, ["u_samaccountname", "u_member"])
+        dictionary = self._stub_dictionary(
+            settings, auth_provider, ["u_samaccountname", "u_member"]
+        )
 
         tools = _register_and_get_tools(settings, auth_provider, dictionary=dictionary)
         raw = await tools["query"](
-            table="u_custom", encoded_query="name=Vinklubben", fields=["u_member"], limit=settings.max_row_limit + 1
+            table="u_custom",
+            encoded_query="name=Vinklubben",
+            fields=["u_member"],
+            limit=settings.max_row_limit + 1,
         )
         result = decode_response(raw)
 
@@ -652,25 +845,39 @@ class TestFieldValidation:
         assert len(warnings) == 1
 
     @pytest.mark.asyncio()
-    async def test_known_field_no_warning(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_known_field_no_warning(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         """A filter on a real column produces no field-validation warning."""
         http_mock.get(f"{BASE_URL}/api/now/table/u_custom").mock(
-            return_value=httpx2.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+            return_value=httpx2.Response(
+                200, json={"result": []}, headers={"X-Total-Count": "0"}
+            ),
         )
-        dictionary = self._stub_dictionary(settings, auth_provider, ["u_samaccountname", "u_member"])
+        dictionary = self._stub_dictionary(
+            settings, auth_provider, ["u_samaccountname", "u_member"]
+        )
 
         tools = _register_and_get_tools(settings, auth_provider, dictionary=dictionary)
-        raw = await tools["query"](table="u_custom", encoded_query="u_samaccountname=ACL_X", fields=["u_member"])
+        raw = await tools["query"](
+            table="u_custom",
+            encoded_query="u_samaccountname=ACL_X",
+            fields=["u_member"],
+        )
         result = decode_response(raw)
 
         assert result["status"] == "success"
         assert "warnings" not in result
 
     @pytest.mark.asyncio()
-    async def test_lookup_failure_skips_validation(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_lookup_failure_skips_validation(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         """A dictionary lookup error is swallowed; the query still succeeds."""
         http_mock.get(f"{BASE_URL}/api/now/table/u_custom").mock(
-            return_value=httpx2.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+            return_value=httpx2.Response(
+                200, json={"result": []}, headers={"X-Total-Count": "0"}
+            ),
         )
         from servicenow_mcp.platform.metadata._dictionary import DictionaryRegistry
 
@@ -678,7 +885,9 @@ class TestFieldValidation:
         dictionary.get_query_field_paths = AsyncMock(side_effect=RuntimeError("boom"))  # type: ignore[method-assign]
 
         tools = _register_and_get_tools(settings, auth_provider, dictionary=dictionary)
-        raw = await tools["query"](table="u_custom", encoded_query="name=Vinklubben", fields=["u_member"])
+        raw = await tools["query"](
+            table="u_custom", encoded_query="name=Vinklubben", fields=["u_member"]
+        )
         result = decode_response(raw)
 
         assert result["status"] == "success"

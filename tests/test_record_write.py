@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, patch
 
 import httpx2
@@ -11,13 +11,17 @@ import pytest
 
 from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.capabilities.contracts import MAX_JSON_PAYLOAD_BYTES
+from servicenow_mcp.capabilities.mutations.models import StagedMutation
 from servicenow_mcp.capabilities.mutations.store import PreviewTokenStore
 from servicenow_mcp.capabilities.records._artifact import validate_ui_macro_xml
-from servicenow_mcp.config import Settings
 from servicenow_mcp.platform.metadata._dictionary import DictionaryRegistry
 from servicenow_mcp.policy import DENIED_TABLES
 from tests._mock_transport import http_mock
 from tests.helpers import decode_response, get_tool_functions, preview_and_apply
+
+if TYPE_CHECKING:
+    from servicenow_mcp.capabilities.mutations.models import StagedMutation
+    from servicenow_mcp.config import Settings
 
 
 BASE_URL = "https://test.service-now.com"
@@ -38,7 +42,9 @@ def auth_provider(settings: Settings) -> OAuthPKCEProvider:
     return OAuthPKCEProvider(settings)
 
 
-def _register_and_get_tools(settings: Settings, auth_provider: OAuthPKCEProvider) -> dict[str, Any]:
+def _register_and_get_tools(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> dict[str, Any]:
     """Register the unified record_write tools on a fresh MCP and return callables."""
     from mcp.server import MCPServer
 
@@ -48,7 +54,9 @@ def _register_and_get_tools(settings: Settings, auth_provider: OAuthPKCEProvider
     dictionary = AsyncMock(spec=DictionaryRegistry)
     dictionary.get_fields.return_value = []
     dictionary.get_chain.side_effect = lambda table: [table]
-    register_mutations(mcp, settings, auth_provider, frozenset({"records"}), dictionary=dictionary)
+    register_mutations(
+        mcp, settings, auth_provider, frozenset({"records"}), dictionary=dictionary
+    )
     return get_tool_functions(mcp)
 
 
@@ -61,7 +69,9 @@ class TestActionDispatch:
     """Cross-argument validation that runs before any HTTP call."""
 
     @pytest.mark.asyncio()
-    async def test_unknown_action_returns_error(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_unknown_action_returns_error(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["record_preview"](action="frobnicate", table="incident")
         result = decode_response(raw)
@@ -69,7 +79,9 @@ class TestActionDispatch:
         assert result["error"]["code"] == "INVALID_REQUEST"
 
     @pytest.mark.asyncio()
-    async def test_create_action_requires_data(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_create_action_requires_data(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["record_preview"](action="create", table="incident")
         result = decode_response(raw)
@@ -77,35 +89,52 @@ class TestActionDispatch:
         assert "data" in result["error"]["message"]
 
     @pytest.mark.asyncio()
-    async def test_create_with_sys_id_returns_error(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_create_with_sys_id_returns_error(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["record_preview"](
-            action="create", table="incident", sys_id=SYS_ID_INC001, data={"short_description": "x"}
+            action="create",
+            table="incident",
+            sys_id=SYS_ID_INC001,
+            data={"short_description": "x"},
         )
         result = decode_response(raw)
         assert result["status"] == "error"
         assert "sys_id" in result["error"]["message"]
 
     @pytest.mark.asyncio()
-    async def test_update_requires_sys_id_and_data(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_update_requires_sys_id_and_data(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
 
-        raw = await tools["record_preview"](action="update", table="incident", data={"state": "2"})
+        raw = await tools["record_preview"](
+            action="update", table="incident", data={"state": "2"}
+        )
         assert decode_response(raw)["error"]["message"].find("sys_id") >= 0
 
-        raw = await tools["record_preview"](action="update", table="incident", sys_id=SYS_ID_INC001)
+        raw = await tools["record_preview"](
+            action="update", table="incident", sys_id=SYS_ID_INC001
+        )
         assert decode_response(raw)["error"]["message"].find("data") >= 0
 
     @pytest.mark.asyncio()
-    async def test_delete_with_data_returns_error(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_delete_with_data_returns_error(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_preview"](action="delete", table="incident", sys_id=SYS_ID_INC001, data={"x": 1})
+        raw = await tools["record_preview"](
+            action="delete", table="incident", sys_id=SYS_ID_INC001, data={"x": 1}
+        )
         result = decode_response(raw)
         assert result["status"] == "error"
         assert "data" in result["error"]["message"]
 
     @pytest.mark.asyncio()
-    async def test_missing_table_returns_error(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_missing_table_returns_error(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["record_preview"](action="create", data={"x": 1})
         result = decode_response(raw)
@@ -114,18 +143,20 @@ class TestActionDispatch:
 
     @pytest.mark.asyncio()
     async def test_oversized_data_payload_rejected_before_token_creation(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """Oversized JSON returns an error without allocating a preview token."""
         from servicenow_mcp.capabilities.mutations import store as record_write_module
 
         # Patch PreviewTokenStore.create to detect any token-allocation attempt.
         # If the cap fires correctly, this never runs.
-        created_tokens: list[Any] = []
+        created_tokens: list[StagedMutation] = []
 
         original_create = record_write_module.PreviewTokenStore.create
 
-        async def _spy_create(self: Any, payload: dict[str, Any]) -> str:
+        async def _spy_create(self: PreviewTokenStore, payload: StagedMutation) -> str:
             created_tokens.append(payload)
             return await original_create(self, payload)
 
@@ -134,12 +165,16 @@ class TestActionDispatch:
             oversized_value = "x" * (MAX_JSON_PAYLOAD_BYTES + 1)
             payload = {"short_description": oversized_value}
             assert len(json.dumps(payload).encode("utf-8")) > MAX_JSON_PAYLOAD_BYTES
-            raw = await tools["record_preview"](action="create", table="incident", data=payload)
+            raw = await tools["record_preview"](
+                action="create", table="incident", data=payload
+            )
 
         result = decode_response(raw)
         assert result["status"] == "error"
         assert str(MAX_JSON_PAYLOAD_BYTES) in result["error"]["message"]
-        assert created_tokens == [], "no preview token should be allocated for oversized payload"
+        assert created_tokens == [], (
+            "no preview token should be allocated for oversized payload"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -152,11 +187,17 @@ class TestStandardRecordWrite:
 
     @pytest.mark.asyncio()
     async def test_create_preview_non_json_metadata_returns_context(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
-        metadata = http_mock.get(METADATA_URL).respond(200, content=b"", headers={"Content-Type": "text/html"})
+        metadata = http_mock.get(METADATA_URL).respond(
+            200, content=b"", headers={"Content-Type": "text/html"}
+        )
         tools = _register_and_get_tools(settings, auth_provider)
-        with patch.object(PreviewTokenStore, "create", new_callable=AsyncMock) as create_token:
+        with patch.object(
+            PreviewTokenStore, "create", new_callable=AsyncMock
+        ) as create_token:
             raw = await tools["record_preview"](
                 action="create",
                 table="clone_profile_preservers",
@@ -169,7 +210,9 @@ class TestStandardRecordWrite:
 
         result = decode_response(raw)
         assert result["status"] == "error"
-        assert result["error"]["message"].startswith("Invalid JSON response from GET /api/now/table/sys_dictionary")
+        assert result["error"]["message"].startswith(
+            "Invalid JSON response from GET /api/now/table/sys_dictionary"
+        )
         assert "HTTP 200" in result["error"]["message"]
         assert "Remote outcome unknown" not in result["error"]["message"]
         create_token.assert_not_awaited()
@@ -177,22 +220,35 @@ class TestStandardRecordWrite:
         assert all(call.request.method == "GET" for call in http_mock.calls)
 
     @pytest.mark.asyncio()
-    @pytest.mark.parametrize("body", [b"", b"<html>private response</html>"], ids=["empty", "malformed"])
+    @pytest.mark.parametrize(
+        "body", [b"", b"<html>private response</html>"], ids=["empty", "malformed"]
+    )
     async def test_create_apply_non_json_response_returns_context(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider, body: bytes
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
+        body: bytes,
     ) -> None:
         http_mock.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
         mutation = http_mock.post(f"{BASE_URL}/api/now/table/incident").respond(
-            201, content=body, headers={"Content-Type": "text/html"}
+            201,
+            content=body,
+            headers={"Content-Type": "text/html"},
         )
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await preview_and_apply(
-            tools, "record_preview", action="create", table="incident", data={"short_description": "Test"}
+            tools,
+            "record_preview",
+            action="create",
+            table="incident",
+            data={"short_description": "Test"},
         )
 
         result = decode_response(raw)
         assert result["status"] == "error"
-        assert result["error"]["message"].startswith("Invalid JSON response from POST /api/now/table/incident")
+        assert result["error"]["message"].startswith(
+            "Invalid JSON response from POST /api/now/table/incident"
+        )
         assert "HTTP 201" in result["error"]["message"]
         assert "Remote outcome unknown" in result["error"]["message"]
         assert "Verify remote outcome before retrying" in result["error"]["message"]
@@ -202,23 +258,36 @@ class TestStandardRecordWrite:
 
     @pytest.mark.asyncio()
     async def test_update_apply_empty_response_warns_before_retry(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         http_mock.get(f"{BASE_URL}/api/now/table/incident/{SYS_ID_INC001}").respond(
-            200, json={"result": {"sys_id": SYS_ID_INC001, "state": "1"}}
+            200,
+            json={"result": {"sys_id": SYS_ID_INC001, "state": "1"}},
         )
         http_mock.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
-        mutation = http_mock.patch(f"{BASE_URL}/api/now/table/incident/{SYS_ID_INC001}").respond(200, content=b"")
+        mutation = http_mock.patch(
+            f"{BASE_URL}/api/now/table/incident/{SYS_ID_INC001}"
+        ).respond(200, content=b"")
         tools = _register_and_get_tools(settings, auth_provider)
 
         result = decode_response(
             await preview_and_apply(
-                tools, "record_preview", action="update", table="incident", sys_id=SYS_ID_INC001, data={"state": "2"}
-            )
+                tools,
+                "record_preview",
+                action="update",
+                table="incident",
+                sys_id=SYS_ID_INC001,
+                data={"state": "2"},
+            ),
         )
 
         assert result["status"] == "error"
-        assert "Invalid JSON response from PATCH /api/now/table/incident/" in result["error"]["message"]
+        assert (
+            "Invalid JSON response from PATCH /api/now/table/incident/"
+            in result["error"]["message"]
+        )
         assert "Remote outcome unknown" in result["error"]["message"]
         assert "Verify remote outcome before retrying" in result["error"]["message"]
         assert mutation.call_count == 1
@@ -226,18 +295,29 @@ class TestStandardRecordWrite:
     @pytest.mark.asyncio()
     @pytest.mark.parametrize("status_code", [200, 201])
     async def test_create_apply_non_object_json_response_warns_before_retry(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider, status_code: int
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
+        status_code: int,
     ) -> None:
         http_mock.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
-        mutation = http_mock.post(f"{BASE_URL}/api/now/table/incident").respond(status_code, json=[])
+        mutation = http_mock.post(f"{BASE_URL}/api/now/table/incident").respond(
+            status_code, json=[]
+        )
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await preview_and_apply(
-            tools, "record_preview", action="create", table="incident", data={"short_description": "Test"}
+            tools,
+            "record_preview",
+            action="create",
+            table="incident",
+            data={"short_description": "Test"},
         )
 
         result = decode_response(raw)
         assert result["status"] == "error"
-        assert result["error"]["message"].startswith("Unexpected JSON response from POST /api/now/table/incident")
+        assert result["error"]["message"].startswith(
+            "Unexpected JSON response from POST /api/now/table/incident"
+        )
         assert f"HTTP {status_code}" in result["error"]["message"]
         assert "Remote outcome unknown" in result["error"]["message"]
         assert "Verify remote outcome before retrying" in result["error"]["message"]
@@ -245,33 +325,49 @@ class TestStandardRecordWrite:
 
     @pytest.mark.asyncio()
     async def test_update_apply_non_object_json_response_warns_before_retry(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         http_mock.get(f"{BASE_URL}/api/now/table/incident/{SYS_ID_INC001}").respond(
-            200, json={"result": {"sys_id": SYS_ID_INC001, "state": "1"}}
+            200,
+            json={"result": {"sys_id": SYS_ID_INC001, "state": "1"}},
         )
         http_mock.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
-        mutation = http_mock.patch(f"{BASE_URL}/api/now/table/incident/{SYS_ID_INC001}").respond(200, json=[])
+        mutation = http_mock.patch(
+            f"{BASE_URL}/api/now/table/incident/{SYS_ID_INC001}"
+        ).respond(200, json=[])
         tools = _register_and_get_tools(settings, auth_provider)
 
         result = decode_response(
             await preview_and_apply(
-                tools, "record_preview", action="update", table="incident", sys_id=SYS_ID_INC001, data={"state": "2"}
-            )
+                tools,
+                "record_preview",
+                action="update",
+                table="incident",
+                sys_id=SYS_ID_INC001,
+                data={"state": "2"},
+            ),
         )
 
         assert result["status"] == "error"
-        assert result["error"]["message"].startswith("Unexpected JSON response from PATCH /api/now/table/incident/")
+        assert result["error"]["message"].startswith(
+            "Unexpected JSON response from PATCH /api/now/table/incident/"
+        )
         assert "Remote outcome unknown" in result["error"]["message"]
         assert "Verify remote outcome before retrying" in result["error"]["message"]
         assert mutation.call_count == 1
 
     @pytest.mark.asyncio()
-    async def test_create_preview_returns_token(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_create_preview_returns_token(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         http_mock.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["record_preview"](
-            action="create", table="incident", data={"short_description": "Test", "state": "1"}
+            action="create",
+            table="incident",
+            data={"short_description": "Test", "state": "1"},
         )
         result = decode_response(raw)
         assert result["status"] == "success"
@@ -281,17 +377,23 @@ class TestStandardRecordWrite:
         assert result["data"]["summary"]["data"]["short_description"] == "Test"
 
     @pytest.mark.asyncio()
-    async def test_create_apply_commits_once(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_create_apply_commits_once(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         http_mock.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
         http_mock.post(f"{BASE_URL}/api/now/table/incident").mock(
             return_value=httpx2.Response(
                 201,
                 json={"result": {"sys_id": "new001", "short_description": "Test"}},
-            )
+            ),
         )
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await preview_and_apply(
-            tools, "record_preview", action="create", table="incident", data={"short_description": "Test"}
+            tools,
+            "record_preview",
+            action="create",
+            table="incident",
+            data={"short_description": "Test"},
         )
         result = decode_response(raw)
         assert result["status"] == "success"
@@ -299,13 +401,20 @@ class TestStandardRecordWrite:
         assert "preview_token" not in result["data"]
 
     @pytest.mark.asyncio()
-    async def test_update_preview_includes_diff(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_update_preview_includes_diff(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         http_mock.get(f"{BASE_URL}/api/now/table/incident/{SYS_ID_INC001}").mock(
-            return_value=httpx2.Response(200, json={"result": {"sys_id": SYS_ID_INC001, "state": "1"}}),
+            return_value=httpx2.Response(
+                200, json={"result": {"sys_id": SYS_ID_INC001, "state": "1"}}
+            ),
         )
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["record_preview"](
-            action="update", table="incident", sys_id=SYS_ID_INC001, data={"state": "2"}
+            action="update",
+            table="incident",
+            sys_id=SYS_ID_INC001,
+            data={"state": "2"},
         )
         result = decode_response(raw)
         assert result["status"] == "success"
@@ -314,7 +423,9 @@ class TestStandardRecordWrite:
         assert "preview_token" in result["data"]
 
     @pytest.mark.asyncio()
-    async def test_delete_preview_stores_snapshot(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_delete_preview_stores_snapshot(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         http_mock.get(f"{BASE_URL}/api/now/table/incident/{SYS_ID_INC001}").mock(
             return_value=httpx2.Response(
                 200,
@@ -323,12 +434,14 @@ class TestStandardRecordWrite:
                         "sys_id": SYS_ID_INC001,
                         "short_description": "doomed",
                         "password": "s3cret",  # NOSONAR
-                    }
+                    },
                 },
             ),
         )
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_preview"](action="delete", table="incident", sys_id=SYS_ID_INC001)
+        raw = await tools["record_preview"](
+            action="delete", table="incident", sys_id=SYS_ID_INC001
+        )
         result = decode_response(raw)
         assert result["status"] == "success"
         snap = result["data"]["summary"]["record_snapshot"]
@@ -336,12 +449,16 @@ class TestStandardRecordWrite:
         assert snap["password"] == "***MASKED***"  # NOSONAR
 
     @pytest.mark.asyncio()
-    async def test_record_apply_consumes_token(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_record_apply_consumes_token(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         # Phase 1: preview create
         http_mock.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
         tools = _register_and_get_tools(settings, auth_provider)
         preview_raw = await tools["record_preview"](
-            action="create", table="incident", data={"short_description": "Apply me"}
+            action="create",
+            table="incident",
+            data={"short_description": "Apply me"},
         )
         token = decode_response(preview_raw)["data"]["preview_token"]
 
@@ -363,13 +480,19 @@ class TestStandardRecordWrite:
 
     @pytest.mark.asyncio()
     async def test_record_apply_invalid_response_does_not_replay_write(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         http_mock.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
-        mutation = http_mock.post(f"{BASE_URL}/api/now/table/incident").respond(201, content=b"")
+        mutation = http_mock.post(f"{BASE_URL}/api/now/table/incident").respond(
+            201, content=b""
+        )
         tools = _register_and_get_tools(settings, auth_provider)
         preview = decode_response(
-            await tools["record_preview"](action="create", table="incident", data={"short_description": "Test"})
+            await tools["record_preview"](
+                action="create", table="incident", data={"short_description": "Test"}
+            ),
         )
         token = preview["data"]["preview_token"]
 
@@ -386,7 +509,9 @@ class TestStandardRecordWrite:
 
     @pytest.mark.asyncio()
     async def test_record_apply_unknown_token_returns_error(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["mutation_apply"](preview_token="not-a-real-token")
@@ -400,29 +525,44 @@ class TestMandatoryFieldValues:
 
     @pytest.mark.parametrize("preview", [True, False])
     async def test_false_and_zero_are_supplied(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider, preview: bool
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
+        preview: bool,
     ) -> None:
         payload = {"active": False, "order": 0}
         http_mock.get(METADATA_URL).respond(
-            200, json={"result": [{"element": name, "mandatory": "true"} for name in payload]}
+            200,
+            json={
+                "result": [{"element": name, "mandatory": "true"} for name in payload]
+            },
         )
         mutation = http_mock.post(f"{BASE_URL}/api/now/table/incident").respond(
-            201, json={"result": {"sys_id": SYS_ID_INC001, **payload}}
+            201,
+            json={"result": {"sys_id": SYS_ID_INC001, **payload}},
         )
         tools = _register_and_get_tools(settings, auth_provider)
         result = decode_response(
             await (
                 tools["record_preview"](action="create", table="incident", data=payload)
                 if preview
-                else preview_and_apply(tools, "record_preview", action="create", table="incident", data=payload)
-            )
+                else preview_and_apply(
+                    tools,
+                    "record_preview",
+                    action="create",
+                    table="incident",
+                    data=payload,
+                )
+            ),
         )
         assert result["status"] == "success"
         if preview:
             assert result["data"]["summary"]["data"]["active"] is False
             assert result["data"]["summary"]["data"]["order"] == 0
             assert not mutation.called
-            raw = await tools["mutation_apply"](preview_token=result["data"]["preview_token"])
+            raw = await tools["mutation_apply"](
+                preview_token=result["data"]["preview_token"]
+            )
             assert decode_response(raw)["status"] == "success"
         assert mutation.call_count == 1
         submitted = json.loads(mutation.calls[0].request.content)
@@ -431,14 +571,28 @@ class TestMandatoryFieldValues:
         assert type(submitted["order"]) is int
 
     @pytest.mark.parametrize("preview", [True, False])
-    @pytest.mark.parametrize("payload", [{}, {"name": None}, {"name": ""}], ids=["absent", "null", "empty"])
+    @pytest.mark.parametrize(
+        "payload", [{}, {"name": None}, {"name": ""}], ids=["absent", "null", "empty"]
+    )
     async def test_missing_values_block_create(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider, preview: bool, payload: dict[str, Any]
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
+        preview: bool,
+        payload: dict[str, Any],
     ) -> None:
-        http_mock.get(METADATA_URL).respond(200, json={"result": [{"element": "name", "mandatory": "true"}]})
+        http_mock.get(METADATA_URL).respond(
+            200, json={"result": [{"element": "name", "mandatory": "true"}]}
+        )
         tools = _register_and_get_tools(settings, auth_provider)
-        with patch.object(PreviewTokenStore, "create", new_callable=AsyncMock) as create_token:
-            result = decode_response(await tools["record_preview"](action="create", table="incident", data=payload))
+        with patch.object(
+            PreviewTokenStore, "create", new_callable=AsyncMock
+        ) as create_token:
+            result = decode_response(
+                await tools["record_preview"](
+                    action="create", table="incident", data=payload
+                )
+            )
         assert result["status"] == "error"
         assert result["error"]["missing_fields"] == ["name"]
         create_token.assert_not_awaited()
@@ -451,39 +605,66 @@ class TestInheritedMandatoryFields:
     @pytest.mark.parametrize("preview", [True, False])
     @pytest.mark.parametrize("child_mandatory", [None, "false", "true"])
     async def test_inherited_mandatory_and_child_overrides(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider, preview: bool, child_mandatory: str | None
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
+        preview: bool,
+        child_mandatory: str | None,
     ) -> None:
         from mcp.server import MCPServer
 
         from tests.helpers import register_mutations
 
         def objects(request: httpx2.Request) -> httpx2.Response:
-            parent = "u_parent" if request.url.params["sysparm_query"] == "name=u_child" else ""
+            parent = (
+                "u_parent"
+                if request.url.params["sysparm_query"] == "name=u_child"
+                else ""
+            )
             return httpx2.Response(200, json={"result": [{"super_class.name": parent}]})
 
         def fields(request: httpx2.Request) -> httpx2.Response:
             if request.url.params.get("sysparm_fields") == "element,internal_type.name":
-                return httpx2.Response(200, json={"result": [{"element": "script", "internal_type.name": "script"}]})
+                return httpx2.Response(
+                    200,
+                    json={
+                        "result": [
+                            {"element": "script", "internal_type.name": "script"}
+                        ]
+                    },
+                )
             is_child = request.url.params["sysparm_query"].startswith("name=u_child^")
             rows = (
                 []
                 if is_child and child_mandatory is None
-                else [{"element": "name", "mandatory": child_mandatory if is_child else "true"}]
+                else [
+                    {
+                        "element": "name",
+                        "mandatory": child_mandatory if is_child else "true",
+                    },
+                ]
             )
             return httpx2.Response(200, json={"result": rows})
 
-        http_mock.get(f"{BASE_URL}/api/now/table/sys_db_object").mock(side_effect=objects)
+        http_mock.get(f"{BASE_URL}/api/now/table/sys_db_object").mock(
+            side_effect=objects
+        )
         http_mock.get(METADATA_URL).mock(side_effect=fields)
         mutation = http_mock.post(f"{BASE_URL}/api/now/table/u_child").respond(
-            201, json={"result": {"sys_id": SYS_ID_INC001}}
+            201,
+            json={"result": {"sys_id": SYS_ID_INC001}},
         )
         mcp = MCPServer("test")
         register_mutations(mcp, settings, auth_provider, frozenset({"records"}))
-        with patch.object(PreviewTokenStore, "create", new_callable=AsyncMock, return_value="preview") as create_token:
+        with patch.object(
+            PreviewTokenStore, "create", new_callable=AsyncMock, return_value="preview"
+        ) as create_token:
             result = decode_response(
                 await get_tool_functions(mcp)["record_preview"](
-                    action="create", table="u_child", data={"script": "run();"}
-                )
+                    action="create",
+                    table="u_child",
+                    data={"script": "run();"},
+                ),
             )
         if child_mandatory == "false":
             assert result["status"] == "success"
@@ -498,52 +679,83 @@ class TestInheritedMandatoryFields:
     @pytest.mark.parametrize("preview", [True, False])
     @pytest.mark.parametrize("status_code", [401, 403, 404, 500])
     async def test_parent_metadata_error_blocks_create(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider, preview: bool, status_code: int
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
+        preview: bool,
+        status_code: int,
     ) -> None:
         from mcp.server import MCPServer
 
         from tests.helpers import register_mutations
 
         def objects(request: httpx2.Request) -> httpx2.Response:
-            parent = "u_parent" if request.url.params["sysparm_query"] == "name=u_child" else ""
+            parent = (
+                "u_parent"
+                if request.url.params["sysparm_query"] == "name=u_child"
+                else ""
+            )
             return httpx2.Response(200, json={"result": [{"super_class.name": parent}]})
 
         def fields(request: httpx2.Request) -> httpx2.Response:
             if request.url.params["sysparm_query"].startswith("name=u_parent^"):
-                return httpx2.Response(status_code, json={"error": {"message": "Unavailable"}})
-            return httpx2.Response(200, json={"result": [{"element": "script", "internal_type.name": "script"}]})
+                return httpx2.Response(
+                    status_code, json={"error": {"message": "Unavailable"}}
+                )
+            return httpx2.Response(
+                200,
+                json={
+                    "result": [{"element": "script", "internal_type.name": "script"}]
+                },
+            )
 
-        http_mock.get(f"{BASE_URL}/api/now/table/sys_db_object").mock(side_effect=objects)
+        http_mock.get(f"{BASE_URL}/api/now/table/sys_db_object").mock(
+            side_effect=objects
+        )
         http_mock.get(METADATA_URL).mock(side_effect=fields)
         mcp = MCPServer("test")
         register_mutations(mcp, settings, auth_provider, frozenset({"records"}))
-        with patch.object(PreviewTokenStore, "create", new_callable=AsyncMock) as create_token:
+        with patch.object(
+            PreviewTokenStore, "create", new_callable=AsyncMock
+        ) as create_token:
             result = decode_response(
                 await get_tool_functions(mcp)["record_preview"](
-                    action="create", table="u_child", data={"script": "run();"}
-                )
+                    action="create",
+                    table="u_child",
+                    data={"script": "run();"},
+                ),
             )
         assert result["status"] == "error"
         create_token.assert_not_awaited()
         assert all(call.request.method == "GET" for call in http_mock.calls)
 
     async def test_apply_rechecks_inherited_mandatory_fields(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         from mcp.server import MCPServer
 
         from tests.helpers import register_mutations
 
         def objects(request: httpx2.Request) -> httpx2.Response:
-            parent = "u_parent" if request.url.params["sysparm_query"] == "name=u_child" else ""
+            parent = (
+                "u_parent"
+                if request.url.params["sysparm_query"] == "name=u_child"
+                else ""
+            )
             return httpx2.Response(200, json={"result": [{"super_class.name": parent}]})
 
-        http_mock.get(f"{BASE_URL}/api/now/table/sys_db_object").mock(side_effect=objects)
+        http_mock.get(f"{BASE_URL}/api/now/table/sys_db_object").mock(
+            side_effect=objects
+        )
         metadata = http_mock.get(METADATA_URL).respond(200, json={"result": []})
         mcp = MCPServer("test")
         register_mutations(mcp, settings, auth_provider, frozenset({"records"}))
         tools = get_tool_functions(mcp)
-        preview = decode_response(await tools["record_preview"](action="create", table="u_child", data={}))
+        preview = decode_response(
+            await tools["record_preview"](action="create", table="u_child", data={})
+        )
 
         def fields(request: httpx2.Request) -> httpx2.Response:
             rows = (
@@ -554,7 +766,11 @@ class TestInheritedMandatoryFields:
             return httpx2.Response(200, json={"result": rows})
 
         metadata.mock(side_effect=fields)
-        result = decode_response(await tools["mutation_apply"](preview_token=preview["data"]["preview_token"]))
+        result = decode_response(
+            await tools["mutation_apply"](
+                preview_token=preview["data"]["preview_token"]
+            )
+        )
         assert result["status"] == "error"
         assert result["error"]["missing_fields"] == ["name"]
         assert all(call.request.method == "GET" for call in http_mock.calls)
@@ -569,30 +785,43 @@ class TestPolicyGates:
     """Defense-in-depth checks: denied tables, prod env, sys_id format."""
 
     @pytest.mark.asyncio()
-    async def test_denied_table_returns_error(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_denied_table_returns_error(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         denied = next(iter(DENIED_TABLES))
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["record_preview"](action="create", table=denied, data={"x": 1})
+        raw = await tools["record_preview"](
+            action="create", table=denied, data={"x": 1}
+        )
         result = decode_response(raw)
         assert result["status"] == "error"
 
     @pytest.mark.asyncio()
     async def test_production_blocks_writes_with_proper_settings(
-        self, prod_settings: Settings, prod_auth_provider: OAuthPKCEProvider
+        self,
+        prod_settings: Settings,
+        prod_auth_provider: OAuthPKCEProvider,
     ) -> None:
         tools = _register_and_get_tools(prod_settings, prod_auth_provider)
-        raw = await tools["record_preview"](action="create", table="incident", data={"short_description": "x"})
+        raw = await tools["record_preview"](
+            action="create", table="incident", data={"short_description": "x"}
+        )
         result = decode_response(raw)
         assert result["status"] == "error"
         assert "production" in result["error"]["message"].lower()
 
     @pytest.mark.asyncio()
     async def test_invalid_sys_id_format_returns_error(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["record_preview"](
-            action="update", table="incident", sys_id="not-a-real-sys-id", data={"state": "2"}
+            action="update",
+            table="incident",
+            sys_id="not-a-real-sys-id",
+            data={"state": "2"},
         )
         result = decode_response(raw)
         assert result["status"] == "error"

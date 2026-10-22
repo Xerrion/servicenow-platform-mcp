@@ -3,7 +3,6 @@
 import re
 from typing import Any
 
-
 _IDENTIFIER_RE = re.compile(r"^[a-z0-9_]+(\.[a-z0-9_]+)*$")
 _SYS_ID_RE: re.Pattern[str] = re.compile(r"^[0-9a-f]{32}$")
 
@@ -43,7 +42,7 @@ def validate_identifier(name: str | dict[str, Any] | None) -> None:
     if not _IDENTIFIER_RE.match(name):
         raise ValueError(
             "Invalid identifier. "
-            "Only lowercase alphanumeric characters, underscores, and dot-walked segments are allowed."
+            "Only lowercase alphanumeric characters, underscores, and dot-walked segments are allowed.",
         )
 
 
@@ -52,7 +51,9 @@ def validate_sys_id(value: str) -> None:
     if not isinstance(value, str):
         value = resolve_ref_value(value)
     if not _SYS_ID_RE.match(value):
-        raise ValueError("Invalid sys_id. Expected a 32-character lowercase hexadecimal string.")
+        raise ValueError(
+            "Invalid sys_id. Expected a 32-character lowercase hexadecimal string."
+        )
 
 
 def sanitize_query_value(value: str | dict[str, Any] | None) -> str:

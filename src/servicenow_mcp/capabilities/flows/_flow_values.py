@@ -1,9 +1,8 @@
 """Pure decoder for Flow Designer ``values`` blobs.
 
-Action instances, logic instances, and triggers in the V2 flow tables
-(``sys_hub_action_instance_v2``, ``sys_hub_flow_logic_instance_v2``,
-``sys_hub_trigger_instance_v2``) store their input bindings in a single
-``values`` column as a gzip-compressed, base64-encoded JSON document.
+V2 action and logic instances store input bindings in ``values``.
+V2 triggers can store separate ``trigger_inputs`` and ``trigger_outputs``.
+These columns contain gzip-compressed, base64-encoded JSON documents.
 
 This module provides a stateless decoder. It performs no I/O and holds no
 state. Callers decide when (and whether) to decode.
@@ -18,7 +17,6 @@ from typing import Any
 from pydantic import ValidationError
 
 from servicenow_mcp._json import JSON
-
 
 # Base64 prefix produced by the gzip magic bytes (``1f 8b 08 ...``). Cheap
 # heuristic to distinguish plain string values from compressed payloads.
@@ -109,6 +107,8 @@ def decode_values(compressed: str) -> list[Any] | dict[str, Any]:
         raise ValueError(f"decompressed payload is not valid JSON: {cause}") from None
 
     if not isinstance(decoded, list | dict):
-        raise ValueError(f"decoded payload is not a list or dict (got {type(decoded).__name__})")
+        raise ValueError(  # noqa: TRY004 - Malformed decoded content follows the decoder's ValueError contract.
+            f"decoded payload is not a list or dict (got {type(decoded).__name__})"
+        )
 
     return decoded

@@ -3,7 +3,7 @@
 import logging
 import re
 import uuid
-from typing import Any, Self
+from typing import TYPE_CHECKING, Any, Self
 
 import httpx2
 from pydantic import ValidationError
@@ -11,8 +11,6 @@ from pydantic import ValidationError
 from servicenow_mcp._http_diagnostics import request_diagnostics, response_diagnostics
 from servicenow_mcp._json import JSON
 from servicenow_mcp._rest_auth_evidence import rest_auth_evidence
-from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.config import Settings
 from servicenow_mcp.errors import (
     ACLError,
     AuthError,
@@ -23,8 +21,16 @@ from servicenow_mcp.errors import (
 )
 from servicenow_mcp.policy import check_mutation_policy
 from servicenow_mcp.sentry import set_sentry_context, set_sentry_tag
-from servicenow_mcp.telemetry import current_tool_trace, request_operation, trace_authorization_wait
+from servicenow_mcp.telemetry import (
+    current_tool_trace,
+    request_operation,
+    trace_authorization_wait,
+)
 from servicenow_mcp.validation import validate_identifier
+
+if TYPE_CHECKING:
+    from servicenow_mcp.auth import OAuthPKCEProvider
+    from servicenow_mcp.config import Settings
 
 
 logger = logging.getLogger(__name__)
@@ -53,7 +59,9 @@ class ServiceNowRequestClient:
 
     async def __aenter__(self) -> Self:
         if self._http_client is None:
-            self._http_client = httpx2.AsyncClient(timeout=self._settings.httpx_timeout_seconds)
+            self._http_client = httpx2.AsyncClient(
+                timeout=self._settings.httpx_timeout_seconds
+            )
         return self
 
     async def __aexit__(self, *exc: object) -> None:
@@ -64,7 +72,9 @@ class ServiceNowRequestClient:
     def _ensure_client(self) -> httpx2.AsyncClient:
         """Return the initialized HTTP client."""
         if self._http_client is None:
-            raise RuntimeError("Client not initialized. Use 'async with ServiceNowClient(...)' as context manager.")
+            raise RuntimeError(
+                "Client not initialized. Use 'async with ServiceNowClient(...)' as context manager."
+            )
         return self._http_client
 
     async def _headers(self) -> dict[str, str]:
@@ -88,37 +98,44 @@ class ServiceNowRequestClient:
         try:
             return data["result"]
         except KeyError:
-            raise ServerError("Unexpected API response format: missing 'result' key") from None
+            raise ServerError(
+                "Unexpected API response format: missing 'result' key"
+            ) from None
 
     def _extract_json_result(self, response: httpx2.Response) -> Any:
         """Parse a result without disclosing response bodies or query values in errors."""
         try:
             payload = JSON.validate_json(response.content)
         except ValidationError:
-            if response.request.method in {"POST", "PATCH"}:
+            if response.request.method in {"POST", "PUT", "PATCH"}:
                 raise ServerError(
                     f"Invalid JSON response from {response.request.method} {response.request.url.path} "
                     f"(HTTP {response.status_code}). Remote outcome unknown; the write may have completed. "
-                    "Verify remote outcome before retrying. The request was not replayed."
+                    "Verify remote outcome before retrying. The request was not replayed.",
                 ) from None
             raise ServerError(
                 f"Invalid JSON response from {response.request.method} {response.request.url.path} "
                 f"(HTTP {response.status_code}). Check the endpoint response and authentication; "
-                "this does not establish an ACL denial."
+                "this does not establish an ACL denial.",
             ) from None
         if not isinstance(payload, dict):
-            if response.request.method in {"POST", "PATCH"}:
+            if response.request.method in {"POST", "PUT", "PATCH"}:
                 raise ServerError(
                     f"Unexpected JSON response from {response.request.method} {response.request.url.path} "
                     f"(HTTP {response.status_code}). Remote outcome unknown; the write may have completed. "
-                    "Verify remote outcome before retrying. The request was not replayed."
+                    "Verify remote outcome before retrying. The request was not replayed.",
                 ) from None
             raise ServerError(
-                f"Unexpected JSON response from {response.request.url.path}: expected an object with 'result'."
+                f"Unexpected JSON response from {response.request.url.path}: expected an object with 'result'.",
             )
-        if "result" not in payload and response.request.method in {"POST", "PATCH"}:
+        if "result" not in payload and response.request.method in {
+            "POST",
+            "PUT",
+            "PATCH",
+        }:
             raise ServerError(
-                "Mutation response is missing result. Remote outcome unknown. Check ServiceNow before another preview. The request was not replayed."
+                "Mutation response is missing result. Remote outcome unknown. Check ServiceNow before another "
+                "preview. The request was not replayed.",
             )
         return self._extract_result(payload)
 
@@ -166,11 +183,13 @@ class ServiceNowRequestClient:
             )
             raise AuthError(
                 "ServiceNow rejected the OAuth token on a REST request (HTTP 401). "
-                "The request was not replayed. On the next tool call, refresh the token or authorize again in the browser. "
+                "The request was not replayed. On the next tool call, refresh the token or authorize again in the "
+                "browser. "
                 "If a newly issued token is rejected again, "
                 "ask the ServiceNow administrator to check the granted scopes, REST API access policy, "
-                "and user access on the configured instance. A successful token exchange does not establish REST access. "
-                f"Safe response evidence: {evidence}"
+                "and user access on the configured instance. A successful token exchange does not establish REST "
+                "access. "
+                f"Safe response evidence: {evidence}",
             )
         if response.status_code == 403:
             message = self._extract_error_message(response, "Access forbidden")
@@ -178,7 +197,9 @@ class ServiceNowRequestClient:
                 raise ACLError(message)
             raise ForbiddenError(message)
         if response.status_code == 404:
-            raise NotFoundError(self._extract_error_message(response, "Resource not found"))
+            raise NotFoundError(
+                self._extract_error_message(response, "Resource not found")
+            )
         if response.status_code >= 500:
             raise ServerError(
                 self._extract_error_message(response, "ServiceNow server error"),
@@ -218,8 +239,12 @@ class ServiceNowRequestClient:
         """Extract a ServiceNow error message when the response shape permits it."""
         try:
             body = JSON.validate_json(response.content)
-            if "error" in body and "message" in body["error"]:
-                return body["error"]["message"]
+            if isinstance(body, dict):
+                error = body.get("error")
+                if isinstance(error, dict):
+                    message = error.get("message")
+                    if isinstance(message, str):
+                        return message
         except Exception:
             logger.debug("Could not parse ServiceNow error body", exc_info=True)
         return default

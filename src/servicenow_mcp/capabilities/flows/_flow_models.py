@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
+from pydantic import Field
+
 from servicenow_mcp._contracts import ContractModel
 
 
@@ -22,7 +24,9 @@ class StageDefinition(ContractModel):
 
 
 class ActionTypeRef(ContractModel):
-    omit_when_none: ClassVar[frozenset[str]] = frozenset({"internal_name", "sys_scope", "category"})
+    omit_when_none: ClassVar[frozenset[str]] = frozenset(
+        {"internal_name", "sys_scope", "category"}
+    )
 
     sys_id: str
     name: str
@@ -39,7 +43,15 @@ class LogicDefinitionRef(ContractModel):
 class FlowNode(ContractModel):
     """V2 canvas node. ``values_decoded`` stays dynamic ServiceNow data."""
 
-    omit_when_none: ClassVar[frozenset[str]] = frozenset({"action_type", "logic_definition", "decode_error"})
+    omit_when_none: ClassVar[frozenset[str]] = frozenset(
+        {
+            "action_type",
+            "logic_definition",
+            "decode_error",
+            "subflow",
+            "wait_for_completion",
+        },
+    )
 
     kind: str
     version: str
@@ -54,21 +66,28 @@ class FlowNode(ContractModel):
     children: list[dict[str, Any]]
     action_type: ActionTypeRef | None = None
     logic_definition: LogicDefinitionRef | None = None
+    subflow: LogicDefinitionRef | None = None
+    wait_for_completion: bool | None = None
     decode_error: str | None = None
 
 
 class V2Trigger(ContractModel):
-    omit_when_none: ClassVar[frozenset[str]] = frozenset({"decode_error"})
+    omit_when_none: ClassVar[frozenset[str]] = frozenset({"decode_error", "definition"})
 
     version: str = "v2"
     sys_id: str
     type: str
-    active: bool
+    active: bool | None
     table: str
     remote_trigger_id: str
     condition: str
     values_decoded: Any
     decode_error: str | None = None
+    outputs_decoded: Any = None
+    active_source: str | None = None
+    metadata_complete: bool | None = None
+    warnings: list[str] = Field(default_factory=list)
+    definition: dict[str, Any] | None = None
 
 
 class V1Trigger(ContractModel):
@@ -92,12 +111,15 @@ class ContractBinding(ContractModel):
 
 
 class ContractTrigger(ContractModel):
-    omit_when_none: ClassVar[frozenset[str]] = frozenset({"configuration", "decode_error"})
+    omit_when_none: ClassVar[frozenset[str]] = frozenset(
+        {"configuration", "decode_error", "output_configuration"}
+    )
 
     version: str
     type: str
-    active: bool
+    active: bool | None
     table: str
     condition: str
     configuration: list[dict[str, Any]] | None = None
     decode_error: str | None = None
+    output_configuration: list[dict[str, Any]] | None = None

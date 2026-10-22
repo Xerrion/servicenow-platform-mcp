@@ -130,6 +130,36 @@
               ],
               "default": null,
               "title": "Missing Fields"
+            },
+            "missing_arguments": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Missing Arguments"
+            },
+            "invalid_fields": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/$defs/InvalidField"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Invalid Fields"
             }
           },
           "required": [
@@ -160,6 +190,26 @@
             "error"
           ],
           "title": "ErrorResult",
+          "type": "object"
+        },
+        "InvalidField": {
+          "additionalProperties": false,
+          "description": "A schema-declared argument name and its expected native type. Never an input value.",
+          "properties": {
+            "field": {
+              "title": "Field",
+              "type": "string"
+            },
+            "expected": {
+              "title": "Expected",
+              "type": "string"
+            }
+          },
+          "required": [
+            "field",
+            "expected"
+          ],
+          "title": "InvalidField",
           "type": "object"
         },
         "JsonValue": {},
@@ -557,6 +607,36 @@
               ],
               "default": null,
               "title": "Missing Fields"
+            },
+            "missing_arguments": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Missing Arguments"
+            },
+            "invalid_fields": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/$defs/InvalidField"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Invalid Fields"
             }
           },
           "required": [
@@ -587,6 +667,26 @@
             "error"
           ],
           "title": "ErrorResult",
+          "type": "object"
+        },
+        "InvalidField": {
+          "additionalProperties": false,
+          "description": "A schema-declared argument name and its expected native type. Never an input value.",
+          "properties": {
+            "field": {
+              "title": "Field",
+              "type": "string"
+            },
+            "expected": {
+              "title": "Expected",
+              "type": "string"
+            }
+          },
+          "required": [
+            "field",
+            "expected"
+          ],
+          "title": "InvalidField",
           "type": "object"
         },
         "JsonValue": {},
@@ -894,6 +994,36 @@
               ],
               "default": null,
               "title": "Missing Fields"
+            },
+            "missing_arguments": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Missing Arguments"
+            },
+            "invalid_fields": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/$defs/InvalidField"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Invalid Fields"
             }
           },
           "required": [
@@ -924,6 +1054,26 @@
             "error"
           ],
           "title": "ErrorResult",
+          "type": "object"
+        },
+        "InvalidField": {
+          "additionalProperties": false,
+          "description": "A schema-declared argument name and its expected native type. Never an input value.",
+          "properties": {
+            "field": {
+              "title": "Field",
+              "type": "string"
+            },
+            "expected": {
+              "title": "Expected",
+              "type": "string"
+            }
+          },
+          "required": [
+            "field",
+            "expected"
+          ],
+          "title": "InvalidField",
           "type": "object"
         },
         "JsonValue": {},
@@ -1173,6 +1323,36 @@
               ],
               "default": null,
               "title": "Missing Fields"
+            },
+            "missing_arguments": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Missing Arguments"
+            },
+            "invalid_fields": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/$defs/InvalidField"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Invalid Fields"
             }
           },
           "required": [
@@ -1203,6 +1383,26 @@
             "error"
           ],
           "title": "ErrorResult",
+          "type": "object"
+        },
+        "InvalidField": {
+          "additionalProperties": false,
+          "description": "A schema-declared argument name and its expected native type. Never an input value.",
+          "properties": {
+            "field": {
+              "title": "Field",
+              "type": "string"
+            },
+            "expected": {
+              "title": "Expected",
+              "type": "string"
+            }
+          },
+          "required": [
+            "field",
+            "expected"
+          ],
+          "title": "InvalidField",
           "type": "object"
         },
         "JsonValue": {},
@@ -1463,6 +1663,36 @@
               ],
               "default": null,
               "title": "Missing Fields"
+            },
+            "missing_arguments": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Missing Arguments"
+            },
+            "invalid_fields": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/$defs/InvalidField"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Invalid Fields"
             }
           },
           "required": [
@@ -1493,6 +1723,26 @@
             "error"
           ],
           "title": "ErrorResult",
+          "type": "object"
+        },
+        "InvalidField": {
+          "additionalProperties": false,
+          "description": "A schema-declared argument name and its expected native type. Never an input value.",
+          "properties": {
+            "field": {
+              "title": "Field",
+              "type": "string"
+            },
+            "expected": {
+              "title": "Expected",
+              "type": "string"
+            }
+          },
+          "required": [
+            "field",
+            "expected"
+          ],
+          "title": "InvalidField",
           "type": "object"
         },
         "JsonValue": {},
@@ -1746,6 +1996,36 @@
               ],
               "default": null,
               "title": "Missing Fields"
+            },
+            "missing_arguments": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Missing Arguments"
+            },
+            "invalid_fields": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/$defs/InvalidField"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Invalid Fields"
             }
           },
           "required": [
@@ -1776,6 +2056,26 @@
             "error"
           ],
           "title": "ErrorResult",
+          "type": "object"
+        },
+        "InvalidField": {
+          "additionalProperties": false,
+          "description": "A schema-declared argument name and its expected native type. Never an input value.",
+          "properties": {
+            "field": {
+              "title": "Field",
+              "type": "string"
+            },
+            "expected": {
+              "title": "Expected",
+              "type": "string"
+            }
+          },
+          "required": [
+            "field",
+            "expected"
+          ],
+          "title": "InvalidField",
           "type": "object"
         },
         "JsonValue": {},
@@ -1999,6 +2299,36 @@
               ],
               "default": null,
               "title": "Missing Fields"
+            },
+            "missing_arguments": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Missing Arguments"
+            },
+            "invalid_fields": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/$defs/InvalidField"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Invalid Fields"
             }
           },
           "required": [
@@ -2029,6 +2359,26 @@
             "error"
           ],
           "title": "ErrorResult",
+          "type": "object"
+        },
+        "InvalidField": {
+          "additionalProperties": false,
+          "description": "A schema-declared argument name and its expected native type. Never an input value.",
+          "properties": {
+            "field": {
+              "title": "Field",
+              "type": "string"
+            },
+            "expected": {
+              "title": "Expected",
+              "type": "string"
+            }
+          },
+          "required": [
+            "field",
+            "expected"
+          ],
+          "title": "InvalidField",
           "type": "object"
         },
         "JsonValue": {},
@@ -2451,6 +2801,36 @@
               ],
               "default": null,
               "title": "Missing Fields"
+            },
+            "missing_arguments": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Missing Arguments"
+            },
+            "invalid_fields": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/$defs/InvalidField"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Invalid Fields"
             }
           },
           "required": [
@@ -2481,6 +2861,26 @@
             "error"
           ],
           "title": "ErrorResult",
+          "type": "object"
+        },
+        "InvalidField": {
+          "additionalProperties": false,
+          "description": "A schema-declared argument name and its expected native type. Never an input value.",
+          "properties": {
+            "field": {
+              "title": "Field",
+              "type": "string"
+            },
+            "expected": {
+              "title": "Expected",
+              "type": "string"
+            }
+          },
+          "required": [
+            "field",
+            "expected"
+          ],
+          "title": "InvalidField",
           "type": "object"
         },
         "JsonValue": {},
@@ -2779,6 +3179,36 @@
               ],
               "default": null,
               "title": "Missing Fields"
+            },
+            "missing_arguments": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Missing Arguments"
+            },
+            "invalid_fields": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/$defs/InvalidField"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Invalid Fields"
             }
           },
           "required": [
@@ -2809,6 +3239,26 @@
             "error"
           ],
           "title": "ErrorResult",
+          "type": "object"
+        },
+        "InvalidField": {
+          "additionalProperties": false,
+          "description": "A schema-declared argument name and its expected native type. Never an input value.",
+          "properties": {
+            "field": {
+              "title": "Field",
+              "type": "string"
+            },
+            "expected": {
+              "title": "Expected",
+              "type": "string"
+            }
+          },
+          "required": [
+            "field",
+            "expected"
+          ],
+          "title": "InvalidField",
           "type": "object"
         },
         "JsonValue": {},
@@ -3109,6 +3559,36 @@
               ],
               "default": null,
               "title": "Missing Fields"
+            },
+            "missing_arguments": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Missing Arguments"
+            },
+            "invalid_fields": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/$defs/InvalidField"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Invalid Fields"
             }
           },
           "required": [
@@ -3139,6 +3619,26 @@
             "error"
           ],
           "title": "ErrorResult",
+          "type": "object"
+        },
+        "InvalidField": {
+          "additionalProperties": false,
+          "description": "A schema-declared argument name and its expected native type. Never an input value.",
+          "properties": {
+            "field": {
+              "title": "Field",
+              "type": "string"
+            },
+            "expected": {
+              "title": "Expected",
+              "type": "string"
+            }
+          },
+          "required": [
+            "field",
+            "expected"
+          ],
+          "title": "InvalidField",
           "type": "object"
         },
         "JsonValue": {},
@@ -3216,7 +3716,9 @@
             "find_by_table",
             "decode_values",
             "list_triggers",
-            "describe"
+            "describe",
+            "validate",
+            "status"
           ],
           "title": "Action",
           "type": "string"
@@ -3335,6 +3837,18 @@
           ],
           "default": null,
           "title": "Section Limit"
+        },
+        "execution_sys_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Execution Sys Id"
         }
       },
       "required": [
@@ -3468,6 +3982,36 @@
               ],
               "default": null,
               "title": "Missing Fields"
+            },
+            "missing_arguments": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Missing Arguments"
+            },
+            "invalid_fields": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/$defs/InvalidField"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Invalid Fields"
             }
           },
           "required": [
@@ -3498,6 +4042,26 @@
             "error"
           ],
           "title": "ErrorResult",
+          "type": "object"
+        },
+        "InvalidField": {
+          "additionalProperties": false,
+          "description": "A schema-declared argument name and its expected native type. Never an input value.",
+          "properties": {
+            "field": {
+              "title": "Field",
+              "type": "string"
+            },
+            "expected": {
+              "title": "Expected",
+              "type": "string"
+            }
+          },
+          "required": [
+            "field",
+            "expected"
+          ],
+          "title": "InvalidField",
           "type": "object"
         },
         "JsonValue": {},
@@ -3774,6 +4338,36 @@
               ],
               "default": null,
               "title": "Missing Fields"
+            },
+            "missing_arguments": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Missing Arguments"
+            },
+            "invalid_fields": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/$defs/InvalidField"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Invalid Fields"
             }
           },
           "required": [
@@ -3804,6 +4398,26 @@
             "error"
           ],
           "title": "ErrorResult",
+          "type": "object"
+        },
+        "InvalidField": {
+          "additionalProperties": false,
+          "description": "A schema-declared argument name and its expected native type. Never an input value.",
+          "properties": {
+            "field": {
+              "title": "Field",
+              "type": "string"
+            },
+            "expected": {
+              "title": "Expected",
+              "type": "string"
+            }
+          },
+          "required": [
+            "field",
+            "expected"
+          ],
+          "title": "InvalidField",
           "type": "object"
         },
         "JsonValue": {},
@@ -4076,6 +4690,36 @@
               ],
               "default": null,
               "title": "Missing Fields"
+            },
+            "missing_arguments": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Missing Arguments"
+            },
+            "invalid_fields": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/$defs/InvalidField"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Invalid Fields"
             }
           },
           "required": [
@@ -4106,6 +4750,26 @@
             "error"
           ],
           "title": "ErrorResult",
+          "type": "object"
+        },
+        "InvalidField": {
+          "additionalProperties": false,
+          "description": "A schema-declared argument name and its expected native type. Never an input value.",
+          "properties": {
+            "field": {
+              "title": "Field",
+              "type": "string"
+            },
+            "expected": {
+              "title": "Expected",
+              "type": "string"
+            }
+          },
+          "required": [
+            "field",
+            "expected"
+          ],
+          "title": "InvalidField",
           "type": "object"
         },
         "JsonValue": {},
@@ -4352,6 +5016,36 @@
               ],
               "default": null,
               "title": "Missing Fields"
+            },
+            "missing_arguments": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Missing Arguments"
+            },
+            "invalid_fields": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/$defs/InvalidField"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Invalid Fields"
             }
           },
           "required": [
@@ -4382,6 +5076,26 @@
             "error"
           ],
           "title": "ErrorResult",
+          "type": "object"
+        },
+        "InvalidField": {
+          "additionalProperties": false,
+          "description": "A schema-declared argument name and its expected native type. Never an input value.",
+          "properties": {
+            "field": {
+              "title": "Field",
+              "type": "string"
+            },
+            "expected": {
+              "title": "Expected",
+              "type": "string"
+            }
+          },
+          "required": [
+            "field",
+            "expected"
+          ],
+          "title": "InvalidField",
           "type": "object"
         },
         "JsonValue": {},
@@ -4664,6 +5378,36 @@
               ],
               "default": null,
               "title": "Missing Fields"
+            },
+            "missing_arguments": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Missing Arguments"
+            },
+            "invalid_fields": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/$defs/InvalidField"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Invalid Fields"
             }
           },
           "required": [
@@ -4694,6 +5438,26 @@
             "error"
           ],
           "title": "ErrorResult",
+          "type": "object"
+        },
+        "InvalidField": {
+          "additionalProperties": false,
+          "description": "A schema-declared argument name and its expected native type. Never an input value.",
+          "properties": {
+            "field": {
+              "title": "Field",
+              "type": "string"
+            },
+            "expected": {
+              "title": "Expected",
+              "type": "string"
+            }
+          },
+          "required": [
+            "field",
+            "expected"
+          ],
+          "title": "InvalidField",
           "type": "object"
         },
         "JsonValue": {},
@@ -5053,6 +5817,36 @@
               ],
               "default": null,
               "title": "Missing Fields"
+            },
+            "missing_arguments": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Missing Arguments"
+            },
+            "invalid_fields": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/$defs/InvalidField"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Invalid Fields"
             }
           },
           "required": [
@@ -5083,6 +5877,26 @@
             "error"
           ],
           "title": "ErrorResult",
+          "type": "object"
+        },
+        "InvalidField": {
+          "additionalProperties": false,
+          "description": "A schema-declared argument name and its expected native type. Never an input value.",
+          "properties": {
+            "field": {
+              "title": "Field",
+              "type": "string"
+            },
+            "expected": {
+              "title": "Expected",
+              "type": "string"
+            }
+          },
+          "required": [
+            "field",
+            "expected"
+          ],
+          "title": "InvalidField",
           "type": "object"
         },
         "JsonValue": {},
@@ -5289,6 +6103,36 @@
               ],
               "default": null,
               "title": "Missing Fields"
+            },
+            "missing_arguments": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Missing Arguments"
+            },
+            "invalid_fields": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/$defs/InvalidField"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Invalid Fields"
             }
           },
           "required": [
@@ -5319,6 +6163,26 @@
             "error"
           ],
           "title": "ErrorResult",
+          "type": "object"
+        },
+        "InvalidField": {
+          "additionalProperties": false,
+          "description": "A schema-declared argument name and its expected native type. Never an input value.",
+          "properties": {
+            "field": {
+              "title": "Field",
+              "type": "string"
+            },
+            "expected": {
+              "title": "Expected",
+              "type": "string"
+            }
+          },
+          "required": [
+            "field",
+            "expected"
+          ],
+          "title": "InvalidField",
           "type": "object"
         },
         "JsonValue": {},

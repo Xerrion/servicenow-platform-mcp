@@ -1,7 +1,7 @@
 """Prepare unified-query requests and apply read-side policy."""
 
 import logging
-from typing import ClassVar, Final, Literal, NoReturn
+from typing import TYPE_CHECKING, ClassVar, Final, Literal, NoReturn
 
 import httpx2
 from pydantic import BaseModel, ConfigDict
@@ -19,12 +19,14 @@ from servicenow_mcp.capabilities.records._query_parsing import (
     parse_label_pairs,
     parse_projection,
 )
-from servicenow_mcp.config import Settings
-from servicenow_mcp.platform.metadata._dictionary import DictionaryRegistry
-from servicenow_mcp.platform.metadata.choices import ChoiceRegistry
 from servicenow_mcp.policy import check_table_access, enforce_query_safety
 from servicenow_mcp.telemetry import current_tool_trace, timeout_phase
 from servicenow_mcp.validation import validate_identifier, validate_sys_id
+
+if TYPE_CHECKING:
+    from servicenow_mcp.config import Settings
+    from servicenow_mcp.platform.metadata._dictionary import DictionaryRegistry
+    from servicenow_mcp.platform.metadata.choices import ChoiceRegistry
 
 
 logger = logging.getLogger(__name__)
@@ -38,7 +40,7 @@ _UNIVERSAL_FIELDS: Final[frozenset[str]] = frozenset(
         "sys_updated_by",
         "sys_mod_count",
         "sys_tags",
-    }
+    },
 )
 
 
@@ -66,15 +68,23 @@ def error_response(message: str) -> NoReturn:
 
 
 def check_mode_conflicts(
-    sys_id: str | None, aggregate: list[AggregateOperation] | None, group_by: list[str] | None
+    sys_id: str | None,
+    aggregate: list[AggregateOperation] | None,
+    group_by: list[str] | None,
 ) -> None:
     """Reject mutually exclusive query modes before platform requests."""
     if sys_id and aggregate:
-        return error_response("Cannot combine sys_id with aggregate; sys_id mode fetches a single record.")
+        return error_response(
+            "Cannot combine sys_id with aggregate; sys_id mode fetches a single record."
+        )
     if sys_id and group_by:
-        return error_response("Cannot combine sys_id with group_by; sys_id mode fetches a single record.")
+        return error_response(
+            "Cannot combine sys_id with group_by; sys_id mode fetches a single record."
+        )
     if group_by and not aggregate:
-        return error_response("group_by requires aggregate to be set (aggregate mode only).")
+        return error_response(
+            "group_by requires aggregate to be set (aggregate mode only)."
+        )
     return None
 
 
@@ -84,7 +94,9 @@ def prepare_table(table: str) -> None:
     check_table_access(table)
 
 
-def prepare_single_record(sys_id: str, fields: list[str] | Literal["*"] | None) -> Projection:
+def prepare_single_record(
+    sys_id: str, fields: list[str] | Literal["*"] | None
+) -> Projection:
     """Validate a single-record request and parse its projection."""
     validate_sys_id(sys_id)
     return parse_projection(fields, compact_default=True)
@@ -146,7 +158,7 @@ async def resolve_labels(
         if resolved == pair.label and not pair.label.isdigit():
             warnings.append(
                 f"resolve_labels: '{pair.field}={pair.label}' did not resolve via ChoiceRegistry; "
-                "using label verbatim as the filter value."
+                "using label verbatim as the filter value.",
             )
         augmented = join_query(augmented, f"{pair.field}={resolved}")
     return augmented, warnings
@@ -158,12 +170,16 @@ async def validate_query_fields(
     dictionary: DictionaryRegistry,
 ) -> list[str]:
     """Report unresolved schema paths without interpreting hidden metadata as invalid."""
-    candidates = [path for path in extract_query_fields(encoded_query) if path not in _UNIVERSAL_FIELDS]
+    candidates = [
+        path
+        for path in extract_query_fields(encoded_query)
+        if path not in _UNIVERSAL_FIELDS
+    ]
     if not candidates:
         return []
     try:
         resolutions = await dictionary.get_query_field_paths(table, candidates)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — preserve safe fallback behavior for unexpected failures
         reason = (
             f"HTTP timeout ({timeout_phase(exc)})"
             if isinstance(exc, httpx2.TimeoutException)
@@ -171,28 +187,37 @@ async def validate_query_fields(
         )
         trace = current_tool_trace()
         trace_note = f" trace_id={trace.trace_id}" if trace else ""
-        logger.warning("Query field validation skipped:%s reason=%s", trace_note, reason)
+        logger.warning(
+            "Query field validation skipped:%s reason=%s", trace_note, reason
+        )
         return [
             (
                 f"Could not validate query fields for table '{table}': {reason}.{trace_note} "
                 "ServiceNow may ignore unknown fields and "
                 "broaden the query; verify field names before trusting the result."
-            )
+            ),
         ]
 
     unverified = [entry for entry in resolutions if entry.status == "unverified"]
     if not unverified:
         return []
-    details = ". ".join(f"{entry.path}: {entry.reason or 'metadata did not resolve this path'}" for entry in unverified)
+    details = ". ".join(
+        f"{entry.path}: {entry.reason or 'metadata did not resolve this path'}"
+        for entry in unverified
+    )
     trace = current_tool_trace()
     trace_note = f" trace_id={trace.trace_id}" if trace else ""
-    logger.warning("Query field validation incomplete:%s unverified_paths=%d", trace_note, len(unverified))
+    logger.warning(
+        "Query field validation incomplete:%s unverified_paths=%d",
+        trace_note,
+        len(unverified),
+    )
     return [
         (
             f"Query field path(s) remain unverified for table '{table}': {details}.{trace_note} "
             "Missing metadata does not prove a field is invalid. ServiceNow may ignore invalid conditions "
             "and broaden the query. Verify these paths before trusting the result."
-        )
+        ),
     ]
 
 

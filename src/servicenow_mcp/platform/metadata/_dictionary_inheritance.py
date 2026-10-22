@@ -1,12 +1,14 @@
 """Resolve ServiceNow table inheritance chains."""
 
 import logging
-from typing import Final, Literal
+from typing import TYPE_CHECKING, Final, Literal
 
-from servicenow_mcp.platform.client import ServiceNowClient
 from servicenow_mcp.platform.metadata._dictionary_models import TableInheritance
 from servicenow_mcp.query_builder import ServiceNowQuery
 from servicenow_mcp.validation import validate_identifier
+
+if TYPE_CHECKING:
+    from servicenow_mcp.platform.client import ServiceNowClient
 
 
 logger = logging.getLogger(__name__)
@@ -20,8 +22,14 @@ async def resolve_chain(client: ServiceNowClient, table: str) -> TableInheritanc
     current = table
     for _ in range(_MAX_CHAIN_DEPTH):
         if current in visited:
-            logger.warning("super_class cycle detected at table=%s; truncating chain at %s", current, chain)
-            return TableInheritance(tables=chain, complete=False, reason="inheritance_cycle")
+            logger.warning(
+                "super_class cycle detected at table=%s; truncating chain at %s",
+                current,
+                chain,
+            )
+            return TableInheritance(
+                tables=chain, complete=False, reason="inheritance_cycle"
+            )
         visited.add(current)
         chain.append(current)
         parent, reason = await lookup_super_class(client, current)
@@ -36,11 +44,14 @@ async def resolve_chain(client: ServiceNowClient, table: str) -> TableInheritanc
         _MAX_CHAIN_DEPTH,
         chain,
     )
-    return TableInheritance(tables=chain, complete=False, reason="inheritance_depth_limit")
+    return TableInheritance(
+        tables=chain, complete=False, reason="inheritance_depth_limit"
+    )
 
 
 async def lookup_super_class(
-    client: ServiceNowClient, table: str
+    client: ServiceNowClient,
+    table: str,
 ) -> tuple[str, Literal["table_not_visible", "parent_not_visible"] | None]:
     """Distinguish an observed root from missing table or parent metadata."""
     result = await client.query_records(

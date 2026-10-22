@@ -34,7 +34,10 @@ def test_loopback_dns_lookup_is_allowed() -> None:
 
 
 def test_non_loopback_datagram_is_blocked() -> None:
-    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock, pytest.raises(RuntimeError, match="non-loopback"):
+    with (
+        socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock,
+        pytest.raises(RuntimeError, match="non-loopback"),
+    ):
         sock.sendto(b"x", ("203.0.113.1", 53))
 
 

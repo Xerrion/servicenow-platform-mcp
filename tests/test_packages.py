@@ -1,10 +1,20 @@
 """Package presets, custom selection, and mutation-group exposure."""
 
+from typing import TYPE_CHECKING
+
 import pytest
 
 from servicenow_mcp.bootstrap.stdio import create_mcp_server
-from servicenow_mcp.config import Settings
-from servicenow_mcp.packages import MUTATION_GROUPS, PACKAGE_REGISTRY, TOOL_GROUPS, get_package, list_packages
+from servicenow_mcp.packages import (
+    MUTATION_GROUPS,
+    PACKAGE_REGISTRY,
+    TOOL_GROUPS,
+    get_package,
+    list_packages,
+)
+
+if TYPE_CHECKING:
+    from servicenow_mcp.config import Settings
 
 
 def test_presets_have_complete_disjoint_write_selection() -> None:
@@ -30,7 +40,18 @@ def test_custom_groups_preserve_order_and_deduplicate() -> None:
     assert get_package("query, describe, query") == ["query", "describe"]
 
 
-@pytest.mark.parametrize("name", ["", "query,", ",query", "query,,describe", "unknown", "full,query", "readonly,query"])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "",
+        "query,",
+        ",query",
+        "query,,describe",
+        "unknown",
+        "full,query",
+        "readonly,query",
+    ],
+)
 def test_invalid_package_is_explicit(name: str) -> None:
     with pytest.raises(ValueError, match=r"empty|Unknown|preset"):
         get_package(name)
@@ -46,8 +67,11 @@ async def test_selected_group_is_constructible(settings: Settings, group: str) -
         "record_write": "record_preview",
         "attachment_write": "attachment_preview",
         "service_catalog_write": "service_catalog_preview",
+        "flow_write": "flow_preview",
     }.get(group, group)
-    assert names == {"list_tool_packages", expected} | ({"mutation_apply"} if group in MUTATION_GROUPS else set())
+    assert names == {"list_tool_packages", expected} | (
+        {"mutation_apply"} if group in MUTATION_GROUPS else set()
+    )
 
 
 async def test_apply_registered_once_for_multiple_groups(settings: Settings) -> None:

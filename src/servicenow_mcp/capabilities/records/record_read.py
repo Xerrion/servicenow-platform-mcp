@@ -7,17 +7,19 @@ callers know which fields they can target on a subsequent ``record_preview``.
 
 from __future__ import annotations
 
-from typing import Literal, NoReturn
+from typing import TYPE_CHECKING, Literal, NoReturn
 
-from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.capabilities.contracts import CapabilityError, CapabilityResult
 from servicenow_mcp.capabilities.contracts import result as operation_result
 from servicenow_mcp.capabilities.records._record_helpers import _resolve_record_sys_id
-from servicenow_mcp.config import Settings
 from servicenow_mcp.platform.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.platform.metadata._dictionary import DictionaryRegistry, ScriptField
 from servicenow_mcp.policy import check_table_access, mask_record
 from servicenow_mcp.validation import validate_identifier, validate_sys_id
+
+if TYPE_CHECKING:
+    from servicenow_mcp.auth import OAuthPKCEProvider
+    from servicenow_mcp.config import Settings
 
 
 _COMPACT_IDENTITY_FIELDS: tuple[str, ...] = (
@@ -48,7 +50,9 @@ def _script_field_summary(fields: list[ScriptField]) -> list[dict[str, object]]:
     ]
 
 
-def _parse_requested_fields(fields: list[str] | Literal["*"]) -> tuple[list[str] | None, str]:
+def _parse_requested_fields(
+    fields: list[str] | Literal["*"],
+) -> tuple[list[str] | None, str]:
     """Parse the record projection before any ServiceNow request."""
     if fields == "*":
         return None, "all"
@@ -72,7 +76,9 @@ class RecordReadCapability:
         client_factory: ServiceNowClientProvider | None = None,
     ) -> None:
         """Bind the operation's platform and metadata dependencies."""
-        client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
+        client_factory = client_factory or (
+            lambda: ServiceNowClient(settings, auth_provider)
+        )
         if dictionary is None:
             dictionary = DictionaryRegistry(settings, auth_provider, client_factory)
         dict_registry = dictionary
@@ -119,7 +125,11 @@ class RecordReadCapability:
         known_fields = {field.name for field in all_fields}
         script_fields = await self.dict_registry.get_script_fields(table)
         if requested_fields is not None:
-            unknown_fields = [field for field in requested_fields if field != "sys_id" and field not in known_fields]
+            unknown_fields = [
+                field
+                for field in requested_fields
+                if field != "sys_id" and field not in known_fields
+            ]
             if unknown_fields:
                 return _err(
                     f"Unknown field(s) for table {table!r}: {','.join(unknown_fields)}.",
@@ -127,9 +137,15 @@ class RecordReadCapability:
 
         if selection_mode == "compact":
             identity_fields = [
-                field for field in _COMPACT_IDENTITY_FIELDS if field == "sys_id" or field in known_fields
+                field
+                for field in _COMPACT_IDENTITY_FIELDS
+                if field == "sys_id" or field in known_fields
             ]
-            projection = list(dict.fromkeys([*identity_fields, *(field.name for field in script_fields)]))
+            projection = list(
+                dict.fromkeys(
+                    [*identity_fields, *(field.name for field in script_fields)]
+                )
+            )
         elif requested_fields is None:
             projection = None
         else:

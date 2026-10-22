@@ -1,15 +1,20 @@
 {
+  "languages": {
+    "Python": {
+      "language_servers": ["ty", "ruff"],
+    },
+  },
   "lsp": {
-    "basedpyright": {
+    "ty": {
       "binary": {
-        "path": "basedpyright-langserver",
-        "arguments": ["--stdio"],
+        "path": "ty",
+        "arguments": ["server"],
       },
     },
     "ruff": {
       "binary": {
-        "path": "ruff server",
-        "arguments": ["--stdio"],
+        "path": "ruff",
+        "arguments": ["server"],
       },
     },
   },

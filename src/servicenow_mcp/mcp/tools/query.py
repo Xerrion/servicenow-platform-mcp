@@ -1,19 +1,25 @@
 """Native query adapter."""
 
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
-from mcp.server import MCPServer
 from mcp.types import ToolAnnotations
 
-from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.capabilities.contracts import CapabilityResult
-from servicenow_mcp.capabilities.records._query_parsing import AggregateOperation, LabelPair
+from servicenow_mcp.capabilities.records._query_parsing import (
+    AggregateOperation,
+    LabelPair,
+)
 from servicenow_mcp.capabilities.records.query import QueryCapability
-from servicenow_mcp.config import Settings
 from servicenow_mcp.mcp.handlers import tool_handler
-from servicenow_mcp.platform.client import ServiceNowClientProvider
-from servicenow_mcp.platform.metadata._dictionary import DictionaryRegistry
-from servicenow_mcp.platform.metadata.choices import ChoiceRegistry
+
+if TYPE_CHECKING:
+    from mcp.server import MCPServer
+
+    from servicenow_mcp.auth import OAuthPKCEProvider
+    from servicenow_mcp.config import Settings
+    from servicenow_mcp.platform.client import ServiceNowClientProvider
+    from servicenow_mcp.platform.metadata._dictionary import DictionaryRegistry
+    from servicenow_mcp.platform.metadata.choices import ChoiceRegistry
 
 
 def register_tools(
@@ -34,8 +40,11 @@ def register_tools(
 
     @mcp.tool(
         annotations=ToolAnnotations(
-            read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=True
-        )
+            read_only_hint=True,
+            destructive_hint=False,
+            idempotent_hint=True,
+            open_world_hint=True,
+        ),
     )
     @tool_handler
     async def query(

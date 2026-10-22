@@ -4,9 +4,8 @@ import asyncio
 import datetime
 import ipaddress
 import ssl
-from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import httpx2
 import pytest
@@ -14,6 +13,10 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
+    from pathlib import Path
 
 
 pytestmark = [pytest.mark.loopback(), pytest.mark.real_http()]
@@ -28,11 +31,20 @@ class _Server:
         self.port: int = 0
         self.hang: asyncio.Event = asyncio.Event()
 
-    async def handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    async def handle(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
         head = await reader.readuntil(b"\r\n\r\n")
         lines = head.decode("latin-1").split("\r\n")
         self.request_lines.append(lines[0])
-        length = next((int(line.split(":", 1)[1]) for line in lines if line.lower().startswith("content-length:")), 0)
+        length = next(
+            (
+                int(line.split(":", 1)[1])
+                for line in lines
+                if line.lower().startswith("content-length:")
+            ),
+            0,
+        )
         body = await reader.readexactly(length)
         self.bodies.append(body)
         if lines[0].split()[1].endswith("/hang"):
@@ -41,7 +53,7 @@ class _Server:
         writer.write(
             b"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n"
             + f"Content-Length: {len(payload)}\r\nConnection: close\r\n\r\n".encode()
-            + payload
+            + payload,
         )
         await writer.drain()
         writer.close()
@@ -73,8 +85,14 @@ def _write_ca_and_leaf(directory: Path) -> tuple[Path, ssl.SSLContext]:
         .not_valid_before(now - datetime.timedelta(minutes=1))
         .not_valid_after(now + datetime.timedelta(hours=1))
         .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
-        .add_extension(x509.KeyUsage(False, False, False, False, False, True, True, False, False), critical=True)
-        .add_extension(x509.SubjectKeyIdentifier.from_public_key(ca_key.public_key()), critical=False)
+        .add_extension(
+            x509.KeyUsage(False, False, False, False, False, True, True, False, False),
+            critical=True,
+        )
+        .add_extension(
+            x509.SubjectKeyIdentifier.from_public_key(ca_key.public_key()),
+            critical=False,
+        )
         .sign(ca_key, hashes.SHA256())
     )
     leaf_key = ec.generate_private_key(ec.SECP256R1())
@@ -86,8 +104,16 @@ def _write_ca_and_leaf(directory: Path) -> tuple[Path, ssl.SSLContext]:
         .serial_number(x509.random_serial_number())
         .not_valid_before(now - datetime.timedelta(minutes=1))
         .not_valid_after(now + datetime.timedelta(hours=1))
-        .add_extension(x509.SubjectAlternativeName([x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]), critical=False)
-        .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_key.public_key()), critical=False)
+        .add_extension(
+            x509.SubjectAlternativeName(
+                [x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]
+            ),
+            critical=False,
+        )
+        .add_extension(
+            x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_key.public_key()),
+            critical=False,
+        )
         .sign(ca_key, hashes.SHA256())
     )
     ca_path = directory / "ca.pem"
@@ -97,15 +123,19 @@ def _write_ca_and_leaf(directory: Path) -> tuple[Path, ssl.SSLContext]:
     cert_path.write_bytes(leaf.public_bytes(serialization.Encoding.PEM))
     key_path.write_bytes(
         leaf_key.private_bytes(
-            serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
-        )
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        ),
     )
     server_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
     server_context.load_cert_chain(cert_path, key_path)
     return ca_path, server_context
 
 
-async def test_custom_ca_is_trusted_only_when_configured(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_custom_ca_is_trusted_only_when_configured(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     ca_path, server_context = _write_ca_and_leaf(tmp_path)
     monkeypatch.delenv("SSL_CERT_FILE", raising=False)
     monkeypatch.delenv("SSL_CERT_DIR", raising=False)
@@ -114,14 +144,18 @@ async def test_custom_ca_is_trusted_only_when_configured(tmp_path: Path, monkeyp
         async with httpx2.AsyncClient(trust_env=False) as client:
             with pytest.raises(httpx2.ConnectError):
                 await client.get(url)
-        async with httpx2.AsyncClient(verify=ssl.create_default_context(cafile=ca_path)) as client:
+        async with httpx2.AsyncClient(
+            verify=ssl.create_default_context(cafile=ca_path)
+        ) as client:
             assert (await client.get(url)).content == BINARY
         monkeypatch.setenv("SSL_CERT_FILE", str(ca_path))
         async with httpx2.AsyncClient() as client:
             assert (await client.get(url)).status_code == 200
 
 
-async def test_proxy_env_no_proxy_and_trust_env(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_proxy_env_no_proxy_and_trust_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     async with _serve() as proxy, _serve() as origin:
         target = f"http://127.0.0.1:{origin.port}/direct"
         monkeypatch.setenv("HTTP_PROXY", f"http://127.0.0.1:{proxy.port}")
@@ -147,7 +181,11 @@ async def test_binary_request_and_response_bodies_round_trip() -> None:
     async with _serve() as server, httpx2.AsyncClient(trust_env=False) as client:
         url = f"http://127.0.0.1:{server.port}/binary"
         assert (await client.get(url)).content == BINARY
-        echoed = await client.post(url, content=BINARY[::-1], headers={"Content-Type": "application/octet-stream"})
+        echoed = await client.post(
+            url,
+            content=BINARY[::-1],
+            headers={"Content-Type": "application/octet-stream"},
+        )
     assert echoed.content == BINARY[::-1]
     assert server.bodies[-1] == BINARY[::-1]
 

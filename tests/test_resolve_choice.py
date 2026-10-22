@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock
 
 import pytest
 
 from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.config import Settings
 from servicenow_mcp.platform.metadata.choices import ChoiceRegistry
 from servicenow_mcp.policy import DENIED_TABLES
 from tests.helpers import decode_response, get_tool_functions
+
+if TYPE_CHECKING:
+    from servicenow_mcp.config import Settings
 
 
 @pytest.fixture()
@@ -33,7 +35,9 @@ def _register_and_get_tools(
     return get_tool_functions(mcp)
 
 
-def _make_choices(settings: Settings, auth_provider: OAuthPKCEProvider) -> ChoiceRegistry:
+def _make_choices(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> ChoiceRegistry:
     """Return a ``ChoiceRegistry`` instance seeded with an empty fresh cache."""
     choices = ChoiceRegistry(settings, auth_provider)
     choices._metadata_cache.seed("all", {})
@@ -46,7 +50,9 @@ def _make_choices(settings: Settings, auth_provider: OAuthPKCEProvider) -> Choic
 
 
 @pytest.mark.asyncio()
-async def test_resolves_label_to_value(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_resolves_label_to_value(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """A known label is resolved to its underlying value via ChoiceRegistry."""
     choices = _make_choices(settings, auth_provider)
     choices.resolve = AsyncMock(return_value="1")  # type: ignore[method-assign]
@@ -66,7 +72,9 @@ async def test_resolves_label_to_value(settings: Settings, auth_provider: OAuthP
 
 
 @pytest.mark.asyncio()
-async def test_empty_label_returns_full_mapping(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_empty_label_returns_full_mapping(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """An empty label returns the full {label: value} mapping for the field."""
     choices = _make_choices(settings, auth_provider)
     mapping = {"open": "1", "in_progress": "2", "closed": "7"}
@@ -89,13 +97,17 @@ async def test_empty_label_returns_full_mapping(settings: Settings, auth_provide
 
 
 @pytest.mark.asyncio()
-async def test_passthrough_emits_warning(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_passthrough_emits_warning(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """A non-numeric label that resolves to itself triggers a passthrough warning."""
     choices = _make_choices(settings, auth_provider)
     choices.resolve = AsyncMock(side_effect=lambda _t, _f, label: label)  # type: ignore[method-assign]
 
     tools = _register_and_get_tools(choices=choices)
-    raw = await tools["resolve_choice"](table="incident", field="state", label="mystery")
+    raw = await tools["resolve_choice"](
+        table="incident", field="state", label="mystery"
+    )
     result = decode_response(raw)
 
     assert result["status"] == "success"
@@ -110,7 +122,9 @@ async def test_passthrough_emits_warning(settings: Settings, auth_provider: OAut
 
 
 @pytest.mark.asyncio()
-async def test_denied_table_returns_error(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_denied_table_returns_error(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """A denied table is rejected by the table-access policy gate."""
     choices = _make_choices(settings, auth_provider)
     denied = next(iter(DENIED_TABLES))
@@ -124,12 +138,16 @@ async def test_denied_table_returns_error(settings: Settings, auth_provider: OAu
 
 
 @pytest.mark.asyncio()
-async def test_invalid_field_identifier_returns_error(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_invalid_field_identifier_returns_error(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """A field name that isn't a valid identifier is rejected before any registry call."""
     choices = _make_choices(settings, auth_provider)
 
     tools = _register_and_get_tools(choices=choices)
-    raw = await tools["resolve_choice"](table="incident", field="state^OR1=1", label="open")
+    raw = await tools["resolve_choice"](
+        table="incident", field="state^OR1=1", label="open"
+    )
     result = decode_response(raw)
 
     assert result["status"] == "error"

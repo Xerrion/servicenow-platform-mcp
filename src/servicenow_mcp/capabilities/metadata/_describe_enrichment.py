@@ -2,12 +2,14 @@
 
 import collections
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from servicenow_mcp.platform.client import ServiceNowClient
-from servicenow_mcp.platform.metadata._dictionary import DictionaryField
 from servicenow_mcp.policy import INTERNAL_QUERY_LIMIT
 from servicenow_mcp.query_builder import ServiceNowQuery
+
+if TYPE_CHECKING:
+    from servicenow_mcp.platform.client import ServiceNowClient
+    from servicenow_mcp.platform.metadata._dictionary import DictionaryField
 
 
 logger = logging.getLogger(__name__)
@@ -28,7 +30,9 @@ async def fetch_inherited_choice_counts(
             fields_by_table[field.inherited_from].append(field.name)
 
     for source_table, inherited_names in fields_by_table.items():
-        source_counts = await _fetch_choice_counts(client, source_table, inherited_names, warnings)
+        source_counts = await _fetch_choice_counts(
+            client, source_table, inherited_names, warnings
+        )
         for name, count in source_counts.items():
             counts.setdefault(name, count)
     return counts
@@ -49,7 +53,9 @@ async def fetch_inherited_documentation(
             fields_by_table[field.inherited_from].append(field.name)
 
     for source_table, inherited_names in fields_by_table.items():
-        source_docs = await _fetch_documentation(client, source_table, inherited_names, warnings)
+        source_docs = await _fetch_documentation(
+            client, source_table, inherited_names, warnings
+        )
         for name, document in source_docs.items():
             documentation.setdefault(name, document)
     return documentation
@@ -70,15 +76,23 @@ async def _fetch_choice_counts(
             fields=["element"],
             limit=INTERNAL_QUERY_LIMIT,
         )
-    except Exception:
-        logger.warning("sys_choice fetch failed for table %s; choice_count will be 0", table)
+    except Exception:  # noqa: BLE001 — deliberately convert unexpected failures to safe diagnostics
+        logger.warning(
+            "sys_choice fetch failed for table %s; choice_count will be 0", table
+        )
         warnings.append("Could not fetch sys_choice; choice_count is 0 for all fields")
         return {}
 
     records = response.get("records", [])
     if len(records) >= INTERNAL_QUERY_LIMIT:
-        warnings.append(f"sys_choice records may be truncated at {INTERNAL_QUERY_LIMIT} entries")
-    return dict(collections.Counter(record.get("element", "") for record in records if record.get("element")))
+        warnings.append(
+            f"sys_choice records may be truncated at {INTERNAL_QUERY_LIMIT} entries"
+        )
+    return dict(
+        collections.Counter(
+            record.get("element", "") for record in records if record.get("element")
+        )
+    )
 
 
 async def _fetch_documentation(

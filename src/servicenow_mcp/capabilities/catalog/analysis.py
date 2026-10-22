@@ -5,12 +5,10 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any, Final, NoReturn
+from typing import TYPE_CHECKING, Any, Final, NoReturn
 
-from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.capabilities.contracts import CapabilityError, CapabilityResult
 from servicenow_mcp.capabilities.contracts import result as operation_result
-from servicenow_mcp.config import Settings
 from servicenow_mcp.errors import NotFoundError
 from servicenow_mcp.platform.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.platform.metadata._dictionary import DictionaryRegistry
@@ -22,13 +20,25 @@ from servicenow_mcp.validation import (
     validate_sys_id,
 )
 
+if TYPE_CHECKING:
+    from servicenow_mcp.auth import OAuthPKCEProvider
+    from servicenow_mcp.config import Settings
 
-_VALID_ACTIONS: Final[frozenset[str]] = frozenset({"ritm_variables", "journal_history", "describe"})
+
+_VALID_ACTIONS: Final[frozenset[str]] = frozenset(
+    {"ritm_variables", "journal_history", "describe"}
+)
 _DEFAULT_WINDOW_DAYS: Final[int] = 90
-_JOURNAL_FIELDS: Final[frozenset[str]] = frozenset({"comments", "work_notes", "close_notes"})
-_JOURNAL_TYPES: Final[frozenset[str]] = frozenset({"journal", "journal_input", "journal_list"})
+_JOURNAL_FIELDS: Final[frozenset[str]] = frozenset(
+    {"comments", "work_notes", "close_notes"}
+)
+_JOURNAL_TYPES: Final[frozenset[str]] = frozenset(
+    {"journal", "journal_input", "journal_list"}
+)
 _MRVS_TYPES: Final[frozenset[str]] = frozenset({"multi_row_variable_set"})
-_LIST_COLLECTOR_TYPES: Final[frozenset[str]] = frozenset({"21", "list_collector", "list collector"})
+_LIST_COLLECTOR_TYPES: Final[frozenset[str]] = frozenset(
+    {"21", "list_collector", "list collector"}
+)
 _SENSITIVE_VARIABLE_RE: Final[re.Pattern[str]] = re.compile(
     r"password|token|secret|credential|api[\s_-]*key|private[\s_-]*key",
     re.IGNORECASE,
@@ -40,7 +50,11 @@ _ACTION_REGISTRY: Final[dict[str, dict[str, Any]]] = {
             "Return paginated submitted variable answers for one sc_req_item record, with "
             "data.unsupported_features.multi_row_variable_sets presence metadata."
         ),
-        "params": {"sys_id": "str (32-char)", "limit": "int (optional)", "offset": "int (optional)"},
+        "params": {
+            "sys_id": "str (32-char)",
+            "limit": "int (optional)",
+            "offset": "int (optional)",
+        },
     },
     "journal_history": {
         "description": "Return date-bounded sys_journal_field entries; audit.history remains field-change history.",
@@ -54,7 +68,10 @@ _ACTION_REGISTRY: Final[dict[str, dict[str, Any]]] = {
             "offset": "int (optional)",
         },
     },
-    "describe": {"description": "Return this action registry without platform I/O.", "params": {}},
+    "describe": {
+        "description": "Return this action registry without platform I/O.",
+        "params": {},
+    },
 }
 
 
@@ -88,7 +105,11 @@ def _parse_since(since: str, window_days: int) -> tuple[str, int, bool]:
     if window_days < 0:
         raise ValueError("window_days must be zero or greater.")
     effective_window = window_days or _DEFAULT_WINDOW_DAYS
-    return (datetime.now(UTC).date() - timedelta(days=effective_window)).isoformat(), effective_window, False
+    return (
+        (datetime.now(UTC).date() - timedelta(days=effective_window)).isoformat(),
+        effective_window,
+        False,
+    )
 
 
 def _is_sensitive_definition(definition: dict[str, Any]) -> bool:
@@ -100,7 +121,9 @@ def _is_sensitive_definition(definition: dict[str, Any]) -> bool:
 
 
 def _has_complete_definition_metadata(definition: dict[str, Any]) -> bool:
-    return all(resolve_ref_value(definition.get(key)) for key in ("name", "question_text"))
+    return all(
+        resolve_ref_value(definition.get(key)) for key in ("name", "question_text")
+    )
 
 
 def _is_list_collector(variable_type: str) -> bool:
@@ -171,7 +194,11 @@ async def _ritm_variables(
     )
     links = _records(links_result)
     option_ids = [
-        value for value in dict.fromkeys(resolve_ref_value(row.get("sc_item_option")) for row in links) if value
+        value
+        for value in dict.fromkeys(
+            resolve_ref_value(row.get("sc_item_option")) for row in links
+        )
+        if value
     ]
     options = (
         _records(
@@ -180,23 +207,34 @@ async def _ritm_variables(
                 ServiceNowQuery().in_list("sys_id", option_ids).build(),
                 fields=["sys_id", "item_option_new", "value"],
                 limit=len(option_ids),
-            )
+            ),
         )
         if option_ids
         else []
     )
     definition_ids = [
-        value for value in dict.fromkeys(resolve_ref_value(row.get("item_option_new")) for row in options) if value
+        value
+        for value in dict.fromkeys(
+            resolve_ref_value(row.get("item_option_new")) for row in options
+        )
+        if value
     ]
     definitions = (
         _records(
             await client.query_records(
                 "item_option_new",
                 ServiceNowQuery().in_list("sys_id", definition_ids).build(),
-                fields=["sys_id", "name", "question_text", "type", "reference", "variable_set"],
+                fields=[
+                    "sys_id",
+                    "name",
+                    "question_text",
+                    "type",
+                    "reference",
+                    "variable_set",
+                ],
                 limit=len(definition_ids),
                 display_values=False,
-            )
+            ),
         )
         if definition_ids
         else []
@@ -214,7 +252,9 @@ async def _ritm_variables(
     return assemble_submitted_variables(snapshot)
 
 
-def assemble_submitted_variables(snapshot: SubmittedVariablesSnapshot) -> CapabilityResult:
+def assemble_submitted_variables(
+    snapshot: SubmittedVariablesSnapshot,
+) -> CapabilityResult:
     """Assemble and mask submitted answers without platform I/O."""
     links = snapshot.links
     options = snapshot.options
@@ -223,7 +263,9 @@ def assemble_submitted_variables(snapshot: SubmittedVariablesSnapshot) -> Capabi
     has_mrvs = snapshot.has_mrvs
     effective_limit = snapshot.effective_limit
     effective_offset = snapshot.effective_offset
-    definitions_by_id = {resolve_ref_value(row.get("sys_id")): row for row in definitions}
+    definitions_by_id = {
+        resolve_ref_value(row.get("sys_id")): row for row in definitions
+    }
     definition_counts: dict[str, int] = {}
     for option_row in options:
         definition_id = resolve_ref_value(option_row.get("item_option_new"))
@@ -236,20 +278,26 @@ def assemble_submitted_variables(snapshot: SubmittedVariablesSnapshot) -> Capabi
         option_id = resolve_ref_value(link.get("sc_item_option"))
         submitted_option = options_by_id.get(option_id)
         if submitted_option is None:
-            warnings.append("A submitted-answer link referenced an inaccessible or missing option.")
-            entries.append({"answer_sys_id": option_id or None, "status": "orphaned_option"})
+            warnings.append(
+                "A submitted-answer link referenced an inaccessible or missing option."
+            )
+            entries.append(
+                {"answer_sys_id": option_id or None, "status": "orphaned_option"}
+            )
             continue
         definition_id = resolve_ref_value(submitted_option.get("item_option_new"))
         definition: dict[str, Any] | None = definitions_by_id.get(definition_id)
         if definition is None:
-            warnings.append("A submitted answer referenced an inaccessible or missing variable definition.")
+            warnings.append(
+                "A submitted answer referenced an inaccessible or missing variable definition."
+            )
             entries.append(
                 {
                     "answer_sys_id": option_id,
                     "definition_sys_id": definition_id or None,
                     "raw_value": MASK_VALUE,
                     "status": "inaccessible_definition",
-                }
+                },
             )
             continue
         raw_value = resolve_ref_value(submitted_option.get("value"))
@@ -261,15 +309,17 @@ def assemble_submitted_variables(snapshot: SubmittedVariablesSnapshot) -> Capabi
         is_list_collector = _is_list_collector(variable_type)
         if not has_complete_metadata:
             warnings.append(
-                "One or more variable definitions had incomplete metadata; affected answers were conservatively masked."
+                "One or more variable definitions had incomplete metadata; affected answers were conservatively "
+                "masked.",
             )
         if is_mrvs:
             warnings.append(
-                "Multi-row variable-set answers are not decoded because no stable Table API representation is guaranteed."
+                "Multi-row variable-set answers are not decoded because no stable Table API representation is "
+                "guaranteed.",
             )
         if (reference_target or is_list_collector) and raw_value:
             warnings.append(
-                "Reference answers retain raw sys_ids because a generic display field cannot be resolved reliably."
+                "Reference answers retain raw sys_ids because a generic display field cannot be resolved reliably.",
             )
         if option_id in seen_options:
             warnings.append("Duplicate submitted-answer links were preserved.")
@@ -283,7 +333,8 @@ def assemble_submitted_variables(snapshot: SubmittedVariablesSnapshot) -> Capabi
                 "type": variable_type,
                 "raw_value": MASK_VALUE if is_masked else raw_value,
                 "reference_target": reference_target or None,
-                "variable_set": resolve_ref_value(definition.get("variable_set")) or None,
+                "variable_set": resolve_ref_value(definition.get("variable_set"))
+                or None,
                 "multi_value": _is_multi_value(
                     variable_type,
                     raw_value,
@@ -295,12 +346,12 @@ def assemble_submitted_variables(snapshot: SubmittedVariablesSnapshot) -> Capabi
                     if not has_complete_metadata
                     else ("unsupported_mrvs" if is_mrvs else "resolved")
                 ),
-            }
+            },
         )
 
     if has_mrvs:
         warnings.append(
-            "Multi-row variable-set answers are present but are not decoded or retrieved from their payload fields."
+            "Multi-row variable-set answers are present but are not decoded or retrieved from their payload fields.",
         )
 
     total = snapshot.total
@@ -312,12 +363,16 @@ def assemble_submitted_variables(snapshot: SubmittedVariablesSnapshot) -> Capabi
                 "multi_row_variable_sets": {
                     "present": has_mrvs,
                     "payload_fields_retrieved": False,
-                }
+                },
             },
             "entry_count": len(entries),
             "entries": entries,
         },
-        pagination={"offset": effective_offset, "limit": effective_limit, "total": total},
+        pagination={
+            "offset": effective_offset,
+            "limit": effective_limit,
+            "total": total,
+        },
         warnings=list(dict.fromkeys(warnings)) or None,
     )
 
@@ -330,7 +385,9 @@ def _journal_fields(fields: list[str]) -> list[str]:
     for field in fields:
         validate_identifier(field)
         if field not in _JOURNAL_FIELDS:
-            raise ValueError(f"Unsupported journal field {field!r}. Allowed fields: {sorted(_JOURNAL_FIELDS)}.")
+            raise ValueError(
+                f"Unsupported journal field {field!r}. Allowed fields: {sorted(_JOURNAL_FIELDS)}."
+            )
     return fields
 
 
@@ -354,17 +411,25 @@ async def _journal_history(
     effective_limit, effective_offset = _effective_page(limit, offset, settings)
     requested_fields = _journal_fields(fields)
     cutoff, effective_window, is_explicit_since = _parse_since(since, window_days)
-    dictionary_fields = {field.name: field for field in await dictionary.get_all_fields(table)}
+    dictionary_fields = {
+        field.name: field for field in await dictionary.get_all_fields(table)
+    }
     invalid = [
         name
         for name in requested_fields
-        if name not in dictionary_fields or dictionary_fields[name].internal_type not in _JOURNAL_TYPES
+        if name not in dictionary_fields
+        or dictionary_fields[name].internal_type not in _JOURNAL_TYPES
     ]
     if invalid:
-        return _error(f"Field(s) are not journal-compatible on table {table!r}: {','.join(invalid)}.")
+        return _error(
+            f"Field(s) are not journal-compatible on table {table!r}: {','.join(invalid)}."
+        )
 
     target = await client.query_records(
-        table, ServiceNowQuery().equals("sys_id", sys_id).build(), fields=["sys_id"], limit=1
+        table,
+        ServiceNowQuery().equals("sys_id", sys_id).build(),
+        fields=["sys_id"],
+        limit=1,
     )
     if not _records(target):
         return _error("Target record was not found.")
@@ -381,7 +446,14 @@ async def _journal_history(
     result = await client.query_records(
         "sys_journal_field",
         query,
-        fields=["sys_id", "element", "element_id", "sys_created_on", "sys_created_by", "value"],
+        fields=[
+            "sys_id",
+            "element",
+            "element_id",
+            "sys_created_on",
+            "sys_created_by",
+            "value",
+        ],
         limit=effective_limit,
         offset=effective_offset,
     )
@@ -395,12 +467,22 @@ async def _journal_history(
             "table": table,
             "sys_id": sys_id,
             "fields": requested_fields,
-            "window": {"since": cutoff, "window_days": effective_window, "explicit_since": is_explicit_since},
+            "window": {
+                "since": cutoff,
+                "window_days": effective_window,
+                "explicit_since": is_explicit_since,
+            },
             "entry_count": len(entries),
             "entries": entries,
         },
-        pagination={"offset": effective_offset, "limit": effective_limit, "total": total},
-        warnings=["ServiceNow row and field ACLs and journal retention govern completeness."],
+        pagination={
+            "offset": effective_offset,
+            "limit": effective_limit,
+            "total": total,
+        },
+        warnings=[
+            "ServiceNow row and field ACLs and journal retention govern completeness."
+        ],
     )
 
 
@@ -413,8 +495,12 @@ class AnalysisCapability:
         client_factory: ServiceNowClientProvider | None = None,
     ) -> None:
         """Bind the operation's platform and metadata dependencies."""
-        client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
-        dictionary_registry = dictionary or DictionaryRegistry(settings, auth_provider, client_factory)
+        client_factory = client_factory or (
+            lambda: ServiceNowClient(settings, auth_provider)
+        )
+        dictionary_registry = dictionary or DictionaryRegistry(
+            settings, auth_provider, client_factory
+        )
 
         self.auth_provider = auth_provider
         self.client_factory = client_factory
@@ -443,7 +529,9 @@ class AnalysisCapability:
         offset = 0 if offset is None else offset
 
         if action not in _VALID_ACTIONS:
-            return _error(f"Unknown action {action!r}. Expected one of: {sorted(_VALID_ACTIONS)}.")
+            return _error(
+                f"Unknown action {action!r}. Expected one of: {sorted(_VALID_ACTIONS)}."
+            )
         if action == "describe":
             return operation_result(data={"actions": _ACTION_REGISTRY})
         if not sys_id:

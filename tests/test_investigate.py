@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.config import Settings
 from tests.helpers import decode_response, get_tool_functions
+
+if TYPE_CHECKING:
+    from servicenow_mcp.config import Settings
 
 
 class StubModule:
@@ -30,7 +32,9 @@ def auth_provider(settings: Settings) -> OAuthPKCEProvider:
     return OAuthPKCEProvider(settings)
 
 
-def _register_and_get_tools(settings: Settings, auth_provider: OAuthPKCEProvider) -> dict[str, Any]:
+def _register_and_get_tools(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> dict[str, Any]:
     """Register the unified ``investigate`` tool on a fresh MCP and return callables."""
     from mcp.server import MCPServer
 
@@ -47,7 +51,9 @@ def _register_and_get_tools(settings: Settings, auth_provider: OAuthPKCEProvider
 
 
 @pytest.mark.asyncio()
-async def test_unknown_action_returns_error(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_unknown_action_returns_error(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """Any action other than 'run' or 'explain' returns a friendly error envelope."""
     tools = _register_and_get_tools(settings, auth_provider)
     raw = await tools["investigate"](action="frobnicate")
@@ -66,7 +72,9 @@ async def test_unknown_action_returns_error(settings: Settings, auth_provider: O
 
 
 @pytest.mark.asyncio()
-async def test_run_missing_name_returns_error(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_run_missing_name_returns_error(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """action='run' without a name produces a clear 'name required' error."""
     tools = _register_and_get_tools(settings, auth_provider)
     raw = await tools["investigate"](action="run")
@@ -79,7 +87,8 @@ async def test_run_missing_name_returns_error(settings: Settings, auth_provider:
 
 @pytest.mark.asyncio()
 async def test_run_unknown_investigation_returns_error_with_valid_names(
-    settings: Settings, auth_provider: OAuthPKCEProvider
+    settings: Settings,
+    auth_provider: OAuthPKCEProvider,
 ) -> None:
     """An unknown name lists every available investigation in the error message."""
     tools = _register_and_get_tools(settings, auth_provider)
@@ -104,15 +113,27 @@ async def test_run_unknown_investigation_returns_error_with_valid_names(
 @pytest.mark.asyncio()
 @pytest.mark.parametrize("warnings", [[], ["Source unavailable"]])
 async def test_run_dispatches_to_module_run(
-    settings: Settings, auth_provider: OAuthPKCEProvider, warnings: list[str]
+    settings: Settings,
+    auth_provider: OAuthPKCEProvider,
+    warnings: list[str],
 ) -> None:
     """The parsed params dict reaches ``module.run`` verbatim, and its result flows back."""
     stub_module = StubModule()
-    stub_module.run = AsyncMock(return_value={"finding_count": 0, "findings": [], "marker": "ok", "warnings": warnings})
+    stub_module.run = AsyncMock(
+        return_value={
+            "finding_count": 0,
+            "findings": [],
+            "marker": "ok",
+            "warnings": warnings,
+        },
+    )
     stub_module.explain = AsyncMock()
 
     fake_registry = {"my_stub": stub_module}
-    with patch("servicenow_mcp.capabilities.investigations.investigate.INVESTIGATION_REGISTRY", fake_registry):
+    with patch(
+        "servicenow_mcp.capabilities.investigations.investigate.INVESTIGATION_REGISTRY",
+        fake_registry,
+    ):
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate"](
             action="run",
@@ -139,7 +160,9 @@ async def test_run_dispatches_to_module_run(
 
 
 @pytest.mark.asyncio()
-async def test_run_identifies_registered_source_once(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_run_identifies_registered_source_once(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """A real investigation result identifies its source once for all findings."""
     tools = _register_and_get_tools(settings, auth_provider)
     client = AsyncMock()
@@ -153,7 +176,10 @@ async def test_run_identifies_registered_source_once(settings: Settings, auth_pr
     cm.__aenter__.return_value = client
     cm.__aexit__.return_value = False
 
-    with patch("servicenow_mcp.capabilities.investigations.investigate.ServiceNowClient", return_value=cm):
+    with patch(
+        "servicenow_mcp.capabilities.investigations.investigate.ServiceNowClient",
+        return_value=cm,
+    ):
         raw = await tools["investigate"](action="run", name="stale_automations")
     result = decode_response(raw)
 
@@ -164,7 +190,9 @@ async def test_run_identifies_registered_source_once(settings: Settings, auth_pr
 
 
 @pytest.mark.asyncio()
-async def test_run_invalid_params_json_returns_error(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_run_invalid_params_json_returns_error(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """Malformed JSON in ``params`` is rejected before any module runs."""
     tools = _register_and_get_tools(settings, auth_provider)
     raw = await tools["investigate"](
@@ -184,7 +212,9 @@ async def test_run_invalid_params_json_returns_error(settings: Settings, auth_pr
 
 
 @pytest.mark.asyncio()
-async def test_explain_missing_element_id_returns_error(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_explain_missing_element_id_returns_error(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """action='explain' without an element_id is rejected immediately."""
     tools = _register_and_get_tools(settings, auth_provider)
     raw = await tools["investigate"](action="explain")
@@ -196,7 +226,8 @@ async def test_explain_missing_element_id_returns_error(settings: Settings, auth
 
 @pytest.mark.asyncio()
 async def test_explain_invalid_element_id_format_returns_error(
-    settings: Settings, auth_provider: OAuthPKCEProvider
+    settings: Settings,
+    auth_provider: OAuthPKCEProvider,
 ) -> None:
     """An element_id without a colon fails the 'table:sys_id' format guard."""
     tools = _register_and_get_tools(settings, auth_provider)
@@ -208,7 +239,9 @@ async def test_explain_invalid_element_id_format_returns_error(
 
 
 @pytest.mark.asyncio()
-async def test_explain_dispatches_to_module_explain(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_explain_dispatches_to_module_explain(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """A registry stub's ``explain`` is called with the raw element_id."""
     stub_module = StubModule()
     stub_module.run = AsyncMock()
@@ -217,11 +250,14 @@ async def test_explain_dispatches_to_module_explain(settings: Settings, auth_pro
             "element": "sys_flow_context:fc001",
             "explanation": "stub says hi",
             "record": {"sys_id": "fc001"},
-        }
+        },
     )
 
     fake_registry = {"my_stub": stub_module}
-    with patch("servicenow_mcp.capabilities.investigations.investigate.INVESTIGATION_REGISTRY", fake_registry):
+    with patch(
+        "servicenow_mcp.capabilities.investigations.investigate.INVESTIGATION_REGISTRY",
+        fake_registry,
+    ):
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate"](
             action="explain",
@@ -242,7 +278,8 @@ async def test_explain_dispatches_to_module_explain(settings: Settings, auth_pro
 
 @pytest.mark.asyncio()
 async def test_explain_direct_dispatch_invokes_only_named_module(
-    settings: Settings, auth_provider: OAuthPKCEProvider
+    settings: Settings,
+    auth_provider: OAuthPKCEProvider,
 ) -> None:
     """A supplied provenance name dispatches once and does not fall through on decline."""
     selected = StubModule()
@@ -251,7 +288,10 @@ async def test_explain_direct_dispatch_invokes_only_named_module(
     other.explain = AsyncMock(return_value={"explanation": "must not run"})
     fake_registry = {"selected": selected, "other": other}
 
-    with patch("servicenow_mcp.capabilities.investigations.investigate.INVESTIGATION_REGISTRY", fake_registry):
+    with patch(
+        "servicenow_mcp.capabilities.investigations.investigate.INVESTIGATION_REGISTRY",
+        fake_registry,
+    ):
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate"](
             action="explain",
@@ -269,10 +309,13 @@ async def test_explain_direct_dispatch_invokes_only_named_module(
 
 @pytest.mark.asyncio()
 async def test_explain_unknown_direct_name_fails_before_io(
-    settings: Settings, auth_provider: OAuthPKCEProvider
+    settings: Settings,
+    auth_provider: OAuthPKCEProvider,
 ) -> None:
     """An invalid direct selector is rejected before a client context is created."""
-    with patch("servicenow_mcp.capabilities.investigations.investigate.ServiceNowClient") as client_factory:
+    with patch(
+        "servicenow_mcp.capabilities.investigations.investigate.ServiceNowClient"
+    ) as client_factory:
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate"](
             action="explain",
@@ -288,7 +331,8 @@ async def test_explain_unknown_direct_name_fails_before_io(
 
 @pytest.mark.asyncio()
 async def test_explain_trial_dispatch_continues_after_decline(
-    settings: Settings, auth_provider: OAuthPKCEProvider
+    settings: Settings,
+    auth_provider: OAuthPKCEProvider,
 ) -> None:
     """Without a selector, explain keeps trial dispatch until a module accepts."""
     first = StubModule()
@@ -297,7 +341,10 @@ async def test_explain_trial_dispatch_continues_after_decline(
     second.explain = AsyncMock(return_value={"explanation": "accepted"})
     fake_registry = {"first": first, "second": second}
 
-    with patch("servicenow_mcp.capabilities.investigations.investigate.INVESTIGATION_REGISTRY", fake_registry):
+    with patch(
+        "servicenow_mcp.capabilities.investigations.investigate.INVESTIGATION_REGISTRY",
+        fake_registry,
+    ):
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["investigate"](action="explain", element_id="syslog:log1")
     result = decode_response(raw)
@@ -314,7 +361,9 @@ async def test_explain_trial_dispatch_continues_after_decline(
 
 
 @pytest.mark.asyncio()
-async def test_describe_with_no_name_returns_directory(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_describe_with_no_name_returns_directory(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """action='describe' without a name returns a sorted directory of investigations."""
     from servicenow_mcp.capabilities.investigations.checks import INVESTIGATION_REGISTRY
 
@@ -324,7 +373,9 @@ async def test_describe_with_no_name_returns_directory(settings: Settings, auth_
 
     assert result["status"] == "success"
     assert result["data"]["investigations"] == sorted(INVESTIGATION_REGISTRY.keys())
-    assert result["data"]["actions"]["explain"]["params"]["name"].startswith("registered investigation name")
+    assert result["data"]["actions"]["explain"]["params"]["name"].startswith(
+        "registered investigation name"
+    )
     for expected in (
         "stale_automations",
         "deprecated_apis",
@@ -339,7 +390,8 @@ async def test_describe_with_no_name_returns_directory(settings: Settings, auth_
 
 @pytest.mark.asyncio()
 async def test_describe_with_unknown_name_returns_error_with_valid_names(
-    settings: Settings, auth_provider: OAuthPKCEProvider
+    settings: Settings,
+    auth_provider: OAuthPKCEProvider,
 ) -> None:
     """An unknown describe name lists every available investigation in the error message."""
     tools = _register_and_get_tools(settings, auth_provider)
@@ -362,7 +414,9 @@ async def test_describe_with_unknown_name_returns_error_with_valid_names(
 
 
 @pytest.mark.asyncio()
-async def test_describe_returns_params_schema(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_describe_returns_params_schema(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """describe(name=...) returns the module's PARAMS schema and a one-line description."""
     tools = _register_and_get_tools(settings, auth_provider)
     raw = await tools["investigate"](action="describe", name="stale_automations")
@@ -385,7 +439,9 @@ async def test_describe_returns_params_schema(settings: Settings, auth_provider:
 
 
 @pytest.mark.asyncio()
-async def test_describe_for_required_param_marks_required(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_describe_for_required_param_marks_required(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """A required param is flagged as required; an optional one is not."""
     tools = _register_and_get_tools(settings, auth_provider)
     raw = await tools["investigate"](action="describe", name="table_health")

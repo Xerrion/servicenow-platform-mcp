@@ -6,7 +6,6 @@ from typing import Literal
 from servicenow_mcp.capabilities.contracts import CapabilityError
 from servicenow_mcp.validation import validate_sys_id
 
-
 CatalogView = Literal["desktop", "mobile", "both"]
 CatalogReadAction = Literal[
     "catalogs_list",

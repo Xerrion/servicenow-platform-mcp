@@ -11,6 +11,7 @@ import pytest
 
 from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.capabilities.contracts import MAX_JSON_PAYLOAD_BYTES
+from servicenow_mcp.capabilities.mutations.models import StagedMutation
 from servicenow_mcp.capabilities.mutations.store import PreviewTokenStore
 from servicenow_mcp.capabilities.records._artifact import validate_ui_macro_xml
 from servicenow_mcp.platform.metadata._dictionary import DictionaryRegistry

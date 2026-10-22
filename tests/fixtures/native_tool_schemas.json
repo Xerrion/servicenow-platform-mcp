@@ -160,6 +160,21 @@
               ],
               "default": null,
               "title": "Invalid Fields"
+            },
+            "outcome": {
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/JsonValue"
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Outcome"
             }
           },
           "required": [
@@ -637,6 +652,21 @@
               ],
               "default": null,
               "title": "Invalid Fields"
+            },
+            "outcome": {
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/JsonValue"
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Outcome"
             }
           },
           "required": [
@@ -1024,6 +1054,21 @@
               ],
               "default": null,
               "title": "Invalid Fields"
+            },
+            "outcome": {
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/JsonValue"
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Outcome"
             }
           },
           "required": [
@@ -1353,6 +1398,21 @@
               ],
               "default": null,
               "title": "Invalid Fields"
+            },
+            "outcome": {
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/JsonValue"
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Outcome"
             }
           },
           "required": [
@@ -1693,6 +1753,21 @@
               ],
               "default": null,
               "title": "Invalid Fields"
+            },
+            "outcome": {
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/JsonValue"
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Outcome"
             }
           },
           "required": [
@@ -2026,6 +2101,21 @@
               ],
               "default": null,
               "title": "Invalid Fields"
+            },
+            "outcome": {
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/JsonValue"
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Outcome"
             }
           },
           "required": [
@@ -2329,6 +2419,21 @@
               ],
               "default": null,
               "title": "Invalid Fields"
+            },
+            "outcome": {
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/JsonValue"
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Outcome"
             }
           },
           "required": [
@@ -2831,6 +2936,21 @@
               ],
               "default": null,
               "title": "Invalid Fields"
+            },
+            "outcome": {
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/JsonValue"
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Outcome"
             }
           },
           "required": [
@@ -3209,6 +3329,21 @@
               ],
               "default": null,
               "title": "Invalid Fields"
+            },
+            "outcome": {
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/JsonValue"
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Outcome"
             }
           },
           "required": [
@@ -3589,6 +3724,21 @@
               ],
               "default": null,
               "title": "Invalid Fields"
+            },
+            "outcome": {
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/JsonValue"
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Outcome"
             }
           },
           "required": [
@@ -4012,6 +4162,21 @@
               ],
               "default": null,
               "title": "Invalid Fields"
+            },
+            "outcome": {
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/JsonValue"
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Outcome"
             }
           },
           "required": [
@@ -4368,6 +4533,21 @@
               ],
               "default": null,
               "title": "Invalid Fields"
+            },
+            "outcome": {
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/JsonValue"
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Outcome"
             }
           },
           "required": [
@@ -4720,6 +4900,21 @@
               ],
               "default": null,
               "title": "Invalid Fields"
+            },
+            "outcome": {
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/JsonValue"
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Outcome"
             }
           },
           "required": [
@@ -5046,6 +5241,21 @@
               ],
               "default": null,
               "title": "Invalid Fields"
+            },
+            "outcome": {
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/JsonValue"
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Outcome"
             }
           },
           "required": [
@@ -5408,6 +5618,21 @@
               ],
               "default": null,
               "title": "Invalid Fields"
+            },
+            "outcome": {
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/JsonValue"
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Outcome"
             }
           },
           "required": [
@@ -5847,6 +6072,21 @@
               ],
               "default": null,
               "title": "Invalid Fields"
+            },
+            "outcome": {
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/JsonValue"
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Outcome"
             }
           },
           "required": [
@@ -6133,6 +6373,21 @@
               ],
               "default": null,
               "title": "Invalid Fields"
+            },
+            "outcome": {
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/JsonValue"
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Outcome"
             }
           },
           "required": [

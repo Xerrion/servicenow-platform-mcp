@@ -85,7 +85,9 @@ class MutationCoordinator:
                 gate_write(component, self.settings)
             if command.action == "test":
                 gate_write("sys_flow_context", self.settings)
-        if isinstance(command, FlowCommand) and command.action == "edit":
+        if isinstance(command, FlowCommand) and (
+            command.action == "edit" or command.action == "create" and command.edits
+        ):
             for edit in command.edits or []:
                 if edit.get("op") in {"create_field", "update_field", "delete_field"}:
                     field_table = {

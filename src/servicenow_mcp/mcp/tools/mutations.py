@@ -1,9 +1,9 @@
 """Native preview and apply tools for every mutating capability."""
 
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Annotated, Literal
 
 from mcp.types import ToolAnnotations
-from pydantic import JsonValue
+from pydantic import Field, JsonValue
 
 from servicenow_mcp.capabilities.attachments.common import (
     MAX_ATTACHMENT_BYTES,
@@ -188,7 +188,15 @@ def register_tools(mcp: MCPServer, coordinator: MutationCoordinator) -> None:
             action_type_sys_id: str | None = None,
             subflow_sys_id: str | None = None,
             inputs: dict[str, JsonValue] | None = None,
-            edits: list[dict[str, JsonValue]] | None = None,
+            edits: Annotated[
+                list[dict[str, JsonValue]],
+                Field(
+                    min_length=1,
+                    max_length=200,
+                    description="Ordered operations for complete create or incremental edit. New steps use request-local ref aliases.",
+                ),
+            ]
+            | None = None,
             expected_scope: str | None = None,
             expected_update_set: str | None = None,
             expected_revision: str | None = None,
@@ -196,6 +204,13 @@ def register_tools(mcp: MCPServer, coordinator: MutationCoordinator) -> None:
             """Preview Workflow Studio authoring or an explicitly selected lifecycle effect without changing ServiceNow.
 
             create requires name and explicit scope sys_id (or global). description is optional.
+            Supply edits to create a COMPLETE flow in this one request. The server resolves definitions and node identities.
+            Use the same ordered edit operations below, with ref aliases for new steps and {{ref.output}} pills.
+            The entire plan validates before the property POST. Apply then reads the created header and revision before one full save.
+            This is not transactional. UNKNOWN_OUTCOME includes error.outcome with the known sys_id and persisted/unknown progress.
+            Never repeat creation after an uncertain response. Inspect the existing flow, then preview incremental edits.
+            Apply returns refs mapping aliases to persisted sys_id/ui_id/kind. Bound writes also return a fresh revision.
+            No activation, publication, testing, or execution occurs. Omitting edits retains header-only creation.
             flow_type=flow|subflow selects creation type. Omit for flow. A new subflow is inactive, unpublished, and triggerless.
             Lifecycle actions require sys_id plus expected_scope, expected_update_set, and expected_revision.
               activate: flow-only. Publishes its snapshot AND enables triggers. This can start real work after activation.
@@ -217,7 +232,8 @@ def register_tools(mcp: MCPServer, coordinator: MutationCoordinator) -> None:
             add_action requires sys_id and a published action_type_sys_id snapshot.
             add_subflow requires sys_id and a published subflow definition subflow_sys_id.
             inputs is a native object of static scalar values for add_action and add_subflow.
-            edit requires sys_id and edits: an ordered native array of 1-50 objects with an op key.
+            edit requires sys_id and edits: an ordered native array of 1-200 objects with an op key (256 KiB, depth 32).
+            create accepts the same edits. Complete creation permits at most 200 nodes, including hidden handler wrappers.
               set_trigger: type=service_catalog|record_create|record_update|record_create_or_update|daily|weekly|monthly|run_once|repeat,
                 static native inputs, replace=true to replace an existing trigger. No activation or execution.
                 Record inputs: table, condition (static encoded query), and run/session/user choices from the current catalog.

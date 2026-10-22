@@ -18,11 +18,13 @@ class CapabilityError(ServiceNowMCPError):
         missing_fields: list[str] | None = None,
         *,
         missing_arguments: list[str] | None = None,
+        outcome: dict[str, JsonValue] | None = None,
     ) -> None:
         super().__init__(message)
         self.code = code
         self.missing_fields = missing_fields
         self.missing_arguments = missing_arguments
+        self.outcome = outcome
 
 
 class Pagination(BaseModel):

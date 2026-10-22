@@ -105,6 +105,7 @@ async def safe_tool_call(
             e.code,
             missing_fields=e.missing_fields,
             missing_arguments=e.missing_arguments,
+            outcome=e.outcome,
         )
     except ACLError as e:
         sentry_capture(e)

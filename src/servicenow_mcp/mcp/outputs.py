@@ -4,7 +4,7 @@ import json
 from typing import Any, ClassVar, Literal
 
 from mcp.types import CallToolResult, TextContent
-from pydantic import BaseModel, ConfigDict, RootModel
+from pydantic import BaseModel, ConfigDict, JsonValue, RootModel
 
 from servicenow_mcp.capabilities.contracts import CapabilityResult
 
@@ -27,6 +27,7 @@ class ErrorDetail(BaseModel):
     missing_fields: list[str] | None = None
     missing_arguments: list[str] | None = None
     invalid_fields: list[InvalidField] | None = None
+    outcome: dict[str, JsonValue] | None = None
 
 
 class ErrorResult(BaseModel):

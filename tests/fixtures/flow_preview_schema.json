@@ -126,12 +126,15 @@
       "edits": {
         "anyOf": [
           {
+            "description": "Ordered operations for complete create or incremental edit. New steps use request-local ref aliases.",
             "items": {
               "additionalProperties": {
                 "$ref": "#/$defs/JsonValue"
               },
               "type": "object"
             },
+            "maxItems": 200,
+            "minItems": 1,
             "type": "array"
           },
           {

@@ -301,8 +301,8 @@ class FlowCommand(Command):
         if self.action in {"activate", "publish", "deactivate", "test"}:
             return self
         if self.action == "edit":
-            if not self.sys_id or not self.edits or len(self.edits) > 50:
-                raise CapabilityError("edit requires sys_id and 1-50 edits.")
+            if not self.sys_id or not self.edits or len(self.edits) > 200:
+                raise CapabilityError("edit requires sys_id and 1-200 edits.")
             validate_sys_id(self.sys_id)
             others = (
                 self.name,
@@ -319,7 +319,13 @@ class FlowCommand(Command):
             )
             return self
         if self.edits is not None:
-            raise CapabilityError("edits is accepted only by action=edit.")
+            if self.action != "create":
+                raise CapabilityError("edits is accepted only by create and edit.")
+            if not 1 <= len(self.edits) <= 200:
+                raise CapabilityError("Complete creation requires 1-200 edits.")
+            validate_payload(
+                {"edits": self.edits}, field_name="edits", validate_keys=False
+            )
         if self.action == "create":
             if (
                 not self.name

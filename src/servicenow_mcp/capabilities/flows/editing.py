@@ -1053,10 +1053,21 @@ class PillResolver:
         ]
 
 
-async def load_state(command: FlowCommand, client: ServiceNowClient) -> dict[str, Any]:
+async def load_state(
+    command: FlowCommand,
+    client: ServiceNowClient,
+    *,
+    initial_flow: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     check_table_access("sys_hub_flow_logic_definition")
-    flow = await client.studio_request(f"flow/{command.sys_id}")
-    require_editable(flow, command.sys_id or "")
+    flow = (
+        initial_flow
+        if initial_flow is not None
+        else await client.studio_request(f"flow/{command.sys_id}")
+    )
+    require_editable(
+        flow, flow["id"] if initial_flow is not None else command.sys_id or ""
+    )
     if any(not isinstance(edit.get("op"), str) for edit in command.edits or []):
         raise CapabilityError("Each edit requires a string op.")
     needs = {str(edit.get("op")) for edit in command.edits or []}
@@ -1116,11 +1127,15 @@ async def plan(
     reference_tables: set[str] = set()
     trigger_evidence: dict[str, Any] = {}
     call_evidence: dict[str, Any] = {}
+    call_definitions: dict[tuple[bool, str], dict[str, Any]] = {}
     dependency_changed: set[str] = set()
     # Bind client stage UUIDs to this exact definition and edit list. Replanning
     # preview/apply must not create different stage keys.
     stage_seed = fingerprint(
-        {"state": state, "edits": command.model_dump(mode="json")["edits"]}
+        {
+            "state": command.ui_id if command.action == "create" else state,
+            "edits": command.model_dump(mode="json")["edits"],
+        }
     )
     for index, edit in enumerate(command.edits or [], start=1):
         _check_edit(edit)
@@ -1188,9 +1203,12 @@ async def plan(
                 )
                 or ""
             )
-            definition = await calls.definition(
-                working, identity, subflow=subflow, client=client
-            )
+            call_key = (subflow, identity)
+            if call_key not in call_definitions:
+                call_definitions[call_key] = await calls.definition(
+                    working, identity, subflow=subflow, client=client
+                )
+            definition = call_definitions[call_key]
             call_evidence[str(index)] = definition
             step = calls.step(
                 working,
@@ -1396,6 +1414,11 @@ async def plan(
                 )
             step = tree.new_logic_step(flow["id"], definition, {})
             step.raw["inputs"] = []
+            step.raw["uiUniqueIdentifier"] = str(
+                uuid.UUID(
+                    hex=fingerprint([stage_seed, "variables", index])[:32], version=4
+                )
+            )
             for name, value in _inputs(edit).items():
                 parameter = data.named(working["flowVariables"], name)
                 binding = {
@@ -1987,6 +2010,10 @@ async def plan(
     }
     result = {
         "payload": payload,
+        "refs": {
+            key: value for key, value in pill_aliases.items() if key != "error_handler"
+        },
+        "stage_refs": stage_aliases,
         "outline": trigger_lines(triggers) + tree.outline(roots),
         "summary": summary,
         "created": created,
@@ -2217,6 +2244,16 @@ async def preview(
 ) -> tuple[dict[str, Any], str]:
     state = await load_state(command, client)
     result = await plan(command, state, client)
+    return preview_summary(state, result, command), plan_revision(state, result)
+
+
+def plan_revision(state: dict[str, Any], result: dict[str, Any]) -> str:
+    return fingerprint({"state": state, "references": result["reference_revision"]})
+
+
+def preview_summary(
+    state: dict[str, Any], result: dict[str, Any], command: FlowCommand
+) -> dict[str, Any]:
     flow = state["flow"]
     summary = {
         "sys_id": flow["id"],
@@ -2230,6 +2267,8 @@ async def preview(
         "data_pills": [entry["name"] for entry in result["payload"]["label_cache"]],
         "adapter": support.ADAPTER,
         "verification": "offline_regression_only",
+        "refs": result["refs"],
+        "stage_refs": result["stage_refs"],
         "stages_before": stages.summary(flow, []),
         "stages": stages.summary(result["payload"], result["created_stages"]),
         "fields_before": fields.summary(flow),
@@ -2290,9 +2329,7 @@ async def preview(
         except CapabilityError:
             check.update(matches=False, path="flow", kind="COMPARISON_UNAVAILABLE")
         summary["serialization_check"] = check
-    return summary, fingerprint(
-        {"state": state, "references": result["reference_revision"]}
-    )
+    return summary
 
 
 async def apply(
@@ -2304,14 +2341,21 @@ async def apply(
 ) -> dict[str, Any]:
     state = await load_state(command, client)
     result = await plan(command, state, client)
-    if (
-        fingerprint({"state": state, "references": result["reference_revision"]})
-        != expected
-    ):
+    if plan_revision(state, result) != expected:
         raise CapabilityError(
             "The flow or its definitions changed since preview. Create a new preview.",
             "STALE_PREVIEW",
         )
+    return await save_plan(command, result, client, binding_context=binding_context)
+
+
+async def save_plan(
+    command: FlowCommand,
+    result: dict[str, Any],
+    client: ServiceNowClient,
+    *,
+    binding_context: dict[str, Any] | None,
+) -> dict[str, Any]:
     await capture.require_current(command, client, binding_context)
     saved = await semantics.save_draft(client, result["payload"])
     if (
@@ -2345,4 +2389,14 @@ async def apply(
         "active": False,
         "status": "draft",
         "outline": actual_outline,
+        "refs": persisted_refs(result, saved),
+        "stage_refs": result["stage_refs"],
+    }
+
+
+def persisted_refs(result: dict[str, Any], saved: dict[str, Any]) -> dict[str, Any]:
+    by_ui = {s.uid: s for s in tree.walk(tree.build_tree(saved))}
+    return {
+        alias: {"sys_id": by_ui[uid].raw["id"], "ui_id": uid, "kind": by_ui[uid].kind}
+        for alias, uid in result["refs"].items()
     }

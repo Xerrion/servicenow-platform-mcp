@@ -309,6 +309,7 @@ async def verify_after(
             "update_set": command.expected_update_set,
             "application": command.expected_scope,
             "customer_update_sys_id": after["sys_id"],
+            "revision": scalar(header["sys_mod_count"]),
             "limitation": (
                 "This verifies header capture metadata only. Child artifacts and Customer Update payload content "
                 "are not verified."

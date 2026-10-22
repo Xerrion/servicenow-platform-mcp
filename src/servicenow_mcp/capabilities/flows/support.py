@@ -167,6 +167,13 @@ def ledger() -> dict[str, Any]:
             for kind in sorted(LOGIC_TYPES)
         },
         "features": {
+            "complete_creation": entry(
+                True,
+                "create with 1-200 ordered edits uses the existing typed planner, local refs, and server-side definition discovery. "
+                "Preflight precedes the property POST. Independent header/revision reads precede one complete PUT. "
+                "Nontransactional partial outcomes report the known ID. No retry, compensation, activation, or execution. "
+                "Alias-to-persisted-ID mapping supports later incremental edits. Source-derived offline verification only.",
+            ),
             "structured_call_insertion": entry(
                 True,
                 "insert_action/insert_subflow use independently read published snapshots, existing native input serializers, placement/pill aliases, and tree/dependency validation. Structured drafts and enabled handler branches supported. Dynamic/dependent call-input insertion remains unavailable. Source-derived offline only.",

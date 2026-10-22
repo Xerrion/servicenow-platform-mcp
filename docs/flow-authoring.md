@@ -9,7 +9,8 @@ The adapter does not use browser cookies, run server scripts, or write flow snap
 
 ## Supported operations
 
-1. `flow_preview(action="create", name="Example draft", scope="global")` previews an inactive flow header.
+1. `flow_preview(action="create", name="Example draft", scope="global", edits=[...])` previews a complete inactive flow.
+   Omit `edits` only when you want an empty header.
    Set `flow_type="subflow"` to create an inactive triggerless subflow instead.
    For a scoped application, supply its resolved `sys_scope.sys_id`. Scope has no inferred default.
 2. `flow_preview(action="add_action", sys_id="<flow sys_id>", action_type_sys_id="<published action snapshot sys_id>", inputs={...})`
@@ -21,6 +22,161 @@ The adapter does not use browser cookies, run server scripts, or write flow snap
    Check Customer Updates to confirm capture in the intended update set.
 
 `add_action` and `add_subflow` accept only linear drafts. Use `edit` for flows with triggers or flow logic.
+
+## Complete creation in one request
+
+Supply the full ordered `edits` array with `action="create"`. The same planner handles creation and incremental edits.
+This contract avoids a separate graph language and reuses typed serializers, placement rules, and dependency checks.
+The server discovers trigger and logic definitions. Action snapshots and published subflow definitions use existing resolved IDs.
+Callers do not supply new database IDs, UI IDs, raw Studio definitions, or separate requests for each step.
+
+Each request accepts 1-200 edits, at most 256 KiB and nesting depth 32.
+Complete creation permits at most 200 nodes, including hidden handler wrappers.
+The existing limit of 100 distinct pills still applies. Unsupported dynamic inputs fail before creation.
+`ref` names address new steps in later edits and pill bindings within this request.
+The preview returns their stable UI identities. Apply returns `refs[alias]` with persisted `sys_id`, `ui_id`, and `kind`.
+Use those identities in subsequent requests. Aliases are request-local, not stored names.
+`stage_refs` similarly returns native stage keys.
+
+This example assumes two readable, entitled published definitions:
+
+- A Format message action with string input `message` and string output `text`.
+- A Dispatch request subflow with string input `message` and string output `text`.
+
+Replace the three placeholders with your resolved action snapshot, subflow definition, and current update-set IDs.
+The definition names describe example custom definitions. They are not built-in action names or a name-resolution API.
+The source-derived wire tests exercise this complete request shape with fixture definitions. No example executes a flow.
+
+Call `flow_preview` once with:
+
+```json
+{
+  "action": "create",
+  "name": "Dispatch request",
+  "scope": "global",
+  "expected_scope": "global",
+  "expected_update_set": "<current-update-set-sys-id>",
+  "edits": [
+    { "op": "set_trigger", "type": "service_catalog" },
+    {
+      "op": "create_field",
+      "collection": "flowVariables",
+      "name": "message",
+      "label": "Message",
+      "type": "string"
+    },
+    { "op": "set_variables", "inputs": { "message": "Dispatch" } },
+    {
+      "op": "insert_action",
+      "action_type_sys_id": "<format-message-snapshot-id>",
+      "ref": "source",
+      "inputs": { "message": "{{flow_variable.message}}" }
+    },
+    {
+      "op": "insert_logic",
+      "logic": "If",
+      "ref": "branch",
+      "inputs": { "condition": "{{source.text}}ISNOTEMPTY" }
+    },
+    {
+      "op": "insert_subflow",
+      "subflow_sys_id": "<dispatch-subflow-definition-id>",
+      "parent": "branch",
+      "ref": "dispatch",
+      "inputs": { "message": "{{source.text}}" }
+    },
+    {
+      "op": "insert_action",
+      "action_type_sys_id": "<format-message-snapshot-id>",
+      "parent": "branch",
+      "ref": "audit",
+      "inputs": { "message": "{{dispatch.text}}" }
+    },
+    { "op": "insert_logic", "logic": "Else", "after": "branch", "ref": "otherwise" },
+    {
+      "op": "insert_action",
+      "action_type_sys_id": "<format-message-snapshot-id>",
+      "parent": "otherwise",
+      "ref": "skip",
+      "inputs": { "message": "Skipped" }
+    },
+    {
+      "op": "insert_action",
+      "action_type_sys_id": "<format-message-snapshot-id>",
+      "after": "otherwise",
+      "ref": "tail",
+      "inputs": { "message": "Done" }
+    },
+    { "op": "create_stage", "ref": "work", "label": "Work", "value": "work" },
+    { "op": "attach_stage", "stage": "work", "step": "source" }
+  ]
+}
+```
+
+Review the preview. After authorization, call `mutation_apply` once with its `preview_token`.
+Let `created` be the returned `data` object. A later `flow_preview` can make all these changes together:
+
+```python
+flow_preview(
+    action="edit",
+    sys_id=created["sys_id"],
+    expected_scope="global",
+    expected_update_set="<current-update-set-sys-id>",
+    expected_revision=created["revision"],
+    edits=[
+        {
+            "op": "move_step",
+            "step": created["refs"]["tail"]["ui_id"],
+            "before": created["refs"]["branch"]["ui_id"],
+        },
+        {
+            "op": "insert_action",
+            "action_type_sys_id": "<format-message-snapshot-id>",
+            "ref": "inserted",
+            "after": created["refs"]["source"]["ui_id"],
+            "inputs": {"message": "Additional audit"},
+        },
+        {
+            "op": "update_inputs",
+            "step": created["refs"]["tail"]["sys_id"],
+            "inputs": {"message": "Completed"},
+        },
+        {"op": "delete_step", "step": created["refs"]["audit"]["sys_id"]},
+    ],
+)
+```
+
+Apply that preview once after authorization. No complete-flow resubmission is needed.
+Surviving identities and unmentioned settings remain unchanged. Moves revalidate branch scope and every remaining binding.
+For subflows, use `flow_type="subflow"`, omit triggers and stages, and declare interfaces with `create_field`.
+`assign_outputs`, nested declarations, and supported handlers use their existing edit contracts below.
+Active or published flow editing remains unsupported. This feature does not create a new draft version of an active flow.
+
+### Write boundaries and partial outcomes
+
+Preview and apply validate the complete plan and readable dependencies before the first remote write.
+Native creation uses a property POST, independent header readback, then one complete-definition PUT and independent semantic readback.
+The second plan uses the persisted header, including unknown server defaults. It never substitutes the local planning seed.
+The server reads the created `sys_mod_count` instead of assuming an initial revision.
+Strict binding verifies fresh header Customer Update metadata separately after each write.
+Complete-create results always return a revision. Bound incremental edits also return a fresh revision.
+Unbound calls retain unverified capture status. Header metadata does not prove capture of child artifacts or payload content.
+
+The two upstream writes are not transactional. There is no automatic retry, recreation, or destructive compensation.
+After a failure, `UNKNOWN_OUTCOME` contains a value-free `error.outcome`:
+
+- `sys_id`: the created definition ID when the property response supplied a valid ID. Otherwise null.
+- `phase`: the operation that stopped.
+- `header`: `unknown`, `returned`, or independently `verified`.
+- `definition`: `not_sent`, `unknown`, or independently `verified`.
+- `retry_safe`: always false. `recovery` directs inspection before any further write.
+
+For example, a PUT timeout reports a verified header ID and an unknown definition outcome.
+A dependency change after header creation reports the header ID and `definition="not_sent"`.
+A capture failure after successful semantic readback reports `definition="verified"`, without claiming capture succeeded.
+Inspect that existing flow and Customer Updates before an incremental edit preview. Never repeat the create request blindly.
+If the property response times out without an ID, resolve the possible created flow before any further write.
+Tokens remain single-use. Publication, activation, testing, and execution require separate explicit lifecycle actions.
 
 ## Structural edits
 
@@ -94,7 +250,9 @@ The source-derived fixture is not a captured server response. This capability is
 
 For saved-call deletion, an existing `componentInstances` list must exactly mirror the three ordered step lists.
 The planner rebuilds that duplicate list from the surviving steps. Missing, reordered, or mirror-only metadata blocks planning.
-An absent mirror stays absent. This correction does not normalize save echoes or identify the earlier indexed mismatch.
+An absent mirror stays absent. This does not reconstruct a mismatch from an earlier save.
+When a complete save assigns new database IDs, readback checks the mirror against the authoritative lists before comparing IDs.
+Only IDs of explicitly new steps can normalize in both copies. Existing IDs, bindings, and mirror-only metadata remain strict.
 Studio's `removeActionFromFlow` updates this list before `getUpdatedFlowToSaveOrPublish` splits it for saving.
 `saveFlowToServer` then calls `cleanupFlowBeforePut` (local bundle:97521-97527,101697-101712).
 When `TRIM_FLOW_PAYLOAD` is enabled, cleanup selects `FLOW_SCHEMA` fields (350835-350903), excluding the mirror and `alerts`.

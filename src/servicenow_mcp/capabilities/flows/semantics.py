@@ -846,6 +846,64 @@ def _compare_updated(
         raise SemanticMismatch("flow.updated", "SERVER_REVISION_MISMATCH")
 
 
+def _compare_component_mirror_ids(
+    expected: dict[str, Any], actual: dict[str, Any], generated_ids: set[str]
+) -> None:
+    # The optional untrimmed mirror duplicates the three native collections
+    # (bundle:99193-99197,130432-130460). Validate the complete duplicate first.
+    # Normalize only new database IDs, exactly as for the authoritative lists.
+    # Mirror-only metadata, existing IDs, UI IDs, and bindings stay strict.
+    if not generated_ids:
+        return
+    new = {
+        row["uiUniqueIdentifier"]: row
+        for key in COLLECTIONS
+        for row in expected[key]
+        if row.get("id", "") in generated_ids
+    }
+    if not new:
+        return
+
+    def ordered(definition: dict[str, Any]) -> list[dict[str, Any]]:
+        return sorted(
+            (row for key in COLLECTIONS for row in definition[key]),
+            key=lambda row: int(row["order"]),
+        )
+
+    if "componentInstances" in expected and _json(
+        expected["componentInstances"]
+    ) != _json(ordered(expected)):
+        raise SemanticMismatch("flow.componentInstances", "MIRROR_MISMATCH", "expected")
+    if "componentInstances" not in actual:
+        return
+    actual_rows = ordered(actual)
+    by_ui = {row["uiUniqueIdentifier"]: row for row in actual_rows}
+    mirror = actual["componentInstances"]
+    if not isinstance(mirror, list) or any(not isinstance(row, dict) for row in mirror):
+        raise SemanticMismatch("flow.componentInstances", "MIRROR_MISMATCH", "actual")
+    # Untrimmed responses can retain the request's new-ID marker in the
+    # duplicate. Only that marker or the authoritative assigned ID is allowed.
+    for row in mirror:
+        uid = row.get("uiUniqueIdentifier")
+        if uid in new and row.get("id") not in (
+            new[uid].get("id"),
+            by_ui.get(uid, {}).get("id"),
+        ):
+            raise SemanticMismatch(
+                "flow.componentInstances.id", "IDENTITY_MISMATCH", "actual"
+            )
+    comparable = copy.deepcopy(actual_rows)
+    for row in [*mirror, *comparable]:
+        if row.get("uiUniqueIdentifier") in new:
+            wanted = new[row["uiUniqueIdentifier"]]
+            if "id" in wanted:
+                row["id"] = wanted["id"]
+            else:
+                row.pop("id", None)
+    if _json(mirror) != _json(comparable):
+        raise SemanticMismatch("flow.componentInstances", "MIRROR_MISMATCH", "actual")
+
+
 def compare_saved(
     expected: dict[str, Any],
     actual: dict[str, Any],
@@ -1016,6 +1074,7 @@ def compare_saved(
                 raise SemanticMismatch("flow.deletions", "DELETED_IDENTITY_RETAINED")
         expected.pop(key, None)
         actual.pop(key, None)
+    _compare_component_mirror_ids(expected, actual, generated_ids)
     parsed = []
     for side, definition in (("expected", expected), ("actual", actual)):
         try:

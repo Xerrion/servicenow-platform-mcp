@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 from servicenow_mcp.capabilities.contracts import CapabilityError
 from servicenow_mcp.capabilities.flows import (
     capture,
+    creation,
     editing,
     effects,
     payloads,
@@ -324,6 +325,8 @@ async def _preview(
         return await editing.preview(command, client)
     if command.action == "create":
         payload = await create_properties(command, client)
+        if command.edits:
+            return await creation.preview(command, payload, client)
         return mask_sensitive_fields(payload), fingerprint(payload)
     flow, definition = await action_state(command, client)
     return {
@@ -368,11 +371,15 @@ async def apply(
             "STALE_PREVIEW",
         )
     result = await _apply(command, revision, client, binding_context=context)
+    if command.action == "create" and command.edits:
+        return result
     if command.action == "test":
         return result
     result["capture"] = await capture.verify_after(
         command, client, result["sys_id"], context
     )
+    if context is not None:
+        result["revision"] = result["capture"]["revision"]
     return result
 
 
@@ -394,6 +401,10 @@ async def _apply(
     )
     if command.action == "create":
         payload = await create_properties(command, client)
+        if command.edits:
+            return await creation.apply(
+                command, payload, expected, client, binding_context
+            )
         if fingerprint(payload) != expected:
             raise CapabilityError(
                 "The creation properties changed. Create a new preview.",

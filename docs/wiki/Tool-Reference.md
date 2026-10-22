@@ -684,7 +684,9 @@ The server does not enforce human approval.
 
 ### `flow_preview`
 
-`create` accepts optional `flow_type="subflow"` for an inactive triggerless subflow header.
+`create` accepts `edits` for one complete flow request and optional `flow_type="subflow"` for an inactive triggerless subflow.
+Omitting `edits` retains empty-header creation. Complete creation validates before the native property POST and complete-definition PUT.
+Apply returns aliases mapped to persisted IDs and a fresh revision. Partial failures report `error.outcome` without automatic retry.
 Ordered edits support `insert_action` and `insert_subflow` with independently read published snapshots and branch placement.
 Moving Try moves its linked Catch and both subtrees. Catch cannot move independently.
 
@@ -702,12 +704,12 @@ Follow a test through `flow.status` with the returned `execution_sys_id`. Runtim
 Experimental authoring through the undocumented Workflow Studio `/api/now/processflow` API.
 Enable `flow_write` or `full`. Preview performs reads only. Apply the returned token with `mutation_apply` after review.
 
-| Action        | Required inputs                                          | Optional inputs        |
-| ------------- | -------------------------------------------------------- | ---------------------- |
-| `create`      | `name`, explicit `scope` sys_id or `global`              | `description`          |
-| `add_action`  | `sys_id`, published action snapshot `action_type_sys_id` | Native `inputs` object |
-| `add_subflow` | `sys_id`, published subflow definition `subflow_sys_id`  | Native `inputs` object |
-| `edit`        | `sys_id`, native `edits` array of 1-50 objects           | None                   |
+| Action        | Required inputs                                          | Optional inputs                     |
+| ------------- | -------------------------------------------------------- | ----------------------------------- |
+| `create`      | `name`, explicit `scope` sys_id or `global`              | `description`, `flow_type`, `edits` |
+| `add_action`  | `sys_id`, published action snapshot `action_type_sys_id` | Native `inputs` object              |
+| `add_subflow` | `sys_id`, published subflow definition `subflow_sys_id`  | Native `inputs` object              |
+| `edit`        | `sys_id`, native `edits` array of 1-200 objects          | None                                |
 
 `add_action` and `add_subflow` support only inactive, unpublished, linear drafts. Their inputs accept static string,
 choice, boolean, or integer values.
@@ -747,8 +749,8 @@ Optional `expected_scope`, `expected_update_set`, and existing-flow `expected_re
 No session switch is attempted. After saving, fresh flow-header Customer Update metadata must match the binding.
 Unbound calls report capture as unverified. Header metadata does not establish child-artifact capture or payload equality.
 
-Publication, activation, and execution are excluded from all actions.
-Creating a header and appending an action require separate previews and applications.
+Draft authoring actions never publish, activate, or execute a flow.
+Complete creation needs one preview and one apply. Later edits can reorder, insert, update, and delete without complete-flow resubmission.
 `add_subflow` resolves the current published snapshot. Calls wait for completion.
 Appending a call never executes it or changes the called subflow.
 Publication, read access, entitlement, scope access, and mandatory inputs are checked before staging.

@@ -235,6 +235,12 @@ Replace all placeholders and use actual declared input/output names.
 `inputs` uses the existing scalar and declared complex serializers. Later edits can use `ref` as a placement or pill producer alias.
 Aliases become stable native UI identities before serialization. Subflow calls wait for completion.
 Dynamic/dependent insertion parameters remain unsupported. No snapshot schema is inferred or replaced.
+Exceptions now cover native table-backed document/field parameters and simple Get Catalog Variables selections.
+The latter uses comma-separated `sys_id:item_option_new` values and independently read selected output schemas.
+Preview/apply binds that metadata and rejects unavailable fields or schema drift. It does not infer dynamic output types.
+Any/All user/group `approval_rules` retain their native string and validate approver reference tables.
+Approval no-deadline `schedule_date_time` JSON retains the native `date="{{}}"` sentinel. Automatic deadline outcomes remain unsupported.
+Read-only table defaults may be resolved from a typed record pill, but callers cannot override read-only parameters.
 The older `add_action`/`add_subflow` header-append actions retain their narrower compatibility contract.
 
 `move_step` on a Try moves its adjacent linked Catch and both complete subtrees together.
@@ -287,6 +293,8 @@ Preview lists the Catch definition's actual variable paths and types under `erro
 Use `{{error_handler.<catalog leaf path>}}` in an input during the same ordered preview.
 The planner replaces the alias with the Catch UI identity before serialization.
 The adapter does not assume a fixed Error Status variable name or synthesize its fields.
+Native Catch definitions with `__status__` plus `enabled` expose Error Status through their input schema, matching Studio.
+The runtime value is opaque and preserved during toggles. Only its declared leaf types are used for pill validation.
 The test catalog uses deliberately synthetic variable names to check this boundary.
 
 Error Status leaf pills are visible only inside their handler. Main-step outputs cannot cross into the handler.
@@ -764,8 +772,15 @@ Fixed Studio settings additionally identify `alerts`, `componentInstances`, `del
 Only `flow.aliasOverride` additionally identifies `aliasOverrideMappings`. These names remain anonymous inside custom mappings.
 The allowlist follows the local bundle at 203732-203750 and 204678-204690. It does not identify an earlier indexed mismatch.
 List-count failures append numeric `expected_count=N actual_count=N` details. Counts follow the comparison's left/right direction.
-The error code, first-difference reporting, payload limits, and strict equality checks remain unchanged.
+The comparison error code, first-difference reporting, and strict equality checks remain unchanged.
 Malformed semantics retain their safe parser invariant. Equality checks and unknown-setting preservation remain strict.
+
+Complete Studio flow and call definitions have a separate 4 MiB UTF-8 JSON limit.
+These definitions include embedded schemas and metadata that can exceed the 256 KiB limit for caller input.
+The 32-level nesting limit and JSON value checks still apply. Caller inputs and edits retain their existing limits.
+Payload rejection reports the specific limit or invalid JSON condition without returning source values.
+Deactivation preflight rejection returns `UNAVAILABLE` and confirms that no lifecycle request was sent.
+Failures after lifecycle dispatch remain `UNKNOWN_OUTCOME` and must not trigger automatic replay.
 
 For an `update_inputs` preview whose requested values already equal saved values, `summary.serialization_check`
 compares the planned serialization with the current Studio read, without saving.

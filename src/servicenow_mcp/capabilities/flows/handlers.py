@@ -104,11 +104,22 @@ def definitions(catalog: list[dict[str, Any]]) -> tuple[dict[str, Any], dict[str
                 "Readable top-level Try/Catch definitions are required.", "UNAVAILABLE"
             )
         found.append(copy.deepcopy(rows[0]))
+    inputs = found[1].get("inputs", [])
+    by_name = {row.get("name"): row for row in inputs}
+    status = by_name.get("__status__")
     if (
         found[0].get("inputs")
-        or len(found[1].get("inputs", [])) != 1
-        or found[1]["inputs"][0].get("name") != "enabled"
-        or found[1]["inputs"][0].get("type") != "boolean"
+        or len(inputs) != len(by_name)
+        or set(by_name) not in ({"enabled"}, {"enabled", "__status__"})
+        or by_name["enabled"].get("type") != "boolean"
+        or status is not None
+        and (
+            status.get("type") != "object"
+            or status.get("attributes", {}).get("co_type_name") != "FDACTIONSTATUS"
+            or len(status.get("children", [])) != 2
+            or {row.get("name"): row.get("type") for row in status.get("children", [])}
+            != {"code": "integer", "message": "string"}
+        )
     ):
         raise CapabilityError(
             "This handler definition uses an unsupported input contract.", "UNAVAILABLE"
@@ -252,10 +263,17 @@ def summary(flow: dict[str, Any]) -> dict[str, Any]:
         "main": wrappers[0].uid if wrappers else None,
         "handler": wrappers[1].uid if wrappers else None,
         "steps": [s.uid for s in tree.walk(wrappers[1].children)] if wrappers else [],
-        "outputs": _outputs(wrappers[1].raw["flowLogicDefinition"].get("variables", []))
+        "outputs": _outputs(outputs(wrappers[1].raw["flowLogicDefinition"]))
         if wrappers
         else [],
     }
+
+
+def outputs(definition: dict[str, Any]) -> list[dict[str, Any]]:
+    status = [
+        row for row in definition.get("inputs", []) if row.get("name") == "__status__"
+    ]
+    return status or definition.get("variables", [])
 
 
 def _outputs(rows: list[dict[str, Any]], parent: str = "") -> list[dict[str, str]]:

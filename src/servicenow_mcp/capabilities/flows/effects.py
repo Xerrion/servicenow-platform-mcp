@@ -183,7 +183,13 @@ async def state(command: FlowCommand, client: ServiceNowClient) -> dict[str, Any
             raise CapabilityError(
                 "deactivate requires an active flow. Subflow unpublication is not deactivation."
             )
-        semantics.studio_semantics(_draft_view(flow))
+        try:
+            semantics.studio_semantics(_draft_view(flow))
+        except semantics.IncompleteSemantics as exc:
+            raise CapabilityError(
+                f"Lifecycle preflight rejected {exc.path}: {exc}. No lifecycle request was sent.",
+                "UNAVAILABLE",
+            ) from None
         validate_sys_id(flow["masterSnapshotId"])
         if (
             capture.scalar(before["master_snapshot"]) != flow["masterSnapshotId"]

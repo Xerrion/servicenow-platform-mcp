@@ -12,8 +12,14 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, NoReturn
 
-from servicenow_mcp.capabilities.contracts import CapabilityError, validate_payload
-from servicenow_mcp.capabilities.flows import data, declarations, handlers, tree
+from servicenow_mcp.capabilities.contracts import CapabilityError
+from servicenow_mcp.capabilities.flows import (
+    data,
+    declarations,
+    handlers,
+    payloads,
+    tree,
+)
 from servicenow_mcp.validation import validate_sys_id
 
 if TYPE_CHECKING:
@@ -409,12 +415,9 @@ def studio_semantics(
 ) -> FlowSemantics:
     """Parse a complete Studio definition without changing its serialized payload."""
     try:
-        validate_payload(flow, field_name="flow", validate_keys=False)
-    except CapabilityError:
-        _incomplete(
-            "flow",
-            "Read a JSON object within the supported size, depth, and value limits.",
-        )
+        payloads.validate_definition(flow)
+    except CapabilityError as exc:
+        _incomplete("flow", str(exc))
     if not isinstance(flow.get("id"), str) or not flow["id"]:
         _incomplete("flow.id", "Read the persisted flow identity.")
     _identity(flow["id"])

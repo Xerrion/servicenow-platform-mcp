@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from servicenow_mcp.capabilities.contracts import CapabilityError
-from servicenow_mcp.capabilities.flows import declarations, tree
+from servicenow_mcp.capabilities.flows import declarations, tree, widgets
 from servicenow_mcp.validation import validate_sys_id
 
 if TYPE_CHECKING:
@@ -126,6 +126,15 @@ def set_value(item: dict[str, Any], value: Any) -> None:
         raise CapabilityError(
             "Scripted inputs cannot be replaced by this adapter.", "UNAVAILABLE"
         )
+    if value_type(item).kind in widgets.TYPES:
+        widgets.validate(value_type(item).kind, value, parameter)
+        item.update(
+            value=value,
+            displayValue=""
+            if value_type(item).kind == "schedule_date_time" or tree.pills(value)
+            else value,
+        )
+        return
     declared = children(item)
     if isinstance(value, str) and ("{{" in value or "}}" in value):
         unmatched = tree.PILL.sub("", value)
@@ -186,7 +195,19 @@ def set_value(item: dict[str, Any], value: Any) -> None:
         item.update(value="", displayValue="", children=values)
         return
     maximum = parameter.get("maxsize") or item.get("maxsize")
-    if isinstance(value, str) and maximum and len(value) > int(maximum):
+    native_reference_pill = whole_pill(value) and value_type(item).kind in {
+        "reference",
+        "document_id",
+        "records",
+        "glide_list",
+        "table_name",
+    }
+    if (
+        isinstance(value, str)
+        and maximum
+        and len(value) > int(maximum)
+        and not native_reference_pill
+    ):
         raise CapabilityError("The input exceeds its maximum length.")
     if parameter.get("mandatory") is True and value in ("", None):
         raise CapabilityError("A mandatory input is empty.")
@@ -205,6 +226,7 @@ def set_value(item: dict[str, Any], value: Any) -> None:
             "records",
             "glide_list",
             "table_name",
+            "field_name",
             "json",
             "object",
         } and not kind.startswith("array."):
@@ -230,6 +252,7 @@ def set_value(item: dict[str, Any], value: Any) -> None:
             "records",
             "glide_list",
             "table_name",
+            "field_name",
             "json",
         } and not isinstance(value, str):
             raise CapabilityError("This input requires a string value.")
@@ -244,6 +267,14 @@ def set_value(item: dict[str, Any], value: Any) -> None:
             from servicenow_mcp.validation import validate_identifier
 
             validate_identifier(value)
+        if kind == "field_name":
+            from servicenow_mcp.validation import validate_identifier
+
+            validate_identifier(value)
+            if "." in value:
+                raise CapabilityError(
+                    "Dependent field inputs require one static field name."
+                )
         if kind in {"reference", "document_id"}:
             validate_sys_id(value)
         if kind in {"records", "glide_list"}:

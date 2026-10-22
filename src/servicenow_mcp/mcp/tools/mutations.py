@@ -242,7 +242,13 @@ def register_tools(mcp: MCPServer, coordinator: MutationCoordinator) -> None:
               insert_action: action_type_sys_id (published snapshot), inputs, optional ref and parent/after/before.
               insert_subflow: subflow_sys_id (published definition), inputs, optional ref and parent/after/before.
                 Both insert into existing structured drafts, including enabled handler branches. Inputs use the existing scalar/complex serializers.
-                Published readable/entitled snapshots and their inputs bind the preview. Dynamic/dependent insertion inputs remain unavailable.
+                Published readable/entitled snapshots and their inputs bind the preview. Dynamic/dependent insertion inputs remain unavailable
+                except native document/field parameters resolved from a static table or a record pill with a known reference table.
+                Read-only table defaults are not caller overrides. Get Catalog Variables supports simple item_option_new selections
+                as comma-separated sys_id:item_option_new tokens. Its selected outputs are read independently and bound to preview/apply.
+                approval_rules accepts native Any/All U/G pill clauses with user/group reference checks.
+                schedule_date_time accepts the native approval no-deadline JSON with action=none and date={{}}.
+                No automatic approval deadline, complex catalog-variable, or template-value edit adapter is enabled.
                 Later edits can use {{ref.output_path}} and placement refs. Subflow calls wait for completion.
               move_step: step, and one of parent, after, or before. Moving Try includes its paired Catch and both subtrees.
                 Catch cannot move independently. Pair moves recheck stages, handler regions, and all pill dependencies.

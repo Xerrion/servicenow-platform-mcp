@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 from servicenow_mcp.capabilities.contracts import CapabilityError, CapabilityResult
 from servicenow_mcp.capabilities.flows import (
     assignments,
+    calls,
     capture,
     data,
     editing,
@@ -582,6 +583,10 @@ async def validate_definition(
                 if schema_mismatch:
                     raise ValueError("Schema drift")
                 dependency_evidence[key] = current
+                if current.get("type") == "GETCATALOGVARIABLES":
+                    dependency_evidence[
+                        "catalog:" + step.uid
+                    ] = await calls.catalog_selection(step, flow, client, changed=False)
             elif step.kind == "subflow":
                 check_table_access("sys_hub_flow")
                 key = "subflow/" + step.raw["subflowSysId"]
@@ -677,11 +682,30 @@ async def validate_definition(
                 ),
             )
         elif step.logic_type != "SETFLOWVARIABLES":
-            diagnostics.extend(
-                check_bindings(
-                    step.raw["inputs"], definition.get("inputs"), path + ".inputs"
-                )
-            )
+            items = step.raw["inputs"]
+            parameters = definition.get("inputs")
+            if step.logic_type == handlers.CATCH:
+                # Error Status is supplied by the runtime. Its opaque saved
+                # schema/value is not a caller assignment (bundle:16453-16457).
+                expected = handlers.outputs(definition)
+                for status in expected:
+                    matches = [row for row in items if row.get("name") == "__status__"]
+                    if status.get("name") == "__status__" and (
+                        len(matches) != 1 or data.spec(matches[0]) != status
+                    ):
+                        diagnostics.append(
+                            diagnostic(
+                                "HANDLER_STATUS_SCHEMA",
+                                path + ".inputs",
+                                "Runtime Error Status schema differs from the current handler definition.",
+                                incomplete=True,
+                            )
+                        )
+                items = [row for row in items if row.get("name") != "__status__"]
+                parameters = [
+                    row for row in parameters or [] if row.get("name") != "__status__"
+                ]
+            diagnostics.extend(check_bindings(items, parameters, path + ".inputs"))
         else:
             diagnostics.extend(
                 check_bindings(

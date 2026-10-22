@@ -242,6 +242,32 @@ class FlowDesignerApiClient(ServiceNowRequestClient):
             raise ServiceNowMCPError("Studio returned an incomplete table descriptor.")
         return result["data"]
 
+    async def studio_catalog_variables(
+        self, catalog_id: str, model_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Read native catalog selection metadata (bundle:217777-217791)."""
+        validate_sys_id(catalog_id)
+        params = {"includeMultiRowVariableSets": "true"}
+        if model_id:
+            validate_sys_id(model_id)
+            params["flow_catalog_model"] = model_id
+        response = await self._ensure_client().get(
+            f"{self._settings.servicenow_instance_url}/api/now/processflow/flow/{catalog_id}/service_catalog_variables",
+            headers=await self._headers(),
+            params=params,
+        )
+        self._raise_for_flow_read_status(response)
+        result = self._extract_json_result(response)
+        if (
+            not isinstance(result, dict)
+            or "errorCode" in result
+            and (type(result["errorCode"]) is not int or result["errorCode"] != 0)
+            or result.get("errorMessage")
+            or not isinstance(result.get("data"), list)
+        ):
+            raise ServiceNowMCPError("Catalog variable schema response is incomplete.")
+        return result["data"]
+
     def _raise_for_flow_read_status(self, response: httpx2.Response) -> None:
         """Require a completed Table API response for a Flow Designer read."""
         self._raise_for_status(response)

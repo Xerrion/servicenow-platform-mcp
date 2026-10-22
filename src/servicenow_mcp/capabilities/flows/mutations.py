@@ -3,8 +3,14 @@
 import copy
 from typing import TYPE_CHECKING, Any
 
-from servicenow_mcp.capabilities.contracts import CapabilityError, validate_payload
-from servicenow_mcp.capabilities.flows import capture, editing, effects, semantics
+from servicenow_mcp.capabilities.contracts import CapabilityError
+from servicenow_mcp.capabilities.flows import (
+    capture,
+    editing,
+    effects,
+    payloads,
+    semantics,
+)
 from servicenow_mcp.capabilities.mutations.models import FlowCommand, fingerprint
 from servicenow_mcp.policy import check_table_access, mask_sensitive_fields
 from servicenow_mcp.validation import sanitize_query_value, validate_sys_id
@@ -48,7 +54,7 @@ async def create_properties(
 
 
 def require_editable_draft(flow: dict[str, Any], sys_id: str) -> None:
-    validate_payload(flow, field_name="flow", validate_keys=False)
+    payloads.validate_definition(flow)
     required_arrays = (
         "actionInstances",
         "triggerInstances",
@@ -290,7 +296,7 @@ async def action_state(
         definition = await client.studio_request(
             f"action/action_types/{command.action_type_sys_id}"
         )
-    validate_payload(definition, field_name="action", validate_keys=False)
+    payloads.validate_definition(definition, field_name="action")
     action_inputs(command, definition)
     return flow, definition
 
@@ -443,7 +449,7 @@ async def _apply(
                 },
             )
         payload[collection].append(instance)
-        validate_payload(payload, field_name="flow", validate_keys=False)
+        payloads.validate_definition(payload)
         semantics.studio_semantics(payload)
         await capture.require_current(command, client, binding_context)
         saved = await semantics.save_draft(client, payload)

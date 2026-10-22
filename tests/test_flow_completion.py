@@ -194,6 +194,7 @@ def effect_routes(settings, action):
 
 
 @pytest.mark.parametrize("action", ["activate", "publish", "deactivate", "test"])
+@pytest.mark.parametrize("definition_size", [None, 304455])
 @pytest.mark.parametrize(
     "defect",
     [
@@ -207,9 +208,11 @@ def effect_routes(settings, action):
     ],
 )
 async def test_lifecycle_effect_is_one_shot_and_independently_reconciled(
-    settings, action, defect
+    settings, action, defect, definition_size
 ):
     coordinator, tools, flow, header, args = effect_routes(settings, action)
+    if definition_size:
+        flow["componentInstances"] = ["x" * definition_size]
     route = (
         "test"
         if action == "test"

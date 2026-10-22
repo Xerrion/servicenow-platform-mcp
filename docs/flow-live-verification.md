@@ -26,7 +26,8 @@ The earlier context-only creation preview was rejected before any write.
 | Previously required update set | `29fd021387b343108643202cbbbb358b`, **LASN - Test flows**, Global, **ignore**, revision `1`                              |
 
 The current set's name, application, state, and revision came from one exact read of that record.
-Its use as the replacement expected set requires the caller's context decision. The ignored set must not be reopened automatically.
+The caller accepted `bc562d2dc38853905cf89fcd2b0131fe` as the expected EUC-2389 context for subsequent work.
+The ignored set must not be reopened automatically.
 Any later write requires a fresh session-context read and fresh target revision, not these cached assessment values.
 
 The flow-header Customer Update `74a3c669c38c53905cf89fcd2b0131b7` currently references the current set at revision `21`.
@@ -148,9 +149,64 @@ Retain the original call for ADD. Create a new native call identity for REMOVE, 
 This alternative adds one connector instance and explicit branches. It must not call both branches or fall back to ADD.
 It avoids a fabricated choice schema, but does not resolve the active-target and specialized-input authoring limits.
 
-These are concrete representation limits, not permission to relax checks or add new tool features during the freeze.
-The actionable route is a separately approved native Studio draft/isolated-copy authoring step with fresh identities and complete native bindings.
-This local specification is ready for that step. No remote copy or draft preview was prepared in this session.
+These were the compatibility limits at the recorded baseline. The fixes below address the observed widget and Catch shapes without weakening the active-target guard.
+No remote copy or draft preview was prepared in this session.
+
+### Native copy contract inspection
+
+The local source establishes an actual copy route, not a guessed endpoint:
+
+- `getCopyFlowServerModel` (8138-8142) sends only `name` and `scope`.
+- `copyFlowServerCall` (448601-448610) posts to `flow-designer/{source id}/copy` and reads `response.value.data` as the new flow ID.
+- `newGlideRESTParams` (161331-161338) maps `flow-designer` to the ordinary `/api/now/processflow/flow` prefix.
+- `copyFlowSaga` (448630-448656) supplies `sysparm_transaction_scope` and opens the returned ID.
+- Local `copy-flow.md:25` says the new flow has the same properties, trigger, actions, and logic as the source.
+
+Neither that request nor its response handler establishes that copying an active source creates an inactive, unpublished target.
+There is no source-proven `active=false` copy parameter. Do not add a guessed flag, then deactivate a possibly active copy to repair it.
+Therefore the native copy POST was **NOT RUN**. Its unresolved creation-state guarantee is the remaining safe-copy blocker.
+The supported empty-header create route is inactive, but faithful reconstruction still needs native template-value fields/transforms and their identity handling.
+The target's catalog tasks use those fields. They must not be omitted, flattened, or replaced by invented payloads.
+
+### Compatibility fixes from the observed live shapes
+
+The implementation now handles these bounded cases through the existing planner and serializers:
+
+- Catalog variable selections remain exact native strings, including `sys_id:item_option_new`. Selected leaf schemas come from the source-proven GET `flow/{catalog id}/service_catalog_variables` (217777-217791).
+- `collectAllProperties` (130997-131039) and `generateActionDynamicOutputs` (207454-207473) establish selection-to-output binding. Existing selected output metadata is preserved. Removed, changed, ambiguous, or unavailable schemas block the operation.
+- Catalog-schema evidence binds preview/apply. Session-personal catalog default values are excluded from persisted new output defaults and from dependency fingerprints.
+- Approval rules retain their original wire text. The bounded Any/All U/G clauses from `encode`/`_getApprovers` (50075-50162) require matching user/group reference pills, not generic text interpolation.
+- Approval no-deadline JSON retains `action=none` and the native `date={{}}` sentinel. The sentinel is not a malformed pill. The scalar widget's max length does not limit its serialized JSON envelope (48618-48646,48770-48774,126172-126193).
+- Dependent approval record/field inputs resolve the native table from a typed record pill. Read-only table parameters remain unavailable as caller overrides. The inherited dictionary resolver checks selected fields.
+- The native two-input Catch accepts `__status__` with the catalog's `FDACTIONSTATUS` schema plus `enabled`. Toggling changes only enabled/read-only ownership. Opaque runtime status values remain strict and unchanged.
+- Catch Error Status leaf pills come from the definition's input schema, as `getActionInstanceOutputs` does (16445-16464), rather than invented variables.
+- A reference input's 32-character literal sys_id limit no longer rejects a longer exact native reference-pill expression. Literal validation remains unchanged.
+
+Regression fixtures use synthetic metadata and identities. They do not contain target scripts, user defaults, credentials, or request data.
+Automatic approval deadlines, manual/unknown approval forms, complex catalog-variable selections, and template-value edits remain excluded.
+No business changes, catalog activation, provisioning, or import execution were performed by these fixes.
+
+### Post-fix read-only live evidence
+
+A current-code Python 3.15 stdio helper read the exact target and action/handler schemas, then checked values in memory.
+It issued GET requests only. It did not call preview/apply, the copy endpoint, or any execution endpoint.
+
+| Check                        | Observed result                                                                                    |
+| ---------------------------- | -------------------------------------------------------------------------------------------------- |
+| Accepted context             | Global / `bc562d2dc38853905cf89fcd2b0131fe` remained selected throughout the check.                |
+| Active-target guard          | PASS: current target remains rejected for authoring. No guard bypass.                              |
+| Two-input Catch catalog      | PASS: actual `__status__` plus `enabled` definition accepted without replacing the runtime schema. |
+| First catalog-variable read  | PASS: both selected output schemas matched independent catalog metadata.                           |
+| Approval rules               | PASS: actual manager-pill rule validated against the declared user reference type.                 |
+| Disabled due date            | PASS: actual JSON and empty-date sentinel survived in-memory serialization.                        |
+| Second catalog-variable read | PASS: both selected output schemas matched independent catalog metadata.                           |
+
+The fresh header now reports **revision 23, active=true, status=draft**, with master snapshot still `7beb1aa5874497508643202cbbbb35d0`.
+This differs from the earlier revision-21 published assessment. The target changed outside this session between assessments.
+The helper checked identical before/after header and context for its own read window. This session issued no writes.
+Do not apply the revision-21 patch manifest to the revised draft. Refresh and reconcile the other writer's changes before authoring.
+No copied flow, isolated catalog item, new variable, or other test artifact was created.
+These PASS results prove schema/value compatibility only, not live save/readback or request/approval/provisioning/import execution.
 
 ### Required acceptance tests before integration
 

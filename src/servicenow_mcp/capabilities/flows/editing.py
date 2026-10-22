@@ -6,12 +6,13 @@ existing steps into a branch. The result is validated and saved in one PUT.
 """
 
 import copy
+import json
 import re
 import uuid
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
-from servicenow_mcp.capabilities.contracts import CapabilityError, validate_payload
+from servicenow_mcp.capabilities.contracts import CapabilityError
 from servicenow_mcp.capabilities.flows import (
     assignments,
     calls,
@@ -20,10 +21,12 @@ from servicenow_mcp.capabilities.flows import (
     declarations,
     fields,
     handlers,
+    payloads,
     semantics,
     stages,
     support,
     tree,
+    widgets,
 )
 from servicenow_mcp.capabilities.flows import (
     triggers as trigger_edits,
@@ -31,7 +34,7 @@ from servicenow_mcp.capabilities.flows import (
 from servicenow_mcp.capabilities.mutations.models import FlowCommand, fingerprint
 from servicenow_mcp.policy import check_table_access
 from servicenow_mcp.telemetry import trace_flow_preview_boundary
-from servicenow_mcp.validation import validate_identifier
+from servicenow_mcp.validation import validate_identifier, validate_sys_id
 
 if TYPE_CHECKING:
     from servicenow_mcp.platform.client import ServiceNowClient
@@ -137,7 +140,7 @@ def _check_edit(edit: dict[str, Any]) -> None:
 
 
 def require_editable(flow: dict[str, Any], sys_id: str) -> None:
-    validate_payload(flow, field_name="flow", validate_keys=False)
+    payloads.validate_definition(flow)
     for key in (
         "actionInstances",
         "triggerInstances",
@@ -332,9 +335,49 @@ class PillResolver:
         self.schemas: dict[str, dict[str, Any]] = {}
         self.definition_cache: dict[str, dict[str, Any]] = {}
 
+    def prescription(self, pill: str) -> str:
+        """Resolve only saved identity transforms. Preserve their opaque metadata.
+
+        pharmacyPill:61324-61331. Nonidentity transforms need typed adapters.
+        """
+        if not pill.startswith("fd_transform:"):
+            return pill
+        identity = pill.removeprefix("fd_transform:")
+        compound = (
+            self.flow.get("pharmacy", {}).get("pharmacyCompound", {}).get(identity)
+        )
+        if (
+            not isinstance(compound, dict)
+            or compound.get("uiId") != identity
+            or compound.get("attachedTo") != self.flow.get("id")
+            or compound.get("scopeId") != self.flow.get("scope")
+        ):
+            raise CapabilityError(
+                "The encoded transform is missing or belongs to another flow.",
+                "UNAVAILABLE",
+            )
+        if (
+            compound.get("order") != 0
+            or compound.get("sourceUiId")
+            or compound.get("transformDefinitionId")
+            or compound.get("compositions")
+        ):
+            raise CapabilityError(
+                "Nonidentity transforms require another type adapter.", "UNAVAILABLE"
+            )
+        expression = compound.get("prescription")
+        result = data.whole_pill(expression)
+        if result is None or result.startswith("fd_transform:"):
+            raise CapabilityError(
+                "The transform prescription requires one ordinary typed pill.",
+                "UNAVAILABLE",
+            )
+        return result
+
     async def resolve(
         self, pill: str, consumer: tree.Step | None = None
     ) -> dict[str, Any]:
+        pill = self.prescription(pill)
         prefix, separator, suffix = pill.partition(".")
         if not separator or not suffix:
             raise CapabilityError("A pill requires a producer and output path.")
@@ -361,9 +404,18 @@ class PillResolver:
                     raise CapabilityError(
                         "The producer definition is not readable.", "UNAVAILABLE"
                     )
-                outputs = definition.get(
-                    "variables" if producer.kind == "flowlogic" else "outputs"
+                outputs = (
+                    handlers.outputs(definition)
+                    if producer.logic_type == handlers.CATCH
+                    else definition.get(
+                        "variables" if producer.kind == "flowlogic" else "outputs"
+                    )
                 )
+                if (
+                    producer.kind == "action"
+                    and definition.get("type") == "GETCATALOGVARIABLES"
+                ):
+                    outputs = producer.raw.get("outputs")
                 label = f"{producer.raw['order']} - {producer.raw.get('name', producer.kind)}"
             else:
                 outputs = self.flow.get(
@@ -483,7 +535,16 @@ class PillResolver:
         declared: dict[str, Any] | None = None,
     ) -> None:
         for binding, parameter in self._bindings(item, declared):
-            value = binding.get("value")
+            kind = widgets.kind(parameter)
+            if kind == "template_value":
+                await self._template(binding, parameter, consumer)
+                continue
+            value = widgets.pill_text(binding, kind, data.spec(parameter))
+            approval_types = (
+                dict(widgets.approval_references(value))
+                if kind == "approval_rules"
+                else {}
+            )
             for pill in tree.pills(value):
                 resolved = await self.resolve(pill, consumer)
                 source = data.ValueType(
@@ -491,6 +552,15 @@ class PillResolver:
                 )
                 target = data.value_type(parameter)
                 interpolated = value != "{{" + pill + "}}"
+                if kind == "approval_rules":
+                    if source.kind not in {
+                        "reference",
+                        "document_id",
+                    } or source.reference != approval_types.get(pill):
+                        raise CapabilityError(
+                            "Approval approvers must use the declared user/group reference type."
+                        )
+                    continue
                 data.compatible(source, target, interpolated=interpolated)
                 if not interpolated and (
                     target.kind == "object" or target.kind.startswith("array.")
@@ -533,6 +603,101 @@ class PillResolver:
                     raise CapabilityError(
                         "The pill reference table is incompatible with the input."
                     )
+
+    async def _template(
+        self, binding: dict[str, Any], parameter: dict[str, Any], consumer: tree.Step
+    ) -> None:
+        value = binding.get("value")
+        widgets.validate("template_value", value, data.spec(parameter))
+        schema = data.spec(parameter)
+        table = schema.get("reference")
+        if dependency := schema.get("dependent_on"):
+            source = data.named(
+                consumer.raw["inputs"], dependency.removeprefix("inputs.")
+            )
+            if (
+                data.value_type(source).kind != "table_name"
+                or not isinstance(source.get("value"), str)
+                or tree.pills(source["value"])
+            ):
+                raise CapabilityError(
+                    "Template fields require a static declared table dependency."
+                )
+            if table and source["value"] != table:
+                raise CapabilityError(
+                    "The template table differs from its declared reference."
+                )
+            table = source["value"]
+        if not table:
+            raise CapabilityError(
+                "The template field table is unavailable.", "UNAVAILABLE"
+            )
+        validate_identifier(table)
+        check_table_access(table)
+        for column, encoded in widgets.template_fields(value):
+            row = await self._dictionary(table, column)
+            kind = row["internal_type"]
+            if kind not in {
+                "reference",
+                "string",
+                "html",
+                "translated_html",
+                "integer",
+                "boolean",
+                "choice",
+                "journal_input",
+            }:
+                raise CapabilityError(
+                    "This template column type requires another adapter.", "UNAVAILABLE"
+                )
+            pills = tree.pills(encoded)
+            if pills:
+                target = data.ValueType(
+                    "string"
+                    if kind in {"html", "translated_html", "journal_input"}
+                    else kind,
+                    row.get("reference", ""),
+                )
+                for pill in pills:
+                    resolved = await self.resolve(pill, consumer)
+                    source = data.ValueType(
+                        resolved["type"], resolved.get("reference") or ""
+                    )
+                    data.compatible(
+                        source, target, interpolated=encoded != "{{" + pill + "}}"
+                    )
+                    if target.reference and not await self._is_table(
+                        source.reference, target.reference
+                    ):
+                        raise CapabilityError(
+                            "The template reference pill has an incompatible table."
+                        )
+            elif kind == "reference" and encoded:
+                try:
+                    reference = json.loads(encoded)
+                except ValueError:
+                    raise CapabilityError(
+                        "Template references require native reference JSON."
+                    ) from None
+                if (
+                    not isinstance(reference, dict)
+                    or reference.get("table") != row["reference"]
+                    or reference.get("value") != reference.get("sys_id")
+                ):
+                    raise CapabilityError(
+                        "Template reference JSON identity or table is inconsistent."
+                    )
+                validate_sys_id(reference["value"])
+            elif (
+                kind in {"integer", "boolean"}
+                and encoded
+                and not re.fullmatch(
+                    r"-?\d+" if kind == "integer" else r"true|false|0|1", encoded
+                )
+            ):
+                raise CapabilityError(
+                    "The template scalar value has an invalid native type."
+                )
 
     def _bindings(
         self, item: dict[str, Any], declared: dict[str, Any] | None = None
@@ -951,6 +1116,7 @@ async def plan(
     reference_tables: set[str] = set()
     trigger_evidence: dict[str, Any] = {}
     call_evidence: dict[str, Any] = {}
+    dependency_changed: set[str] = set()
     # Bind client stage UUIDs to this exact definition and edit list. Replanning
     # preview/apply must not create different stage keys.
     stage_seed = fingerprint(
@@ -1037,6 +1203,10 @@ async def plan(
                     )
                 ),
             )
+            if definition.get("type") == "GETCATALOGVARIABLES":
+                call_evidence[
+                    "catalog_insert:" + str(index)
+                ] = await calls.catalog_selection(step, working, client, changed=True)
             tree.insert(
                 roots,
                 step,
@@ -1490,6 +1660,19 @@ async def plan(
             else:
                 siblings, position, _ = tree.find(roots, ref)
                 _update_inputs(siblings[position], _inputs(edit))
+                if any(
+                    item["name"] in _inputs(edit)
+                    and data.value_type(item).kind
+                    in {"document_id", "table_name", "field_name"}
+                    for item in siblings[position].raw["inputs"]
+                ):
+                    dependency_changed.add(siblings[position].uid)
+                if set(_inputs(edit)) & {"catalog_variables", "template_catalog_item"}:
+                    call_evidence[
+                        "catalog:" + str(index)
+                    ] = await calls.catalog_selection(
+                        siblings[position], working, client, changed=True
+                    )
                 summary.append(f"{index}. Update inputs of step {label}")
         elif op in stages.OPS:
             tree.renumber(roots)
@@ -1696,7 +1879,7 @@ async def plan(
             "decisionTableInputs",
         ):
             for item in data.bindings(step.raw.get(key, [])):
-                value = item.get("value")
+                value = widgets.pill_text(item, widgets.kind(item), data.spec(item))
                 if isinstance(value, str):
                     remainder = tree.PILL.sub("", value)
                     if "{{" in remainder or "}}" in remainder:
@@ -1712,6 +1895,43 @@ async def plan(
                 "Trigger inputs cannot reference values produced by the flow."
             )
     resolver = PillResolver(client, trigger, payload, roots)
+    for pill, used in list(usage.items()):
+        ordinary = resolver.prescription(pill)
+        if ordinary != pill:
+            usage.pop(pill)
+            for uid, names in used.items():
+                existing = usage.setdefault(ordinary, {}).setdefault(uid, [])
+                existing.extend(name for name in names if name not in existing)
+    for step in tree.walk(roots):
+        if (
+            step.uid in created or step.uid in dependency_changed
+        ) and step.kind == "action":
+            references = {}
+            for item in step.raw["inputs"]:
+                if data.value_type(item).kind == "document_id" and data.spec(item).get(
+                    "dependent_on"
+                ):
+                    pills = tree.pills(item["value"])
+                    if (
+                        len(pills) == 1
+                        and item["value"] == "{{" + next(iter(pills)) + "}}"
+                    ):
+                        source = await resolver.resolve(next(iter(pills)), step)
+                        if source["type"] not in {
+                            "reference",
+                            "document_id",
+                        } or not source.get("reference"):
+                            raise CapabilityError(
+                                "A dependent record input requires a known reference-table pill."
+                            )
+                        references[item["name"]] = source["reference"]
+            call_evidence["dependent:" + step.uid] = await calls.table_dependencies(
+                step, references, resolver
+            )
+        if step.raw.get("actionType", {}).get("type") == "GETCATALOGVARIABLES":
+            call_evidence["catalog_saved:" + step.uid] = await calls.catalog_selection(
+                step, payload, client, changed=False
+            )
     for step in tree.walk(roots):
         for item in step.raw.get("inputs", []):
             await resolver.validate(item, step)
@@ -1742,7 +1962,9 @@ async def plan(
         for pill, used in sorted(usage.items())
     ]
     payload["label_cache"] = label_cache
-    validate_payload(payload, field_name="flow", validate_keys=False)
+    if call_evidence:
+        _refresh_component_mirror(flow, payload)
+    payloads.validate_definition(payload)
     semantics.studio_semantics(payload, pending_deletions=pending_deletions)
     reference_evidence: dict[str, Any] = {
         "calls": call_evidence,

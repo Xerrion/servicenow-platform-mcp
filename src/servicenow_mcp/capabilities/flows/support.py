@@ -268,6 +268,7 @@ def ledger() -> dict[str, Any]:
             "handler_creation": entry(
                 True,
                 "Current catalog TOP_LEVEL_TRY/CATCH wrappers, order zero, parent regions, and boundary index. "
+                "Native Catch enabled plus FDACTIONSTATUS __status__ input is supported; runtime status data stays opaque. "
                 "main/error_handler placement aliases and catalog-defined Error Status leaf pills. remove_error_handler requires an empty handler. "
                 "Legacy wrappers and sandwich/Parallel handler wrapping remain unavailable. Source-derived offline regression only.",
             ),
@@ -290,6 +291,10 @@ def ledger() -> dict[str, Any]:
             "other_logic": entry(
                 False,
                 "Family-specific dynamic inputs, end conditions, or outputs require additional adapter evidence.",
+            ),
+            "native_action_widgets": entry(
+                True,
+                "Compatibility adapters for item_option_new slushbucket selections with independently read output schemas, typed Any/All user/group approval rules, disabled due-date JSON, and table-backed document/field inputs. Existing metadata remains strict. Automatic deadlines, complex catalog variables, template-value input edits, and native copy inactivity semantics remain unsupported. Offline-regression and read-only schema evidence only.",
             ),
         },
         "contract_evidence": {

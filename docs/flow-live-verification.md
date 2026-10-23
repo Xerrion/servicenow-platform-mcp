@@ -862,3 +862,62 @@ Before checks, candidate module imports and their Git blob identities were verif
 From that candidate directory, **`mise run check`, `mise run test`, and `mise run schemas` passed**: 3496 tests passed, 66 deselected.
 Generated schemas left no tracked diff. Candidate tracked files were clean. Its only untracked item was the owned `.venv` environment link.
 The original main ref, unrelated work, stashes, and safety refs remain unchanged. No push, PR, or main merge was performed.
+
+## Activation ownership correction and read-only contract verification, 2026-10-23
+
+The fix starts from `b30c861` on `fix/flow-trigger-active-readback` in the isolated integration worktree.
+The original worktree's 14 tracked modifications and four untracked files are excluded and unchanged.
+The existing installed environment is reused with sync, downloads, and automatic installation disabled.
+
+### Physical metadata and source evidence
+
+A bounded local stdio probe read the existing verified flow `4c7c19e28740df508643202cbbbb353d`, its one V2 trigger, the relevant table hierarchy, and only dictionary rows for `active` in that hierarchy.
+The exact trigger was `fc7c59e28740df508643202cbbbb3512`, type `service_catalog`, with its `flow` reference matching the requested parent.
+Its full Table API row has no `active` field. The Studio trigger DTO also has no such field.
+`sys_db_object` reports no superclass for `sys_hub_trigger_instance_v2` or `sys_hub_trigger_instance`.
+The only `active` dictionary row in the bounded hierarchy belongs to `sys_hub_flow_base`, with Boolean type, inherited by `sys_hub_flow`.
+This is not an omitted field projection or an inferred false value.
+
+Local Studio source constructs the trigger without an activation field (58126-58137) and omits it from the trigger save schema (472278-472291).
+The separate flow schema owns activation. The official local `flow-activate.md:27` states that flow activation makes the flow available to run.
+`create-sc-flow.md:75-85` separates flow activation from catalog-item association.
+No definition-active flag or catalog-item association was used to invent an instance state.
+
+### Correct read semantics
+
+Native V2 Service Catalog and classic scheduled configurations now expose `activation.mode="flow_managed"`.
+`active=null` and `active_source=null` remain unchanged: the instance has no independent switch.
+`activation.instance_active_applicable=false` makes this distinction explicit.
+The separately named `activation.flow_active` is read from the exact owner header, with `activation.flow_sys_id` and source `flow.active`.
+The flow reference, header identity, and flow type must agree before that owned parent state is exposed.
+Parent enablement is not an effective-trigger or execution-readiness certificate.
+
+Explicit readable instance flags retain their existing source. Remote V2 record-trigger flags retain `record_trigger.active`.
+A present null/invalid flag never falls through to an inferred parent value. Missing V1 flags now remain unknown rather than silently becoming false.
+Missing parent state, inconsistent ownership, unreadable definitions, malformed bindings, row/field caps, and unmodeled activation families retain incompleteness warnings.
+The flow header's own missing or invalid Boolean also remains null.
+No truncation or schema-completeness rule was relaxed.
+
+### Executed read proof and tests
+
+Four baseline regressions first failed because the actual native row was incorrectly marked incomplete for a nonexistent instance flag.
+The sanitized trigger row and table/dictionary proof are retained in `tests/fixtures/flow_trigger_activation.json`.
+Regressions cover absent/null/true/false and malformed flags, parent-active/inactive boundaries, owner mismatches, V1 flags, V2 remote record flags, native schedules, definition-state separation, and preserved metadata limits.
+A real local Python 3.15 stdio smoke test reads a native contract through captured mock HTTP responses, with network/browser access denied and no writable endpoint.
+
+A fresh read-only stdio session then used the isolated fix source and normal OS-cached OAuth against exact `https://tv2dev.service-now.com`.
+The actual contract for the same verified flow returned:
+
+- `status=success`, no top-level `truncation`, and no warnings.
+- One Service Catalog trigger with `active=null`, `active_source=null`, `activation.mode="flow_managed"`, and `activation.flow_active=false`.
+- Exact owner `activation.flow_sys_id=4c7c19e28740df508643202cbbbb353d`, source `flow.active`, and `instance_active_applicable=false`.
+- Trigger `metadata_complete=true`. Structural summary `complete=true`, with seven nodes, four actions, three logic nodes, and one trigger.
+- Two inputs and one variable. Summary `metadata_complete=null` remains the documented structural-counts-only convention, not a global certificate.
+
+Independent status remained complete at revision `1`, inactive, with no published snapshot.
+There were zero flow POSTs/PUTs, no preview/apply, and no activation, deactivation, publication, execution, or update-set operation.
+No timeout retry or interactive browser authorization was needed. The earlier actual authoring PASS is unchanged.
+
+Focused read/model/stdio checks passed 331 tests.
+The isolated worktree passed `mise run check`, `mise run test`, and `mise run schemas`: 3562 passed, 66 deselected.
+The generated tool schemas left no diff. No dependency or global configuration change was required.

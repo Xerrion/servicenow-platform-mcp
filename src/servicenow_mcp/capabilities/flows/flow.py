@@ -31,6 +31,7 @@ from servicenow_mcp.capabilities.flows._flow_models import (
     ActionTypeRef,
     ContractBinding,
     ContractTrigger,
+    FlowManagedActivation,
     FlowNode,
     LogicDefinitionRef,
     StageDefinition,
@@ -159,7 +160,9 @@ _ACTION_REGISTRY: Final[dict[str, dict[str, Any]]] = {
     "contract": {
         "description": (
             "Return progressive contract sections for one flow or subflow. The compact default returns identity, "
-            "publication state, a bounded structural summary, and warnings."
+            "publication state, a bounded structural summary, and warnings. "
+            "Native V2 Service Catalog and schedules expose parent enablement in activation.flow_active. "
+            "This is separate from an instance flag or execution readiness."
         ),
         "params": {
             "sys_id": "str (32-char)",
@@ -174,7 +177,9 @@ _ACTION_REGISTRY: Final[dict[str, dict[str, Any]]] = {
     },
     "inspect": {
         "description": (
-            "Return progressive inspection sections for one flow. The compact default avoids optional detail reads."
+            "Return progressive inspection sections for one flow. The compact default avoids optional detail reads. "
+            "Native V2 Service Catalog and schedules expose parent enablement in activation.flow_active. "
+            "This is separate from an instance flag or execution readiness."
         ),
         "params": {
             "sys_id": "str (32-char)",
@@ -244,6 +249,16 @@ def _d(field: Any) -> str:
             return str(display)
         return _v(field)
     return _v(field)
+
+
+def _boolean(field: Any) -> bool | None:
+    """Read a stored boolean without treating absent or invalid data as false."""
+    value = field.get("value") if isinstance(field, dict) else field
+    if type(value) is bool:
+        return value
+    if isinstance(value, str) and value in {"true", "false"}:
+        return value == "true"
+    return None
 
 
 def _maybe_decode(values_field: Any) -> tuple[Any, str | None]:
@@ -745,11 +760,75 @@ def _trigger_input_issues(
     return warnings
 
 
+def _trigger_activation(
+    row: dict[str, Any],
+    record: dict[str, Any],
+    flow_header: dict[str, Any] | None,
+) -> tuple[bool | None, str | None, FlowManagedActivation | None, list[str]]:
+    active_row = row if "active" in row else record
+    if "active" in active_row:
+        active = _boolean(active_row["active"])
+        if active is not None:
+            return (
+                active,
+                "trigger.active" if active_row is row else "record_trigger.active",
+                None,
+                [],
+            )
+    elif "trigger_type" in row and _v2_trigger_type(row) in {
+        "service_catalog",
+        "scheduled",
+        "daily",
+        "weekly",
+        "monthly",
+        "repeat",
+        "run_once",
+    }:
+        # Native trigger instances have no active column or superclass. The
+        # flag is on sys_hub_flow_base (flow_trigger_activation.json). Studio
+        # constructs/saves trigger DTOs without it:58126-58137,472278-472291.
+        # A present null flag remains unreadable, never not-applicable.
+        header = flow_header or {}
+        identity = _v(header.get("sys_id"))
+        if (
+            re.fullmatch(r"[0-9a-f]{32}", identity) is None
+            or _v(row.get("flow")) != identity
+            or _v(header.get("type")) != "flow"
+        ):
+            return (
+                None,
+                None,
+                None,
+                [
+                    "Trigger flow ownership is missing or inconsistent. Activation is unknown."
+                ],
+            )
+        active = _boolean(header.get("active"))
+        activation = FlowManagedActivation(flow_sys_id=identity, flow_active=active)
+        warnings = (
+            []
+            if active is not None
+            else [
+                "Flow active status is missing or invalid. Flow-managed activation is unknown."
+            ]
+        )
+        return None, None, activation, warnings
+    return (
+        None,
+        None,
+        None,
+        [
+            "Trigger active status is missing or invalid. The flow header does not establish trigger activation."
+        ],
+    )
+
+
 def _v2_trigger_entry(
     row: dict[str, Any],
     *,
     record_lookup: dict[str, dict[str, Any]],
     definition_lookup: dict[str, dict[str, Any]],
+    flow_header: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a trigger entry from a V2 ``sys_hub_trigger_instance_v2`` row."""
     remote_id = _v2_remote_id(row)
@@ -787,19 +866,10 @@ def _v2_trigger_entry(
                 "trigger_definition type differs from the stored trigger_type."
             )
 
-    active: bool | None = None
-    active_source: str | None = None
-    active_row = row if "active" in row else record
-    active_value = _v(active_row.get("active"))
-    if active_value in {"true", "false"}:
-        active = active_value == "true"
-        active_source = (
-            "trigger.active" if active_row is row else "record_trigger.active"
-        )
-    else:
-        warnings.append(
-            "Trigger active status is missing or invalid. The flow header does not establish trigger activation.",
-        )
+    active, active_source, activation, activation_warnings = _trigger_activation(
+        row, record, flow_header
+    )
+    warnings.extend(activation_warnings)
 
     table = _v(row.get("table")) or _v(record.get("table"))
     condition = _v(record.get("condition"))
@@ -907,18 +977,28 @@ def _v2_trigger_entry(
         else None,
         warnings=warnings,
         definition=definition,
+        activation=activation,
     ).to_payload()
 
 
 def _v1_trigger_entry(row: dict[str, Any]) -> dict[str, Any]:
     """Build a trigger entry from a V1 ``sys_hub_trigger_instance`` row."""
-    return V1Trigger(
+    active = _boolean(row.get("active"))
+    payload = V1Trigger(
         sys_id=_v(row.get("sys_id")),
         type=_v(row.get("type")),
-        active=_v(row.get("active")) == "true",
+        active=active,
         table=_v(row.get("table")),
         condition=_v(row.get("condition")),
     ).to_payload()
+    if active is None:
+        payload.update(
+            metadata_complete=False,
+            warnings=[
+                "V1 trigger active status is missing or invalid. Inactivity is not established."
+            ],
+        )
+    return payload
 
 
 async def _resolve_inspect_sys_id(
@@ -1212,7 +1292,13 @@ def _contract_trigger(trigger: dict[str, Any]) -> dict[str, Any]:
         decode_error=trigger.get("decode_error"),
     )
     payload = result.to_payload()
-    for key in ("active_source", "metadata_complete", "warnings", "definition"):
+    for key in (
+        "active_source",
+        "activation",
+        "metadata_complete",
+        "warnings",
+        "definition",
+    ):
         if key in trigger:
             payload[key] = trigger[key]
     for binding, output in zip(
@@ -1979,6 +2065,7 @@ def assemble_inspection(
                 row,
                 record_lookup=record_lookup,
                 definition_lookup=snapshot.trigger_definitions,
+                flow_header=header,
             )
             for row in returned_triggers_v2
         ]
@@ -2026,7 +2113,7 @@ def assemble_inspection(
             "name": _d(header.get("name")),
             "internal_name": _v(header.get("internal_name")),
             "type": _v(header.get("type")),
-            "active": _v(header.get("active")) == "true",
+            "active": _boolean(header.get("active")),
             "description": _v(header.get("description")),
             "sys_scope": _d(header.get("sys_scope")),
         },

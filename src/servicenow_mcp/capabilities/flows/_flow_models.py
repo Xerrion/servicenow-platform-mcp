@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 
 from pydantic import Field
 
@@ -71,8 +71,20 @@ class FlowNode(ContractModel):
     decode_error: str | None = None
 
 
+class FlowManagedActivation(ContractModel):
+    """Parent enablement, not a trigger-instance flag or execution guarantee."""
+
+    mode: Literal["flow_managed"] = "flow_managed"
+    instance_active_applicable: Literal[False] = False
+    flow_sys_id: str
+    flow_active: bool | None
+    source: Literal["flow.active"] = "flow.active"
+
+
 class V2Trigger(ContractModel):
-    omit_when_none: ClassVar[frozenset[str]] = frozenset({"decode_error", "definition"})
+    omit_when_none: ClassVar[frozenset[str]] = frozenset(
+        {"decode_error", "definition", "activation"}
+    )
 
     version: str = "v2"
     sys_id: str
@@ -88,13 +100,14 @@ class V2Trigger(ContractModel):
     metadata_complete: bool | None = None
     warnings: list[str] = Field(default_factory=list)
     definition: dict[str, Any] | None = None
+    activation: FlowManagedActivation | None = None
 
 
 class V1Trigger(ContractModel):
     version: str = "v1"
     sys_id: str
     type: str
-    active: bool
+    active: bool | None
     table: str
     condition: str
 

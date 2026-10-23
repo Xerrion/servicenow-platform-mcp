@@ -513,7 +513,13 @@ Malformed input blobs or parent links also mark the affected canvas or steps sec
 
 V2 triggers use stored `trigger_type`, `trigger_inputs`, and `trigger_outputs`, with legacy column support.
 Service Catalog triggers do not require a record-trigger table, condition, or remote ID.
-An unreadable trigger activation value returns `active=null`. The flow header does not establish trigger activation.
+An unreadable trigger activation value returns `active=null`. It never implies inactivity.
+Native V2 Service Catalog and classic scheduled instances have no independent `active` column.
+Their `activation.mode="flow_managed"` and `activation.instance_active_applicable=false` distinguish this case from an unreadable instance flag.
+`activation.flow_active` reports the separately owned parent flag, joined through the exact `flow` ID. It does not replace `active` or certify execution readiness.
+An explicit instance flag retains `active_source="trigger.active"`; a readable remote record-trigger flag retains `active_source="record_trigger.active"`.
+Missing ownership or parent state remains incomplete for flow-managed activation.
+Present invalid/null flags, unreadable definitions, and unmodeled trigger families also remain incomplete.
 Trigger `warnings`, `metadata_complete`, and top-level `truncation` report missing or malformed metadata.
 When `triggers` is selected, one shared instance catalog read joins exact V2 definition IDs.
 `definition.inputs` and `definition.outputs` describe declared schemas separately from stored configuration and runtime output values.

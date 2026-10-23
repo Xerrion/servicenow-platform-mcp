@@ -65,10 +65,16 @@ async def read_flow(
     limit: int = 20,
     status: int = 200,
     sections: list[str] | None = None,
+    header: dict[str, Any] | None = None,
+    v1_rows: list[dict[str, Any]] | None = None,
 ):
     http_mock.get(f"{BASE}/sys_hub_flow/{FLOW}").respond(
         200,
-        json={"result": {"sys_id": FLOW, "type": "flow", "active": "true"}},
+        json={
+            "result": header
+            if header is not None
+            else {"sys_id": FLOW, "type": "flow", "active": "true"}
+        },
     )
     for table in (
         "sys_hub_action_instance_v2",
@@ -78,7 +84,14 @@ async def read_flow(
         "sys_hub_sub_flow_instance_v2",
         "sys_hub_trigger_instance",
     ):
-        http_mock.get(f"{BASE}/{table}").respond(200, json={"result": []})
+        http_mock.get(f"{BASE}/{table}").respond(
+            200,
+            json={
+                "result": v1_rows
+                if table == "sys_hub_trigger_instance" and v1_rows is not None
+                else []
+            },
+        )
     route = http_mock.get(f"{BASE}/sys_hub_trigger_instance_v2").respond(
         status, json={"result": rows}
     )
@@ -129,7 +142,10 @@ async def test_live_service_catalog_shape(settings: Settings, action: str, remot
     assert summary["metadata_sections"] == ["triggers"]
     assert "triggers" in result["truncation"]
     warnings = result["data"]["warnings"]
-    assert any("active" in warning for warning in warnings)
+    assert trigger["activation"]["mode"] == "flow_managed"
+    assert trigger["activation"]["flow_active"] is True
+    assert any("definition" in warning for warning in warnings)
+    assert not any("active" in warning for warning in warnings)
     assert not any(
         "table" in warning.lower() or "condition" in warning.lower()
         for warning in warnings
@@ -443,9 +459,11 @@ async def test_live_empty_choice_uses_loaded_definition_without_resolving_defaul
     assert definition["outputs"][0]["reference_table"] == "sc_req_item"
     assert definition["outputs"][0]["reference_display"] == "Requested Item"
     assert trigger["active"] is None
-    assert trigger["warnings"] == [
-        "Trigger active status is missing or invalid. The flow header does not establish trigger activation.",
-    ]
+    assert trigger["warnings"] == []
+    assert trigger["activation"]["instance_active_applicable"] is False
+    assert trigger["activation"]["flow_active"] is True
+    assert trigger["metadata_complete"] is True
+    assert "truncation" not in result
     if action == "inspect":
         assert trigger["values_decoded"] == inputs
         assert trigger["outputs_decoded"] is None

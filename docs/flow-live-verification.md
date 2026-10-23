@@ -536,3 +536,56 @@ Local validation returned `valid=true`, `complete=true`, with no diagnostics. Th
 The live message-only incremental-edit acceptance result is PASS. No further write occurred.
 The historical complete-create and earlier uncertain edits remain historically unknown. This result does not certify live complete creation or execution.
 No flow was created, activated, published, deactivated, tested, or executed. No update-set/session read, catalog change, or protected LogView request occurred.
+
+## Final distinct one-shot acceptance attempt, 2026-10-23
+
+The explicitly authorized new inert case was `MCP Live - One Shot Acceptance 20261023T083730151295Z`.
+A fresh local Python 3.15 stdio server used source HEAD `c2c39bb`, the preserved unrelated worktree changes, full tool package, and normal OS-cached OAuth against exact `https://tv2dev.service-now.com`.
+No application source changed for this attempt. The native schema still omitted `expected_update_set`.
+The ordinary preview/apply path used one exact generated name in Global scope, including its normal pre-write rechecks.
+There were three bounded exact-name conflict queries from those native rechecks, not a broad flow search or a separate manual creation path.
+
+One complete preview contained nine ordered edits: Service Catalog trigger, String `message` declaration, assignment, variable-consuming start Log,
+If on the Requested Item number pill, then Log, Else, else Log, and trailing Log.
+The preview verified seven steps, four Logs, three logic/assignment steps, one variable, two expected pill paths, six aliases, and inactive state.
+One fresh token was consumed exactly once. The native operation sent one property POST and one complete-definition PUT, both returning HTTP 200.
+No client-side header/add-step workaround, raw PUT submission, retry, or second fixture creation occurred.
+
+The new retained flow is `ca324deac30c9b905cf89fcd2b01315d`.
+The created header was verified at revision `0`. The final header observed revision `1`, `active=false`, `status=draft`, and an empty published-snapshot reference.
+Apply returned `UNKNOWN_OUTCOME` during `save_complete_definition`, with `header="verified"`, `definition="unknown"`, and `retry_safe=false`.
+The exact application verification failure was:
+`request.echo`, `both:flow.inputs COUNT_MISMATCH expected_count=0 actual_count=2`.
+No input metadata was ignored, and no speculative correction or further remote write followed.
+
+One exact-ID read-only reconciliation returned `valid=true`, `complete=true`, no diagnostics, and no remote compile.
+The saved definition had seven ordered steps, four Logs, three logic/assignment steps, one String variable, one assignment, and one trigger.
+Echo and GET retained the expected If/Else parents, variable pill, Requested Item condition pill, and assignment mirrors.
+Same-session echo-to-GET semantic comparison passed. This does not establish equality with the submitted request, whose empty flow-input interface differed from the two returned inputs.
+The observer recorded no errors and did not interrupt the application result.
+The planned post-success contract inspection was not run because apply did not succeed. The reconciliation above was the only Studio GET after the PUT.
+No successful apply result or verified ref map was returned. The following joins are observed preview/GET identities only:
+
+| Ref          | Observed persisted step ID         | Preview and GET UI ID                  | Order |
+| ------------ | ---------------------------------- | -------------------------------------- | ----- |
+| `start`      | `a6328deac30c9b905cf89fcd2b013150` | `28936ec3-ed75-48d4-8dbe-013a47938bd9` | 2     |
+| `has_number` | `6a328deac30c9b905cf89fcd2b013152` | `47e8e6b6-e171-4404-807e-6cd2fe537811` | 3     |
+| `then_log`   | `ee328deac30c9b905cf89fcd2b013153` | `1dbc6fc5-ab13-4589-a79c-0a301c6686e7` | 4     |
+| `otherwise`  | `e2328deac30c9b905cf89fcd2b013155` | `569d9133-4d73-42e5-af94-1fe827a4c43f` | 5     |
+| `else_log`   | `ae328deac30c9b905cf89fcd2b013155` | `5761f50b-e9dd-47aa-ab7d-1b9e63ca396f` | 6     |
+| `finish`     | `ea328deac30c9b905cf89fcd2b013156` | `172bbfd5-f707-4a0a-81f5-9b426cce953e` | 7     |
+
+The assignment was observed as `26328deac30c9b905cf89fcd2b01314e`, UI ID `ea31deb8-7afd-4f16-be34-33c9cd42b185`, order `1`.
+The fixture remains inert and must not receive a replay of this complete-create request or its token.
+The prior revision-4 incremental PASS remains valid, but the required one-shot-create gate is blocked by the native flow-input count difference.
+The old fixtures and protected LogViews received no requests. There was no activation, publication, deactivation, test, execution, catalog change, integration call, or update-set/session access.
+
+### Local integration preparation
+
+At the tested source revision, local `main` was `fd937711416e42d15f050d396bc109f9c794a76f` and was the merge base with `c2c39bb`.
+The comparison had zero main-only commits and 28 feature-only commits. Cached `origin/main` was `e5f4daa7b129f329e9444ad5572819f52c9eb16a`, also contained in the feature history.
+No fetch or remote change occurred. The two existing worktrees were the dirty feature tree and another contributor's `codex/shared-dev-tooling` tree.
+The 14 tracked and four untracked unrelated changes were preserved. No stash, reset, cleanup, branch switch, main update, merge, integration worktree, push, or PR occurred.
+Integration-tree checks are NOT RUN because the prerequisite live create gate did not pass.
+After that gate is resolved, `main..feat/flow-authoring` identifies the committed integration range. An isolated integration branch can merge that committed range without importing dirty worktree changes.
+The last unchanged-source local gates remain `mise run schemas`, `mise run check`, and `mise run test`: 3545 passed, 66 deselected, plus 190 focused isolated-checkpoint tests.

@@ -1095,6 +1095,165 @@ async def load_state(
     return {"flow": flow, "logic": logic, "triggers": triggers}
 
 
+def _native_parameter(parameter: dict[str, Any]) -> dict[str, Any]:
+    """Published editor descriptors to persisted parameter DTOs.
+
+    Source: flowDesignParameterTemplateLiteralFrom:471783-471840 excludes the
+    editor-only descriptor keys below. Empty optional display/link fields carry
+    no default label or dependency. Nonempty values and all attributes stay.
+    """
+    result = copy.deepcopy(parameter)
+    for key in (
+        "comments",
+        "placeholder",
+        "searchField",
+        "uiDisplayType",
+        "uiDisplayTypeLabel",
+    ):
+        result.pop(key, None)
+    for key in ("dynamic", "internal_link", "defaultDisplayValue"):
+        if key in result and result[key] in (None, "", [], {}):
+            result.pop(key)
+    return result
+
+
+def _native_existing_step(flow: dict[str, Any], step: tree.Step) -> None:
+    """Build a new instance from an independently checked native DTO profile.
+
+    Only neutral persisted profiles are reused. Definition IDs and every input
+    parameter are checked against the independently read published definition.
+    Unknown settings or changed semantic attributes block planning, not readback.
+    Source DTO fields:472022-472030,472381-472430. This does not normalize saves.
+    """
+    if flow.get("active") is not False:
+        return
+    definition_key = "actionTypeSysId" if step.kind == "action" else "definitionId"
+    if step.kind != "action" and step.logic_type != "SETFLOWVARIABLES":
+        return
+    candidates = [
+        row
+        for row in flow[tree.COLLECTIONS[step.kind]]
+        if row.get(definition_key) == step.raw.get(definition_key)
+        and "uiComponentIndex" in row
+    ]
+    if not candidates:
+        return
+    prototype = candidates[0]
+    neutral: dict[str, Any] = {
+        "displayText": "",
+        "deleted": False,
+        "metadata": {},
+        "comment": "",
+        "generationSource": "",
+        "uiComponentIndex": 0,
+        "snapshot": False,
+    }
+    if step.kind == "action":
+        neutral.update(compiledSnapshot="", aliasIds=[])
+        allowed = {
+            "id",
+            "uiUniqueIdentifier",
+            "flowSysId",
+            "actionTypeSysId",
+            "parentActionTypeId",
+            "actionType",
+            "internalName",
+            "name",
+            "type",
+            "inputs",
+            "order",
+            "parent",
+            *neutral,
+            *tree.UI_FIELDS,
+            "children",
+        }
+    else:
+        neutral.update(
+            outputsToAssign=[],
+            variables=[],
+            errors=[],
+            connectedTo="",
+            workflowReference="",
+            workflowInputs=[],
+            workflowInformation={},
+            decisionTableReference="",
+            decisionTableInputs=[],
+            dynamicInputs=[],
+            dynamicOutputs=[],
+            decisionTableInformation={},
+            afterTopLevelCatch=False,
+            goBackTo=False,
+            updateFlowTemplate=False,
+            **{"continue": False, "break": False},
+        )
+        neutral["quiescence"] = step.raw["flowLogicDefinition"].get("quiescence")
+        allowed = {
+            "id",
+            "uiUniqueIdentifier",
+            "flowSysId",
+            "definitionId",
+            "flowLogicDefinition",
+            "internalName",
+            "name",
+            "type",
+            "inputs",
+            "flowVariables",
+            "order",
+            "parent",
+            *neutral,
+            *tree.UI_FIELDS,
+            "children",
+        }
+        if fingerprint(prototype.get("flowLogicDefinition")) != fingerprint(
+            step.raw.get("flowLogicDefinition")
+        ):
+            raise CapabilityError(
+                "The native assignment definition differs from the current catalog.",
+                "UNAVAILABLE",
+            )
+    if set(prototype) - allowed or any(
+        fingerprint(prototype.get(key)) != fingerprint(value)
+        for key, value in neutral.items()
+    ):
+        raise CapabilityError(
+            "The existing native instance has non-default or unknown settings. No new instance is inferred.",
+            "UNAVAILABLE",
+        )
+    inputs = copy.deepcopy(step.raw["inputs"])
+    if step.kind == "action":
+        stored = {row["name"]: row for row in prototype["inputs"]}
+        if set(stored) != {row["name"] for row in inputs}:
+            raise CapabilityError(
+                "The native action input names differ from the published definition.",
+                "UNAVAILABLE",
+            )
+        for index, row in enumerate(inputs):
+            original = stored[row["name"]]
+            if fingerprint(_native_parameter(data.spec(row))) != fingerprint(
+                original.get("parameter")
+            ):
+                raise CapabilityError(
+                    "The native action parameter differs from its independently read published schema.",
+                    "UNAVAILABLE",
+                )
+            inputs[index] = {
+                "id": original["id"],
+                "name": row["name"],
+                "value": row["value"],
+                "displayValue": row["displayValue"],
+                "children": row["children"],
+                "scriptActive": False,
+                "parameter": copy.deepcopy(original["parameter"]),
+            }
+    replacement = copy.deepcopy(prototype)
+    for key in ("id", "children", *tree.UI_FIELDS):
+        replacement.pop(key, None)
+    replacement.update(uiUniqueIdentifier=step.uid, flowSysId=flow["id"], inputs=inputs)
+    if step.logic_type == "SETFLOWVARIABLES":
+        replacement["flowVariables"] = copy.deepcopy(inputs)
+    step.raw = replacement
+
+
 async def plan(
     command: FlowCommand, state: dict[str, Any], client: ServiceNowClient
 ) -> dict[str, Any]:
@@ -1228,6 +1387,7 @@ async def plan(
                     )
                 ),
             )
+            _native_existing_step(flow, step)
             if definition.get("type") == "GETCATALOGVARIABLES":
                 call_evidence[
                     "catalog_insert:" + str(index)
@@ -1442,6 +1602,7 @@ async def plan(
                 raise CapabilityError("set_variables requires at least one assignment.")
             step.raw["flowVariables"] = copy.deepcopy(step.raw["inputs"])
             step.raw.pop("data", None)
+            _native_existing_step(flow, step)
             tree.insert(
                 roots,
                 step,

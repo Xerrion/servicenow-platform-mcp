@@ -225,3 +225,130 @@ These PASS results prove schema/value compatibility only, not live save/readback
 Portal orderability, group-type/OU alignment, agreed recipients, and successful import handling remain separate EUC-2389 acceptance gaps.
 They are not marked passing by this proposed ADD/REMOVE change.
 Main integration remains blocked pending authorized draft verification and the required live acceptance evidence.
+
+## Isolated complete-create fixture, 2026-10-22
+
+The authorized log-only submission created `c6c7f496c38c1b905cf89fcd2b013115`, named
+`MCP Live - Complete Flow 20261022T131324541263Z`, in Global scope.
+One complete create preview contained nine edits. One apply sent one native property POST and one complete-definition PUT.
+The definition contained seven steps: four Logs, Set Flow Variables, If, and Else.
+It also contained one Service Catalog trigger and one string variable.
+The start Log used `flow_variable.message`. The If used the Requested Item number pill.
+No activation, publication, execution, AD call, or context change occurred. Existing LogView targets were not changed.
+
+Apply returned `UNKNOWN_OUTCOME` during `save_complete_definition`:
+`request.echo`, `both:flow.flowVariables`, `NEW_FIELD_IDENTITY_MISMATCH`.
+The returned progress reported a verified header and an unknown definition outcome.
+Independent readback observed all seven steps, one trigger, and one variable.
+Status reported revision `1`, inactive draft state, and no published snapshot.
+Read-only local validation returned `valid=true`, `complete=true`. These results did not establish request-to-save equality.
+
+During the later read-only investigation, the exact Studio GET showed variable `name="message"` unchanged.
+Its database ID was separate from its UI ID, which existed in `attributes.uiUniqueId` without a top-level UI cache.
+The Set Flow Variables parameter referenced that database ID and the same stored UI identity.
+This matches the client restoration contract in the local bundle (22009-22035, 232977-232978).
+The verifier previously searched only the absent top-level cache when matching generated fields.
+
+The historical request body, preview field UUID, and PUT response were not retained after the live child exited.
+The later GET is not a substitute for that response. It cannot prove all historical IDs, schema fields, defaults, or values matched.
+The local fix covers identity representation and the owned assignment-ID relationship only.
+All other metadata remains strict. Further server transformations are not certified by this identity projection.
+The consumed operation remains historically unknown. No remote replay, recreation, edit, deletion, or execution occurred during this fix.
+Keep the fixture for a separately authorized incremental check with a fresh revision. Do not replay the original token.
+
+## Distinct identity-fix live gate, 2026-10-22
+
+A fresh local stdio server used the current working source: HEAD `cf0d941`, the staged update-set removal,
+and the unstaged variable-identity fix. Its native schema omitted `expected_update_set`.
+HTTP used the real `tv2dev` instance and normal OS-cached OAuth. No mock transport was used.
+Before creation, an exact read reconciled the earlier fixture `c6c7f496c38c1b905cf89fcd2b013115`:
+revision `1`, inactive draft, no master snapshot. That fixture was not edited or deleted.
+
+The distinct new case was `MCP Live - Complete Flow Identity Fix 20261022T140950139167Z`.
+Its complete preview passed outline, variable, alias, pill, and inactive-state checks.
+The request contained nine edits for seven steps, four Logs, three assignment/logic steps,
+one Service Catalog trigger, and one string variable. Its token was applied exactly once.
+The native API received one property POST and one full-definition PUT.
+
+The new flow is `c1b4c9da874cdb508643202cbbbb35b8`, Global, revision `1`, inactive draft, with no published snapshot.
+Echo and subsequent GET both contained all seven steps and the expected If/Else parents and orders.
+The requested UI ID `b16daa36-c312-4285-a37e-67652e8daeb6` survived in `attributes.uiUniqueId`.
+The variable database ID was `31b44dda874cdb508643202cbbbb35e8`.
+The assignment parameter referenced that database ID and UI ID in both echo and GET.
+This directly verifies the identity relationship addressed by the local fix. It does not establish full save equality.
+
+Apply returned `UNKNOWN_OUTCOME` during `save_complete_definition`, at:
+`request.echo`, `expected:flow.flowVariables[0].attributes[field:0]`, `MISSING_FIELD`.
+The first key in the comparator's sorted attribute union was `element_mapping_provider`, absent from the request.
+The echo also added `uiType` and `uiTypeLabel`. The request supplied empty `sourceId`, `sourceType`, and
+`sourceUiUniqueId` attributes, which the echo omitted. These are observed key-presence differences, not an approved normalization rule.
+No credential, value content, or raw payload is retained in this report.
+
+One read-only reconciliation reported complete status and local validation `valid=true`, `complete=true`.
+The definition outcome remains unknown relative to the request. No retry or recreation occurred.
+The planned combined reorder/insert/message-update was not sent because the create apply did not pass verification.
+There was no edit PUT, activation, publication, execution, AD call, context switch, update-set read, or Customer Update read.
+Both retained fixtures and the original LogView targets remain unchanged after that reconciliation.
+The live gate toward main is blocked by the demonstrated variable-DTO comparison difference, not by identity mapping.
+
+Apply returned no verified ref mapping. The following observed mapping joins preview UI refs to identical echo and GET identities.
+It is retained for read-only reconciliation, not as evidence that apply succeeded.
+
+| Ref          | Persisted step ID                  | UI ID                                  | Order |
+| ------------ | ---------------------------------- | -------------------------------------- | ----- |
+| `start`      | `bdb44dda874cdb508643202cbbbb35fd` | `382b8589-3483-4484-a404-0ad09908bf8f` | 2     |
+| `has_number` | `71b44dda874cdb508643202cbbbb35ff` | `8f92f327-748d-42c6-8c6b-6038f830f16d` | 3     |
+| `then_log`   | `b1b48dda874cdb508643202cbbbb3500` | `d85ae49d-70c1-469d-9717-04d11b913eea` | 4     |
+| `otherwise`  | `75b48dda874cdb508643202cbbbb3501` | `67251084-d70d-43c9-adc5-b72c716f8e58` | 5     |
+| `else_log`   | `fdb48dda874cdb508643202cbbbb3501` | `97b92463-645a-404f-ad24-e36f579bb073` | 6     |
+| `finish`     | `f9b48dda874cdb508643202cbbbb3502` | `7c93c300-d7e1-4826-9d24-6c5ec372b38e` | 7     |
+
+Both echo and GET placed `then_log` under `has_number`, and `else_log` under `otherwise`.
+
+## Variable DTO correction and incremental preview, 2026-10-23
+
+Resume inspection found the partial source changes and no retained incremental apply journal from the cancelled task.
+Exact header and Studio reads confirmed that no incremental edit persisted on `c1b4c9da874cdb508643202cbbbb35b8`.
+It remained Global, revision `1`, inactive draft, without a published snapshot.
+It contained seven steps, four Logs, three logic/assignment steps, one Service Catalog trigger, one `message` variable, and one assignment.
+`roundtrip_probe` was absent. Neither historical complete-create `UNKNOWN_OUTCOME` is reclassified by these reads.
+
+The correction constructs new String variable requests with the complete observed native DTO defaults.
+It explicitly requests the mapper provider, `uiType`, and `uiTypeLabel`. All attributes remain strictly compared.
+Existing declarations and other types are not rewritten. A complete sanitized current GET fixture supports the regression tests.
+Two focused regressions failed before the constructor correction and passed afterward.
+Adversarial cases retain strict checks for provider, type, reference, name, value, default, unknown metadata, identities, and pills.
+
+A fresh local Python 3.15 stdio server then used the working source and normal OS-cached OAuth against exactly `https://tv2dev.service-now.com`.
+Its schema omitted `expected_update_set`. Real HTTP had an explicit endpoint allowlist and allowed at most one definition PUT to this fixture.
+Creation, lifecycle effects, other flow targets, update sets, and Customer Updates were outside the allowlist.
+The first harness invocation stopped before preview because it expected the wrong revision result shape.
+The corrected harness read `revision.mod_count` and performed the only live preview request.
+Initial local validation returned `valid=true`, `complete=true`, with no diagnostics and no remote compile.
+
+The ordered request proposed these five edits:
+
+1. Create String variable `roundtrip_probe`, labelled `Roundtrip probe`.
+2. Insert its benign assignment before `start`.
+3. Move `finish` immediately before `has_number`.
+4. Insert `probe_log` under `has_number`, consuming `{{flow_variable.roundtrip_probe}}`.
+5. Update only the existing `then_log` message.
+
+The preview returned `UNAVAILABLE`: `The existing native instance has non-default or unknown settings. No new instance is inferred.`
+No token was issued or applied. No PUT, property POST, or other remote mutation occurred.
+Read-only diagnosis isolated the rejected field to the existing Set Flow Variables instance's nonempty String `flowBlockId`.
+All other neutral-profile values matched, and its embedded definition equalled the independently read logic definition.
+The Log profile passed the independent published-schema check.
+The local bundle lists `flowBlockId` at 472392 but provides no further references that establish how a new instance must obtain it.
+The field was not ignored, blanked, or copied into a new instance without that contract.
+No second preview was requested. A regression now preserves this fail-closed case without a write.
+
+The live result is blocked at preview. Echo/GET save equality, new persisted refs, revision `2`, and nine-node counts remain unverified.
+The fixture retains its seven-node revision `1` definition. The old fixture and both protected LogView targets received no requests.
+There was no activation, publication, deactivation, execution, catalog write, integration call, or update-set access.
+The temporary sanitized journal records the initial reads, one preview request, and its rejection without tokens or payload values.
+
+Final local verification passed `mise run schemas`, `mise run check`, and `mise run test`: 3489 passed, 66 deselected.
+The focused identity, DTO, field, and stdio regressions passed 134 tests, including the added `flowBlockId` preview rejection.
+That run included the three real local stdio mock-HTTP variants for ordinary, attribute-only identity, and native String DTO responses.
+The native-profile fixtures prove only the supported neutral shape. They do not establish that this retained live assignment fits that shape.

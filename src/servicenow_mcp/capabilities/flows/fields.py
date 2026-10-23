@@ -215,6 +215,56 @@ def _settings(item: dict[str, Any], edit: dict[str, Any], section: str) -> None:
         data.set_value(binding, item["defaultValue"])
 
 
+def _string_variable_dto(item: dict[str, Any]) -> dict[str, Any]:
+    """Construct the native new scalar DTO, not the modal's UI row.
+
+    Source: parameter field map:471783-471833, cleared source state:22246-22254,
+    variable label hydration:232973, mapper facets:93420-93431. The complete
+    sanitized current GET fixture establishes legacy DTO defaults. Provider and
+    UI type are requested explicitly and remain strict during echo/GET checks.
+    This applies only to new String flow variables, never existing declarations.
+    """
+    result = {
+        "name": item["name"],
+        "label": item["label"],
+        "type": "string",
+        "type_label": "string",
+        "order": 0,
+        "maxsize": item.get("maxsize", 0),
+        "mandatory": False,
+        "readonly": False,
+        "extended": False,
+        "local": False,
+        "children": [],
+        "data_structure": "",
+        "reference": "",
+        "reference_display": "",
+        "choiceOption": "",
+        "table": "",
+        "columnName": "",
+        "defaultValue": "",
+        "defaultDisplayValue": "",
+        "use_dependent": False,
+        "dependent_on": "",
+        "internal_link": "",
+        "show_ref_finder": False,
+        "value": "",
+        "display_value": "",
+        "sys_class_name": "",
+        "scriptActive": False,
+        "uiUniqueId": item["uiUniqueId"],
+        "attributes": {
+            "uiUniqueId": item["uiUniqueId"],
+            "uiType": "string",
+            "uiTypeLabel": TYPES["string"],
+            "element_mapping_provider": "com.glide.flow_design.action.data.FlowDesignVariableMapper",
+        },
+    }
+    if item.get("hint"):
+        result["hint"] = item["hint"]
+    return result
+
+
 def edit_field(
     flow: dict[str, Any], edit: dict[str, Any], roots: list[tree.Step], uid: str
 ) -> dict[str, str] | None:
@@ -382,6 +432,8 @@ def edit_field(
             # getFlowVariables and generateNestedTree omit scalar children
             # (bundle:232975-232986,21898-21903).
             item.pop("children", None)
+        if section == "flowVariables" and item["type"] == "string":
+            item = _string_variable_dto(item)
         rows.append(item)
         created = {"collection": section, "name": name, "uiUniqueId": uid}
     else:

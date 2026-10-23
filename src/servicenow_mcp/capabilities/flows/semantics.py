@@ -904,6 +904,91 @@ def _compare_component_mirror_ids(
         raise SemanticMismatch("flow.componentInstances", "MIRROR_MISMATCH", "actual")
 
 
+def _field_ui_identity(row: dict[str, Any], path: str, side: str) -> str | None:
+    copies = [row["uiUniqueId"]] if "uiUniqueId" in row else []
+    for key in ("attributes", "fieldFacetMap"):
+        metadata = row.get(key)
+        if isinstance(metadata, dict) and "uiUniqueId" in metadata:
+            copies.append(metadata["uiUniqueId"])
+    if not copies:
+        return None
+    if any(not isinstance(value, str) or not value for value in copies):
+        raise SemanticMismatch(path + ".uiUniqueId", "INVALID_UI_IDENTITY", side)
+    if len(set(copies)) != 1:
+        raise SemanticMismatch(path + ".uiUniqueId", "IDENTITY_MISMATCH", side)
+    # Studio restores this UI cache from persisted metadata. Never generate an
+    # identity, replace an explicit conflicting copy, or alter the storage copy.
+    # appendPropertyToItem:22009-22035; getFlowVariables:232977-232978.
+    uid = copies[0]
+    assert isinstance(uid, str)
+    row["uiUniqueId"] = uid
+    return uid
+
+
+def _variable_parameters(flow: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    result = []
+    for collection in ("flowLogicInstances", "componentInstances"):
+        for index, step in enumerate(flow.get(collection, [])):
+            if (
+                not isinstance(step, dict)
+                or step.get("flowLogicDefinition", {}).get("type") != "SETFLOWVARIABLES"
+            ):
+                continue
+            for key in ("inputs", "flowVariables"):
+                for position, row in enumerate(step.get(key, [])):
+                    if isinstance(row, dict) and isinstance(row.get("parameter"), dict):
+                        result.append(
+                            (
+                                f"flow.{collection}[{index}].{key}[{position}].parameter",
+                                row["parameter"],
+                            )
+                        )
+    return result
+
+
+def _restore_field_ui_identities(flow: dict[str, Any], side: str) -> None:
+    for section in ("inputs", "outputs", "flowVariables"):
+        rows = flow.get(section)
+        if not isinstance(rows, list):
+            continue
+        names, identities = set(), set()
+        for index, (name, row) in enumerate(declarations.walk(rows)):
+            path = f"flow.{section}[{index}]"
+            uid = _field_ui_identity(row, path, side)
+            if name in names or uid is not None and uid in identities:
+                raise SemanticMismatch(path, "DUPLICATE_IDENTITY", side)
+            names.add(name)
+            if uid is not None:
+                identities.add(uid)
+    for path, parameter in _variable_parameters(flow):
+        _field_ui_identity(parameter, path, side)
+
+
+def _new_variable_parameter_id(
+    expected: dict[str, Any], actual: dict[str, Any], name: str, uid: str, assigned: str
+) -> None:
+    # Set Flow Variables mirrors assignments in inputs (bundle:207311-207315).
+    # The exact saved-flow identity projection proves that parameter.id refers
+    # to its declaration. Only that owner's assigned ID can replace a new marker.
+    for side, flow in (("expected", expected), ("actual", actual)):
+        for path, parameter in _variable_parameters(flow):
+            if parameter.get("uiUniqueId") != uid:
+                continue
+            if parameter.get("name") != name:
+                raise SemanticMismatch(path + ".name", "IDENTITY_MISMATCH", side)
+            if "id" not in parameter:
+                continue
+            identity = parameter["id"]
+            if (
+                side == "expected"
+                and identity
+                or side == "actual"
+                and identity != assigned
+            ):
+                raise SemanticMismatch(path + ".id", "IDENTITY_MISMATCH", side)
+            parameter.pop("id")
+
+
 def compare_saved(
     expected: dict[str, Any],
     actual: dict[str, Any],
@@ -920,6 +1005,8 @@ def compare_saved(
     # Tombstones are request instructions, not persisted settings. Only planned IDs may disappear.
     expected = copy.deepcopy(expected)
     actual = copy.deepcopy(actual)
+    _restore_field_ui_identities(expected, "expected")
+    _restore_field_ui_identities(actual, "actual")
     for definition in (expected, actual):
         for step in [
             *definition.get("flowLogicInstances", []),
@@ -994,6 +1081,8 @@ def compare_saved(
                 raise SemanticMismatch(
                     f"flow.{section}.id", "DUPLICATE_IDENTITY", "actual"
                 )
+            if section == "flowVariables":
+                _new_variable_parameter_id(expected, actual, name, uid, identity)
             found_field[0].pop("id")
     assigned_stage_ids = (
         [

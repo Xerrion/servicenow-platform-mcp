@@ -176,6 +176,44 @@ Inspect that existing flow before an incremental edit preview. Never repeat the 
 If the property response times out without an ID, resolve the possible created flow before any further write.
 Tokens remain single-use. Publication, activation, testing, and execution require separate explicit lifecycle actions.
 
+### Declaration identity verification
+
+Studio stores a declaration's client UI identity in `attributes.uiUniqueId`, or in `fieldFacetMap.uiUniqueId` for nested declarations.
+The top-level `uiUniqueId` is a reconstructed UI cache. Its absence does not establish an identity change.
+Comparison restores that cache only from an existing nonempty stored identity. Explicit conflicting copies still fail.
+Declaration names and UI identities must be unique within their collection. Names are never repaired or inferred from labels.
+
+A newly saved flow variable can receive a separate database `id`.
+Set Flow Variables parameters may receive that same declaration ID in both their `inputs` and `flowVariables` copies.
+Request comparison permits this assignment only for a declared new variable with the same exact name and UI identity.
+The parameter ID must match its owning declaration. Another variable's ID or an unrelated ID fails verification.
+Echo and independent GET must then retain the same assigned IDs. Existing database IDs cannot normalize.
+Pill bindings, stage fields, defaults, schema constraints, values, and unknown metadata remain strict.
+
+Local source: `appendPropertyToItem` (22009-22035), `mapProperties` (24010-24023),
+`getFlowVariables` (232977-232978), and assignment mirrors (207311-207315) in `docs/designer-bundle.min.js`.
+The regression fixture contains only a sanitized identity projection of a saved-flow GET, not a historical PUT response.
+It does not certify other server transformations or retroactively verify an earlier unknown outcome.
+
+### New String variable DTOs
+
+New String flow variables use the native persisted parameter shape when the planner constructs the request.
+The request explicitly includes `attributes.element_mapping_provider="com.glide.flow_design.action.data.FlowDesignVariableMapper"`,
+`uiType="string"`, and `uiTypeLabel="String"`. Verification compares all three fields strictly.
+The native defaults include `type_label="string"`, `order=0`, `maxsize=0`, blank value/default/display fields, and false flags.
+An explicit `maxsize` and nonempty hint remain unchanged. Empty source attributes and modal-only fields are omitted at construction.
+Existing declarations and other types retain their current construction paths. No response attributes are discarded.
+
+Local source: source-state clearing (22246-22254), mapper facets (93420-93431), variable label hydration (232973),
+and parameter serialization (471783-471840) in `docs/designer-bundle.min.js`.
+`tests/fixtures/flow_string_variable_dto.json` contains the complete sanitized current GET DTO observed on 2026-10-23.
+It is not a historical request or save response.
+
+Incremental Log and Set Flow Variables insertion can reuse a neutral native instance profile from the same definition.
+Published parameter schemas and assignment definitions are checked independently. Unknown or non-default instance settings reject preview.
+This includes the retained fixture's nonempty `flowBlockId`. The local DTO map names that field but does not establish its ownership contract.
+The 2026-10-23 incremental live preview was therefore blocked before saving. See [live verification](flow-live-verification.md).
+
 ## Structural edits
 
 `flow_preview(action="edit", sys_id=..., edits=[...])` applies an ordered list of edits to one draft and

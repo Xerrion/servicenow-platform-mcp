@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 import anyio
+import pytest
 from jsonschema import Draft202012Validator
 from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
@@ -41,11 +42,23 @@ assert model.revision == 15 and len(model.bodies) == 3
 """
 
 
-async def test_stdio_full_create_and_followup_edit(tmp_path):
+@pytest.mark.parametrize("attribute_identity", [False, True, "native_dto"])
+async def test_stdio_full_create_and_followup_edit(tmp_path, attribute_identity):
     root = Path(__file__).resolve().parents[1]
+    child = CHILD
+    if attribute_identity == "native_dto":
+        child = child.replace(
+            "from tests._complete_flow_fixture import StudioModel",
+            "from tests.test_flow_variable_dto import VariableDTOModel as StudioModel",
+        )
+    elif attribute_identity:
+        child = child.replace(
+            "from tests._complete_flow_fixture import StudioModel",
+            "from tests.test_flow_variable_identity import VariableIdentityModel as StudioModel",
+        )
     parameters = StdioServerParameters(
         command=sys.executable,
-        args=["-B", "-c", CHILD],
+        args=["-B", "-c", child],
         cwd=tmp_path,
         env={
             "PATH": os.environ.get("PATH", ""),

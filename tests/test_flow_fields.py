@@ -237,7 +237,12 @@ async def test_supported_scalar_wire_types_and_preserved_settings(
         else:
             assert planned["payload"][key] == flow[key]
     assert field.get("defaultValue") == extra.get(
-        "default_value", False if kind == "boolean" else None
+        "default_value",
+        False
+        if kind == "boolean"
+        else ""
+        if section == "flowVariables" and kind == "string"
+        else None,
     )
 
 

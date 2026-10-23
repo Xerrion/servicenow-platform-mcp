@@ -1,0 +1,23 @@
+{
+  "evidence": {
+    "source": "Identity projection of the exact saved complete-flow fixture Studio GET on 2026-10-22",
+    "historical_put_echo_available": false,
+    "scope": "Names, types, identity locations, and assignment-to-declaration relation only. Other schema fields and all values are excluded. IDs are synthetic."
+  },
+  "variable": {
+    "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "name": "message",
+    "type": "string",
+    "attributes": {
+      "uiUniqueId": "00000000-0000-4000-8000-000000000001"
+    }
+  },
+  "assignment_parameter": {
+    "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "name": "message",
+    "type": "string",
+    "attributes": {
+      "uiUniqueId": "00000000-0000-4000-8000-000000000001"
+    }
+  }
+}

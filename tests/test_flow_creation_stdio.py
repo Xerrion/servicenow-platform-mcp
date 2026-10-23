@@ -56,12 +56,17 @@ assert len([row for row in observer.exchanges if row[1] is not None]) == 3
 
 
 @pytest.mark.parametrize(
-    "attribute_identity", [False, True, "native_dto", "native_cache"]
+    "attribute_identity", [False, True, "native_dto", "native_cache", "full_native"]
 )
 async def test_stdio_full_create_and_followup_edit(tmp_path, attribute_identity):
     root = Path(__file__).resolve().parents[1]
     child = CHILD
-    if attribute_identity == "native_cache":
+    if attribute_identity == "full_native":
+        child = child.replace(
+            "from tests._complete_flow_fixture import StudioModel",
+            "from tests._native_full_fixture import NativeFullModel as StudioModel",
+        )
+    elif attribute_identity == "native_cache":
         child = child.replace(
             "from tests._complete_flow_fixture import StudioModel",
             "from tests.test_flow_root_cache import NativeCacheModel as StudioModel",
@@ -100,7 +105,12 @@ async def test_stdio_full_create_and_followup_edit(tmp_path, attribute_identity)
             await session.initialize()
             tools = {tool.name: tool for tool in (await session.list_tools()).tools}
             assert len(tools) == 18
-            args = create_request()
+            if attribute_identity == "full_native":
+                from tests._native_full_fixture import create_request as native_create
+
+                args = native_create()
+            else:
+                args = create_request()
             Draft202012Validator(tools["flow_preview"].input_schema).validate(args)
             preview = await session.call_tool("flow_preview", args)
             await session.validate_tool_result("flow_preview", preview)
@@ -112,7 +122,31 @@ async def test_stdio_full_create_and_followup_edit(tmp_path, attribute_identity)
             await session.validate_tool_result("mutation_apply", created)
             assert not created.is_error, created
             assert created.structured_content["data"]["revision"] == "14"
-            args = edit_request(created.structured_content["data"])
+            if attribute_identity == "full_native":
+                data = created.structured_content["data"]
+                assert set(data["refs"]) == {
+                    "start",
+                    "has_number",
+                    "then_log",
+                    "otherwise",
+                    "else_log",
+                    "finish",
+                }
+                assert data["active"] is False and data["status"] == "draft"
+                validation = await session.call_tool(
+                    "flow", {"action": "validate", "sys_id": data["sys_id"]}
+                )
+                await session.validate_tool_result("flow", validation)
+                assert validation.structured_content["data"]["valid"] is True, (
+                    validation.structured_content
+                )
+                assert validation.structured_content["data"]["complete"] is True
+            if attribute_identity == "full_native":
+                from tests._native_full_fixture import edit_request as native_edit
+
+                args = native_edit(created.structured_content["data"])
+            else:
+                args = edit_request(created.structured_content["data"])
             if attribute_identity in ("native_dto", "native_cache"):
                 refs = created.structured_content["data"]["refs"]
                 args["edits"] = [

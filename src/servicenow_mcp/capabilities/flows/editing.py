@@ -20,6 +20,7 @@ from servicenow_mcp.capabilities.flows import (
     declarations,
     fields,
     handlers,
+    native,
     payloads,
     semantics,
     stages,
@@ -1117,95 +1118,6 @@ def _native_parameter(parameter: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def _native_existing_step(flow: dict[str, Any], step: tree.Step) -> None:
-    """Build a new instance from an independently checked native DTO profile.
-
-    Only neutral persisted profiles are reused. Definition IDs and every input
-    parameter are checked against the independently read published definition.
-    Unknown settings or changed semantic attributes block planning, not readback.
-    Source DTO fields:472022-472030,472381-472430. This does not normalize saves.
-    """
-    if flow.get("active") is not False or step.kind != "action":
-        return
-    definition_key = "actionTypeSysId"
-    candidates = [
-        row
-        for row in flow[tree.COLLECTIONS[step.kind]]
-        if row.get(definition_key) == step.raw.get(definition_key)
-        and "uiComponentIndex" in row
-    ]
-    if not candidates:
-        return
-    prototype = candidates[0]
-    neutral: dict[str, Any] = {
-        "displayText": "",
-        "deleted": False,
-        "metadata": {},
-        "comment": "",
-        "generationSource": "",
-        "uiComponentIndex": 0,
-        "snapshot": False,
-    }
-    if step.kind == "action":
-        neutral.update(compiledSnapshot="", aliasIds=[])
-        allowed = {
-            "id",
-            "uiUniqueIdentifier",
-            "flowSysId",
-            "actionTypeSysId",
-            "parentActionTypeId",
-            "actionType",
-            "internalName",
-            "name",
-            "type",
-            "inputs",
-            "order",
-            "parent",
-            *neutral,
-            *tree.UI_FIELDS,
-            "children",
-        }
-    if set(prototype) - allowed or any(
-        fingerprint(prototype.get(key)) != fingerprint(value)
-        for key, value in neutral.items()
-    ):
-        raise CapabilityError(
-            "The existing native instance has non-default or unknown settings. No new instance is inferred.",
-            "UNAVAILABLE",
-        )
-    inputs = copy.deepcopy(step.raw["inputs"])
-    if step.kind == "action":
-        stored = {row["name"]: row for row in prototype["inputs"]}
-        if set(stored) != {row["name"] for row in inputs}:
-            raise CapabilityError(
-                "The native action input names differ from the published definition.",
-                "UNAVAILABLE",
-            )
-        for index, row in enumerate(inputs):
-            original = stored[row["name"]]
-            if fingerprint(_native_parameter(data.spec(row))) != fingerprint(
-                original.get("parameter")
-            ):
-                raise CapabilityError(
-                    "The native action parameter differs from its independently read published schema.",
-                    "UNAVAILABLE",
-                )
-            inputs[index] = {
-                "id": original["id"],
-                "name": row["name"],
-                "value": row["value"],
-                "displayValue": row["displayValue"],
-                "children": row["children"],
-                "scriptActive": False,
-                "parameter": copy.deepcopy(original["parameter"]),
-            }
-    replacement = copy.deepcopy(prototype)
-    for key in ("id", "children", *tree.UI_FIELDS):
-        replacement.pop(key, None)
-    replacement.update(uiUniqueIdentifier=step.uid, flowSysId=flow["id"], inputs=inputs)
-    step.raw = replacement
-
-
 def _native_variable_step(step: tree.Step) -> None:
     """Construct a fresh assignment, without saved-instance ownership fields.
 
@@ -1436,7 +1348,6 @@ async def plan(
                     )
                 ),
             )
-            _native_existing_step(flow, step)
             if definition.get("type") == "GETCATALOGVARIABLES":
                 call_evidence[
                     "catalog_insert:" + str(index)
@@ -2247,6 +2158,41 @@ async def plan(
             for (source, target), compatible in resolver.table_cache.items()
         },
     }
+    native_steps = False
+    for step in tree.walk(roots):
+        if step.uid not in created or flow.get("active") is not False:
+            continue
+        if step.kind == "action" and "internal_name" in step.raw["actionType"]:
+            step.raw = native.action(step.raw, payload)
+        elif step.logic_type in {"IF", "ELSE"}:
+            step.raw = {
+                **native.logic(step.raw),
+                **{
+                    key: step.raw[key]
+                    for key in ("order", "parent", "children", *tree.UI_FIELDS)
+                    if key in step.raw
+                },
+            }
+        else:
+            continue
+        native_steps = True
+        collection = tree.COLLECTIONS[step.kind]
+        payload[collection] = [
+            step.raw if row["uiUniqueIdentifier"] == step.uid else row
+            for row in payload[collection]
+        ]
+    if native_steps:
+        _refresh_component_mirror(flow, payload)
+    if flow["active"] is False and any(
+        edit.get("op") == "set_trigger" and edit.get("type") == "service_catalog"
+        for edit in command.edits or []
+    ):
+        payload["triggerInstances"] = [
+            native.catalog_trigger(triggers[0], catalog["service_catalog"])
+        ]
+    payloads.validate_definition(payload)
+    if flow["active"] is False:
+        semantics.studio_semantics(payload, pending_deletions=pending_deletions)
     result = {
         "payload": payload,
         "refs": {

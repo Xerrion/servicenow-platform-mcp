@@ -379,7 +379,7 @@ async def test_saved_trigger_without_label_is_read_by_name(settings: Settings):
     def save(request):
         data = json.loads(request.content)
         for trigger in data["triggerInstances"]:
-            trigger.pop("label")
+            trigger.pop("label", None)
         persist(data, generated_catalog_inputs=True)
         return httpx2.Response(200, json={"result": {"data": data}})
 

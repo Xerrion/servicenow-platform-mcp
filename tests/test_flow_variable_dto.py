@@ -606,7 +606,7 @@ async def test_new_assignment_block_relation_and_semantic_values_remain_strict(
 @pytest.mark.parametrize(
     "change", ["unknown_setting", "metadata", "alias", "provider", "input_name"]
 )
-def test_native_instance_profile_requires_neutral_settings_and_independent_schema(
+def test_fresh_native_instance_uses_independent_schema_without_reusing_saved_records(
     change,
 ):
     flow = base_flow()
@@ -670,5 +670,15 @@ def test_native_instance_profile_requires_neutral_settings_and_independent_schem
         ] = "Different.Provider"
     else:
         prototype["inputs"][0]["name"] = "different"
-    with pytest.raises(CapabilityError, match="native"):
-        editing._native_existing_step(flow, step)
+    from servicenow_mcp.capabilities.flows import native
+
+    saved = copy.deepcopy(flow)
+    result = native.action(step.raw, flow)
+    assert flow == saved
+    assert "id" not in result and "flowBlockId" not in result
+    assert result["metadata"] == {} and result["aliasIds"] == []
+    assert result["inputs"][0]["name"] == "message"
+    assert (
+        result["inputs"][0]["parameter"]["attributes"]["element_mapping_provider"]
+        == "Expected.Provider"
+    )

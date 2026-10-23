@@ -209,7 +209,7 @@ and parameter serialization (471783-471840) in `docs/designer-bundle.min.js`.
 `tests/fixtures/flow_string_variable_dto.json` contains the complete sanitized current GET DTO observed on 2026-10-23.
 It is not a historical request or save response.
 
-Incremental Log insertion retains its independently checked neutral native action profile.
+Fresh native actions use the independently read published definition, without copying a saved instance profile or its record IDs.
 New Set Flow Variables instances are constructed from the current readable logic definition, with fresh bindings and native DTO defaults.
 They do not clone saved steps, block references, identities, or unknown instance metadata. Existing assignments retain all their stored fields.
 The catalog must contain one readable Set Flow Variables definition with the supported input schema.
@@ -267,7 +267,20 @@ Input-table write policy is checked for a Service Catalog trigger operation. Thi
 
 Service Catalog is not REST/external: the client `createFlowInputs` branch at 184408-184414 does not apply to it.
 The supported backend-owned form comes from the retained native GET and catalog metadata, with requested-record semantics documented in `create-sc-flow.md:27`.
-The historical one-shot outcome remains unknown. Native seven-step serialization beyond this input projection has separate unresolved differences recorded in [live verification](flow-live-verification.md).
+The historical one-shot outcome remains unknown. The complete native serialization checks and subsequent live acceptance result are recorded in [live verification](flow-live-verification.md).
+
+### Fresh native instance DTOs
+
+Fresh actions from the full published-action endpoint use native seven-field binding wrappers and explicit instance defaults.
+The constructor maps the endpoint's known nullable descriptor slots into the native embedded definition, including action-status metadata.
+It preserves unknown nonnullable metadata. It does not copy another instance's settings, IDs, aliases, or block references.
+Abbreviated call definitions retain their existing adapter. Subflow calls and active-draft adapters are unchanged.
+
+New If and Else instances use the current logic catalog, native binding wrappers, and explicit defaults, as Set Flow Variables already does.
+New Service Catalog triggers use native input/output wrappers while retaining the independently bound parameter schemas.
+These constructors apply only to new instances. Saved metadata remains unchanged.
+New conditional and assignment block IDs must pass exact logic-instance owner reads before comparison.
+Existing blocks, echo-to-GET identities, unknown metadata, branches, and semantic values remain strict.
 
 ## Structural edits
 

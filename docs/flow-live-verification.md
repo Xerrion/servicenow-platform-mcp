@@ -642,3 +642,33 @@ These differences are not normalized by the input fix. Their exact root cause is
 The complete captured-input HTTP regression does not certify these other native instance forms.
 This is a concrete remaining serialization gap, not a reason to issue another blind create or to ignore unknown metadata.
 The existing live fixture and prior successful incremental fixture received no writes during this task. Main integration remains withheld until the complete native one-shot path is actually verified.
+
+## Complete native DTO gate, 2026-10-23
+
+`flow_full_native.json` retains one complete sanitized seven-step native GET and independently read published Log, logic, and Service Catalog definitions.
+It comes from the retained revision-1 fixture. IDs and user identities are synthetic. It is not the unavailable historical request or echo.
+The earlier 944-difference reconstruction remains historical evidence. The new exhaustive constructor comparison covers all ACTION, SETFLOWVARIABLES, IF, ELSE, and TRIGGER fields together.
+
+`flows/native.py` constructs native ACTION and conditional DTOs and the Service Catalog trigger wrappers from those independent schemas.
+It maps only declared nullable editor descriptor slots, retains unknown metadata, constructs the embedded status/cache DTOs, and supplies explicit native defaults.
+Fresh actions no longer learn an instance profile from another saved action. Existing instances never pass through the fresh constructors.
+The existing new-variable, generated-interface, root-cache, stage, handler, subflow, revision, and authorization contracts remain in place.
+New IF/ELSE blocks use the same exact instance/flow/UI/definition/block ownership checks as new variable assignments.
+
+Source paths: editor constructors at 156128-156235, 221647-221799, and 58112-58179.
+Native parameter/binding fields are at 471783-471840 and 472022-472030, with trigger/action/logic DTO maps at 472278-472430.
+The REST split/save/cleanup path is 130432-130460, 97521-97527, and 101697-101712.
+The complete captured native getter forms establish the REST defaults and known nullable descriptor projections.
+No save-comparison metadata allowance was added. The earlier narrowly scoped String presentation and root-cache rules remain the only such projections used by this fixture.
+
+The new stateful HTTP server returns captured native instance schemas, not outgoing editor-shaped instances.
+Only authored values, placement, and stable UI identities come from the request. Generated interfaces, variables, IDs, blocks, wrappers, and embedded definitions use native forms.
+Its complete-create regression performs the nine edits/seven steps, then reorder/insert/update while preserving existing identities and metadata.
+The real local Python 3.15 stdio matrix includes this full native response model in addition to the four earlier compatibility models.
+Adversarial tests reject changed values, types, defaults, references, names, pills, order, parents, unknown metadata, declaration IDs, and block IDs.
+All seven owner fields are tested independently for new assignment, IF, and ELSE blocks.
+
+Final offline gates passed `mise run check`, `mise run test`, and `mise run schemas`: 3600 passed, 66 deselected.
+The focused native/compatibility/create/stdio selection passed 225 tests. All five real Python 3.15 stdio variants passed.
+The exhaustive fresh-constructor comparison found zero remaining differences after the previously approved exact String presentation projection and joins of generated identities.
+Live acceptance is not established by this offline fixture. The single authorized fresh live attempt follows these green local gates.

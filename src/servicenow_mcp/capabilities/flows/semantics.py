@@ -1298,7 +1298,7 @@ async def _bind_new_variable_blocks(
     saved: dict[str, Any],
     generated_ids: set[str],
 ) -> dict[str, Any]:
-    """Bind only server-created assignment blocks to independently read owners.
+    """Bind new assignment/conditional blocks to independently read owners.
 
     New Studio instances omit flowBlockId (206651-206672,221783-221799).
     The observed dictionary maps logic-instance block to sys_hub_flow_block and
@@ -1315,7 +1315,8 @@ async def _bind_new_variable_blocks(
             row.get("id", "") not in generated_ids
             or row.get("id")
             or "flowBlockId" in row
-            or row.get("flowLogicDefinition", {}).get("type") != "SETFLOWVARIABLES"
+            or row.get("flowLogicDefinition", {}).get("type")
+            not in {"SETFLOWVARIABLES", "IF", "ELSE"}
         ):
             continue
         matches = [
@@ -1335,7 +1336,8 @@ async def _bind_new_variable_blocks(
             or actual.get("type") != "flowlogic"
             or actual.get("flowSysId") != expected["id"]
             or actual.get("definitionId") != row["definitionId"]
-            or actual.get("flowLogicDefinition", {}).get("type") != "SETFLOWVARIABLES"
+            or actual.get("flowLogicDefinition", {}).get("type")
+            != row["flowLogicDefinition"]["type"]
         ):
             raise SemanticMismatch(path, "BLOCK_OWNERSHIP_MISMATCH", "actual")
         check_table_access("sys_hub_flow_logic_instance_v2")

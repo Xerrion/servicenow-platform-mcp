@@ -735,3 +735,54 @@ Final retained-source gates passed `mise run check`, `mise run test`, and `mise 
 The final focused selection passed 278 tests, including all five real local Python 3.15 stdio variants and the complete native create/reorder/insert/update path.
 The trigger-label conflict regression also proves rejection before an effect is attempted, without misclassifying it as an unknown save outcome.
 The isolated final staged checkpoint also passed all 278 focused tests. The 14 unrelated tracked changes and four untracked files were excluded from both signed checkpoints.
+
+## Input storage-name correction without live writes, 2026-10-23
+
+This task used read-only local Python 3.15 stdio, the full package, and normal OS-cached OAuth against exact `https://tv2dev.service-now.com`.
+It read only the retained fixture `b05415aa87cc9f508643202cbbbb35ab`, its two exact input records, and the definitions needed for local validation.
+No preview, apply, flow write, update-set query, activation, publication, or old-fixture operation occurred.
+Local validation again reported valid/complete without diagnostics.
+
+Both exact records have `name=var__m_sys_hub_flow_input_b05415aa87cc9f508643202cbbbb35ab`.
+That value identifies their common virtual table. The technical declaration name is in `element`:
+
+| Position | Catalog/DTO name | Table API `element` | Exact input record ID              |
+| -------- | ---------------- | ------------------- | ---------------------------------- |
+| 0        | `table_name`     | `table_name`        | `2154d9aa87cc9f508643202cbbbb35df` |
+| 1        | `request_item`   | `request_item`      | `5554d9aa87cc9f508643202cbbbb35d9` |
+
+Each record's `sys_id` equals its Studio declaration ID. Each `model.value` equals the target flow ID, and each class is `sys_hub_flow_input`.
+The `model` response is a reference object, not a scalar string. The existing verifier already unwraps its `value` correctly.
+Both labels also match the respective DTO labels. Zip order is correct, despite both records having the same virtual-table `name` and order 100.
+The retained same-session echo/GET equality covers those declaration names. The new bounded read supplies the exact current DTO names and storage records, without claiming a new echo or changing the historical API result.
+
+The mapping is already explicit in the repository's contract adapter: `flow._contract_field` uses `row.element` for `name` (flow.py:1037-1051).
+The platform input reader selects by `model` (`_client_flow.py:282-288`), while the Studio DTO field map uses parameter `name` (bundle:471812).
+The concrete two-record capture confirms the distinction. No dictionary query or broad platform audit was necessary.
+This was a false cross-contract equality, not a swapped declaration, wrong owner, display-value conversion, or unwanted business change.
+
+`_bind_trigger_inputs` now checks exact record ID, `model`, `element`, and class. It no longer mistakes the virtual-table name for a declaration name.
+The independently bound catalog still supplies every expected input DTO field. The entire DTO, including name, label, type, order, default, reference, value and unknown metadata, still compares strictly.
+Echo and GET assigned identities remain strict. No fallback accepts a missing `element` or arbitrary owner.
+
+The complete native fixture now contains the latest actual seven-step GET, the two exact owner records, and the independently read definitions, with consistent synthetic IDs.
+The stateful server uses those owner records independently of its outgoing DTOs, so swapping a DTO ID cannot manufacture a matching owner record.
+The original `777a618` owner check was reproduced offline against this capture and failed at `flow.inputs[0].owner.name`.
+With the corrected mapping, both actual declarations bind and the complete comparison passes.
+
+The exhaustive constructor comparison accounts for all ACTION, SETFLOWVARIABLES, IF, ELSE, and TRIGGER fields.
+The retained pre-777a618 response still lacks `triggerInstances[0].inputs[0].parameter.uiDisplayTypeLabel`.
+That historical difference is asserted explicitly. The prospective response reconstructs only this getter slot from the corrected writable `type_label` field (bundle:471829).
+No comparator ignores the missing field or changes the retained GET. All other captured constructor fields compare without differences, using the existing source-proven identity/presentation rules.
+The current complete-create HTTP/stdio case verifies request/echo, request/GET, and echo/GET under that corrected wire behavior, followed by reorder/insert/update.
+Negative cases reject swapped inputs, duplicate names/IDs/elements, changed order, extra records, wrong owners/classes/IDs, missing elements, and semantic or unknown DTO metadata drift.
+
+The historical one-shot remains `UNKNOWN_OUTCOME`. A passing reconstructed offline roundtrip is not a live apply PASS.
+
+Final local gates passed `mise run check`, `mise run test`, and `mise run schemas`: 3625 passed, 66 deselected.
+The focused command below passed 300 tests, including all five real local Python 3.15 stdio variants.
+The same 300 tests also passed against the isolated staged checkpoint, without the 14 unrelated tracked changes or four untracked files.
+
+```sh
+.venv/bin/python -m pytest -q --no-cov --tb=short tests/test_flow_input_ownership.py tests/test_flow_full_native.py tests/test_flow_creation_stdio.py tests/test_flow_trigger_inputs.py tests/test_flow_variable_dto.py tests/test_flow_native_compat.py tests/test_flow_complete_creation.py tests/test_flow_editing.py
+```

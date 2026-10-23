@@ -1,5 +1,5 @@
 {
-  "evidence": "Exact retained revision-1 native Studio GET and independent published Log, flow-logic and trigger catalogs, read 2026-10-23. IDs and user identities synthetic. This is a later GET, not the unavailable historical PUT/echo.",
+  "evidence": "Complete sanitized read-only local stdio GET of the retained full-native fixture and its two exact input records, 2026-10-23, with independently read Log/logic/trigger definitions. IDs/users synthetic, including virtual-table names. This is the latest GET, not a historical request/echo. The missing trigger UI label reflects the pre-777a618 wire.",
   "flow": {
     "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "masterSnapshotId": "",
@@ -66,8 +66,7 @@
               "local": false,
               "attributes": {
                 "advanced": "true"
-              },
-              "uiDisplayTypeLabel": "Choice"
+              }
             },
             "scriptActive": false,
             "label": "Run Flow In",
@@ -3070,8 +3069,8 @@
       }
     ],
     "subFlowInstances": [],
-    "created": "2026-10-23 08:37:34",
-    "updated": "2026-10-23 08:37:36",
+    "created": "2026-10-23 09:56:41",
+    "updated": "2026-10-23 09:56:45",
     "deleted": false,
     "description": "Synthetic inactive fixture",
     "scope": "global",
@@ -4240,6 +4239,34 @@
           "order": "9"
         }
       }
+    }
+  ],
+  "input_records": [
+    {
+      "sys_id": "00000000000000000000000000000081",
+      "column_label": "",
+      "name": "var__m_sys_hub_flow_input_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "model": {
+        "link": "https://tv2dev.service-now.com/api/now/table/sys_hub_flow_base/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "label": "Table Name",
+      "sys_class_name": "sys_hub_flow_input",
+      "element": "table_name",
+      "order": "100"
+    },
+    {
+      "sys_id": "00000000000000000000000000000082",
+      "column_label": "",
+      "name": "var__m_sys_hub_flow_input_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "model": {
+        "link": "https://tv2dev.service-now.com/api/now/table/sys_hub_flow_base/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "label": "Request Item",
+      "sys_class_name": "sys_hub_flow_input",
+      "element": "request_item",
+      "order": "100"
     }
   ]
 }

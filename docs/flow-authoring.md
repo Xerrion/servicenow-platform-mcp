@@ -260,7 +260,9 @@ The captured native declaration projection adds the flow-variable mapper/UI attr
 Hidden runtime date/time outputs remain trigger outputs. Ambiguous or unsupported catalog shapes reject before saving.
 
 The header POST remains empty, with its existing strict verification. The native full PUT retains backend-generated interface behavior.
-Preview `fields.inputs` describes the expected generated interface. During echo and GET verification, the exact generated input records must match the target flow through `sys_hub_flow_input.model`, their own IDs, and catalog-bound names.
+Preview `fields.inputs` describes the expected generated interface. During echo and GET verification, the exact input records must match their own IDs, `sys_hub_flow_input.model`, class, and catalog-bound `element` names.
+Table API `element` is the Studio DTO's technical `name`, as in the existing contract projection.
+Table API `name` identifies the shared virtual table `var__m_sys_hub_flow_input_<flow-id>`. It is not a declaration name and does not distinguish the two inputs.
 Only then does comparison bind their generated IDs to the expected DTOs. Extra, missing, or changed declarations still fail, and echo-to-GET IDs remain strict.
 Saved interfaces are preserved on later edits. Triggerless subflow input CRUD, other triggers, and unexpected flow inputs receive no such allowance.
 Input-table write policy is checked for a Service Catalog trigger operation. This does not add interface update/delete permissions.

@@ -199,7 +199,13 @@ class StudioModel:
             assert self.flow is not None
             identity = path.rsplit("/", 1)[1]
             row = next(r for r in self.flow["inputs"] if r.get("id") == identity)
-            result = {"sys_id": identity, "model": self.flow["id"], "name": row["name"]}
+            result = {
+                "sys_id": identity,
+                "model": self.flow["id"],
+                "name": "var__m_sys_hub_flow_input_" + self.flow["id"],
+                "element": row["name"],
+                "sys_class_name": "sys_hub_flow_input",
+            }
         elif method == "POST" and path == STUDIO + "/flow":
             body = json.loads(request.content)
             self.bodies.append(body)

@@ -1384,7 +1384,12 @@ async def _bind_trigger_inputs(
     saved: dict[str, Any],
     manifest: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    """Reconcile only independently catalog-bound, newly generated call inputs."""
+    """Reconcile only independently catalog-bound, newly generated call inputs.
+
+    Table API ``element`` is the DTO name, as in flow._contract_field. ``name``
+    identifies the shared virtual table, not a declaration. The exact retained
+    input records in flow_full_native.json establish this storage mapping.
+    """
     if manifest is None:
         return expected
     triggers = expected["triggerInstances"]
@@ -1415,12 +1420,15 @@ async def _bind_trigger_inputs(
             raise SemanticMismatch("flow.inputs", "DUPLICATE_IDENTITY", "actual")
         identities.add(identity)
         record = await client.get_record(
-            "sys_hub_flow_input", identity, fields=["sys_id", "model", "name"]
+            "sys_hub_flow_input",
+            identity,
+            fields=["sys_id", "model", "element", "sys_class_name"],
         )
         for key, value in {
             "sys_id": identity,
             "model": expected["id"],
-            "name": declaration["name"],
+            "element": declaration["name"],
+            "sys_class_name": "sys_hub_flow_input",
         }.items():
             observed = record.get(key)
             if isinstance(observed, dict):

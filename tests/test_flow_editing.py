@@ -197,7 +197,9 @@ def persist(flow: dict[str, Any], *, generated_catalog_inputs: bool = False) -> 
                     "result": {
                         "sys_id": row["id"],
                         "model": flow["id"],
-                        "name": row["name"],
+                        "name": "var__m_sys_hub_flow_input_" + flow["id"],
+                        "element": row["name"],
+                        "sys_class_name": "sys_hub_flow_input",
                     }
                 },
             )

@@ -122,10 +122,39 @@ def test_all_fresh_action_conditional_and_trigger_fields_match_the_actual_captur
     all_differences.extend(
         differences(expected, flow["triggerInstances"][0], "TRIGGER")
     )
-    assert all_differences == []
+    # The retained attempt sent the getter-only UI label. 777a618 now sends
+    # type_label (471829). Report that historical difference explicitly, then
+    # construct the single getter slot from the corrected writable field.
+    assert all_differences == [
+        ("TRIGGER.inputs[0].parameter.uiDisplayTypeLabel", "missing")
+    ]
+    wire = native.rest_payload({"active": False, "triggerInstances": [expected]})
+    corrected = copy.deepcopy(flow["triggerInstances"][0])
+    corrected["inputs"][0]["parameter"]["uiDisplayTypeLabel"] = wire[
+        "triggerInstances"
+    ][0]["inputs"][0]["parameter"]["type_label"]
+    assert differences(expected, corrected, "TRIGGER") == []
 
 
-async def test_whole_native_seven_step_roundtrip_then_reorder_insert_update(settings):
+async def test_whole_native_seven_step_roundtrip_then_reorder_insert_update(
+    settings, monkeypatch
+):
+    original_compare = semantics.compare_saved
+    compared = []
+
+    def capture_compare(expected, actual, **kwargs):
+        original_compare(expected, actual, **kwargs)
+        nodes = len(expected["actionInstances"]) + len(expected["flowLogicInstances"])
+        if nodes in {7, 8}:
+            compared.append(
+                (
+                    nodes,
+                    bool(kwargs.get("allow_updated_advance")),
+                    kwargs["generated_ids"],
+                )
+            )
+
+    monkeypatch.setattr(semantics, "compare_saved", capture_compare)
     _, _, tools = setup(settings)
     model = NativeFullModel()
     model.install()
@@ -141,6 +170,7 @@ async def test_whole_native_seven_step_roundtrip_then_reorder_insert_update(sett
         len(model.flow["actionInstances"]) == 4
         and len(model.flow["flowLogicInstances"]) == 3
     )
+    assert compared == [(7, True, {""}), (7, True, {""}), (7, False, set())]
     model.flow["actionInstances"][0]["metadata"]["opaqueExisting"] = {"preserve": True}
     model.flow["flowLogicInstances"][1]["metadata"]["opaqueExisting"] = {
         "preserve": True
@@ -172,13 +202,18 @@ async def test_whole_native_seven_step_roundtrip_then_reorder_insert_update(sett
         and not after["isPublished"]
         and not after["masterSnapshotId"]
     )
+    assert compared[-3:] == [(8, True, {""}), (8, True, {""}), (8, False, set())]
 
 
 def test_native_trigger_wire_label_mapping_is_scoped_and_rejects_conflicting_aliases():
     expected = copy.deepcopy(CAPTURE["flow"])
+    expected["triggerInstances"][0]["inputs"][0]["parameter"]["uiDisplayTypeLabel"] = (
+        "Choice"
+    )
+    before = copy.deepcopy(expected)
     wire = native.rest_payload(expected)
     assert wire["actionInstances"] == expected["actionInstances"]
-    assert expected == CAPTURE["flow"]
+    assert expected == before
     parameter = wire["triggerInstances"][0]["inputs"][0]["parameter"]
     assert parameter["type_label"] == "Choice" and "uiDisplayTypeLabel" not in parameter
     expected["triggerInstances"][0]["inputs"][0]["parameter"]["type_label"] = (
@@ -190,6 +225,9 @@ def test_native_trigger_wire_label_mapping_is_scoped_and_rejects_conflicting_ali
 
 async def test_conflicting_wire_labels_reject_before_any_effect(settings):
     expected = copy.deepcopy(CAPTURE["flow"])
+    expected["triggerInstances"][0]["inputs"][0]["parameter"]["uiDisplayTypeLabel"] = (
+        "Choice"
+    )
     expected["triggerInstances"][0]["inputs"][0]["parameter"]["type_label"] = (
         "Conflicting"
     )
@@ -204,16 +242,16 @@ async def test_conflicting_wire_labels_reject_before_any_effect(settings):
 async def test_exact_input_owner_failure_names_the_actual_record_field(settings):
     _, _, tools = setup(settings)
     model = NativeFullModel()
-    # Synthetic negative value. The live journal retains only the name mismatch,
-    # not the raw record name. Correct IDs and model ownership are insufficient.
-    model.input_record_name = "synthetic_record_name"
+    # A wrong storage element is a real declaration mismatch. The storage name
+    # is the shared virtual table and is deliberately different from DTO.name.
+    model.input_record_element = "synthetic_wrong_element"
     model.install()
     result = await apply(
         tools, decode_response(await tools["flow_preview"](**create_request()))
     )
     assert result["error"]["code"] == "UNKNOWN_OUTCOME"
     assert (
-        "flow.inputs[0].owner.name TRIGGER_INPUT_OWNER_MISMATCH"
+        "flow.inputs[0].owner.element TRIGGER_INPUT_OWNER_MISMATCH"
         in result["error"]["message"]
     )
 

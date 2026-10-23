@@ -108,7 +108,8 @@ class NativeFullModel(StudioModel):
         self.logic = copy.deepcopy(CAPTURE["logic"])
         self.owner_defect: str | None = None
         self.owner_kind = "SETFLOWVARIABLES"
-        self.input_record_name: str | None = None
+        self.input_record_element: str | None = None
+        self.input_records: dict[str, dict[str, Any]] = {}
 
     def _saved(self, body: dict[str, Any]) -> dict[str, Any]:
         previous = self.flow or {}
@@ -213,8 +214,13 @@ class NativeFullModel(StudioModel):
         result["triggerInstances"] = [trigger]
         if not result["inputs"]:
             result["inputs"] = copy.deepcopy(CAPTURE["flow"]["inputs"])
-            for row in result["inputs"]:
+            for row, template in zip(
+                result["inputs"], CAPTURE["input_records"], strict=True
+            ):
                 row["id"] = self.identity()
+                record = copy.deepcopy(template)
+                record.update(sys_id=row["id"], model={"value": FLOW})
+                self.input_records[row["id"]] = record
         # This REST field is authored cache data, not a definition-owned schema.
         # Its four nullable slots follow cleanupFlowBeforePut:101724-101727.
         result["label_cache"] = copy.deepcopy(body["label_cache"])
@@ -262,14 +268,16 @@ class NativeFullModel(StudioModel):
                 "sys_updated_on": self.flow["updated"],
                 "sys_mod_count": str(self.revision),
             }
-        elif (
-            method == "GET"
-            and path.startswith("/api/now/table/sys_hub_flow_input/")
-            and self.input_record_name is not None
-        ):
-            response = super().handle(request)
-            result = response.json()["result"]
-            result["name"] = self.input_record_name
+        elif method == "GET" and path.startswith("/api/now/table/sys_hub_flow_input/"):
+            self.calls.append((method, path))
+            record = self.input_records.get(path.rsplit("/", 1)[1])
+            if record is None:
+                return httpx2.Response(
+                    404, json={"error": "Unknown synthetic record"}, request=request
+                )
+            result = copy.deepcopy(record)
+            if self.input_record_element is not None:
+                result["element"] = self.input_record_element
         elif method == "GET" and path.startswith(
             "/api/now/table/sys_hub_flow_logic_instance_v2/"
         ):

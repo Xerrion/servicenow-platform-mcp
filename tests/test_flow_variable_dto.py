@@ -8,13 +8,24 @@ from typing import override
 import httpx2
 import pytest
 
+from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.capabilities.contracts import CapabilityError
 from servicenow_mcp.capabilities.flows import calls, editing, fields, semantics
+from servicenow_mcp.platform.client import ServiceNowClient
 from tests._complete_flow_fixture import STUDIO, create_request, edit_request
+from tests._mock_transport import http_mock
 from tests.helpers import decode_response
 from tests.test_flow_complete_creation import apply, setup
-from tests.test_flow_editing import base_flow
-from tests.test_flow_variable_identity import VariableIdentityModel, identity_flow
+from tests.test_flow_editing import BASE, FLOW, base_flow
+from tests.test_flow_variable_identity import (
+    VariableIdentityModel,
+    identity_flow,
+    stored_identities,
+)
+
+ASSIGNMENT = json.loads(
+    (Path(__file__).parent / "fixtures/flow_native_assignment_dto.json").read_text()
+)
 
 DTO = json.loads(
     (Path(__file__).parent / "fixtures/flow_string_variable_dto.json").read_text()
@@ -127,6 +138,30 @@ class VariableDTOModel(VariableIdentityModel):
 
     @override
     def handle(self, request):
+        prefix = "/api/now/table/sys_hub_flow_logic_instance_v2/"
+        if request.method == "GET" and request.url.path.startswith(prefix):
+            self.calls.append((request.method, request.url.path))
+            assert self.flow is not None
+            row = next(
+                r
+                for r in self.flow["flowLogicInstances"]
+                if r["id"] == request.url.path.removeprefix(prefix)
+            )
+            return httpx2.Response(
+                200,
+                json={
+                    "result": {
+                        "sys_id": row["id"],
+                        "flow": self.flow["id"],
+                        "ui_id": row["uiUniqueIdentifier"],
+                        "sys_class_name": "sys_hub_flow_logic_instance_v2",
+                        "logic_definition": row["definitionId"],
+                        "block": row["flowBlockId"],
+                        "block.sys_id": row["flowBlockId"],
+                    }
+                },
+                request=request,
+            )
         response = super().handle(request)
         if (
             request.method == "PUT"
@@ -152,15 +187,9 @@ class VariableDTOModel(VariableIdentityModel):
                             step.get("flowLogicDefinition", {}).get("type")
                             == "SETFLOWVARIABLES"
                         ):
-                            for key in ("inputs", "flowVariables"):
-                                for binding in step[key]:
-                                    binding["parameter"] = copy.deepcopy(
-                                        next(
-                                            row
-                                            for row in flow["flowVariables"]
-                                            if row["name"] == binding["name"]
-                                        )
-                                    )
+                            step.setdefault(
+                                "flowBlockId", f"{int(step['id'], 16) + 4096:032x}"
+                            )
             return httpx2.Response(
                 200, json={"result": {"data": echo}}, request=request
             )
@@ -253,6 +282,14 @@ async def test_full_create_then_one_incremental_edit_with_second_native_variable
                     # The live retained fixture has this nonempty native field.
                     # Its ownership contract is not established by the DTO map.
                     row["flowBlockId"] = "e" * 32
+                    row["unknownExistingMetadata"] = {"preserve": "synthetic"}
+    original_assignments = copy.deepcopy(
+        [
+            r
+            for r in model.flow["flowLogicInstances"]
+            if r["flowLogicDefinition"]["type"] == "SETFLOWVARIABLES"
+        ]
+    )
     request = edit_request(created["data"])
     request["edits"] = [
         {
@@ -282,18 +319,144 @@ async def test_full_create_then_one_incremental_edit_with_second_native_variable
         },
     ]
     preview = decode_response(await tools["flow_preview"](**request))
-    if native_existing == "nonempty_flow_block":
-        assert preview["error"]["code"] == "UNAVAILABLE", preview
-        assert "non-default or unknown settings" in preview["error"]["message"]
-        assert model.calls.count(("PUT", STUDIO + "/flow")) == 1
-        assert len(model.flow["flowVariables"]) == 1
-        return
     edited = await apply(tools, preview)
     assert edited["status"] == "success" and edited["data"]["revision"] == "15", edited
     assert edited["data"]["refs"]["probe_log"]["sys_id"]
     assert model.flow is not None and len(model.flow["flowVariables"]) == 2
     assert model.calls.count(("POST", STUDIO + "/flow")) == 1
     assert model.calls.count(("PUT", STUDIO + "/flow")) == 2
+    for original in original_assignments:
+        saved = next(
+            r for r in model.flow["flowLogicInstances"] if r["id"] == original["id"]
+        )
+        assert {
+            k: v
+            for k, v in saved.items()
+            if k not in {"order", *editing.tree.UI_FIELDS}
+        } == {
+            k: v
+            for k, v in original.items()
+            if k not in {"order", *editing.tree.UI_FIELDS}
+        }
+
+
+def test_fresh_assignment_uses_catalog_and_native_defaults_without_saved_ownership():
+    saved = copy.deepcopy(ASSIGNMENT["instance"])
+    step = editing.tree.new_logic_step(
+        saved["flowSysId"], saved["flowLogicDefinition"], {}
+    )
+    binding = {
+        "id": "",
+        "name": "message",
+        "value": "Synthetic new assignment",
+        "displayValue": "Synthetic new assignment",
+        "children": [],
+        "scriptActive": False,
+        "parameter": copy.deepcopy(ASSIGNMENT["parameter"]),
+    }
+    step.raw["inputs"] = [binding]
+    editing._native_variable_step(step)
+    wanted = copy.deepcopy(saved)
+    for key in ("id", "flowBlockId", "parent", "order"):
+        wanted.pop(key)
+    wanted.update(
+        uiUniqueIdentifier=step.uid,
+        inputs=[binding],
+        flowVariables=[copy.deepcopy(binding)],
+    )
+    assert step.raw == wanted
+    assert saved == ASSIGNMENT["instance"]
+
+
+@pytest.mark.parametrize("key", ["type", "userCanRead", "inputs", "name", "id"])
+def test_fresh_assignment_requires_an_independent_complete_catalog_definition(key):
+    saved = ASSIGNMENT["instance"]
+    step = editing.tree.new_logic_step(
+        saved["flowSysId"], copy.deepcopy(saved["flowLogicDefinition"]), {}
+    )
+    step.raw["flowLogicDefinition"].pop(key)
+    with pytest.raises(CapabilityError, match="catalog definition is incomplete"):
+        editing._native_variable_step(step)
+
+
+def test_fresh_assignment_does_not_discard_a_conflicting_nonempty_ui_identity():
+    saved = ASSIGNMENT["instance"]
+    step = editing.tree.new_logic_step(
+        saved["flowSysId"], saved["flowLogicDefinition"], {}
+    )
+    parameter = copy.deepcopy(ASSIGNMENT["parameter"])
+    parameter["uiUniqueId"] = "00000000-0000-4000-8000-000000000099"
+    step.raw["inputs"] = [{"parameter": parameter}]
+    with pytest.raises(CapabilityError, match="UI identities conflict"):
+        editing._native_variable_step(step)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "wrong_owner",
+        "wrong_definition",
+        "wrong_type",
+        "wrong_ui",
+        "wrong_block",
+        "missing_reference",
+        "changed_inputs",
+        "unknown_metadata",
+        "readback_block",
+    ],
+)
+async def test_new_assignment_block_relation_and_semantic_values_remain_strict(
+    settings, change
+):
+    expected, manifest = identity_flow()
+    step = editing.tree.Step(expected["flowLogicInstances"][0], "flowlogic")
+    step.raw["flowLogicDefinition"]["userCanRead"] = True
+    editing._native_variable_step(step)
+    expected["flowLogicInstances"] = [step.raw]
+    echo = stored_identities(copy.deepcopy(expected))
+    row = echo["flowLogicInstances"][0]
+    row.update(id="b" * 32, flowBlockId="e" * 32, order=1, parent="")
+    expected["flowLogicInstances"][0].update(order=1, parent="")
+    record = {
+        "sys_id": row["id"],
+        "flow": FLOW,
+        "ui_id": row["uiUniqueIdentifier"],
+        "sys_class_name": "sys_hub_flow_logic_instance_v2",
+        "logic_definition": row["definitionId"],
+        "block": row["flowBlockId"],
+        "block.sys_id": row["flowBlockId"],
+    }
+    keys = {
+        "wrong_owner": "flow",
+        "wrong_definition": "logic_definition",
+        "wrong_type": "sys_class_name",
+        "wrong_ui": "ui_id",
+        "wrong_block": "block",
+        "missing_reference": "block.sys_id",
+    }
+    if change in keys:
+        record[keys[change]] = "f" * 32
+    elif change == "changed_inputs":
+        row["inputs"][0]["value"] = "Unexpected value"
+        row["flowVariables"] = copy.deepcopy(row["inputs"])
+    elif change == "unknown_metadata":
+        row["unknown"] = "Unexpected metadata"
+    actual = copy.deepcopy(echo)
+    if change == "readback_block":
+        actual["flowLogicInstances"][0]["flowBlockId"] = "f" * 32
+    http_mock.get(
+        f"{BASE}/api/now/table/sys_hub_flow_logic_instance_v2/{row['id']}"
+    ).respond(200, json={"result": record})
+    http_mock.get(f"{BASE}/api/now/processflow/flow/{FLOW}").respond(
+        200, json={"result": {"data": actual}}
+    )
+    async with ServiceNowClient(settings, OAuthPKCEProvider(settings)) as client:
+        with pytest.raises(
+            CapabilityError, match="Independent saved-flow verification"
+        ):
+            await semantics.verify_saved(
+                client, expected, echo, generated_ids={""}, generated_fields=manifest
+            )
 
 
 @pytest.mark.parametrize(

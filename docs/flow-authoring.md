@@ -209,10 +209,21 @@ and parameter serialization (471783-471840) in `docs/designer-bundle.min.js`.
 `tests/fixtures/flow_string_variable_dto.json` contains the complete sanitized current GET DTO observed on 2026-10-23.
 It is not a historical request or save response.
 
-Incremental Log and Set Flow Variables insertion can reuse a neutral native instance profile from the same definition.
-Published parameter schemas and assignment definitions are checked independently. Unknown or non-default instance settings reject preview.
-This includes the retained fixture's nonempty `flowBlockId`. The local DTO map names that field but does not establish its ownership contract.
-The 2026-10-23 incremental live preview was therefore blocked before saving. See [live verification](flow-live-verification.md).
+Incremental Log insertion retains its independently checked neutral native action profile.
+New Set Flow Variables instances are constructed from the current readable logic definition, with fresh bindings and native DTO defaults.
+They do not clone saved steps, block references, identities, or unknown instance metadata. Existing assignments retain all their stored fields.
+The catalog must contain one readable Set Flow Variables definition with the supported input schema.
+
+Studio's `addNewInstance` (206651-206672) calls `buildNewFlowLogicInstance` (221783-221799) without a saved `flowBlockId`.
+The assignment reducer mirrors `flowVariables` into `inputs` (207302-207318). The save path retains those instances (130432-130460, 99193-99197).
+The optional serializer omits undefined fields (471736-471743), including the block reference named at 472392.
+New String assignment parameters use the parameter DTO (471783-471840), retaining attributes and excluding empty variable-only runtime/cache fields.
+
+A newly saved assignment can receive a server-created block reference. The verifier checks its exact logic-instance Table API record.
+The record must match the flow, UI ID, instance ID, class, logic definition, block reference, and readable referenced block ID.
+Dictionary metadata establishes `block -> sys_hub_flow_block` and inherited `flow -> sys_hub_flow_base`.
+Only this verified new relation is bound into request comparison. Echo and independent GET must agree, and all submitted settings remain strict.
+Existing block references and unknown metadata are never normalized. See [live verification](flow-live-verification.md) for observed results.
 
 ## Structural edits
 

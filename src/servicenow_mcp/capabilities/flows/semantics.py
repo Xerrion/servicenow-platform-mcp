@@ -20,6 +20,7 @@ from servicenow_mcp.capabilities.flows import (
     payloads,
     tree,
 )
+from servicenow_mcp.policy import check_table_access
 from servicenow_mcp.validation import validate_sys_id
 
 if TYPE_CHECKING:
@@ -1233,6 +1234,89 @@ def compare_saved(
         raise _semantic_difference(wanted, normalized_semantics, expected)
 
 
+async def _bind_new_variable_blocks(
+    client: ServiceNowClient,
+    expected: dict[str, Any],
+    saved: dict[str, Any],
+    generated_ids: set[str],
+) -> dict[str, Any]:
+    """Bind only server-created assignment blocks to independently read owners.
+
+    New Studio instances omit flowBlockId (206651-206672,221783-221799).
+    The observed dictionary maps logic-instance block to sys_hub_flow_block and
+    inherited flow to sys_hub_flow_base. Existing block references remain strict.
+    """
+    bound = copy.deepcopy(expected)
+    known_blocks = {
+        row["flowBlockId"]
+        for row in expected["flowLogicInstances"]
+        if row.get("flowBlockId")
+    }
+    for index, row in enumerate(expected["flowLogicInstances"]):
+        if (
+            row.get("id", "") not in generated_ids
+            or row.get("id")
+            or "flowBlockId" in row
+            or row.get("flowLogicDefinition", {}).get("type") != "SETFLOWVARIABLES"
+        ):
+            continue
+        matches = [
+            s
+            for s in saved["flowLogicInstances"]
+            if s.get("uiUniqueIdentifier") == row["uiUniqueIdentifier"]
+        ]
+        if len(matches) != 1 or "flowBlockId" not in matches[0]:
+            continue  # The complete comparator diagnoses missing or duplicate steps.
+        actual = matches[0]
+        path = f"flow.flowLogicInstances[{index}].flowBlockId"
+        identity, block = actual.get("id"), actual["flowBlockId"]
+        _identity(identity, path + ".instance")
+        _identity(block, path)
+        if (
+            block in known_blocks
+            or actual.get("type") != "flowlogic"
+            or actual.get("flowSysId") != expected["id"]
+            or actual.get("definitionId") != row["definitionId"]
+            or actual.get("flowLogicDefinition", {}).get("type") != "SETFLOWVARIABLES"
+        ):
+            raise SemanticMismatch(path, "BLOCK_OWNERSHIP_MISMATCH", "actual")
+        check_table_access("sys_hub_flow_logic_instance_v2")
+        record = await client.get_record(
+            "sys_hub_flow_logic_instance_v2",
+            identity,
+            fields=[
+                "sys_id",
+                "flow",
+                "ui_id",
+                "sys_class_name",
+                "logic_definition",
+                "block",
+                "block.sys_id",
+            ],
+        )
+        wanted = {
+            "sys_id": identity,
+            "flow": expected["id"],
+            "ui_id": row["uiUniqueIdentifier"],
+            "sys_class_name": "sys_hub_flow_logic_instance_v2",
+            "logic_definition": row["definitionId"],
+            "block": block,
+            "block.sys_id": block,
+        }
+        for key, value in wanted.items():
+            observed = record.get(key)
+            if isinstance(observed, dict):
+                observed = observed.get("value")
+            if observed != value:
+                raise SemanticMismatch(path, "BLOCK_OWNERSHIP_MISMATCH", "actual")
+        known_blocks.add(block)
+        for collection in ("flowLogicInstances", "componentInstances"):
+            for target in bound.get(collection, []):
+                if target.get("uiUniqueIdentifier") == row["uiUniqueIdentifier"]:
+                    target["flowBlockId"] = block
+    return bound
+
+
 async def verify_saved(
     client: ServiceNowClient,
     expected: dict[str, Any],
@@ -1248,8 +1332,9 @@ async def verify_saved(
     """Verify the echo and a separate GET. Never retry a write or expose input values in errors."""
     phase = "request.echo"
     try:
+        bound = await _bind_new_variable_blocks(client, expected, echo, generated_ids)
         compare_saved(
-            expected,
+            bound,
             echo,
             generated_ids=generated_ids,
             pending_deletions=pending_deletions,
@@ -1262,8 +1347,9 @@ async def verify_saved(
         phase = "readback.get"
         actual = await client.studio_request(f"flow/{expected['id']}")
         phase = "request.readback"
+        bound = await _bind_new_variable_blocks(client, expected, actual, generated_ids)
         compare_saved(
-            expected,
+            bound,
             actual,
             generated_ids=generated_ids,
             pending_deletions=pending_deletions,

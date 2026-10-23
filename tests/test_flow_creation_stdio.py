@@ -3,6 +3,7 @@
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 import anyio
 import pytest
@@ -93,6 +94,29 @@ async def test_stdio_full_create_and_followup_edit(tmp_path, attribute_identity)
             assert not created.is_error, created
             assert created.structured_content["data"]["revision"] == "14"
             args = edit_request(created.structured_content["data"])
+            if attribute_identity == "native_dto":
+                refs = created.structured_content["data"]["refs"]
+                args["edits"] = [
+                    {
+                        "op": "create_field",
+                        "collection": "flowVariables",
+                        "name": "roundtrip_probe",
+                        "label": "Roundtrip probe",
+                        "type": "string",
+                    },
+                    {
+                        "op": "set_variables",
+                        "before": refs["source"]["ui_id"],
+                        "inputs": {"roundtrip_probe": "Synthetic stdio assignment"},
+                    },
+                    *args["edits"][:3],
+                ]
+                inserted: dict[str, Any] = args["edits"][3]
+                inserted.pop("after")
+                inserted.update(
+                    parent=refs["branch"]["ui_id"],
+                    inputs={"message": "{{flow_variable.roundtrip_probe}}"},
+                )
             Draft202012Validator(tools["flow_preview"].input_schema).validate(args)
             preview = await session.call_tool("flow_preview", args)
             await session.validate_tool_result("flow_preview", preview)

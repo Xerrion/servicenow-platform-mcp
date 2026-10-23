@@ -352,3 +352,67 @@ Final local verification passed `mise run schemas`, `mise run check`, and `mise 
 The focused identity, DTO, field, and stdio regressions passed 134 tests, including the added `flowBlockId` preview rejection.
 That run included the three real local stdio mock-HTTP variants for ordinary, attribute-only identity, and native String DTO responses.
 The native-profile fixtures prove only the supported neutral shape. They do not establish that this retained live assignment fits that shape.
+
+## Fresh assignment construction and one live incremental save, 2026-10-23
+
+The earlier `flowBlockId` preview rejection came from cloning a saved assignment profile.
+It did not establish that Studio could not construct a new assignment. The Set Flow Variables path now constructs a fresh native DTO.
+The Log profile behavior is unchanged. Existing saved assignment fields, identities, and opaque metadata are not copied into new instances or rewritten.
+
+The bounded source trace followed `addNewInstance` (206651-206672), `buildNewFlowLogicInstance` (221783-221799),
+the assignment reducer (207302-207318), component splitting (130432-130460), and the save path (99193-99197, 97521-97527).
+New instances do not receive a saved block reference from these constructors.
+The optional serializer names `flowBlockId` at 472392 but omits undefined values at 471736-471743.
+The complete observed instance-field projection and parameter shape are retained in `tests/fixtures/flow_native_assignment_dto.json` with synthetic IDs.
+
+Bounded dictionary reads established `sys_hub_flow_logic_instance_v2.block -> sys_hub_flow_block`,
+`logic_definition -> sys_hub_flow_logic_definition`, and inherited `sys_hub_flow_component.flow -> sys_hub_flow_base`.
+An exact read of the existing assignment confirmed its flow, UI ID, class, definition, block, and `block.sys_id` relationship.
+For a newly assigned block reference, verification now reads that exact native instance record and checks these relationships.
+Only that independently verified new relation can enter request comparison. Existing references and all semantic settings remain strict.
+The formerly rejected nonempty-block regression now passes without cloning it. Wrong-owner, wrong-definition, changed-input, and metadata-drift cases still fail.
+
+Before the live operation, `mise run schemas`, `mise run check`, and `mise run test` passed: 3504 passed, 66 deselected.
+The focused identity, variable DTO, field, and Python 3.15 stdio cases passed 149 tests.
+The native stdio case includes a second variable, a fresh assignment, a consuming action, a move, and an existing message update.
+These offline results do not certify real-server metadata transformations.
+
+A fresh local stdio server used the working source and OS-cached OAuth against exactly `https://tv2dev.service-now.com`.
+Status confirmed revision `1`, inactive draft, no published snapshot, and absence of `roundtrip_probe`.
+The native schema omitted `expected_update_set`. The real-HTTP allowlist excluded creation, lifecycle endpoints, other flows, and update-set access.
+One new preview contained the same five ordered operations documented above. Its outgoing plan passed nine-node, branch, original-ID, pill, and inactive-state checks.
+One fresh token was applied once. One definition PUT returned HTTP 200. No further write followed.
+
+Apply returned `UNKNOWN_OUTCOME` with `The draft save did not return a completed result`.
+The live harness raised during its post-response assertions before the native save verifier received the HTTP 200 result.
+This is a harness-induced unverified outcome, not evidence of a remote HTTP failure or a successful apply result.
+The harness's first reconciliation also failed its post-read assertion. Its header read nevertheless reported revision `2`.
+One corrected read-only diagnostic then read the exact saved Studio definition without those assertions and performed local validation.
+
+That GET showed nine nodes, five Logs, four logic/assignment nodes, two assignments, and variables `roundtrip_probe` and `message`.
+The header reported revision `2`, `active=false`, `status=draft`, and an empty published-snapshot reference.
+Local validation returned `valid=true`, `complete=true`, and no diagnostics. No remote compile or execution occurred.
+Observed new identities are:
+
+| Object     | Persisted ID                       | UI ID                                  |
+| ---------- | ---------------------------------- | -------------------------------------- |
+| Variable   | `0cb534ea87489f508643202cbbbb3574` | `4bb0d826-bbd7-4afc-928e-c7c4037e55f7` |
+| Assignment | `50b534ea87489f508643202cbbbb358f` | `4406fedf-3bbb-459d-8358-dd3a2f6b8709` |
+| Probe Log  | `18b534ea87489f508643202cbbbb3595` | `b01063d5-4d32-48fd-91f1-f5e26a428e0d` |
+
+These are observed GET identities, not a verified apply ref result.
+An independent Table API read verified the new assignment's block ownership relationship.
+Comparing the fresh constructor against the current GET still found a real metadata difference:
+`both:flow.flowVariables[0].attributes[field:2] VALUE_MISMATCH`, where the sorted attribute key is `uiTypeLabel`.
+The existing `message` declaration's `attributes.uiTypeLabel` also differed from its captured pre-save DTO.
+The complete newly observed assignment-parameter difference paths were `attributes.uiTypeLabel`, `maxsize`, and `type_label`, in both `inputs` and `flowVariables`.
+No attributes or semantic values were ignored to accept these changes.
+This diagnostic reconstructs the new assignment contract from source. It does not replace the unavailable historical request/echo comparison.
+
+The live acceptance result remains unknown. Persistence and current local validity are established, but successful apply and full echo/GET equality are not.
+All writes stopped after the single PUT. There was no retry, second token, fallback edit, new flow, lifecycle action, or original LogView request.
+The previous complete-create outcomes remain historically unknown. The retained nine-node fixture must not receive a replay of this scenario.
+
+Final local gates after self-review passed `mise run schemas`, `mise run check`, and `mise run test`: 3505 passed, 66 deselected.
+The focused command for `test_flow_variable_dto.py`, `test_flow_variable_identity.py`, `test_flow_fields.py`, and `test_flow_creation_stdio.py` passed 150 tests.
+The additional self-review regression rejects a conflicting nonempty UI cache instead of discarding it during fresh parameter construction.

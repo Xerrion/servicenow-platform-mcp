@@ -17,6 +17,7 @@ from servicenow_mcp.capabilities.flows import (
     data,
     declarations,
     handlers,
+    native,
     payloads,
     tree,
 )
@@ -1426,7 +1427,9 @@ async def _bind_trigger_inputs(
                 observed = observed.get("value")
             if observed != value:
                 raise SemanticMismatch(
-                    f"flow.inputs[{index}].id", "TRIGGER_INPUT_OWNER_MISMATCH", "actual"
+                    f"flow.inputs[{index}].owner.{key}",
+                    "TRIGGER_INPUT_OWNER_MISMATCH",
+                    "actual",
                 )
         bound["inputs"].append({**copy.deepcopy(declaration), "id": identity})
     return bound
@@ -1539,11 +1542,11 @@ async def save_draft(
     client: ServiceNowClient, payload: dict[str, Any], *, create: bool = False
 ) -> dict[str, Any]:
     """A failed effect response cannot establish whether the save happened. Never retry here."""
+    wire = native.rest_payload(payload)
+    # Read-only server getter, absent from FLOW_SCHEMA (350835-350903).
+    # Studio also discards it at the diagram callback boundary (227783-227788).
+    wire.pop("labelCacheAsJsonString", None)
     try:
-        # Read-only server getter, absent from FLOW_SCHEMA (350835-350903).
-        # Studio also discards it at the diagram callback boundary (227783-227788).
-        wire = copy.deepcopy(payload)
-        wire.pop("labelCacheAsJsonString", None)
         return await client.studio_request("flow", data=wire, create=create)
     except Exception:  # noqa: BLE001 — deliberately convert unexpected failures to safe diagnostics
         raise CapabilityError(

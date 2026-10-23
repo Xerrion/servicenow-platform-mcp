@@ -4,6 +4,7 @@ import copy
 
 import pytest
 
+from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.capabilities.flows import (
     calls,
     data,
@@ -13,6 +14,7 @@ from servicenow_mcp.capabilities.flows import (
     semantics,
     tree,
 )
+from servicenow_mcp.platform.client import ServiceNowClient
 from tests._native_full_fixture import (
     CAPTURE,
     NativeFullModel,
@@ -133,6 +135,8 @@ async def test_whole_native_seven_step_roundtrip_then_reorder_insert_update(sett
         "message", created
     )
     assert model.flow is not None
+    parameter = model.bodies[1]["triggerInstances"][0]["inputs"][0]["parameter"]
+    assert parameter["type_label"] == "Choice" and "uiDisplayTypeLabel" not in parameter
     assert (
         len(model.flow["actionInstances"]) == 4
         and len(model.flow["flowLogicInstances"]) == 3
@@ -167,6 +171,50 @@ async def test_whole_native_seven_step_roundtrip_then_reorder_insert_update(sett
         not after["active"]
         and not after["isPublished"]
         and not after["masterSnapshotId"]
+    )
+
+
+def test_native_trigger_wire_label_mapping_is_scoped_and_rejects_conflicting_aliases():
+    expected = copy.deepcopy(CAPTURE["flow"])
+    wire = native.rest_payload(expected)
+    assert wire["actionInstances"] == expected["actionInstances"]
+    assert expected == CAPTURE["flow"]
+    parameter = wire["triggerInstances"][0]["inputs"][0]["parameter"]
+    assert parameter["type_label"] == "Choice" and "uiDisplayTypeLabel" not in parameter
+    expected["triggerInstances"][0]["inputs"][0]["parameter"]["type_label"] = (
+        "Conflicting"
+    )
+    with pytest.raises(semantics.CapabilityError, match="type labels conflict"):
+        native.rest_payload(expected)
+
+
+async def test_conflicting_wire_labels_reject_before_any_effect(settings):
+    expected = copy.deepcopy(CAPTURE["flow"])
+    expected["triggerInstances"][0]["inputs"][0]["parameter"]["type_label"] = (
+        "Conflicting"
+    )
+    async with ServiceNowClient(settings, OAuthPKCEProvider(settings)) as client:
+        with pytest.raises(
+            semantics.CapabilityError, match="type labels conflict"
+        ) as error:
+            await semantics.save_draft(client, expected)
+    assert error.value.code == "UNAVAILABLE"
+
+
+async def test_exact_input_owner_failure_names_the_actual_record_field(settings):
+    _, _, tools = setup(settings)
+    model = NativeFullModel()
+    # Synthetic negative value. The live journal retains only the name mismatch,
+    # not the raw record name. Correct IDs and model ownership are insufficient.
+    model.input_record_name = "synthetic_record_name"
+    model.install()
+    result = await apply(
+        tools, decode_response(await tools["flow_preview"](**create_request()))
+    )
+    assert result["error"]["code"] == "UNKNOWN_OUTCOME"
+    assert (
+        "flow.inputs[0].owner.name TRIGGER_INPUT_OWNER_MISMATCH"
+        in result["error"]["message"]
     )
 
 

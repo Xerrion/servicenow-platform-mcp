@@ -278,6 +278,8 @@ Abbreviated call definitions retain their existing adapter. Subflow calls and ac
 
 New If and Else instances use the current logic catalog, native binding wrappers, and explicit defaults, as Set Flow Variables already does.
 New Service Catalog triggers use native input/output wrappers while retaining the independently bound parameter schemas.
+The REST wire uses writable `parameter.type_label` for the native getter's `parameter.uiDisplayTypeLabel`.
+The expected DTO retains the getter form. Conflicting label copies reject before saving, and readback still compares strictly.
 These constructors apply only to new instances. Saved metadata remains unchanged.
 New conditional and assignment block IDs must pass exact logic-instance owner reads before comparison.
 Existing blocks, echo-to-GET identities, unknown metadata, branches, and semantic values remain strict.

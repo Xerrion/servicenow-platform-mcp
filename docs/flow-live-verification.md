@@ -672,3 +672,66 @@ Final offline gates passed `mise run check`, `mise run test`, and `mise run sche
 The focused native/compatibility/create/stdio selection passed 225 tests. All five real Python 3.15 stdio variants passed.
 The exhaustive fresh-constructor comparison found zero remaining differences after the previously approved exact String presentation projection and joins of generated identities.
 Live acceptance is not established by this offline fixture. The single authorized fresh live attempt follows these green local gates.
+
+## Final full-native live attempt, 2026-10-23
+
+Source checkpoint `2d9eb85` was SSH-signed and verified. Its isolated checkpoint passed the same 225 focused tests.
+The new inert fixture was `MCP Live - Full Native Acceptance 20261023T095634972995Z`, Global scope, exact `https://tv2dev.service-now.com`.
+A fresh local Python 3.15 stdio server used the full package and normal OS-cached OAuth.
+One complete preview verified all nine edits, seven steps, two generated interfaces, one String variable, both pill paths, branches, and six aliases.
+One fresh apply token was consumed once. Native freshness checks made three bounded exact-name queries, with no extra manual conflict query.
+There was one properties POST and one definition PUT, both HTTP 200. The created empty header was verified.
+
+The actual apply result was `UNKNOWN_OUTCOME`, during `request.echo` input ownership verification.
+The retained flow is `b05415aa87cc9f508643202cbbbb35ab`, revision 1.
+No write was replayed. No second flow or post-create edit was attempted.
+The single read-only flow reconciliation observed valid/complete local validation with no diagnostics.
+The same-session observer established echo/GET equality, seven steps, four Logs, three logic/assignment nodes, one variable and one Service Catalog trigger.
+Orders, branches, variable/condition pills, and mirrored assignment bindings were correct. The flow remained inactive and unpublished.
+This later read does not turn the failed apply into success. Independent contract/status calls were not run after the failure.
+
+| Alias        | Saved instance ID                  | UI identity                            |
+| ------------ | ---------------------------------- | -------------------------------------- |
+| Assignment   | `2d541daa87cc9f508643202cbbbb3575` | `aa915969-2a9a-4866-901f-c68c7d686bc7` |
+| `start`      | `61541daa87cc9f508643202cbbbb3578` | `b26d1ece-1a0a-4496-b0c9-20bb056aa14e` |
+| `has_number` | `65541daa87cc9f508643202cbbbb357a` | `d2027724-2892-4621-a240-0c2cf76b9aa8` |
+| `then_log`   | `69541daa87cc9f508643202cbbbb357b` | `e48a7f9e-d1ce-4994-b226-a54e71e1a67e` |
+| `otherwise`  | `6d541daa87cc9f508643202cbbbb357c` | `985993e8-a0e7-4c23-a79d-5888147bb14a` |
+| `else_log`   | `29541daa87cc9f508643202cbbbb357d` | `a82822ef-6da3-4e41-841c-5a3d12d9e2ce` |
+| `finish`     | `65541daa87cc9f508643202cbbbb357e` | `dede3a1f-d8ea-4e3c-a523-5df065ee4a8a` |
+
+### Exact remaining ownership blocker
+
+The first generated declaration was expected to have technical name `table_name`.
+The exact queried input record was `sys_hub_flow_input/2154d9aa87cc9f508643202cbbbb35df`.
+One further exact read of that already queried input record, not another flow read, established:
+
+- `sys_id` matches the assigned declaration ID.
+- `model` matches target flow `b05415aa87cc9f508643202cbbbb35ab`.
+- `sys_class_name` is `sys_hub_flow_input`.
+- The stored record's `name` differs from the catalog declaration's technical name. Its raw value is not included in the evidence report.
+
+The named failure is therefore **actual `sys_hub_flow_input.name` versus expected declaration name**, not an unknown DTO index or a model-owner mismatch.
+The strict naming assumption introduced in `f8c90e7` is not established by the actual storage record.
+The guard remains fail-closed. A storage-name mapping must be independently established before that check can change.
+The second generated input's owner read and the three logic-block owner reads were not reached in this apply.
+
+### Writable trigger label correction after the stopped attempt
+
+The observer retained every named request/echo structural difference without logging payload values.
+Beyond the previously approved generated identities, UI tree fields, cache getter, numeric order forms, and String presentation slots,
+it found `triggerInstances[0].inputs[run_flow_in].parameter.uiDisplayTypeLabel` present in the expected native DTO but absent in the response.
+The constructor sent a getter-only alias instead of the writable parameter `type_label` declared at 471829.
+The older captured native getter contained this label because the editor-shaped input supplied the writable field.
+
+The local correction maps that one label slot back to `type_label` on the REST wire, leaving the expected native DTO and strict comparison intact.
+Conflicting copies reject before saving. Active adapters and other trigger types are unchanged.
+The stateful model now derives this getter field from the submitted writable label, so the complete roundtrip reproduces the failure without that correction.
+The regression first failed at the exact missing trigger field, then passed with the wire correction.
+Input-owner failures now name the failing owner field, including `.owner.name`, instead of reporting every owner mismatch at `.id`.
+No further live write was used to test either change. Main readiness remains blocked by the actual failed one-shot result and the unresolved storage-name contract.
+
+Final retained-source gates passed `mise run check`, `mise run test`, and `mise run schemas`: 3603 passed, 66 deselected.
+The final focused selection passed 278 tests, including all five real local Python 3.15 stdio variants and the complete native create/reorder/insert/update path.
+The trigger-label conflict regression also proves rejection before an effect is attempted, without misclassifying it as an unknown save outcome.
+The isolated final staged checkpoint also passed all 278 focused tests. The 14 unrelated tracked changes and four untracked files were excluded from both signed checkpoints.

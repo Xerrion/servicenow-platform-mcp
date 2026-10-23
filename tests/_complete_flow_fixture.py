@@ -235,6 +235,17 @@ class StudioModel:
                 for row in body[section]:
                     if not row.get("id"):
                         row["id"] = self.identity()
+            for trigger in body["triggerInstances"]:
+                if (
+                    trigger.get("type") == "service_catalog"
+                    and "remoteSysId" in trigger
+                ):
+                    for row in trigger["inputs"]:
+                        parameter = row["parameter"]
+                        if "type_label" in parameter:
+                            parameter["uiDisplayTypeLabel"] = parameter.pop(
+                                "type_label"
+                            )
             for section in ("inputs", "outputs", "flowVariables"):
                 for _, row in declarations.walk(body[section]):
                     if row.get("uiUniqueId") and not row.get("id"):

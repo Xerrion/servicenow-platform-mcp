@@ -283,3 +283,30 @@ def catalog_trigger(raw: dict[str, Any], definition: dict[str, Any]) -> dict[str
         "hasDynamicOutputs": definition.get("has_dynamic_outputs", False),
         "userCanRead": True,
     }
+
+
+def rest_payload(flow: dict[str, Any]) -> dict[str, Any]:
+    """Send the writable parameter label, not its getter-only UI alias.
+
+    The native getter exposes uiDisplayTypeLabel. The save parameter map uses
+    type_label (471829), as the original independent trigger catalog does.
+    The final live capture proved that sending the UI alias alone loses it.
+    The expected native DTO stays unchanged and comparison remains strict.
+    """
+    result = copy.deepcopy(flow)
+    if flow.get("active") is not False:
+        return result
+    for trigger in result.get("triggerInstances", []):
+        if trigger.get("type") != "service_catalog":
+            continue
+        for row in trigger["inputs"]:
+            parameter = row["parameter"]
+            if "uiDisplayTypeLabel" not in parameter:
+                continue
+            label = parameter.pop("uiDisplayTypeLabel")
+            if "type_label" in parameter and parameter["type_label"] != label:
+                raise CapabilityError(
+                    "The trigger parameter type labels conflict.", "UNAVAILABLE"
+                )
+            parameter["type_label"] = label
+    return result

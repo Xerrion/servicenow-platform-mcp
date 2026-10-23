@@ -173,6 +173,12 @@ def fixtures(settings: Settings, flow: dict[str, Any]):
 
 def persist(flow: dict[str, Any], *, generated_catalog_inputs: bool = False) -> None:
     """Model a saved definition separately from the preview's original object."""
+    for trigger in flow["triggerInstances"]:
+        if trigger.get("type") == "service_catalog" and "remoteSysId" in trigger:
+            for row in trigger["inputs"]:
+                parameter = row["parameter"]
+                if "type_label" in parameter:
+                    parameter["uiDisplayTypeLabel"] = parameter.pop("type_label")
     if generated_catalog_inputs:
         flow["inputs"] = copy.deepcopy(
             json.loads(

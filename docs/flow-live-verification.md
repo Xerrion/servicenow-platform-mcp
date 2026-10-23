@@ -486,3 +486,53 @@ The observer retained only privacy-safe projections and value-free comparison re
 
 The live acceptance result remains unknown, despite persisted message content and valid current structure. No apply success or complete-create success is claimed.
 All writes stopped after the single PUT. There was no retry, second marker edit, new flow, execution, lifecycle action, update-set query, or protected LogView request.
+
+## Named root-cache correction and verified message edit, 2026-10-23
+
+The root field is `labelCacheAsJsonString`, not a variable DTO or identity field.
+The comparator sorts the root-setting key union after removing the permitted `updated` revision field.
+The exact revision-3 GET mapped ordinal 29 at that location to this fixed native field. Its value was a String containing a three-entry JSON list.
+Decoding it produced exact equality with the same GET's `label_cache`.
+
+The previous full request and echo existed only in the exited child process. The retained files contained schema projections and first-difference results, not root strings or key lists.
+Therefore, no historical before/after string contents or byte-formatting direction are claimed.
+Read-only reconstruction against revision 3 showed that planning retained the old serialized getter while rebuilding `label_cache`.
+It added eight null projections across `attributes`, `choices`, `column_name`, and `parent_table_name`.
+It also introduced the editor alias `startOfErrorHandlingInstances` beside the existing native `startingIndexOfErrorHandlingInstances=-1`.
+These were all reconstructed differences. The investigation did not infer or expose arbitrary root keys or private values.
+
+Source grounds the narrow correction:
+
+- `passedInFlow` explicitly deletes `labelCacheAsJsonString` (227783-227788).
+- `cleanupFlowBeforePut` selects native `FLOW_SCHEMA` keys (101697-101712); that schema excludes the getter (350835-350903).
+- `processLabelCacheOutgoing` emits the four observed optional cache-entry fields as null (101724-101727).
+- The native schema names `startingIndexOfErrorHandlingInstances`. The shorter alias is reconstructed editor state.
+
+Planning and transport now omit only the fixed root getter. Returned getter values must parse as JSON lists and match the authoritative cache semantically.
+JSON whitespace/property-order changes and the four source-proven null/absent entry forms do not change cache meaning.
+Nonempty fields, unknown keys, meaningful cache types/providers/consumers, and same-named fields outside this root slot remain strict.
+Ordinary native drafts no longer acquire an unrequested editor boundary alias. The native boundary index and existing handler behavior remain checked.
+A corrected read-only no-op plan matched the exact revision-3 GET with zero remaining semantic differences before any new preview.
+
+Three focused regressions failed before the correction: cache encoding/null projection, invented editor alias, and outgoing getter inclusion.
+They passed afterward. Native getter and nullable-field behavior now appear in complete-create/edit HTTP fixtures and a fourth Python 3.15 stdio variant.
+Adversarial malformed JSON, wrong types, contradictory mirrors, changed real settings, wrong scope, unknown metadata, and incorrect native boundaries still reject.
+`mise run schemas`, `mise run check`, and `mise run test` passed: 3545 passed, 66 deselected. The six focused files passed 190 tests.
+
+Only after these checks, one fresh local stdio server used current source and normal OS-cached OAuth against exact `https://tv2dev.service-now.com`.
+Fresh status confirmed Global revision `3`, inactive and unpublished, with nine nodes and no new marker.
+One preview proposed a new static `then_log.log_message` marker, not a replay of either earlier edit.
+Its fresh token was consumed once. One PUT returned HTTP 200, and normal MCP apply returned success with revision `4`.
+
+Application request-to-echo, request-to-independent-GET, and echo-to-GET verification all passed.
+Same-harness evidence retained actual public root-field projections: the request omitted `labelCacheAsJsonString`; echo and GET each returned a String decoding to three entries, exactly equal to their own `label_cache`.
+The source-proven mirror presence/encoding, nullable cache fields, reconstructed step UI projections, and advancing `updated` timestamp accounted for raw representation differences.
+The before/after semantic check passed with only the intended Log message change. Variables and all logic/assignment records were also raw-equal.
+All node IDs, parents, and orders remained unchanged. The edited Log retained persisted ID `b1b48dda874cdb508643202cbbbb3500` and UI ID `d85ae49d-70c1-469d-9717-04d11b913eea`.
+
+Final status was complete: Global revision `4`, inactive draft, no published/latest snapshot.
+The definition still contained nine nodes, five Logs, four logic/assignment nodes, two variables, and two assignments.
+Local validation returned `valid=true`, `complete=true`, with no diagnostics. The observer recorded no errors and did not interrupt verification.
+The live message-only incremental-edit acceptance result is PASS. No further write occurred.
+The historical complete-create and earlier uncertain edits remain historically unknown. This result does not certify live complete creation or execution.
+No flow was created, activated, published, deactivated, tested, or executed. No update-set/session read, catalog change, or protected LogView request occurred.

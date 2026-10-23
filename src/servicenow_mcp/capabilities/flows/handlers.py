@@ -214,13 +214,7 @@ def serialize(
 ) -> None:
     wrappers = pair(roots)
     index = list(tree.walk(roots)).index(wrappers[1]) if wrappers else -1
-    if wrappers or any(
-        key in original
-        for key in (
-            "startOfErrorHandlingInstances",
-            "startingIndexOfErrorHandlingInstances",
-        )
-    ):
+    if wrappers or "startOfErrorHandlingInstances" in original:
         flow["startOfErrorHandlingInstances"] = index
     if "startingIndexOfErrorHandlingInstances" in original:
         flow["startingIndexOfErrorHandlingInstances"] = index

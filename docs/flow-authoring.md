@@ -235,6 +235,19 @@ New String assignment parameters use the observed native default `maxsize=8000` 
 An explicit positive declared length is preserved. Existing parameter sizes are not rewritten, and save comparison never equates different sizes.
 New parameter `type_label` uses the String control label initialized at 147809-147822. Declaration DTOs retain their separate native defaults.
 
+### Native root cache mirror
+
+`labelCacheAsJsonString` is the server's serialized duplicate of `label_cache`, not an independent authoring setting.
+Studio deletes it at the diagram callback boundary (227783-227788). Its native PUT `FLOW_SCHEMA` does not contain this field (350835-350903).
+Planning and transport omit only this fixed root field. Unknown settings and identically named fields at other locations remain unchanged.
+When a returned definition includes the field, local semantics parses it and verifies equality with that definition's authoritative `label_cache`.
+Malformed JSON, a non-list result, or changed mirror content fails verification. JSON formatting and property order do not define cache content.
+
+`processLabelCacheOutgoing` emits absent `attributes`, `choices`, `column_name`, and `parent_table_name` as null (101724-101727).
+Only these null/absent cache-entry forms compare equivalently. Nonempty values, empty lists, false values, and unknown keys remain strict.
+Existing choice ordering retains its value-based comparison. The native handler index `startingIndexOfErrorHandlingInstances` remains authoritative.
+Ordinary edits do not add the editor-only `startOfErrorHandlingInstances` alias when the saved definition contains only the native index.
+
 ## Structural edits
 
 `flow_preview(action="edit", sys_id=..., edits=[...])` applies an ordered list of edits to one draft and

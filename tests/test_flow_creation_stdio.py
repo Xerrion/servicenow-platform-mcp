@@ -55,11 +55,18 @@ assert len([row for row in observer.exchanges if row[1] is not None]) == 3
 """
 
 
-@pytest.mark.parametrize("attribute_identity", [False, True, "native_dto"])
+@pytest.mark.parametrize(
+    "attribute_identity", [False, True, "native_dto", "native_cache"]
+)
 async def test_stdio_full_create_and_followup_edit(tmp_path, attribute_identity):
     root = Path(__file__).resolve().parents[1]
     child = CHILD
-    if attribute_identity == "native_dto":
+    if attribute_identity == "native_cache":
+        child = child.replace(
+            "from tests._complete_flow_fixture import StudioModel",
+            "from tests.test_flow_root_cache import NativeCacheModel as StudioModel",
+        )
+    elif attribute_identity == "native_dto":
         child = child.replace(
             "from tests._complete_flow_fixture import StudioModel",
             "from tests.test_flow_variable_dto import VariableDTOModel as StudioModel",
@@ -106,7 +113,7 @@ async def test_stdio_full_create_and_followup_edit(tmp_path, attribute_identity)
             assert not created.is_error, created
             assert created.structured_content["data"]["revision"] == "14"
             args = edit_request(created.structured_content["data"])
-            if attribute_identity == "native_dto":
+            if attribute_identity in ("native_dto", "native_cache"):
                 refs = created.structured_content["data"]["refs"]
                 args["edits"] = [
                     {

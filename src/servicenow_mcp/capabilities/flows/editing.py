@@ -2203,6 +2203,9 @@ async def plan(
         for pill, used in sorted(usage.items())
     ]
     payload["label_cache"] = label_cache
+    # The saved getter represents the old cache, not the newly planned pills.
+    # Native requests carry label_cache, not its server-generated JSON mirror.
+    payload.pop("labelCacheAsJsonString", None)
     if call_evidence:
         _refresh_component_mirror(flow, payload)
     payloads.validate_definition(payload)

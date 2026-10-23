@@ -97,6 +97,7 @@ _DIAGNOSTIC_FIELDS = frozenset(
 )
 # Fixed Studio settings, scoped to their schema location rather than arbitrary
 # mapping keys. Source: docs/designer-bundle.min.js:203732-203750,204678-204690.
+# Native root cache/boundary fields:227783-227788,350835-350903.
 _DIAGNOSTIC_SETTING_FIELDS = {
     "flow": frozenset(
         {
@@ -106,6 +107,9 @@ _DIAGNOSTIC_SETTING_FIELDS = {
             "deletedFlowLogicInstances",
             "deletedTriggers",
             "aliasOverride",
+            "labelCacheAsJsonString",
+            "startOfErrorHandlingInstances",
+            "startingIndexOfErrorHandlingInstances",
         }
     ),
     "flow.aliasOverride": frozenset({"aliasOverrideMappings"}),
@@ -407,6 +411,33 @@ def table_step(
         bindings,
         _json(settings),
     )
+
+
+def _label_cache_view(rows: list[Any]) -> list[Any]:
+    """Native cache entries, including only source-proven nullable projections."""
+    result = []
+    for row in rows:
+        entry = row
+        if isinstance(row, dict):
+            # processLabelCacheOutgoing emits these absent fields as null
+            # (bundle:101724-101727). Nonempty values and unknown keys stay.
+            entry = {
+                k: v
+                for k, v in row.items()
+                if v is not None
+                or k
+                not in {"attributes", "choices", "column_name", "parent_table_name"}
+            }
+            choices = entry.get("choices")
+            if isinstance(choices, list) and all(
+                isinstance(choice, dict) and "value" in choice for choice in choices
+            ):
+                # Cache consumers select by value, not position (96149-96154).
+                entry["choices"] = sorted(
+                    choices, key=lambda choice: (_json(choice["value"]), _json(choice))
+                )
+        result.append(entry)
+    return result
 
 
 def studio_semantics(
@@ -777,31 +808,28 @@ def studio_semantics(
             },
         )
     # Unknown settings are opaque but must survive. Do not whitelist away a mismatch.
+    cache = _label_cache_view(flow["label_cache"])
+    if "labelCacheAsJsonString" in flow:
+        try:
+            mirror = json.loads(flow["labelCacheAsJsonString"])
+        except TypeError, ValueError:
+            _incomplete(
+                "flow.labelCacheAsJsonString",
+                "Read the server-derived label cache mirror as a JSON list.",
+            )
+        if not isinstance(mirror, list) or _json(_label_cache_view(mirror)) != _json(
+            cache
+        ):
+            _incomplete(
+                "flow.labelCacheAsJsonString",
+                "The server-derived label cache mirror must equal the authoritative label_cache.",
+            )
     settings = {
         k: v
         for k, v in flow.items()
-        if k not in {*COLLECTIONS, "id", "triggerInstances"}
+        if k not in {*COLLECTIONS, "id", "triggerInstances", "labelCacheAsJsonString"}
     }
-    settings["label_cache"] = []
-    for raw_entry in flow["label_cache"]:
-        entry = raw_entry
-        if isinstance(raw_entry, dict):
-            # Studio maps absent cache attributes to null (92955, 92972, 101727).
-            entry = {
-                key: value
-                for key, value in raw_entry.items()
-                if key != "attributes" or value is not None
-            }
-            choices = entry.get("choices")
-            if isinstance(choices, list) and all(
-                isinstance(choice, dict) and "value" in choice for choice in choices
-            ):
-                # Cache consumers select by value, not position (bundle:96149-96154).
-                # Keep every field and duplicate; only canonicalize list order.
-                entry["choices"] = sorted(
-                    choices, key=lambda choice: (_json(choice["value"]), _json(choice))
-                )
-        settings["label_cache"].append(entry)
+    settings["label_cache"] = cache
     return FlowSemantics(
         flow["id"],
         tuple(sorted(steps, key=lambda s: s.order)),
@@ -1448,7 +1476,11 @@ async def save_draft(
 ) -> dict[str, Any]:
     """A failed effect response cannot establish whether the save happened. Never retry here."""
     try:
-        return await client.studio_request("flow", data=payload, create=create)
+        # Read-only server getter, absent from FLOW_SCHEMA (350835-350903).
+        # Studio also discards it at the diagram callback boundary (227783-227788).
+        wire = copy.deepcopy(payload)
+        wire.pop("labelCacheAsJsonString", None)
+        return await client.studio_request("flow", data=wire, create=create)
     except Exception:  # noqa: BLE001 — deliberately convert unexpected failures to safe diagnostics
         raise CapabilityError(
             "The draft save did not return a completed result. UNKNOWN_OUTCOME: inspect the flow "

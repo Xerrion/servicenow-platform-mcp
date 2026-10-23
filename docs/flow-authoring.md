@@ -199,7 +199,7 @@ It does not certify other server transformations or retroactively verify an earl
 
 New String flow variables use the native persisted parameter shape when the planner constructs the request.
 The request explicitly includes `attributes.element_mapping_provider="com.glide.flow_design.action.data.FlowDesignVariableMapper"`,
-`uiType="string"`, and `uiTypeLabel="String"`. Verification compares all three fields strictly.
+`uiType="string"`, and `uiTypeLabel="String"`. The provider and UI type remain strict.
 The native defaults include `type_label="string"`, `order=0`, `maxsize=0`, blank value/default/display fields, and false flags.
 An explicit `maxsize` and nonempty hint remain unchanged. Empty source attributes and modal-only fields are omitted at construction.
 Existing declarations and other types retain their current construction paths. No response attributes are discarded.
@@ -224,6 +224,16 @@ The record must match the flow, UI ID, instance ID, class, logic definition, blo
 Dictionary metadata establishes `block -> sys_hub_flow_block` and inherited `flow -> sys_hub_flow_base`.
 Only this verified new relation is bound into request comparison. Echo and independent GET must agree, and all submitted settings remain strict.
 Existing block references and unknown metadata are never normalized. See [live verification](flow-live-verification.md) for observed results.
+
+For scalar String flow variables and Set Flow Variables parameter copies only, comparison accepts the observed `String` and `string` display spellings.
+This applies to `type_label` and `attributes.uiTypeLabel`, including component mirrors. It does not change the outgoing saved metadata.
+Studio obtains type display text from `GLIDE_TYPES` (232966-232973), copies it into the picker attribute (344082-344085), and renders it (491623-491638).
+Other types are excluded because display labels can select reference controls (164783). Unknown display strings still compare strictly.
+User-defined `name` and `label`, provider, type, reference/table, defaults, values, IDs, unknown attributes, and parameter order remain strict.
+
+New String assignment parameters use the observed native default `maxsize=8000` when the declaration reports zero, meaning no explicit size.
+An explicit positive declared length is preserved. Existing parameter sizes are not rewritten, and save comparison never equates different sizes.
+New parameter `type_label` uses the String control label initialized at 147809-147822. Declaration DTOs retain their separate native defaults.
 
 ## Structural edits
 

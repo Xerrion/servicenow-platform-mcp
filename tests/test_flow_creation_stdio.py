@@ -20,6 +20,16 @@ from pydantic import SecretStr
 from servicenow_mcp.auth import AccessToken, OAuthPKCEProvider
 from servicenow_mcp.config import Settings
 from tests._complete_flow_fixture import StudioModel
+from tests._flow_live_observer import FlowLiveObserver
+from servicenow_mcp.platform.client import ServiceNowClient
+
+observer = FlowLiveObserver()
+original_studio_request = ServiceNowClient.studio_request
+async def observed_studio_request(self, resource, **kwargs):
+    result = await original_studio_request(self, resource, **kwargs)
+    observer.capture(resource, kwargs.get('data'), result)
+    return result
+ServiceNowClient.studio_request = observed_studio_request
 
 def denied(*args, **kwargs):
     raise AssertionError('External network and browser access are forbidden in this fixture')
@@ -40,6 +50,8 @@ httpx2.AsyncHTTPTransport.handle_async_request = transport
 from servicenow_mcp.server import main
 main()
 assert model.revision == 15 and len(model.bodies) == 3
+assert not observer.errors
+assert len([row for row in observer.exchanges if row[1] is not None]) == 3
 """
 
 

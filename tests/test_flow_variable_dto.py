@@ -26,6 +26,11 @@ from tests.test_flow_variable_identity import (
 ASSIGNMENT = json.loads(
     (Path(__file__).parent / "fixtures/flow_native_assignment_dto.json").read_text()
 )
+METADATA = json.loads(
+    (
+        Path(__file__).parent / "fixtures/flow_variable_metadata_roundtrip.json"
+    ).read_text()
+)
 
 DTO = json.loads(
     (Path(__file__).parent / "fixtures/flow_string_variable_dto.json").read_text()
@@ -180,6 +185,7 @@ class VariableDTOModel(VariableIdentityModel):
                         native["attributes"]["uiUniqueId"] = row["attributes"][
                             "uiUniqueId"
                         ]
+                        native["attributes"]["uiTypeLabel"] = native["type_label"]
                         flow["flowVariables"][index] = native
                 for section in ("flowLogicInstances", "componentInstances"):
                     for step in flow.get(section, []):
@@ -190,6 +196,12 @@ class VariableDTOModel(VariableIdentityModel):
                             step.setdefault(
                                 "flowBlockId", f"{int(step['id'], 16) + 4096:032x}"
                             )
+                            for key in ("inputs", "flowVariables"):
+                                for binding in step[key]:
+                                    if binding["parameter"]["type"] == "string":
+                                        binding["parameter"]["attributes"][
+                                            "uiTypeLabel"
+                                        ] = "string"
             return httpx2.Response(
                 200, json={"result": {"data": echo}}, request=request
             )
@@ -389,6 +401,138 @@ def test_fresh_assignment_does_not_discard_a_conflicting_nonempty_ui_identity():
     step.raw["inputs"] = [{"parameter": parameter}]
     with pytest.raises(CapabilityError, match="UI identities conflict"):
         editing._native_variable_step(step)
+
+
+def metadata_pair():
+    expected, manifest = identity_flow(two=True)
+    definition = expected["flowLogicInstances"][0]["flowLogicDefinition"]
+    definition["userCanRead"] = True
+    for i, row in enumerate(expected["flowVariables"]):
+        name = METADATA["declarations"][i]["name"]
+        row.update(
+            name=name,
+            label="Message" if i == 0 else "Roundtrip probe",
+            type_label="string",
+            maxsize=0,
+            order=0,
+        )
+        row["attributes"].update(uiType="string", uiTypeLabel="String")
+        manifest[i]["name"] = name
+        for key in ("inputs", "flowVariables"):
+            binding = expected["flowLogicInstances"][0][key][i]
+            binding["name"] = name
+            binding["parameter"] = copy.deepcopy(row)
+    step = editing.tree.Step(expected["flowLogicInstances"][0], "flowlogic")
+    saved_id, order, parent = step.raw["id"], step.raw["order"], step.raw["parent"]
+    editing._native_variable_step(step)
+    step.raw.update(id=saved_id, order=order, parent=parent)
+    expected["flowLogicInstances"] = [step.raw]
+    # The first variable is an existing declaration, not a new-ID allowance.
+    expected["flowVariables"][0]["id"] = "a" * 32
+    for key in ("inputs", "flowVariables"):
+        step.raw[key][0]["parameter"]["id"] = "a" * 32
+    actual = stored_identities(copy.deepcopy(expected))
+    for row, evidence in zip(actual["flowVariables"], METADATA["declarations"]):
+        row["attributes"]["uiTypeLabel"] = evidence["after"]["uiTypeLabel"]
+    for key in ("inputs", "flowVariables"):
+        for row, evidence in zip(
+            actual["flowLogicInstances"][0][key], METADATA["parameters"]
+        ):
+            parameter = row["parameter"]
+            parameter.update(
+                {k: v for k, v in evidence["after"].items() if k != "uiTypeLabel"}
+            )
+            parameter["attributes"]["uiTypeLabel"] = evidence["after"]["uiTypeLabel"]
+    expected["componentInstances"] = copy.deepcopy(expected["flowLogicInstances"])
+    actual["componentInstances"] = copy.deepcopy(actual["flowLogicInstances"])
+    return expected, actual, manifest[1:]
+
+
+def test_actual_old_and_new_string_metadata_roundtrip_including_assignment_mirrors():
+    expected, actual, manifest = metadata_pair()
+    before = copy.deepcopy((expected, actual))
+    semantics.compare_saved(
+        expected, actual, generated_ids=set(), generated_fields=manifest
+    )
+    assert (expected, actual) == before
+
+
+def test_display_projection_does_not_modify_an_aliased_label_cache_attribute():
+    expected, _, _ = metadata_pair()
+    attributes = expected["flowVariables"][0]["attributes"]
+    expected["label_cache"] = [{"attributes": attributes}]
+    semantics._variable_type_labels(expected)
+    assert expected["flowVariables"][0]["attributes"]["uiTypeLabel"] == "string"
+    assert expected["label_cache"][0]["attributes"]["uiTypeLabel"] == "String"
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "size",
+        "type",
+        "default",
+        "value",
+        "binding",
+        "id",
+        "provider",
+        "unknown",
+        "user_label",
+        "type_display",
+        "parameter_order",
+    ],
+)
+def test_metadata_projection_does_not_accept_semantic_or_unknown_changes(change):
+    expected, actual, manifest = metadata_pair()
+    row = actual["flowVariables"][0]
+    parameter = actual["flowLogicInstances"][0]["inputs"][0]["parameter"]
+    if change == "size":
+        parameter["maxsize"] = 64
+    elif change == "type":
+        row["type"] = "integer"
+    elif change == "default":
+        row["defaultValue"] = "changed"
+    elif change == "value":
+        actual["flowLogicInstances"][0]["inputs"][0]["value"] = "changed"
+    elif change == "binding":
+        actual["flowLogicInstances"][0]["inputs"][0]["name"] = "other"
+    elif change == "id":
+        row["id"] = "f" * 32
+    elif change == "provider":
+        row["attributes"]["element_mapping_provider"] = "Different.Provider"
+    elif change == "unknown":
+        parameter["attributes"]["unknown"] = "changed"
+    elif change == "user_label":
+        row["label"] = "Different user label"
+    elif change == "type_display":
+        row["attributes"]["uiTypeLabel"] = "Document ID"
+    else:
+        expected["flowLogicInstances"][0]["inputs"][0]["parameter"]["order"] = 1
+    for flow in (expected, actual):
+        flow["flowLogicInstances"][0]["flowVariables"] = copy.deepcopy(
+            flow["flowLogicInstances"][0]["inputs"]
+        )
+        flow["componentInstances"] = copy.deepcopy(flow["flowLogicInstances"])
+    with pytest.raises(semantics.SemanticMismatch):
+        semantics.compare_saved(
+            expected, actual, generated_ids=set(), generated_fields=manifest
+        )
+
+
+@pytest.mark.parametrize("size", [0, 1, 64, 8000, 12000, 65000])
+def test_string_assignment_uses_native_default_but_preserves_explicit_lengths(size):
+    saved = ASSIGNMENT["instance"]
+    step = editing.tree.new_logic_step(
+        saved["flowSysId"], saved["flowLogicDefinition"], {}
+    )
+    parameter = copy.deepcopy(ASSIGNMENT["parameter"])
+    parameter.update(maxsize=size, type_label="string")
+    step.raw["inputs"] = [{"parameter": parameter}]
+    editing._native_variable_step(step)
+    assert step.raw["inputs"][0]["parameter"]["maxsize"] == (
+        8000 if size == 0 else size
+    )
+    assert step.raw["inputs"][0]["parameter"]["type_label"] == "String"
 
 
 @pytest.mark.parametrize(

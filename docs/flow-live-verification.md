@@ -416,3 +416,73 @@ The previous complete-create outcomes remain historically unknown. The retained 
 Final local gates after self-review passed `mise run schemas`, `mise run check`, and `mise run test`: 3505 passed, 66 deselected.
 The focused command for `test_flow_variable_dto.py`, `test_flow_variable_identity.py`, `test_flow_fields.py`, and `test_flow_creation_stdio.py` passed 150 tests.
 The additional self-review regression rejects a conflicting nonempty UI cache instead of discarding it during fresh parameter construction.
+
+## Display metadata, harness correction, and message-only save, 2026-10-23
+
+The cancelled task left source, tests, and a sanitized metadata capture but no new message-edit script or operation journal.
+Git remained at `fa244ad`. The final check command had no completion result, so its cancelled run was not counted as passing.
+The completed metadata investigation and focused test evidence were reused. The persisted structural edit was not repeated.
+
+### Separate harness and DTO findings
+
+The previous harness called `verify(echoed, True)` inside its HTTP `guard`, after the PUT returned HTTP 200.
+An offline reproduction using the captured old/new metadata raises `AssertionError` in `verify`, at embedded child line 62:
+`assert actual == expected`. This compares the old `message` declaration, including its changed display attribute.
+The historical stack itself was not retained. The source and journal place this assertion before normal application verification.
+The journal contains no forbidden-request event, and ClientSession returned a structured error rather than timing out.
+The failure was therefore separate from a denied ownership GET, child cleanup, or a demonstrated application comparison failure.
+
+`FlowLiveObserver` now retains exact request, echo, and GET objects in memory without exposing them in payload logs.
+It catches observation failures and cannot replace the API result with an observer exception.
+The stdio regressions use this same observer. Effect boundaries are checked before sending, not by post-response assertions.
+The live read guard accepts legitimate same-instance verification GETs while still excluding update-set/session reads and forbidden lifecycle effects.
+
+The bounded exact revision-2 GET established these public schema values:
+
+| Location                          | `uiTypeLabel`, before to after | `type_label`, before to after | `maxsize`, before to after |
+| --------------------------------- | ------------------------------ | ----------------------------- | -------------------------- |
+| Existing `message` declaration    | `String` to `string`           | `string` unchanged            | `0` unchanged              |
+| New `roundtrip_probe` declaration | `String` to `string`           | `string` unchanged            | `0` unchanged              |
+| Existing assignment parameter     | `String` to `string`           | `String` unchanged            | `8000` unchanged           |
+| New assignment parameter          | `String` to `string`           | `string` to `String`          | `0` to `8000`              |
+
+The parameter observations apply to both `inputs` and `flowVariables` copies.
+The older parameter's `order` also refreshed from `1` to declaration order `0`. That historical change is retained in the fixture and is not normalized.
+Its revision-2 value is the baseline for the new message edit.
+Before values are retained pre-save GET metadata or constructor output. After values are exact revision-2 GET metadata, not the lost historical echo.
+
+Local Studio source hydrates type labels from `GLIDE_TYPES` (232966-232973), supplies the picker attribute (344082-344085), and renders it as type text (491623-491638).
+Only the observed `String`/`string` display spellings in scalar String variable and assignment-parameter DTO slots compare equivalently.
+User labels, types, names, references, provider, IDs, values, defaults, sizes, order, and unknown metadata remain strict.
+Attribute dictionaries are replaced on the comparison copies, preventing an aliased label-cache dictionary from changing outside these slots.
+New String parameter construction uses its observed native `8000` default only when the declaration has no explicit positive size.
+Explicit positive sizes remain unchanged. Size changes are never ignored during save comparison.
+The String control label follows `getAdvancedInputNewItem` (147809-147822); old saved metadata is not rewritten to English.
+
+### New live operation and outcome
+
+Final local checks passed before the new operation: `mise run schemas`, `mise run check`, and `mise run test`, with 3528 passed and 66 deselected.
+The five focused identity, DTO, field, observer, and stdio files passed 173 tests on Python 3.15.
+The baseline comparator rejected the captured display difference; the corrected comparator passed the source-grounded metadata regression.
+Adversarial type, value, default, binding, identity, provider, unknown metadata, explicit size, and parameter-order changes still reject.
+
+A fresh local stdio server used the current source, exact `https://tv2dev.service-now.com`, and normal OS-cached OAuth.
+Fresh status and definition reads confirmed revision `2`, Global, inactive and unpublished, with nine nodes and absence of the new marker.
+One preview proposed only a static `then_log.log_message` update. One fresh token was consumed once, and one PUT returned HTTP 200.
+The prior multi-operation edit and its token were not reused. The schema still omitted `expected_update_set`.
+
+This time application verification completed its echo comparison and returned its own precise failure:
+`UNKNOWN_OUTCOME`, `request.echo`, `both:flow[field:29] VALUE_MISMATCH`.
+The observer reported no error and did not interrupt the effect. This root-setting mismatch is separate from the corrected variable display metadata.
+No rule was added to ignore the unresolved root setting or infer its identity from the numeric diagnostic index.
+
+One read-only reconciliation followed. Its header reported revision `3`, inactive draft, and no published snapshot.
+The new marker was present. There were still nine nodes, five Logs, four logic/assignment nodes, two variables, and two assignments.
+Local validation returned `valid=true`, `complete=true`, with no diagnostics.
+Same-harness evidence verified raw variable and assignment equality, unchanged node IDs, parents, and orders, and full echo-to-GET semantic equality.
+Public schema projections were identical in the actual request, echo, and GET, including all three previously changed metadata fields.
+Request-to-echo and request-to-GET comparisons both retained the root-setting mismatch above.
+The observer retained only privacy-safe projections and value-free comparison results outside memory. The root key and value remain unresolved.
+
+The live acceptance result remains unknown, despite persisted message content and valid current structure. No apply success or complete-create success is claimed.
+All writes stopped after the single PUT. There was no retry, second marker edit, new flow, execution, lifecycle action, update-set query, or protected LogView request.

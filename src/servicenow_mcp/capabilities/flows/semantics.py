@@ -990,6 +990,34 @@ def _new_variable_parameter_id(
             parameter.pop("id")
 
 
+def _variable_type_labels(flow: dict[str, Any]) -> None:
+    """Project the observed String display spellings in variable DTO slots only.
+
+    Studio hydrates type_label from GLIDE_TYPES (232966-232973), copies it into
+    uiTypeLabel in the picker (344082-344085), and renders that attribute as type
+    text (491623-491638). Reference labels can select controls (164783), so this
+    does not apply to other types, arbitrary labels, or unknown attributes.
+    """
+    rows = [
+        *flow.get("flowVariables", []),
+        *(row for _, row in _variable_parameters(flow)),
+    ]
+    for row in rows:
+        attributes = row.get("attributes")
+        if (
+            row.get("type") != "string"
+            or not isinstance(attributes, dict)
+            or attributes.get("uiType") != "string"
+        ):
+            continue
+        if row.get("type_label") in ("string", "String"):
+            row["type_label"] = "string"
+        if attributes.get("uiTypeLabel") in ("string", "String"):
+            # Planning can share this dictionary with a label-cache entry.
+            # Replacing the slot prevents changes outside the proven DTO path.
+            row["attributes"] = {**attributes, "uiTypeLabel": "string"}
+
+
 def compare_saved(
     expected: dict[str, Any],
     actual: dict[str, Any],
@@ -1008,6 +1036,8 @@ def compare_saved(
     actual = copy.deepcopy(actual)
     _restore_field_ui_identities(expected, "expected")
     _restore_field_ui_identities(actual, "actual")
+    _variable_type_labels(expected)
+    _variable_type_labels(actual)
     for definition in (expected, actual):
         for step in [
             *definition.get("flowLogicInstances", []),

@@ -1257,6 +1257,14 @@ def _native_variable_step(step: tree.Step) -> None:
                 parameter.pop(key)
         parameter.setdefault("hint", "")
         parameter.setdefault("ref_qual", "")
+        # Flow-variable zero means no declared length. The native String
+        # parameter DTO has its own 8000-character default (captured GET fixture).
+        # This is construction, not size normalization during save comparison.
+        if parameter.get("maxsize") == 0:
+            parameter["maxsize"] = 8000
+        if parameter.get("type_label") == "string":
+            # getAdvancedInputNewItem:147809-147822 initializes this UI label.
+            parameter["type_label"] = fields.TYPES["string"]
     step.raw = {
         "uiUniqueIdentifier": step.uid,
         "flowSysId": step.raw["flowSysId"],

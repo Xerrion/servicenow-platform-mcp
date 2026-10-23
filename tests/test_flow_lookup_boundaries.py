@@ -20,6 +20,133 @@ if TYPE_CHECKING:
 BASE_URL = "https://test.service-now.com/api/now/table"
 
 
+@pytest.mark.parametrize("action", ["inspect", "contract"])
+@pytest.mark.parametrize("snapshot_field", ["master_snapshot", "latest_snapshot"])
+@pytest.mark.parametrize("display_values", [False, True])
+async def test_snapshot_id_returns_canonical_recovery_without_switching_target(
+    settings: Settings, action: str, snapshot_field: str, display_values: bool
+) -> None:
+    snapshot_id, canonical_id = "a" * 32, "b" * 32
+    http_mock.get(f"{BASE_URL}/sys_hub_flow/{snapshot_id}").respond(
+        404, json={"error": {"message": "No Record found"}}
+    )
+    row = {"sys_id": canonical_id, snapshot_field: snapshot_id}
+    lookup = http_mock.get(f"{BASE_URL}/sys_hub_flow").respond(
+        200,
+        json={
+            "result": [
+                {key: {"value": value} for key, value in row.items()}
+                if display_values
+                else row
+            ]
+        },
+    )
+    canonical = http_mock.get(f"{BASE_URL}/sys_hub_flow/{canonical_id}").respond(
+        200, json={"result": {"sys_id": canonical_id}}
+    )
+    mcp = MCPServer("test")
+    register_tools(mcp, settings, OAuthPKCEProvider(settings))
+
+    result = decode_response(
+        await get_tool_functions(mcp)["flow"](action=action, sys_id=snapshot_id)
+    )
+
+    assert result["status"] == "error"
+    assert result["data"] is None
+    assert result["error"]["code"] == "FLOW_SNAPSHOT_ID"
+    message = result["error"]["message"]
+    assert f'{{"action": "{action}", "sys_id": "{canonical_id}"}}' in message
+    assert "current saved definition" in message
+    assert "does not inspect the historical snapshot" in message
+    assert not canonical.called
+    assert dict(lookup.calls.last.request.url.params) == {
+        "sysparm_query": f"master_snapshot={snapshot_id}^ORlatest_snapshot={snapshot_id}",
+        "sysparm_display_value": "all",
+        "sysparm_limit": "2",
+        "sysparm_fields": "sys_id,master_snapshot,latest_snapshot",
+    }
+
+
+@pytest.mark.parametrize("owners", [[], ["b" * 32, "c" * 32]])
+async def test_missing_flow_distinguishes_unknown_and_ambiguous_snapshot(
+    settings: Settings, owners: list[str]
+) -> None:
+    identity = "a" * 32
+    http_mock.get(f"{BASE_URL}/sys_hub_flow/{identity}").respond(
+        404, json={"error": {"message": "No Record found"}}
+    )
+    http_mock.get(f"{BASE_URL}/sys_hub_flow").respond(
+        200,
+        json={"result": [{"sys_id": owner} for owner in owners]},
+    )
+    mcp = MCPServer("test")
+    register_tools(mcp, settings, OAuthPKCEProvider(settings))
+
+    result = decode_response(
+        await get_tool_functions(mcp)["flow"](action="inspect", sys_id=identity)
+    )
+
+    assert result["status"] == "error"
+    message = result["error"]["message"]
+    if owners:
+        assert result["error"]["code"] == "AMBIGUOUS_FLOW_SNAPSHOT"
+        assert all(owner in message for owner in owners)
+        assert "Select the intended definition" in message
+    else:
+        assert result["error"]["code"] == "FLOW_NOT_FOUND"
+        assert "not visible" in message
+        assert "does not prove" in message
+        assert "name instead of sys_id" in message
+
+
+@pytest.mark.parametrize("status", [403, 500])
+async def test_snapshot_lookup_failure_does_not_claim_absence(
+    settings: Settings, status: int
+) -> None:
+    identity = "a" * 32
+    http_mock.get(f"{BASE_URL}/sys_hub_flow/{identity}").respond(
+        404, json={"error": {"message": "No Record found"}}
+    )
+    http_mock.get(f"{BASE_URL}/sys_hub_flow").respond(
+        status, json={"error": {"message": "Lookup failed"}}
+    )
+    mcp = MCPServer("test")
+    register_tools(mcp, settings, OAuthPKCEProvider(settings))
+
+    result = decode_response(
+        await get_tool_functions(mcp)["flow"](action="inspect", sys_id=identity)
+    )
+
+    assert result["status"] == "error"
+    assert result["error"]["code"] not in {
+        "FLOW_NOT_FOUND",
+        "FLOW_SNAPSHOT_ID",
+        "AMBIGUOUS_FLOW_SNAPSHOT",
+    }
+
+
+async def test_canonical_flow_does_not_need_snapshot_lookup(settings: Settings) -> None:
+    identity = "a" * 32
+    http_mock.get(f"{BASE_URL}/sys_hub_flow/{identity}").respond(
+        200, json={"result": {"sys_id": identity, "name": "Example"}}
+    )
+    lookup = http_mock.get(f"{BASE_URL}/sys_hub_flow").respond(
+        500, json={"error": {"message": "Must not query snapshot owners"}}
+    )
+    mcp = MCPServer("test")
+    register_tools(mcp, settings, OAuthPKCEProvider(settings))
+
+    result = decode_response(
+        await get_tool_functions(mcp)["flow"](
+            action="inspect", sys_id=identity, sections=["flow"]
+        )
+    )
+
+    assert result["status"] == "success"
+    assert result["data"]["flow"]["sys_id"] == identity
+    assert not lookup.called
+
+
 async def test_subflow_instance_read_is_bounded_and_retains_persisted_fields(
     settings: Settings,
 ) -> None:

@@ -319,7 +319,14 @@ def register_tools(mcp: MCPServer, coordinator: MutationCoordinator) -> None:
                 Error stages report state only. They neither throw exceptions nor enable a handler or activate the flow.
                 These operations author stage state, not flow-logic steps. For Each/Parallel children are excluded.
             Steps are referenced by sys_id, UI identifier, display order, or a ref alias.
-            Draft authoring supports only inactive, unpublished flow/subflow drafts. Lifecycle effects require their explicit action names.
+            Draft authoring supports inactive, unpublished flow/subflow drafts. edit also supports already-active V2 root drafts
+            with status=draft, isPublished=false, snapshot/jsonSnapshot/masterSnapshot=false, valid version/snapshot/trigger references,
+            required expected_scope and expected_revision, source-matched Studio, and save-as-you-go explicitly disabled.
+            The trigger plan selects the published JSON runtime snapshot. Preview binds it and full plan/trigger evidence.
+            Apply revalidates, sends one draft PUT with status=modified, and verifies active/version/runtime preservation.
+            No edit lock, publication, activation, deactivation, or execution occurs. Active-published flows and published subflows remain unsupported.
+            Unknown configuration metadata drift returns UNKNOWN_OUTCOME, even if error.outcome.runtime_preservation is verified.
+            Do not replay uncertain saves. Existing edit-operation restrictions remain. Lifecycle effects require their explicit action names.
             Apply the single-use preview_token with mutation_apply. The upstream API is undocumented.
             Apply uses independent semantic readback. No automatic retries.
             flow.describe reports adapter support separately from catalog discovery and live verification.

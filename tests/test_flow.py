@@ -46,6 +46,7 @@ def _make_client_mock(**method_returns: Any) -> AsyncMock:
     """Build an AsyncMock client whose listed coroutine methods return the given values."""
     client = AsyncMock()
     client.list_subflow_instances_v2.return_value = []
+    client.find_flows_by_snapshot.return_value = []
     for name, value in method_returns.items():
         getattr(client, name).return_value = value
     return client
@@ -1246,6 +1247,9 @@ async def test_inspect_missing_flow_returns_error(
 
     assert result["status"] == "error"
     assert "not found" in result["error"]["message"].lower()
+    assert result["error"]["code"] == "FLOW_NOT_FOUND"
+    assert "not visible" in result["error"]["message"]
+    client.find_flows_by_snapshot.assert_awaited_once_with(SYS_ID_FLOW)
 
 
 # ---------------------------------------------------------------------------

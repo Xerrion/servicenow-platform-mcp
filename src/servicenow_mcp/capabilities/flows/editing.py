@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 from servicenow_mcp.capabilities.contracts import CapabilityError
 from servicenow_mcp.capabilities.flows import (
+    active_drafts,
     assignments,
     calls,
     data,
@@ -140,7 +141,9 @@ def _check_edit(edit: dict[str, Any]) -> None:
         raise CapabilityError("replace must be a JSON boolean.")
 
 
-def require_editable(flow: dict[str, Any], sys_id: str) -> None:
+def require_editable(
+    flow: dict[str, Any], sys_id: str, *, allow_active_draft: bool = False
+) -> None:
     payloads.validate_definition(flow)
     for key in (
         "actionInstances",
@@ -153,18 +156,21 @@ def require_editable(flow: dict[str, Any], sys_id: str) -> None:
             raise CapabilityError(
                 "Studio returned an incomplete flow definition. No draft write is allowed."
             )
+    active = allow_active_draft and active_drafts.eligible(flow)
     if (
         flow.get("id") != sys_id
         or flow.get("type") not in {"flow", "subflow"}
-        or flow.get("active") is not False
+        or (flow.get("active") is not False and not active)
     ):
-        raise CapabilityError("Only inactive flows or subflows can be edited.")
+        raise CapabilityError(
+            "Only inactive drafts or supported active V2 root drafts can be edited."
+        )
     if flow.get("type") == "subflow" and flow["triggerInstances"]:
         raise CapabilityError("Subflow drafts cannot contain triggers.")
     if (
         flow.get("status") != "draft"
         or flow.get("isPublished") is not False
-        or flow.get("masterSnapshotId")
+        or (flow.get("masterSnapshotId") and not active)
     ):
         raise CapabilityError(
             "Published flows cannot be edited. Studio creates a new draft for them."
@@ -179,7 +185,7 @@ def require_editable(flow: dict[str, Any], sys_id: str) -> None:
         raise CapabilityError(
             "Studio returned a partial flow definition. No draft write is allowed."
         )
-    semantics.studio_semantics(flow)
+    semantics.studio_semantics(flow, allow_active_draft=active)
 
 
 def trigger_catalog(categories: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -335,6 +341,52 @@ class PillResolver:
         self.table_cache: dict[tuple[str, str], bool] = {}
         self.schemas: dict[str, dict[str, Any]] = {}
         self.definition_cache: dict[str, dict[str, Any]] = {}
+        self.linked_tables: dict[str, dict[str, Any]] = {}
+
+    async def static_table(self, source: dict[str, Any]) -> dict[str, Any]:
+        table = source.get("value")
+        if (
+            data.value_type(source).kind != "table_name"
+            or not isinstance(table, str)
+            or not re.fullmatch(r"[a-z][a-z0-9_]{0,79}", table)
+            or source.get("scriptActive")
+        ):
+            raise CapabilityError(
+                "Linked outputs and conditions require a static table-name input.",
+                "UNAVAILABLE",
+            )
+        check_table_access(table)
+        if table not in self.linked_tables:
+            check_table_access("sys_db_object")
+            records = (
+                await self.client.query_records(
+                    "sys_db_object",
+                    f"name={table}",
+                    fields=["name", "label", "sys_id"],
+                    limit=2,
+                )
+            )["records"]
+            if (
+                len(records) != 1
+                or records[0].get("name") != table
+                or not records[0].get("label")
+            ):
+                raise CapabilityError(
+                    "The linked table is absent, ambiguous, or unreadable.",
+                    "UNAVAILABLE",
+                )
+            validate_sys_id(records[0].get("sys_id", ""))
+            descriptor = await self.client.studio_table_descriptor(table)
+            display = descriptor.get("displayField")
+            if not isinstance(display, str) or not re.fullmatch(
+                r"[a-z][a-z0-9_]*", display
+            ):
+                raise CapabilityError(
+                    "The linked table descriptor has no readable display field.",
+                    "UNAVAILABLE",
+                )
+            self.linked_tables[table] = {"table": records[0], "descriptor": descriptor}
+        return self.linked_tables[table]
 
     def prescription(self, pill: str) -> str:
         """Resolve only saved identity transforms. Preserve their opaque metadata.
@@ -429,6 +481,8 @@ class PillResolver:
                 label = "Flow Variables" if prefix == "flow_variable" else "Input"
             if pill not in self.cache:
                 output = data.named(outputs, path[0])
+                if producer:
+                    output = await calls.linked_output(producer, output, self)
                 if producer and producer.logic_type == "FOREACH" and path[0] == "item":
                     output = copy.deepcopy(output)
                     items = data.named(producer.raw["inputs"], "items")["value"]
@@ -540,6 +594,26 @@ class PillResolver:
             if kind == "template_value":
                 await self._template(binding, parameter, consumer)
                 continue
+            if kind == "conditions" and consumer.kind == "action":
+                schema = data.spec(parameter)
+                dependency = schema.get("dependent_on")
+                if not isinstance(dependency, str) or not dependency:
+                    raise CapabilityError(
+                        "Action conditions require a declared static table dependency.",
+                        "UNAVAILABLE",
+                    )
+                source = data.named(
+                    consumer.raw["inputs"], dependency.removeprefix("inputs.")
+                )
+                await self.static_table(source)
+                widgets.validate("conditions", binding.get("value"), schema)
+                for path in widgets.condition_paths(binding["value"]):
+                    await self._field(
+                        "condition." + ".".join(path),
+                        "Condition",
+                        source["value"],
+                        path,
+                    )
             value = widgets.pill_text(binding, kind, data.spec(parameter))
             approval_types = (
                 dict(widgets.approval_references(value))
@@ -1067,7 +1141,9 @@ async def load_state(
         else await client.studio_request(f"flow/{command.sys_id}")
     )
     require_editable(
-        flow, flow["id"] if initial_flow is not None else command.sys_id or ""
+        flow,
+        flow["id"] if initial_flow is not None else command.sys_id or "",
+        allow_active_draft=command.action == "edit",
     )
     if (
         command.expected_scope is not None
@@ -1093,7 +1169,10 @@ async def load_state(
     triggers = (
         await client.studio_definitions("triggers") if needs & trigger_edits.OPS else []
     )
-    return {"flow": flow, "logic": logic, "triggers": triggers}
+    state = {"flow": flow, "logic": logic, "triggers": triggers}
+    if flow["active"] is True:
+        state["active_runtime"] = await active_drafts.read(command, flow, client)
+    return state
 
 
 def _native_parameter(parameter: dict[str, Any]) -> dict[str, Any]:
@@ -1815,7 +1894,7 @@ async def plan(
                 if any(
                     item["name"] in _inputs(edit)
                     and data.value_type(item).kind
-                    in {"document_id", "table_name", "field_name"}
+                    in {"document_id", "table_name", "field_name", "conditions"}
                     for item in siblings[position].raw["inputs"]
                 ):
                     dependency_changed.add(siblings[position].uid)
@@ -2138,12 +2217,17 @@ async def plan(
     if call_evidence:
         _refresh_component_mirror(flow, payload)
     payloads.validate_definition(payload)
-    semantics.studio_semantics(payload, pending_deletions=pending_deletions)
+    semantics.studio_semantics(
+        payload,
+        pending_deletions=pending_deletions,
+        allow_active_draft=flow["active"] is True,
+    )
     reference_evidence: dict[str, Any] = {
         "calls": call_evidence,
         "trigger_dependencies": trigger_evidence,
         "complex_schemas": resolver.schemas,
         "complex_definitions": resolver.definition_cache,
+        "linked_tables": resolver.linked_tables,
         "declaration_tables": table_evidence,
         "pills": [
             {key: value for key, value in entry.items() if key != "usedInstances"}
@@ -2444,7 +2528,7 @@ def preview_summary(
     summary = {
         "sys_id": flow["id"],
         "name": flow["name"],
-        "active": False,
+        "active": flow["active"],
         "status": "draft",
         "changes": result["summary"],
         "before": trigger_lines(flow["triggerInstances"])
@@ -2510,7 +2594,12 @@ def preview_summary(
             "matches": True,
         }
         try:
-            semantics.compare_saved(result["payload"], flow, generated_ids=set())
+            semantics.compare_saved(
+                result["payload"],
+                flow,
+                generated_ids=set(),
+                allow_active_draft=flow["active"] is True,
+            )
         except semantics.SemanticMismatch as exc:
             check.update(
                 matches=False,
@@ -2522,6 +2611,10 @@ def preview_summary(
         except CapabilityError:
             check.update(matches=False, path="flow", kind="COMPARISON_UNAVAILABLE")
         summary["serialization_check"] = check
+    if "active_runtime" in state:
+        summary["effect"] = "save_draft_preserving_current_runtime"
+        summary["runtime_snapshot"] = state["active_runtime"]["snapshot"]["id"]
+        summary["version"] = flow["version"]
     return summary
 
 
@@ -2539,7 +2632,9 @@ async def apply(
             "The flow or its definitions changed since preview. Create a new preview.",
             "STALE_PREVIEW",
         )
-    return await save_plan(command, result, client, binding_context=binding_context)
+    return await save_plan(
+        command, result, client, binding_context=binding_context, active_state=state
+    )
 
 
 async def save_plan(
@@ -2548,30 +2643,75 @@ async def save_plan(
     client: ServiceNowClient,
     *,
     binding_context: dict[str, Any] | None,
+    active_state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     await target.require_current(command, client, binding_context)
-    saved = await semantics.save_draft(client, result["payload"])
+    runtime = (active_state or {}).get("active_runtime")
+    if result["payload"].get("active") is True and runtime is None:
+        raise CapabilityError(
+            "An active draft cannot be saved without bound runtime evidence."
+        )
+    if runtime is not None:
+        assert active_state is not None
+        await active_drafts.require_current(
+            command, client, active_state["flow"], runtime
+        )
+    wire = copy.deepcopy(result["payload"])
+    if runtime is not None:
+        wire["status"] = "modified"
+    saved = await semantics.save_draft(client, wire)
+    actual = None
+    if runtime is not None:
+        try:
+            actual = await client.studio_request(f"flow/{command.sys_id}")
+            await active_drafts.verify_after(command, client, actual, runtime)
+            if any(
+                type(saved.get(k)) is not type(actual.get(k))
+                or saved.get(k) != actual.get(k)
+                for k in active_drafts.LIFECYCLE
+            ):
+                raise ValueError("Lifecycle echo mismatch")
+        except Exception:  # noqa: BLE001 - contain unverified post-save effects
+            raise CapabilityError(
+                "Active-draft lifecycle or runtime verification failed. Inspect the flow. Do not replay the save.",
+                "UNKNOWN_OUTCOME",
+                outcome={
+                    "runtime_preservation": "unknown",
+                    "configuration": "unverified",
+                },
+            ) from None
     if (
         saved.get("id") != command.sys_id
-        or saved.get("active") is not False
+        or saved.get("active") is not (runtime is not None)
         or saved.get("status") != "draft"
     ):
         raise CapabilityError(
             "The saved flow differs from the draft request. Inspect it before retrying.",
             "UNKNOWN_OUTCOME",
         )
-    saved = await semantics.verify_saved(
-        client,
-        result["payload"],
-        saved,
-        generated_ids={""},
-        pending_deletions=result["pending_deletions"],
-        omitted_subflows=result["omitted_subflows"],
-        generated_stages=set(result["created_stages"]),
-        generated_fields=result["created_fields"],
-        removed_fields=result["removed_fields"],
-        generated_trigger_inputs=result["generated_trigger_inputs"],
-    )
+    try:
+        saved = await semantics.verify_saved(
+            client,
+            result["payload"],
+            saved,
+            generated_ids={""},
+            pending_deletions=result["pending_deletions"],
+            omitted_subflows=result["omitted_subflows"],
+            generated_stages=set(result["created_stages"]),
+            generated_fields=result["created_fields"],
+            removed_fields=result["removed_fields"],
+            generated_trigger_inputs=result["generated_trigger_inputs"],
+            allow_active_draft=runtime is not None,
+            actual=actual,
+        )
+    except CapabilityError as exc:
+        if runtime is None:
+            raise
+        raise CapabilityError(
+            f"Active-draft configuration verification is inconclusive. {exc}",
+            "UNKNOWN_OUTCOME",
+            outcome={"runtime_preservation": "verified", "configuration": "unverified"},
+        ) from None
     actual_outline = trigger_lines(saved["triggerInstances"]) + tree.outline(
         tree.build_tree(saved)
     )
@@ -2580,11 +2720,23 @@ async def save_plan(
         "table": "sys_hub_flow",
         "sys_id": saved["id"],
         "name": saved.get("name"),
-        "active": False,
-        "status": "draft",
+        "active": saved["active"],
+        "status": saved["status"],
         "outline": actual_outline,
         "refs": persisted_refs(result, saved),
         "stage_refs": result["stage_refs"],
+        **(
+            {
+                "runtime_preservation": "verified",
+                "isPublished": saved["isPublished"],
+                "version": saved["version"],
+                "master_snapshot": saved["masterSnapshotId"],
+                "latest_snapshot": saved["latestSnapshot"],
+                "runtime_snapshot": runtime["snapshot"]["id"],
+            }
+            if runtime is not None
+            else {}
+        ),
     }
 
 

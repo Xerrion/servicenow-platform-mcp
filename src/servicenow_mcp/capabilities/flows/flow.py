@@ -19,6 +19,7 @@ endpoints (undocumented) or ``sys_hub_flow_snapshot`` (opaque cache).
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final, Literal, NoReturn
@@ -930,15 +931,58 @@ async def _resolve_inspect_sys_id(
         return sys_id
     matches = await client.find_flows_by_name(name)
     if len(matches) == 0:
-        _error(f"No flow found with name {name!r}.")
-    if len(matches) > 1:
         _error(
-            f"Name {name!r} is ambiguous ({len(matches)} flows match); pass sys_id instead.",
+            f"No flow is visible with name {name!r}. "
+            "Check the connected instance, spelling, and read access to sys_hub_flow. "
+            "Use the name or internal_name of the flow definition, not a step label."
+        )
+    if len(matches) > 1:
+        identities = [_v(row.get("sys_id")) for row in matches[:5]]
+        _error(
+            f"Name {name!r} is ambiguous. Multiple visible flow definitions match. "
+            f"Candidate sys_id values: {', '.join(identities)}. "
+            "Select the intended definition and repeat this action with sys_id instead of name.",
         )
     resolved = _v(matches[0].get("sys_id"))
     if not resolved:
         _error(f"Resolved flow for {name!r} has no sys_id.")
     return resolved
+
+
+async def _reject_missing_flow(
+    client: ServiceNowClient, sys_id: str, *, is_contract: bool
+) -> NoReturn:
+    matches = await client.find_flows_by_snapshot(sys_id)
+    action = "contract" if is_contract else "inspect"
+    if len(matches) == 1:
+        canonical_id = _v(matches[0].get("sys_id"))
+        validate_sys_id(canonical_id)
+        request = json.dumps({"action": action, "sys_id": canonical_id})
+        raise CapabilityError(
+            f"ID {sys_id} is a snapshot ID, not a flow definition ID. "
+            f"Its visible owner has sys_hub_flow.sys_id={canonical_id}. "
+            f"To inspect the owner's current saved definition, call flow with {request}. "
+            "This does not inspect the historical snapshot. No target was changed automatically.",
+            code="FLOW_SNAPSHOT_ID",
+        )
+    if matches:
+        identities = [_v(row.get("sys_id")) for row in matches]
+        raise CapabilityError(
+            f"ID {sys_id} matches snapshot references on multiple visible flow definitions. "
+            f"Candidate sys_id values: {', '.join(identities)}. "
+            "Select the intended definition and repeat this action with its sys_hub_flow.sys_id. "
+            "No target was selected automatically.",
+            code="AMBIGUOUS_FLOW_SNAPSHOT",
+        )
+    raise CapabilityError(
+        f"Flow definition {sys_id} was not found or is not visible to the connected user. "
+        "No visible flow references this ID in master_snapshot or latest_snapshot. "
+        "Use sys_hub_flow.sys_id, not a snapshot, step, action type, or execution context ID. "
+        f"If you know the definition name, call flow with action={action!r} and name instead of sys_id. "
+        "Otherwise, check the connected instance and read access. "
+        "This result does not prove that the record is absent.",
+        code="FLOW_NOT_FOUND",
+    )
 
 
 def _build_inspect_warnings(
@@ -1500,7 +1544,7 @@ async def _load_inspection(
 
         header = await client.get_flow_by_sys_id(resolved_sys_id)
         if header is None:
-            return _error(f"Flow {resolved_sys_id} not found.")
+            await _reject_missing_flow(client, resolved_sys_id, is_contract=is_contract)
 
         master = _v(header.get("master_snapshot"))
         latest = _v(header.get("latest_snapshot"))

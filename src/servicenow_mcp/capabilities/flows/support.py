@@ -167,6 +167,13 @@ def ledger() -> dict[str, Any]:
             for kind in sorted(LOGIC_TYPES)
         },
         "features": {
+            "active_draft_editing": entry(
+                True,
+                "edit supports only source-matched active V2 root drafts with disabled save-as-you-go and required target scope/revision. "
+                "Trigger-plan-selected JSON snapshot, complete plan/trigger records, activation, version, and snapshot references bind preview/apply. "
+                "One native draft PUT, no lifecycle effects or edit locks. Unknown configuration metadata differences remain UNKNOWN_OUTCOME. "
+                "One scalar native development save was observed. Adapter and other edit operations are offline-regression verified only.",
+            ),
             "complete_creation": entry(
                 True,
                 "create with 1-200 ordered edits uses the existing typed planner, local refs, and server-side definition discovery. "
@@ -176,7 +183,7 @@ def ledger() -> dict[str, Any]:
             ),
             "structured_call_insertion": entry(
                 True,
-                "insert_action/insert_subflow use independently read published snapshots, existing native input serializers, placement/pill aliases, and tree/dependency validation. Structured drafts and enabled handler branches supported. Dynamic/dependent call-input insertion remains unavailable. Source-derived offline only.",
+                "insert_action/insert_subflow use independently read published snapshots, existing native input serializers, placement/pill aliases, and tree/dependency validation. Structured drafts and enabled handler branches supported. Static table-backed conditions and internal_link record outputs are supported with table descriptor and dictionary evidence. Other dynamic/dependent contracts remain unavailable. Source-derived offline only.",
             ),
             "subflow_creation": entry(
                 True,

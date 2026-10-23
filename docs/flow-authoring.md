@@ -148,7 +148,43 @@ Apply that preview once after authorization. No complete-flow resubmission is ne
 Surviving identities and unmentioned settings remain unchanged. Moves revalidate branch scope and every remaining binding.
 For subflows, use `flow_type="subflow"`, omit triggers and stages, and declare interfaces with `create_field`.
 `assign_outputs`, nested declarations, and supported handlers use their existing edit contracts below.
-Active or published flow editing remains unsupported. This feature does not create a new draft version of an active flow.
+Complete creation remains inactive. Incremental `edit` also supports the bounded [active-draft profile](#editing-an-active-draft).
+It does not transition a published root into a draft.
+
+### Editing an active draft
+
+`edit` can save an already-active V2 root flow while retaining its executable version.
+Supply both `expected_scope` and `expected_revision`. Existing edit operations and their validation limits still apply.
+The saved root must report these explicit fields:
+
+- `active=true`, `status=draft`, and `isPublished=false`.
+- `snapshot=false`, `jsonSnapshot=false`, and `masterSnapshot=false`.
+- Valid nonempty `masterSnapshotId`, `latestSnapshot`, and `remoteTriggerSysId` references, plus a readable version.
+- Complete definition content and Studio write access.
+
+The installed Studio source must match the verified `studio-27-v2` source fingerprint.
+The readable `sn_flow_designer.save_as_you_go_enabled` property must explicitly equal `false`.
+Published roots, published subflows, lock-enabled profiles, and unknown profiles remain rejected. No edit lock is acquired.
+
+Preview reads the target header, source fingerprint, configuration property, full trigger plan, full trigger record, and selected published JSON snapshot.
+The trigger-plan relationship establishes runtime selection. The adapter does not infer selection from the name `latestSnapshot`.
+Main-snapshot ownership and header version metadata must also agree. All evidence binds preview and apply.
+Apply repeats these reads and checks for drift immediately before saving.
+
+The single native PUT retains activation, version, references, and other settings. It sends Studio's `status=modified` save marker.
+Echo and independent GET must agree on the resulting active draft. The header revision must increase exactly once.
+The executable JSON snapshot content, plan, trigger activation, references, version, scope, and main-header metadata must remain unchanged.
+Full equality of the main-snapshot GET representation is not a runtime invariant. The development capture demonstrated changes to that representation.
+
+Configuration verification stays strict. Unknown declaration or mirrored metadata changes are not normalized.
+A save can persist and then return `UNKNOWN_OUTCOME` with `error.outcome.runtime_preservation="verified"` and `configuration="unverified"`.
+Inspect that saved flow before further work. Never replay or compensate for an uncertain save.
+The read/check/write sequence is not atomic. Concurrent changes can still produce an unknown outcome.
+
+The 2026-10-22 development experiment observed one scalar input save and unchanged selected runtime content and trigger-plan records.
+It was not a live test of this complete adapter or every edit operation. Regression fixtures contain synthetic values.
+Offline active-draft round trips cover structural edits, trigger updates/replacement, stages, handlers, and scalar-variable declarations with assigned identities.
+Those fixtures preserve other requested metadata. Separate drift cases reject unexpected metadata, including declaration mirrors, without inferring real-server normalization.
 
 ### Write boundaries and partial outcomes
 
@@ -370,7 +406,7 @@ Ordinary call deletion leaves `alerts` unchanged. Connection override cleanup is
 
 ### Record and classic scheduled triggers
 
-These operations configure an inactive unpublished V2 flow draft.
+These operations configure supported V2 drafts, including roots that meet the active-draft requirements above.
 They do not create an active schedule or a separate saved trigger definition.
 `set_trigger` creates a trigger, or replaces it only with `replace=true`.
 `update_trigger` changes selected input values while preserving the trigger ID, other inputs, and opaque settings.
@@ -507,6 +543,12 @@ Preview/apply binds that metadata and rejects unavailable fields or schema drift
 Any/All user/group `approval_rules` retain their native string and validate approver reference tables.
 Approval no-deadline `schedule_date_time` JSON retains the native `date="{{}}"` sentinel. Automatic deadline outcomes remain unsupported.
 Read-only table defaults may be resolved from a typed record pill, but callers cannot override read-only parameters.
+Static table-dependent action conditions support bounded encoded queries and typed pill values.
+The planner checks condition fields through the inherited dictionary resolver. It rejects scripts and query directives.
+Action `internal_link` record outputs use the published output's linked table parameter, a readable table descriptor, and dictionary field types.
+Preview/apply binds these definitions and metadata. The published output schema and unknown settings remain unchanged.
+A filter such as `valueINADD,REMOVE` does not declare a choice type for `Record.value`.
+String outputs still cannot supply choice inputs without an actual declared compatible choice set.
 The older `add_action`/`add_subflow` header-append actions retain their narrower compatibility contract.
 
 `move_step` on a Try moves its adjacent linked Catch and both complete subtrees together.
@@ -524,7 +566,7 @@ These operations are source-derived and offline-tested, not live-verified.
 | `set_error_handler`    | `enabled` boolean | Creates/enables a handler or disables it with native content-preservation rules. |
 | `remove_error_handler` | None              | Removes an empty handler and restores main root ownership.                       |
 
-`set_error_handler` accepts `enabled=true` or `enabled=false` for an inactive unpublished flow or subflow.
+`set_error_handler` accepts `enabled=true` or `enabled=false` for a supported flow or subflow draft.
 Enabling a draft without a handler creates native `TOP_LEVEL_TRY` and `TOP_LEVEL_CATCH` instances from the current readable catalog.
 The hidden Try has order zero. Existing root steps become its children without changing their identities or values.
 The Catch starts the separate handler region. The native `startOfErrorHandlingInstances` index follows its array position.
@@ -637,7 +679,7 @@ All new behavior has source-derived offline tests. No live error-stage save or r
 
 `create_field`, `update_field`, and `delete_field` accept `collection="flowVariables"`, `"inputs"`, or `"outputs"`.
 Supported scalar types are `string`, `integer`, `boolean`, `reference`, and `json`.
-Variables work in inactive, unpublished flows and subflows. Interface CRUD requires an existing unpublished subflow without a trigger.
+Variables work in supported flow and subflow drafts. Interface CRUD requires an existing unpublished subflow without a trigger.
 Flow-owned and trigger-owned interfaces are not replaced. Existing flow interface label/hint edits remain supported.
 This increment edits existing subflow drafts. Header creation and action/subflow appending remain flow-only.
 

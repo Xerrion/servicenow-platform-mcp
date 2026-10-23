@@ -1,5 +1,6 @@
 """Flow Designer API operations."""
 
+import hashlib
 from typing import TYPE_CHECKING, Any
 
 from servicenow_mcp.errors import NotFoundError, ServiceNowMCPError
@@ -19,6 +20,18 @@ if TYPE_CHECKING:
 
 class FlowDesignerApiClient(ServiceNowRequestClient):
     """Implement Flow Designer record discovery and bounded joins."""
+
+    async def studio_source_digest(self) -> str:
+        """Fingerprint the served Studio client without opening the editor or acquiring locks."""
+        response = await self._ensure_client().get(
+            f"{self._settings.servicenow_instance_url}/scripts/designer-bundle.min.js",
+            headers=await self._headers(),
+            follow_redirects=False,
+        )
+        self._raise_for_flow_read_status(response)
+        if response.status_code != 200:
+            raise ServiceNowMCPError("The Studio client source is unavailable.")
+        return hashlib.sha256(response.content).hexdigest()
 
     async def flow_record(
         self, table: str, sys_id: str, fields: list[str]
@@ -255,6 +268,16 @@ class FlowDesignerApiClient(ServiceNowRequestClient):
             .build()
         )
         return await self._list_flow_rows("sys_hub_flow", query, limit=25)
+
+    async def find_flows_by_snapshot(self, sys_id: str) -> list[dict[str, Any]]:
+        """Find at most two visible owners of a current snapshot alias."""
+        validate_sys_id(sys_id)
+        return await self._list_flow_rows(
+            "sys_hub_flow",
+            f"master_snapshot={sys_id}^ORlatest_snapshot={sys_id}",
+            limit=2,
+            fields="sys_id,master_snapshot,latest_snapshot",
+        )
 
     async def list_flow_inputs(
         self, flow_sys_id: str, limit: int | None = None

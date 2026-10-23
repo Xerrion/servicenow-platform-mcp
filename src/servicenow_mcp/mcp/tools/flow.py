@@ -68,8 +68,12 @@ def register_tools(
                 It never compiles, saves, activates, or runs a flow.
             status: requires sys_id. execution_sys_id selects one exact existing execution context;
                 no execution is started.
-            sys_id: Flow sys_id (contract/inspect; mutually exclusive with name).
-            name: Flow name (contract/inspect; mutually exclusive with sys_id).
+            sys_id: Canonical sys_hub_flow.sys_id for a flow or subflow definition.
+                Do not use master_snapshot, latest_snapshot, step, action type, or execution context IDs.
+                contract/inspect reject snapshot IDs with a canonical-ID recovery request when an owner is visible.
+                Recovery reads the owner's current saved definition, not the historical snapshot.
+                Mutually exclusive with name for contract/inspect.
+            name: Definition name or internal_name (contract/inspect; mutually exclusive with sys_id).
             value: gzip+base64+JSON blob to decode (decode_values).
             table: Target table (find_by_table; optional filter for list_triggers).
             trigger_type: Trigger type filter (list_triggers, e.g. 'record_update').

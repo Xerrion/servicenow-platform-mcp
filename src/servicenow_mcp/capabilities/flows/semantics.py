@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, NoReturn
 
 from servicenow_mcp.capabilities.contracts import CapabilityError
 from servicenow_mcp.capabilities.flows import (
+    active_drafts,
     data,
     declarations,
     handlers,
@@ -445,6 +446,7 @@ def studio_semantics(
     flow: dict[str, Any],
     *,
     pending_deletions: dict[str, list[dict[str, str]]] | None = None,
+    allow_active_draft: bool = False,
 ) -> FlowSemantics:
     """Parse a complete Studio definition without changing its serialized payload."""
     try:
@@ -462,10 +464,11 @@ def studio_semantics(
         _incomplete(
             "flow.triggerInstances", "Subflow definitions cannot contain triggers."
         )
+    active = allow_active_draft and active_drafts.eligible(flow)
     prerequisites = {
         "active": (
-            False,
-            "Local validation requires the flow active field to be the boolean false. Trigger activation is separate.",
+            active,
+            "Local validation requires an inactive draft or the explicitly supported active-draft profile.",
         ),
         "status": ("draft", "Local validation requires a saved draft status."),
         "isPublished": (
@@ -481,7 +484,7 @@ def studio_semantics(
             "Read the boolean master-snapshot flag. Local validation requires a root draft.",
         ),
         "masterSnapshotId": (
-            "",
+            flow["masterSnapshotId"] if active else "",
             "Read the master snapshot reference. This adapter requires an explicitly empty reference.",
         ),
         "flowEngineVersion": (
@@ -1058,6 +1061,7 @@ def compare_saved(
     generated_stages: set[str] | None = None,
     generated_fields: list[dict[str, str]] | None = None,
     removed_fields: list[dict[str, str]] | None = None,
+    allow_active_draft: bool = False,
 ) -> None:
     """Allow server IDs only for explicitly new steps. Existing identities cannot change."""
     # Tombstones are request instructions, not persisted settings. Only planned IDs may disappear.
@@ -1227,7 +1231,9 @@ def compare_saved(
     parsed = []
     for side, definition in (("expected", expected), ("actual", actual)):
         try:
-            parsed.append(studio_semantics(definition))
+            parsed.append(
+                studio_semantics(definition, allow_active_draft=allow_active_draft)
+            )
         except IncompleteSemantics as exc:
             raise SemanticMismatch(
                 exc.path, "INCOMPLETE_SEMANTICS", side, str(exc)
@@ -1288,7 +1294,9 @@ def compare_saved(
                 )
             _identity(saved["id"], f"flow.{collection}[{index}].id")
             saved["id"] = row.get("id", "")
-    normalized_semantics = studio_semantics(normalized)
+    normalized_semantics = studio_semantics(
+        normalized, allow_active_draft=allow_active_draft
+    )
     if normalized_semantics != wanted:
         raise _semantic_difference(wanted, normalized_semantics, expected)
 
@@ -1455,6 +1463,8 @@ async def verify_saved(
     generated_fields: list[dict[str, str]] | None = None,
     removed_fields: list[dict[str, str]] | None = None,
     generated_trigger_inputs: dict[str, Any] | None = None,
+    allow_active_draft: bool = False,
+    actual: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Verify the echo and a separate GET. Never retry a write or expose input values in errors."""
     phase = "request.echo"
@@ -1473,9 +1483,11 @@ async def verify_saved(
             generated_stages=generated_stages,
             generated_fields=generated_fields,
             removed_fields=removed_fields,
+            allow_active_draft=allow_active_draft,
         )
         phase = "readback.get"
-        actual = await client.studio_request(f"flow/{expected['id']}")
+        if actual is None:
+            actual = await client.studio_request(f"flow/{expected['id']}")
         phase = "request.readback"
         bound = await _bind_trigger_inputs(
             client, expected, actual, generated_trigger_inputs
@@ -1491,6 +1503,7 @@ async def verify_saved(
             generated_stages=generated_stages,
             generated_fields=generated_fields,
             removed_fields=removed_fields,
+            allow_active_draft=allow_active_draft,
         )
         # Assigned IDs must also remain stable between the save response and independent read.
         phase = "echo.readback"
@@ -1500,6 +1513,7 @@ async def verify_saved(
             generated_ids=set(),
             pending_deletions=pending_deletions,
             omitted_subflows=omitted_subflows,
+            allow_active_draft=allow_active_draft,
         )
         return actual
     except SemanticMismatch as exc:

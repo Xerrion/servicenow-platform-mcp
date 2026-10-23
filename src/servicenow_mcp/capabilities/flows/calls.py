@@ -100,7 +100,7 @@ def step(
             isinstance(dependency, str)
             and dependency
             and data.value_type(parameter).kind
-            in {"document_id", "field_name", "template_value"}
+            in {"document_id", "field_name", "template_value", "conditions"}
         )
         if (
             dependency
@@ -217,6 +217,7 @@ async def table_dependencies(
         if not dependent or data.value_type(item).kind not in {
             "document_id",
             "field_name",
+            "conditions",
         }:
             continue
         name = dependent.removeprefix("inputs.")
@@ -239,6 +240,13 @@ async def table_dependencies(
         if "." in table:
             raise CapabilityError("A dependent input requires one table name.")
         check_table_access(table)
+        if data.value_type(item).kind == "conditions":
+            evidence[name] = await resolver.static_table(source)
+            # Studio updates table input reference metadata before its dependants
+            # (bundle:156335-156359). Do not rewrite the declared parameter.
+            source.update(
+                reference=table, reference_display=source.get("displayValue") or table
+            )
         if reference and reference != table:
             raise CapabilityError(
                 "The dependent record pill table differs from the resolved table."
@@ -251,6 +259,80 @@ async def table_dependencies(
                 table, item["value"]
             )
     return evidence
+
+
+async def linked_output(
+    producer: tree.Step, output: dict[str, Any], resolver: PillResolver
+) -> dict[str, Any]:
+    """Resolve native internal_link against a proven static table, not query text.
+
+    Studio data-pane projection:62774-62800. The published schema is unchanged.
+    """
+    parameter = data.spec(output)
+    link = parameter.get("internal_link")
+    if not link or producer.kind != "action":
+        return output
+    if parameter.get("type") not in {
+        "document_id",
+        "reference",
+        "records",
+        "table_name",
+    } or not isinstance(link, str):
+        raise CapabilityError(
+            "This internally linked output requires another type adapter.",
+            "UNAVAILABLE",
+        )
+    key = "action/" + producer.raw["actionTypeSysId"]
+    if key not in resolver.definition_cache:
+        if len(resolver.definition_cache) >= 100:
+            raise CapabilityError(
+                "Linked output validation supports at most 100 definitions.",
+                "UNAVAILABLE",
+            )
+        resolver.definition_cache[key] = await definition(
+            resolver.flow,
+            producer.raw["actionTypeSysId"],
+            subflow=False,
+            client=resolver.client,
+        )
+    current = resolver.definition_cache[key]
+    declared = data.named(current.get("outputs"), parameter["name"])
+    if any(
+        declared.get(k) != parameter.get(k)
+        for k in (
+            "id",
+            "name",
+            "type",
+            "reference",
+            "internal_link",
+            "children",
+            "attributes",
+            "dynamic",
+        )
+    ):
+        raise CapabilityError(
+            "The linked output schema differs from its published definition.",
+            "UNAVAILABLE",
+        )
+    source = data.named(producer.raw["inputs"], link)
+    current_source = data.named(current.get("inputs"), link)
+    if any(
+        data.spec(source).get(k) != current_source.get(k)
+        for k in ("name", "type", "reference", "dependent_on", "dynamic")
+    ):
+        raise CapabilityError(
+            "The linked table parameter differs from its published definition.",
+            "UNAVAILABLE",
+        )
+    await resolver.static_table(source)
+    schema = {
+        **copy.deepcopy(parameter),
+        "reference": source["value"],
+        "type": "reference"
+        if parameter["type"] == "document_id"
+        else parameter["type"],
+    }
+    return schema
 
 
 async def catalog_selection(

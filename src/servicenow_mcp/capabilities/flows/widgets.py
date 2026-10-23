@@ -12,7 +12,49 @@ from typing import Any
 from servicenow_mcp.capabilities.contracts import CapabilityError
 from servicenow_mcp.validation import validate_sys_id
 
-TYPES = {"slushbucket", "approval_rules", "schedule_date_time", "template_value"}
+TYPES = {
+    "slushbucket",
+    "approval_rules",
+    "schedule_date_time",
+    "template_value",
+    "conditions",
+}
+
+
+def condition_paths(value: str) -> list[list[str]]:
+    """Bounded native query fields. Values never establish an output enum."""
+    if any(
+        marker in value.lower()
+        for marker in ("javascript:", "^nq", "^orderby", "^groupby")
+    ):
+        raise CapabilityError(
+            "Conditions require an encoded query without script or query directives."
+        )
+    if value in ("", "^EQ"):
+        return []
+    paths: list[list[str]] = []
+    for term in value.split("^"):
+        if term == "EQ":
+            continue
+        term = term.removeprefix("OR")
+        match = re.fullmatch(
+            r"([a-z][a-z0-9_.]*?)(!=|>=|<=|=|>|<|NOT IN|IN|ISNOTEMPTY|ISEMPTY|STARTSWITH|ENDSWITH|NOT LIKE|LIKE)(.*)",
+            term,
+        )
+        if not match or len(paths) >= 50:
+            raise CapabilityError(
+                "Conditions require at most 50 supported field/operator clauses.",
+                "UNAVAILABLE",
+            )
+        path = match[1].split(".")
+        if len(path) > 10 or any(not segment for segment in path):
+            raise CapabilityError("Condition paths require at most ten named fields.")
+        if match[2] in {"ISNOTEMPTY", "ISEMPTY"} and match[3]:
+            raise CapabilityError(
+                "Empty-field condition operators do not accept a value."
+            )
+        paths.append(path)
+    return paths
 
 
 def template_fields(value: Any) -> list[tuple[str, str]]:
@@ -206,6 +248,8 @@ def validate(kind: str, value: Any, parameter: dict[str, Any]) -> None:
         approval_references(value)
     elif kind == "template_value":
         template_fields(value)
+    elif kind == "conditions":
+        condition_paths(value)
     else:
         due_date(value, parameter)
 

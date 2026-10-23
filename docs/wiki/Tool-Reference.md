@@ -715,7 +715,12 @@ Enable `flow_write` or `full`. Preview performs reads only. Apply the returned t
 `add_action` and `add_subflow` support only inactive, unpublished, linear drafts. Their inputs accept static string,
 choice, boolean, or integer values.
 
-`edit` applies ordered structural changes to an inactive draft in one save. Each edit has an `op`:
+`edit` applies ordered changes to an inactive draft or the bounded active V2 root-draft profile in one save.
+Active drafts require `expected_scope`, `expected_revision`, source-matched Studio, and explicitly disabled save-as-you-go.
+Preview/apply binds the trigger-plan-selected published JSON snapshot and full plan/trigger records.
+The save preserves activation and executable runtime. No lock or lifecycle effect occurs.
+Published roots and published subflows remain rejected. Unknown configuration metadata drift returns `UNKNOWN_OUTCOME` without replay.
+See [active-draft lifecycle requirements](../flow-authoring.md#editing-an-active-draft). Each edit has an `op`:
 `set_trigger`, `insert_logic`, `move_step`, `update_inputs`, or `delete_step`. It supports triggers,
 the supported families in `flow.describe`, branch placement, and typed trigger/step/variable/interface pills.
 Trigger edits support Service Catalog, record created/updated/created-or-updated, and classic daily/weekly/monthly/run-once/repeat families.

@@ -786,3 +786,79 @@ The same 300 tests also passed against the isolated staged checkpoint, without t
 ```sh
 .venv/bin/python -m pytest -q --no-cov --tb=short tests/test_flow_input_ownership.py tests/test_flow_full_native.py tests/test_flow_creation_stdio.py tests/test_flow_trigger_inputs.py tests/test_flow_variable_dto.py tests/test_flow_native_compat.py tests/test_flow_complete_creation.py tests/test_flow_editing.py
 ```
+
+## Actual one-shot create and three-way verification PASS, 2026-10-23
+
+The new retained fixture is `MCP Live - One Shot Verified 20261023T103201316019Z`:
+flow `4c7c19e28740df508643202cbbbb353d`, revision `1`, Global, inactive draft, no published snapshot.
+A fresh local Python 3.15 stdio server used source HEAD `7422a65`, the unchanged existing worktree modifications, the full package, and normal OS-cached OAuth.
+The instance was exactly `https://tv2dev.service-now.com`. The fresh native preview schema omitted `expected_update_set`.
+
+One complete create preview checked nine edits, seven nodes, branch indentation, six aliases, scalar types, both pill paths, generated inputs, and inactive state.
+One fresh apply token was consumed once in the same child session.
+There was exactly one `POST /api/now/processflow/flow` and one `PUT /api/now/processflow/flow`, both HTTP 200.
+The native path performed three bounded exact-name freshness queries. There was no extra manual conflict query or duplicate creation.
+The observer recorded returned effects without assertions inside response callbacks.
+
+The actual `mutation_apply` result was **success**, with the returned flow ID, revision, and all six persisted ref mappings below.
+The application verifier completed **request/echo, request/independent GET, and echo/GET** comparisons before that success returned.
+This is an actual API success, not a reconstruction or a later read used to reclassify an unknown outcome.
+All earlier unknown outcomes remain historical. No old fixture received a write or replay.
+
+The saved definition has seven nodes: four Logs, Set Flow Variables, If, and Else.
+It has one String variable, one assignment, one Service Catalog trigger, and two generated inputs.
+Orders, branch parents, the variable-consuming start Log, the Requested Item number condition, and mirrored assignment bindings all matched the request.
+
+| Ref          | Returned instance ID               | Returned UI identity                   |
+| ------------ | ---------------------------------- | -------------------------------------- |
+| `start`      | `347c59e28740df508643202cbbbb3520` | `ada4397d-9f42-4f7c-b8b5-6f7017c909d9` |
+| `has_number` | `387c59e28740df508643202cbbbb3522` | `f3059a9b-95bb-4f4d-bb52-6d39c61b967e` |
+| `then_log`   | `3c7c59e28740df508643202cbbbb3523` | `b47be114-102f-468b-a465-eeae328d0061` |
+| `otherwise`  | `307c59e28740df508643202cbbbb3525` | `059c2875-5f74-48c3-876a-f419fe1487eb` |
+| `else_log`   | `f87c59e28740df508643202cbbbb3525` | `d409144a-39a3-47b0-85d7-859bd0512c30` |
+| `finish`     | `387c59e28740df508643202cbbbb3526` | `a2fa5896-015d-4006-b087-b110d8073b84` |
+
+The input IDs were `3c7c19e28740df508643202cbbbb35cb` (`table_name`) and `bc7c19e28740df508643202cbbbb350b` (`request_item`).
+Their native metadata matched the independently bound catalog: hidden Table Name default `sc_req_item`, maximum size 40;
+mandatory Requested Item reference `sc_req_item`, maximum size 32, search field `number`.
+The normal verifier checked each exact record's ID, model owner, `element`, and class in both echo and GET phases.
+All four input-owner checks and all six assignment/conditional-block owner checks passed. Echo/GET assigned IDs matched exactly.
+
+Independent local validation returned `valid=true`, `complete=true`, with no diagnostics.
+Independent status returned `complete=true`, revision `1`, `active=false`, and `has_published_snapshot=false`.
+The bounded independent contract returned seven steps, one variable, two inputs, and exact complete structural counts.
+
+### Contract reader limitation, not a save mismatch
+
+The contract did **not** establish complete trigger-activation metadata.
+Its top-level `truncation.triggers.incomplete_metadata` reports: `Trigger active status is missing or invalid. The flow header does not establish trigger activation.`
+`structural_summary.complete=true` covers counts only. `structural_summary.metadata_complete=false` must not be reported as a fully complete contract.
+A bounded read-only repeat confirmed this same field limitation. No write followed it.
+
+The acceptance helper initially tested `data.truncation` instead of the response's top-level `truncation`.
+Its final journal marker therefore establishes the actual successful creation and three-way comparison, not complete contract metadata.
+The API success and three comparison results are independently recorded before that helper check.
+This report keeps the contract limitation explicit and leaves its main-readiness assessment to the caller.
+Flow-root inactivity and absence of publication were verified separately. Unknown trigger activation is not normalized to false.
+
+### Coverage and integration candidate
+
+Together, this case and the earlier actual incremental PASS on `c1b4c9da874cdb508643202cbbbb35b8`, revision `4`, cover complete native creation and incremental save/readback.
+The earlier fixture retained nine nodes, five Logs, two variables and two assignments after its successful message edit.
+No workflow execution or publication was attempted in either acceptance path.
+
+Unchanged root-source checks from the prior task remain applicable: 3625 tests passed, 66 deselected, plus 300 isolated focused tests.
+No application source changed for this live attempt or report.
+
+An isolated candidate was created on `feat/flow-authoring-integration` from local main `fd937711416e42d15f050d396bc109f9c794a76f`.
+`git merge --ff-only 7422a6568adbd8cfb2d5b71eba4ff76dc782ad3c` advanced only that candidate branch, not main.
+The candidate excludes all 14 unrelated tracked modifications and four untracked files.
+Its Python interpreter is a link to the existing installed environment. No dependencies were installed or synced.
+`UV_NO_SYNC=1`, `UV_FROZEN=1`, `UV_OFFLINE=1`, `UV_NO_ENV_FILE=1`, disabled Python downloads, and `MISE_AUTO_INSTALL=0` prevented environment resolution or installation.
+Mise trust was scoped to this shell's candidate path. No global config or credential configuration changed. The candidate did not copy credential files.
+
+Before checks, candidate module imports and their Git blob identities were verified for editing, native DTOs, semantics, and the full-native tests.
+`uv run` independently confirmed that it imported candidate source rather than the original editable checkout.
+From that candidate directory, **`mise run check`, `mise run test`, and `mise run schemas` passed**: 3496 tests passed, 66 deselected.
+Generated schemas left no tracked diff. Candidate tracked files were clean. Its only untracked item was the owned `.venv` environment link.
+The original main ref, unrelated work, stashes, and safety refs remain unchanged. No push, PR, or main merge was performed.

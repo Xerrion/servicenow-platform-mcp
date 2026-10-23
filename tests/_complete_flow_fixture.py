@@ -107,7 +107,6 @@ def create_request(*, subflow: bool = False) -> dict[str, Any]:
         "flow_type": "subflow" if subflow else "flow",
         "edits": edits,
         "expected_scope": "global",
-        "expected_update_set": UPDATE_SET,
     }
 
 
@@ -117,7 +116,6 @@ def edit_request(created: dict[str, Any]) -> dict[str, Any]:
         "action": "edit",
         "sys_id": created["sys_id"],
         "expected_scope": "global",
-        "expected_update_set": UPDATE_SET,
         "expected_revision": created["revision"],
         "edits": [
             {
@@ -176,6 +174,7 @@ class StudioModel:
         }
         self.logic = definitions() + [output_definitions()[-1]]
         self.context = {"scope": "global", "update_set": UPDATE_SET}
+        self.scope_record = {"sys_id": "global", "name": "Global"}
         self.next_id = 100
         self.component_mirror = False
 
@@ -187,6 +186,10 @@ class StudioModel:
     def handle(self, request: httpx2.Request) -> httpx2.Response:
         path, method = request.url.path, request.method
         self.calls.append((method, path))
+        if "sys_update_" in path or "concoursepicker" in path:
+            raise AssertionError(
+                "Flow operations must not read update sets or capture metadata"
+            )
         result: Any
         if method == "POST" and path == STUDIO + "/flow":
             body = json.loads(request.content)
@@ -285,7 +288,7 @@ class StudioModel:
                 "currentUpdateSet": {"sysId": self.context["update_set"]},
             }
         elif method == "GET" and path == "/api/now/table/sys_scope/global":
-            result = {"sys_id": "global", "name": "Global"}
+            result = self.scope_record
         elif method == "GET" and path == "/api/now/table/sys_update_set/" + UPDATE_SET:
             result = {
                 "sys_id": UPDATE_SET,

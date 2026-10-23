@@ -156,18 +156,6 @@
         "default": null,
         "title": "Expected Scope"
       },
-      "expected_update_set": {
-        "anyOf": [
-          {
-            "type": "string"
-          },
-          {
-            "type": "null"
-          }
-        ],
-        "default": null,
-        "title": "Expected Update Set"
-      },
       "expected_revision": {
         "anyOf": [
           {

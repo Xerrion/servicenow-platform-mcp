@@ -198,7 +198,6 @@ def register_tools(mcp: MCPServer, coordinator: MutationCoordinator) -> None:
             ]
             | None = None,
             expected_scope: str | None = None,
-            expected_update_set: str | None = None,
             expected_revision: str | None = None,
         ) -> CapabilityResult:
             """Preview Workflow Studio authoring or an explicitly selected lifecycle effect without changing ServiceNow.
@@ -212,7 +211,7 @@ def register_tools(mcp: MCPServer, coordinator: MutationCoordinator) -> None:
             Apply returns refs mapping aliases to persisted sys_id/ui_id/kind. Bound writes also return a fresh revision.
             No activation, publication, testing, or execution occurs. Omitting edits retains header-only creation.
             flow_type=flow|subflow selects creation type. Omit for flow. A new subflow is inactive, unpublished, and triggerless.
-            Lifecycle actions require sys_id plus expected_scope, expected_update_set, and expected_revision.
+            Lifecycle actions require sys_id plus expected_scope and expected_revision.
               activate: flow-only. Publishes its snapshot AND enables triggers. This can start real work after activation.
               publish: subflow-only. Publishes a callable subflow and can update versions used by parent flows.
                 Flow publish-only is unavailable because snapshot publication activates flows.
@@ -224,11 +223,11 @@ def register_tools(mcp: MCPServer, coordinator: MutationCoordinator) -> None:
               validate_remote and run: explicitly unavailable. No separate compiler or production-run contract exists in the local source.
                 flow.validate remains read-only local validation. Saving and testing are not aliases for remote validation or production run.
             Lifecycle preview binds complete current definitions/dependencies. Apply sends one explicit effect and independently reads its outcome.
-            Optional strict context binding: expected_scope and expected_update_set are required together.
-            Existing flows also require expected_revision (sys_mod_count from flow.status).
-            Binding reads the current application/update set and never switches them.
-            Unreadable context blocks the write.
-            Apply checks fresh flow-header Customer Update metadata. It does not prove child-artifact capture.
+            expected_scope independently checks the target application's sys_id or global, not the selected session application.
+            expected_revision independently checks an existing target's sys_mod_count from flow.status.
+            Both are optional for draft authoring and required for lifecycle effects. Creation forbids expected_revision.
+            Update sets are not tool arguments. ServiceNow controls normal update-set capture.
+            MCP does not read, select, reopen, relabel, or repair update sets or Customer Updates.
             add_action requires sys_id and a published action_type_sys_id snapshot.
             add_subflow requires sys_id and a published subflow definition subflow_sys_id.
             inputs is a native object of static scalar values for add_action and add_subflow.
@@ -322,7 +321,7 @@ def register_tools(mcp: MCPServer, coordinator: MutationCoordinator) -> None:
             Steps are referenced by sys_id, UI identifier, display order, or a ref alias.
             Draft authoring supports only inactive, unpublished flow/subflow drafts. Lifecycle effects require their explicit action names.
             Apply the single-use preview_token with mutation_apply. The upstream API is undocumented.
-            Apply uses independent semantic readback. Verify update-set capture. No automatic retries.
+            Apply uses independent semantic readback. No automatic retries.
             flow.describe reports adapter support separately from catalog discovery and live verification.
             """
             return await coordinator.preview(
@@ -338,7 +337,6 @@ def register_tools(mcp: MCPServer, coordinator: MutationCoordinator) -> None:
                     inputs=inputs,
                     edits=edits,
                     expected_scope=expected_scope,
-                    expected_update_set=expected_update_set,
                     expected_revision=expected_revision,
                 ),
             )

@@ -20,58 +20,11 @@ if TYPE_CHECKING:
 class FlowDesignerApiClient(ServiceNowRequestClient):
     """Implement Flow Designer record discovery and bounded joins."""
 
-    async def flow_capture_rows(
-        self,
-        sys_id: str,
-        fields: str,
-        *,
-        update_set: str | None = None,
-        scope: str | None = None,
-    ) -> list[dict[str, Any]]:
-        validate_sys_id(sys_id)
-        query = f"name=sys_hub_flow_{sys_id}"
-        if update_set is not None:
-            validate_sys_id(update_set)
-            if scope != "global":
-                validate_sys_id(scope or "")
-            query += f"^update_set={update_set}^application={scope}"
-        return await self._list_flow_rows(
-            "sys_update_xml",
-            query + "^ORDERBYsys_id",
-            limit=101 if update_set else 2,
-            fields=fields,
-        )
-
-    async def flow_session_context(self) -> dict[str, str]:
-        """Read the installed concourse picker contract. Never change the session context."""
-        response = await self._ensure_client().get(
-            f"{self._settings.servicenow_instance_url}/api/now/ui/concoursepicker/current",
-            headers=await self._headers(),
-        )
-        self._raise_for_flow_read_status(response)
-        result = self._extract_json_result(response)
-        if not isinstance(result, dict):
-            raise ServiceNowMCPError(
-                "Current application/update-set context is incomplete."
-            )
-        application = result.get("currentApplication")
-        update_set = result.get("currentUpdateSet")
-        if not isinstance(application, dict) or not isinstance(update_set, dict):
-            raise ServiceNowMCPError(
-                "Current application/update-set fields are unavailable."
-            )
-        scope = application.get("sysId")
-        identity = update_set.get("sysId")
-        if scope != "global":
-            validate_sys_id(scope)
-        validate_sys_id(identity)
-        return {"scope": scope, "update_set": identity}
-
     async def flow_record(
         self, table: str, sys_id: str, fields: list[str]
     ) -> dict[str, Any]:
-        """Strict synchronous reads for known lifecycle and capture schemas."""
-        if table not in {"sys_hub_flow", "sys_flow_context", "sys_update_set"}:
+        """Read known flow lifecycle and execution records without retries."""
+        if table not in {"sys_hub_flow", "sys_flow_context"}:
             raise ValueError("Unsupported flow lifecycle table.")
         validate_sys_id(sys_id)
         response = await self._ensure_client().get(

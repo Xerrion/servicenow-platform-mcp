@@ -223,7 +223,6 @@ class FlowCommand(Command):
     inputs: dict[str, JsonValue] | None = Field(default=None, repr=False)
     edits: list[dict[str, JsonValue]] | None = Field(default=None, repr=False)
     expected_scope: str | None = None
-    expected_update_set: str | None = None
     expected_revision: str | None = None
     instance_id: str = Field(default_factory=lambda: uuid.uuid4().hex)
     ui_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -248,13 +247,9 @@ class FlowCommand(Command):
                     "No independent remote compile/validation or production-run contract is established by the local Studio 27 source. Save is not validation; test is not a run alias.",
                     "UNAVAILABLE",
                 )
-            if (
-                not self.expected_scope
-                or not self.expected_update_set
-                or not self.expected_revision
-            ):
+            if not self.expected_scope or not self.expected_revision:
                 raise CapabilityError(
-                    "Lifecycle effects require expected_scope, expected_update_set, and expected_revision."
+                    "Lifecycle effects require expected_scope and expected_revision."
                 )
             if any(
                 v is not None
@@ -268,36 +263,24 @@ class FlowCommand(Command):
                 )
             ) or (self.inputs is not None and self.action != "test"):
                 raise CapabilityError(
-                    "Lifecycle operations accept only sys_id and strict context binding. Only test accepts inputs."
+                    "Lifecycle operations accept sys_id, expected_scope, and expected_revision. Only test accepts inputs."
                 )
             validate_payload(
                 self.inputs or {}, field_name="inputs", validate_keys=False
             )
-        if any(
-            v is not None
-            for v in (
-                self.expected_scope,
-                self.expected_update_set,
-                self.expected_revision,
-            )
-        ):
-            if not self.expected_scope or not self.expected_update_set:
-                raise CapabilityError(
-                    "Context binding requires expected_scope and expected_update_set."
-                )
-            if self.expected_scope != "global":
-                validate_sys_id(self.expected_scope)
-            validate_sys_id(self.expected_update_set)
-            if self.action != "create" and (
+        if self.expected_scope is not None and self.expected_scope != "global":
+            validate_sys_id(self.expected_scope)
+        if self.expected_revision is not None:
+            if self.action == "create":
+                raise CapabilityError("Creation has no existing expected_revision.")
+            if (
                 not self.expected_revision
                 or not self.expected_revision.isascii()
                 or not self.expected_revision.isdecimal()
             ):
                 raise CapabilityError(
-                    "Existing flow context binding requires expected_revision from sys_mod_count."
+                    "expected_revision requires a non-negative sys_mod_count string."
                 )
-            if self.action == "create" and self.expected_revision is not None:
-                raise CapabilityError("Creation has no existing expected_revision.")
         if self.action in {"activate", "publish", "deactivate", "test"}:
             return self
         if self.action == "edit":

@@ -199,7 +199,7 @@ class MutationCoordinator:
             )
         if isinstance(command, FlowCommand):
             limitations.append(
-                "Experimental undocumented Workflow Studio API. Source-derived offline verification only. Child-artifact capture is not established."
+                "Experimental undocumented Workflow Studio API. Source-derived offline verification only. ServiceNow controls update-set capture. MCP does not inspect or manage update sets."
             )
             if command.action in {"activate", "publish", "deactivate", "test"}:
                 limitations.append(

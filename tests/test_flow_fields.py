@@ -416,7 +416,7 @@ async def test_native_declaration_save_bound_context_and_independent_identity(
     ]
     flow["vendor"] = {"keep": True}
     coordinator, tools = fixtures(settings, flow)
-    update_set, row = capture_routes()
+    _, row = capture_routes()
     saved = {}
 
     def save(request):
@@ -462,7 +462,6 @@ async def test_native_declaration_save_bound_context_and_independent_identity(
             action="edit",
             sys_id=FLOW,
             expected_scope="global",
-            expected_update_set=update_set,
             expected_revision="7",
             edits=[
                 {"op": "delete_field", "collection": collection, "name": "obsolete"},
@@ -490,7 +489,7 @@ async def test_native_declaration_save_bound_context_and_independent_identity(
         assert applied["error"]["code"] == "UNKNOWN_OUTCOME", applied
     else:
         assert applied["status"] == "success", applied
-        assert applied["data"]["capture"]["state"] == "metadata_verified"
+        assert applied["data"]["revision"] == "8" and "capture" not in applied["data"]
         assert (
             saved[collection][0]["uiUniqueId"]
             == preview["data"]["summary"]["fields"][collection][0]["uiUniqueId"]

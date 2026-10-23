@@ -234,7 +234,7 @@ async def test_stage_attachment_rejects_excluded_scope(settings, kind):
 async def test_bound_stage_edit_saves_once_and_verifies_independently(settings, defect):
     flow = stage_flow()
     _, tools = fixtures(settings, flow)
-    update_set, row = capture_routes()
+    _, row = capture_routes()
     saved = {}
 
     def save(request):
@@ -276,7 +276,6 @@ async def test_bound_stage_edit_saves_once_and_verifies_independently(settings, 
             action="edit",
             sys_id=FLOW,
             expected_scope="global",
-            expected_update_set=update_set,
             expected_revision="7",
             edits=[
                 CREATE,
@@ -304,7 +303,7 @@ async def test_bound_stage_edit_saves_once_and_verifies_independently(settings, 
         assert applied["error"]["code"] == "UNKNOWN_OUTCOME", applied
     else:
         assert applied["status"] == "success", applied
-        assert applied["data"]["capture"]["state"] == "metadata_verified"
+        assert applied["data"]["revision"] == "8" and "capture" not in applied["data"]
         assert saved["stages"][key]["componentIndexes"] == [0]
     assert write.call_count == 1
     assert all(call.request.method in {"GET", "PUT"} for call in http_mock.calls)

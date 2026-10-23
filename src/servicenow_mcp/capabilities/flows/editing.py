@@ -16,7 +16,6 @@ from servicenow_mcp.capabilities.contracts import CapabilityError
 from servicenow_mcp.capabilities.flows import (
     assignments,
     calls,
-    capture,
     data,
     declarations,
     fields,
@@ -25,6 +24,7 @@ from servicenow_mcp.capabilities.flows import (
     semantics,
     stages,
     support,
+    target,
     tree,
     widgets,
 )
@@ -1068,6 +1068,13 @@ async def load_state(
     require_editable(
         flow, flow["id"] if initial_flow is not None else command.sys_id or ""
     )
+    if (
+        command.expected_scope is not None
+        and flow.get("scope") != command.expected_scope
+    ):
+        raise CapabilityError(
+            "The Studio target scope differs from expected_scope.", "CONTEXT_MISMATCH"
+        )
     if any(not isinstance(edit.get("op"), str) for edit in command.edits or []):
         raise CapabilityError("Each edit requires a string op.")
     needs = {str(edit.get("op")) for edit in command.edits or []}
@@ -2356,7 +2363,7 @@ async def save_plan(
     *,
     binding_context: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    await capture.require_current(command, client, binding_context)
+    await target.require_current(command, client, binding_context)
     saved = await semantics.save_draft(client, result["payload"])
     if (
         saved.get("id") != command.sys_id

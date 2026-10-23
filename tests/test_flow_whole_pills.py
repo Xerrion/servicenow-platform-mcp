@@ -883,17 +883,16 @@ async def test_whole_pill_production_rejected_before_reads(prod_settings):
     assert result["status"] == "error" and not http_mock.calls
 
 
-async def test_whole_pill_context_binding_changes_block_apply(settings):
+async def test_whole_pill_target_scope_changes_block_apply(settings):
     from tests.test_flow_lifecycle import capture_routes
 
     _, tools, _ = prepared(settings)
-    update_set, _ = capture_routes()
+    capture_routes()
     preview = decode_response(
         await tools["flow_preview"](
             action="edit",
             sys_id=FLOW,
             expected_scope="global",
-            expected_update_set=update_set,
             expected_revision="7",
             edits=[
                 {
@@ -905,15 +904,7 @@ async def test_whole_pill_context_binding_changes_block_apply(settings):
         )
     )
     assert preview["status"] == "success", preview
-    http_mock.get(f"{BASE}/api/now/ui/concoursepicker/current").respond(
-        200,
-        json={
-            "result": {
-                "currentApplication": {"sysId": "global"},
-                "currentUpdateSet": {"sysId": "e" * 32},
-            }
-        },
-    )
+    capture_routes(scope="e" * 32)
     applied = decode_response(
         await tools["mutation_apply"](preview_token=preview["data"]["preview_token"])
     )

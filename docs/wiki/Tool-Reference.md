@@ -482,7 +482,8 @@ Local validation requires explicit inactive V2 draft fields and complete step id
 A missing trigger activation field does not reject local validation. The flow's `active` field is a separate prerequisite.
 Unknown or unsupported Studio representations remain `valid=null`, `complete=false`. The validator does not repair them.
 `status` requires `sys_id`; optional `execution_sys_id` reads one exact existing execution context.
-Draft/published status, active state, version references, capture metadata, and session context are separate results.
+Draft/published status, active state, version references, and exact execution context are separate results.
+Status does not read update sets, Customer Updates, or session selection.
 Unknown state never authorizes replay. Explicit lifecycle effects use `flow_preview` and `mutation_apply`, not this read-only tool.
 Subflow publish, flow activate/deactivate, and saved-draft test have source-derived offline adapters.
 Independent remote validation and production run remain unavailable. Test is not a run alias.
@@ -690,7 +691,7 @@ Apply returns aliases mapped to persisted IDs and a fresh revision. Partial fail
 Ordered edits support `insert_action` and `insert_subflow` with independently read published snapshots and branch placement.
 Moving Try moves its linked Catch and both subtrees. Catch cannot move independently.
 
-Lifecycle actions require `expected_scope`, `expected_update_set`, and `expected_revision`:
+Lifecycle actions require `expected_scope` and `expected_revision`:
 
 - `activate`: publishes a flow snapshot and enables triggers. Activation can start real work.
 - `publish`: publishes a callable subflow. Flow publish-only is unavailable because the flow snapshot operation activates it.
@@ -745,9 +746,11 @@ attach, detach, reorder, and removal after explicit detachment.
 Conditional error stages attach at creation and preserve their derived ancestry. Detach removes the error state, matching Studio.
 See [experimental flow authoring](../flow-authoring.md) for native edit arguments and offline verification limits.
 Unverified family serializers return unavailable.
-Optional `expected_scope`, `expected_update_set`, and existing-flow `expected_revision` bind the preview to explicit context.
-No session switch is attempted. After saving, fresh flow-header Customer Update metadata must match the binding.
-Unbound calls report capture as unverified. Header metadata does not establish child-artifact capture or payload equality.
+Optional `expected_scope` and existing-flow `expected_revision` independently bind the target application and revision.
+Lifecycle effects require both. Creation uses an explicit scope and forbids an existing revision.
+The selected session application is not the target scope. No session switch is attempted.
+`expected_update_set` is removed. Omit it. Flow operations do not read or validate update sets or Customer Updates.
+ServiceNow performs normal capture. Capture metadata cannot block a verified save and is absent from success results.
 
 Draft authoring actions never publish, activate, or execute a flow.
 Complete creation needs one preview and one apply. Later edits can reorder, insert, update, and delete without complete-flow resubmission.
@@ -756,7 +759,7 @@ Appending a call never executes it or changes the called subflow.
 Publication, read access, entitlement, scope access, and mandatory inputs are checked before staging.
 The saved call ID is returned as `subflow_instance_sys_id`.
 OAuth access to this undocumented API is instance-dependent. Browser success does not prove OAuth access.
-Verify saved configuration with `flow.inspect` and verify the intended update set in Customer Updates.
+Verify saved configuration with `flow.inspect`. ServiceNow owns update-set capture and selection.
 State checks are not atomic. After an uncertain write, inspect the target before another preview.
 
 ### `record_preview`

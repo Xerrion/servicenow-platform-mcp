@@ -18,7 +18,6 @@ from tests._complete_flow_fixture import (
     FLOW,
     STUDIO,
     SUBFLOW,
-    UPDATE_SET,
     StudioModel,
     create_request,
     edit_request,
@@ -58,7 +57,7 @@ async def test_complete_create_then_incremental_edit_preserves_identities(
     created = await apply(tools, preview)
     assert created["status"] == "success", created
     data = created["data"]
-    assert data["revision"] == "14" and data["capture"]["state"] == "metadata_verified"
+    assert data["revision"] == "14" and "capture" not in data
     assert (
         data["refs"]["source"]["ui_id"] == preview["data"]["summary"]["refs"]["source"]
     )
@@ -137,7 +136,7 @@ async def test_invalid_complete_plan_fails_before_header_creation(settings, bad)
     assert model.flow is None and not model.bodies and not len(coordinator.store)
 
 
-@pytest.mark.parametrize("defect", ["definition", "context", "grant", "policy"])
+@pytest.mark.parametrize("defect", ["definition", "scope", "grant", "policy"])
 async def test_complete_dependencies_and_authority_drift_block_first_write(
     settings, defect, monkeypatch
 ):
@@ -148,8 +147,8 @@ async def test_complete_dependencies_and_authority_drift_block_first_write(
     assert preview["status"] == "success", preview
     if defect == "definition":
         model.action["description"] = "changed"
-    elif defect == "context":
-        model.context["update_set"] = "1" * 32
+    elif defect == "scope":
+        model.scope_record["sys_id"] = "1" * 32
     elif defect == "grant":
         coordinator.auth._generation += 1
     else:
@@ -214,7 +213,7 @@ async def test_complete_request_size_boundary(settings, count):
 
 
 @pytest.mark.parametrize(
-    "defect", ["post_dependency", "header_mirror", "header_changed", "capture_drift"]
+    "defect", ["post_dependency", "header_mirror", "header_changed"]
 )
 async def test_post_header_failure_keeps_precise_persisted_progress(settings, defect):
     model, _, tools = setup(settings)
@@ -224,10 +223,8 @@ async def test_post_header_failure_keeps_precise_persisted_progress(settings, de
     assert result["error"]["code"] == "UNKNOWN_OUTCOME", result
     outcome = result["error"]["outcome"]
     assert outcome["sys_id"] == FLOW and outcome["header"] == "verified"
-    assert outcome["definition"] == (
-        "verified" if defect == "capture_drift" else "not_sent"
-    )
-    assert len(model.bodies) == (2 if defect == "capture_drift" else 1)
+    assert outcome["definition"] == "not_sent"
+    assert len(model.bodies) == 1
 
 
 @pytest.mark.parametrize("defect", ["readback_mirror", "readback_mirror_id"])
@@ -283,17 +280,21 @@ async def test_complete_node_bound_counts_hidden_handler_wrappers(settings, coun
     assert not model.bodies
 
 
-async def test_unbound_complete_creation_reports_revision_without_claiming_capture(
+async def test_complete_creation_does_not_depend_on_capture_freshness(
     settings,
 ):
-    _, _, tools = setup(settings)
+    model, _, tools = setup(settings)
+    model.defect = "capture_drift"
     args = create_request()
     args.pop("expected_scope")
-    args.pop("expected_update_set")
     result = await apply(tools, decode_response(await tools["flow_preview"](**args)))
     assert result["status"] == "success", result
     assert result["data"]["revision"] == "14"
-    assert result["data"]["capture"]["state"] == "unverified"
+    assert "capture" not in result["data"]
+    assert all(
+        "sys_update_" not in path and "concoursepicker" not in path
+        for _, path in model.calls
+    )
 
 
 @pytest.mark.parametrize("state", ["active", "published"])
@@ -333,10 +334,10 @@ async def test_followup_revision_drift_rejects_before_any_additional_write(setti
 async def test_created_header_revision_drift_never_dispatches_complete_save(
     settings, monkeypatch
 ):
-    from servicenow_mcp.capabilities.flows import capture
+    from servicenow_mcp.capabilities.flows import target
 
     model, _, tools = setup(settings)
-    original = capture.require_current
+    original = target.require_current
 
     async def changed(command, client, before):
         if command.action == "edit":
@@ -344,7 +345,7 @@ async def test_created_header_revision_drift_never_dispatches_complete_save(
         await original(command, client, before)
 
     preview = decode_response(await tools["flow_preview"](**create_request()))
-    monkeypatch.setattr(capture, "require_current", changed)
+    monkeypatch.setattr(target, "require_current", changed)
     result = await apply(tools, preview)
     assert result["error"]["code"] == "UNKNOWN_OUTCOME", result
     assert result["error"]["outcome"]["sys_id"] == FLOW
@@ -445,7 +446,6 @@ async def test_documented_full_create_is_the_tested_native_contract(settings):
     doc = (Path(__file__).parents[1] / "docs/flow-authoring.md").read_text()
     example = doc.split("```json\n", 1)[1].split("```", 1)[0]
     for placeholder, identity in {
-        "<current-update-set-sys-id>": UPDATE_SET,
         "<format-message-snapshot-id>": ACTION,
         "<dispatch-subflow-definition-id>": SUBFLOW,
     }.items():

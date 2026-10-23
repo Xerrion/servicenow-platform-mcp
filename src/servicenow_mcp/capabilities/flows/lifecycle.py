@@ -9,7 +9,6 @@ from servicenow_mcp.capabilities.contracts import CapabilityError, CapabilityRes
 from servicenow_mcp.capabilities.flows import (
     assignments,
     calls,
-    capture,
     data,
     editing,
     handlers,
@@ -23,7 +22,7 @@ from servicenow_mcp.capabilities.flows import (
 from servicenow_mcp.capabilities.flows import (
     triggers as trigger_edits,
 )
-from servicenow_mcp.capabilities.flows.capture import scalar
+from servicenow_mcp.capabilities.flows.target import scalar
 from servicenow_mcp.capabilities.mutations.models import fingerprint
 from servicenow_mcp.policy import check_table_access, is_sensitive_field
 from servicenow_mcp.validation import validate_sys_id
@@ -42,7 +41,6 @@ HEADER_FIELDS = [
     "latest_snapshot",
     "sys_updated_on",
     "sys_mod_count",
-    "sys_update_name",
 ]
 EXECUTION_FIELDS = ["sys_id", "flow", "state", "sys_created_on", "sys_updated_on"]
 EXECUTION_STATES = {
@@ -956,30 +954,6 @@ async def status(
                         incomplete=True,
                     ),
                 )
-    capture_state: dict[str, Any] = {
-        "state": "unverified",
-        "scope": "flow_header_metadata_only",
-    }
-    try:
-        captured = await capture.read_capture(client, sys_id)
-        capture_state.update(
-            state="observed" if captured else "not_visible",
-            metadata=captured,
-            current_session_verified=False,
-            payload_verified=False,
-        )
-    except Exception:  # noqa: BLE001 — deliberately convert unexpected failures to safe diagnostics
-        capture_state["reason"] = (
-            "Customer Update metadata could not be read completely. This does not prove missing capture."
-        )
-    session: dict[str, Any] = {"state": "unavailable", "changed": False}
-    try:
-        session.update(state="observed", **(await client.flow_session_context()))
-    except Exception:  # noqa: BLE001 — deliberately convert unexpected failures to safe diagnostics
-        session["reason"] = (
-            "Current application/update-set context is unavailable through this authentication contract. No "
-            "session switch was attempted."
-        )
     execution: dict[str, Any] | None = None
     if execution_sys_id:
         check_table_access("sys_flow_context")
@@ -1064,7 +1038,5 @@ async def status(
             "execution": execution,
             "diagnostics": diagnostics,
             "replay_safe": False,
-            "capture": capture_state,
-            "session_context": session,
         },
     )

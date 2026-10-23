@@ -22,6 +22,16 @@ from tests.test_flow_lifecycle import (
 )
 
 
+@pytest.fixture(autouse=True)
+def no_update_set_reads():
+    yield
+    assert all(
+        "sys_update_" not in call.request.url.path
+        and "concoursepicker" not in call.request.url.path
+        for call in http_mock.calls
+    )
+
+
 async def paired_flow(settings):
     flow = base_flow()
     fixtures(settings, flow)
@@ -166,7 +176,7 @@ def effect_routes(settings, action):
         )
     validation_routes(flow)
     coordinator, tools = fixtures(settings, flow)
-    update_set, _ = capture_routes()
+    capture_routes()
     header = status_header()
     header.update(
         type=flow["type"],
@@ -182,7 +192,6 @@ def effect_routes(settings, action):
         "action": action,
         "sys_id": FLOW,
         "expected_scope": "global",
-        "expected_update_set": update_set,
         "expected_revision": "7",
     }
     if action == "test":
@@ -304,7 +313,7 @@ async def test_lifecycle_effect_is_one_shot_and_independently_reconciled(
         captured = {
             "sys_id": "8" * 32,
             "name": f"sys_hub_flow_{FLOW}",
-            "update_set": args["expected_update_set"],
+            "update_set": "9" * 32,
             "application": "global",
             "sys_updated_on": "2026-10-14 10:00:00",
             "sys_mod_count": "8",
@@ -339,7 +348,7 @@ async def test_lifecycle_effect_is_one_shot_and_independently_reconciled(
 
 @pytest.mark.parametrize("action", ["activate", "publish", "deactivate", "test"])
 @pytest.mark.parametrize(
-    "defect", ["context", "revision", "definition", "grant", "policy"]
+    "defect", ["scope", "revision", "definition", "grant", "policy"]
 )
 async def test_lifecycle_binding_drift_never_dispatches_effect(
     settings, action, defect, monkeypatch
@@ -349,16 +358,8 @@ async def test_lifecycle_binding_drift_never_dispatches_effect(
     coordinator, tools, flow, header, args = effect_routes(settings, action)
     preview = decode_response(await tools["flow_preview"](**args))
     assert preview["status"] == "success", preview
-    if defect == "context":
-        http_mock.get(f"{BASE}/api/now/ui/concoursepicker/current").respond(
-            200,
-            json={
-                "result": {
-                    "currentApplication": {"sysId": "global"},
-                    "currentUpdateSet": {"sysId": "e" * 32},
-                }
-            },
-        )
+    if defect == "scope":
+        header["sys_scope"] = "e" * 32
     elif defect == "revision":
         header["sys_mod_count"] = "8"
     elif defect == "definition":
@@ -571,7 +572,7 @@ async def test_saved_try_pair_move_put_keeps_all_native_identities(settings, def
     "mutation",
     ["capture", "snapshot_owner", "snapshot_id", "header", "existing_step_id"],
 )
-async def test_activation_never_accepts_unproven_snapshot_or_capture(
+async def test_activation_checks_snapshot_and_header_but_ignores_capture(
     settings, mutation
 ):
     _, tools, flow, header, args = effect_routes(settings, "activate")
@@ -601,7 +602,7 @@ async def test_activation_never_accepts_unproven_snapshot_or_capture(
                         {
                             "sys_id": "8" * 32,
                             "name": f"sys_hub_flow_{FLOW}",
-                            "update_set": args["expected_update_set"],
+                            "update_set": "9" * 32,
                             "application": "global",
                             "sys_updated_on": "2026-10-14 10:00:00",
                             "sys_mod_count": "8",
@@ -630,7 +631,10 @@ async def test_activation_never_accepts_unproven_snapshot_or_capture(
     result = decode_response(
         await tools["mutation_apply"](preview_token=preview["data"]["preview_token"])
     )
-    assert result["error"]["code"] == "UNKNOWN_OUTCOME", result
+    if mutation == "capture":
+        assert result["status"] == "success" and "capture" not in result["data"], result
+    else:
+        assert result["error"]["code"] == "UNKNOWN_OUTCOME", result
     assert write.call_count == 1
 
 
@@ -687,7 +691,6 @@ async def test_production_lifecycle_is_rejected_before_reads(prod_settings, acti
             action=action,
             sys_id=FLOW,
             expected_scope="global",
-            expected_update_set="9" * 32,
             expected_revision="7",
         )
     )

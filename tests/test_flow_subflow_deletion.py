@@ -575,19 +575,18 @@ async def test_saved_subflow_consumer_cache_is_rebuilt_for_only_survivors(settin
     assert flow == before
 
 
-@pytest.mark.parametrize("defect", ["definition_changed", "context_changed", "policy"])
+@pytest.mark.parametrize("defect", ["definition_changed", "scope_changed", "policy"])
 async def test_saved_subflow_delete_apply_revalidates_bound_state(
     settings, defect, monkeypatch
 ):
     flow = two_calls()
     coordinator, tools = fixtures(settings, flow)
-    update_set, _ = capture_routes()
+    capture_routes()
     preview = decode_response(
         await tools["flow_preview"](
             action="edit",
             sys_id=FLOW,
             expected_scope="global",
-            expected_update_set=update_set,
             expected_revision="7",
             edits=[{"op": "delete_step", "step": CALL}],
         )
@@ -600,16 +599,8 @@ async def test_saved_subflow_delete_apply_revalidates_bound_state(
         http_mock.get(f"{BASE}/api/now/processflow/flow/{FLOW}").respond(
             200, json={"result": {"data": changed}}
         )
-    elif defect == "context_changed":
-        http_mock.get(f"{BASE}/api/now/ui/concoursepicker/current").respond(
-            200,
-            json={
-                "result": {
-                    "currentApplication": {"sysId": "global"},
-                    "currentUpdateSet": {"sysId": "5" * 32},
-                }
-            },
-        )
+    elif defect == "scope_changed":
+        capture_routes(scope="5" * 32)
     else:
         from servicenow_mcp import policy
 

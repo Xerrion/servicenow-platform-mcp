@@ -886,35 +886,26 @@ async def test_handler_readonly_validation_integration(settings):
     assert all(call.request.method == "GET" for call in http_mock.calls)
 
 
-@pytest.mark.parametrize("defect", ["context", "revision", "authorization"])
-async def test_error_handler_capture_and_authorization_binding_before_write(
+@pytest.mark.parametrize("defect", ["scope", "revision", "authorization"])
+async def test_error_handler_target_and_authorization_binding_before_write(
     settings, defect
 ):
     from tests.test_flow_lifecycle import capture_routes
 
     coordinator, tools = routes(settings, base_flow())
-    update_set, _ = capture_routes()
+    capture_routes()
     preview = decode_response(
         await tools["flow_preview"](
             action="edit",
             sys_id=FLOW,
             expected_scope="global",
-            expected_update_set=update_set,
             expected_revision="7",
             edits=[{"op": "set_error_handler", "enabled": True}],
         )
     )
     assert preview["status"] == "success", preview
-    if defect == "context":
-        http_mock.get(f"{BASE}/api/now/ui/concoursepicker/current").respond(
-            200,
-            json={
-                "result": {
-                    "currentApplication": {"sysId": "global"},
-                    "currentUpdateSet": {"sysId": "e" * 32},
-                }
-            },
-        )
+    if defect == "scope":
+        capture_routes(scope="e" * 32)
     elif defect == "revision":
         from tests.test_flow_lifecycle import status_header
 

@@ -19,7 +19,7 @@ The adapter does not use browser cookies, run server scripts, or write flow snap
    The adapter resolves the current published snapshot and sets Wait For Completion to true.
 3. Apply the returned token with `mutation_apply(preview_token=...)` after review and authorization.
 4. Inspect the saved flow with `flow(action="inspect", sys_id=..., sections=["flow", "canvas", "warnings"])`.
-   Check Customer Updates to confirm capture in the intended update set.
+   ServiceNow performs its normal update-set capture. MCP does not inspect or manage update sets.
 
 `add_action` and `add_subflow` accept only linear drafts. Use `edit` for flows with triggers or flow logic.
 
@@ -43,7 +43,7 @@ This example assumes two readable, entitled published definitions:
 - A Format message action with string input `message` and string output `text`.
 - A Dispatch request subflow with string input `message` and string output `text`.
 
-Replace the three placeholders with your resolved action snapshot, subflow definition, and current update-set IDs.
+Replace the two placeholders with your resolved action snapshot and subflow definition IDs.
 The definition names describe example custom definitions. They are not built-in action names or a name-resolution API.
 The source-derived wire tests exercise this complete request shape with fixture definitions. No example executes a flow.
 
@@ -55,7 +55,6 @@ Call `flow_preview` once with:
   "name": "Dispatch request",
   "scope": "global",
   "expected_scope": "global",
-  "expected_update_set": "<current-update-set-sys-id>",
   "edits": [
     { "op": "set_trigger", "type": "service_catalog" },
     {
@@ -121,7 +120,6 @@ flow_preview(
     action="edit",
     sys_id=created["sys_id"],
     expected_scope="global",
-    expected_update_set="<current-update-set-sys-id>",
     expected_revision=created["revision"],
     edits=[
         {
@@ -158,9 +156,9 @@ Preview and apply validate the complete plan and readable dependencies before th
 Native creation uses a property POST, independent header readback, then one complete-definition PUT and independent semantic readback.
 The second plan uses the persisted header, including unknown server defaults. It never substitutes the local planning seed.
 The server reads the created `sys_mod_count` instead of assuming an initial revision.
-Strict binding verifies fresh header Customer Update metadata separately after each write.
-Complete-create results always return a revision. Bound incremental edits also return a fresh revision.
-Unbound calls retain unverified capture status. Header metadata does not prove capture of child artifacts or payload content.
+Complete-create results always return a revision. Target-bound incremental edits also return a fresh revision.
+Scope and revision checks use the target flow header. They never read the session picker, update sets, or Customer Updates.
+ServiceNow performs its normal capture. Missing or unreadable capture metadata does not affect a verified operation.
 
 The two upstream writes are not transactional. There is no automatic retry, recreation, or destructive compensation.
 After a failure, `UNKNOWN_OUTCOME` contains a value-free `error.outcome`:
@@ -173,8 +171,8 @@ After a failure, `UNKNOWN_OUTCOME` contains a value-free `error.outcome`:
 
 For example, a PUT timeout reports a verified header ID and an unknown definition outcome.
 A dependency change after header creation reports the header ID and `definition="not_sent"`.
-A capture failure after successful semantic readback reports `definition="verified"`, without claiming capture succeeded.
-Inspect that existing flow and Customer Updates before an incremental edit preview. Never repeat the create request blindly.
+A target-revision verification failure after semantic readback reports `definition="verified"` and retains the known flow ID.
+Inspect that existing flow before an incremental edit preview. Never repeat the create request blindly.
 If the property response times out without an ID, resolve the possible created flow before any further write.
 Tokens remain single-use. Publication, activation, testing, and execution require separate explicit lifecycle actions.
 
@@ -990,7 +988,7 @@ To investigate one preview, read the fixed JSONL file or stderr records and comp
 `protocol` precedes SDK argument handling. `wire.structured` and `wire.text` observe the SDK-converted result before transport delivery.
 A live process must reload once to load new instrumentation. Do not restart unrelated server processes.
 
-## Validation, status, and capture context
+## Validation, status, and target binding
 
 `flow(action="validate", sys_id=...)` reads the saved draft and applies local semantic, tree, family,
 reference, mandatory-value, and declared-schema checks. It does not compile, save, publish, activate, or execute.
@@ -1029,39 +1027,31 @@ Remote error bodies are never included. An unverified dependency still returns `
 existing `sys_flow_context`. It reports authoring status separately from active state and published/latest
 snapshot references. Unknown execution states remain unknown. This operation never starts, retries, or cancels execution.
 Execution-to-version correlation is not established by a matching flow identity.
-Customer Update metadata and current application/update-set context are separate observed/unavailable results.
+Status does not read or return Customer Update capture metadata or selected session context.
 
-For strict draft-write context binding, pass `expected_scope`, `expected_update_set`, and, for an existing flow,
-`expected_revision` from `flow.status.flow.revision.mod_count` to `flow_preview`.
-Preview and apply check the current application/update-set read contract. They never switch the session context.
-Apply checks it again immediately before saving. The existing 300-second single-use token and authorization,
-connection, production, policy, flow, and dependency checks remain in force.
-For bound operations, Customer Update lookup filters by exact flow-header name, application, and expected update set.
-It reads at most 100 candidates plus one overflow sentinel. All returned metadata must be readable and consistent.
-Selection requires a unique latest timestamp that does not predate the flow-header revision.
-Older records in the same set do not make that latest record ambiguous. Ties, duplicate identities, wrong context,
-partial rows, stale metadata, or the candidate cap still block the operation. Unbound status keeps its ambiguity warning.
-Bound preview and the immediate pre-write check retain every matching candidate's ID, timestamp, revision, and context.
-Response order does not affect that snapshot. After saving, exactly one candidate may change or be added; unchanged historical
-records must remain present. The changed record must be the unique fresh latest record. An existing record's revision must
-advance by exactly one against its own prior revision, even when it was not the previously newest record. Its timestamp cannot
-regress. A newly observed record is accepted only at initial revision zero. Ties, multiple changes, disappearing candidates,
-or incomplete evidence remain `UNKNOWN_OUTCOME`. The flow revision must advance by exactly one, and both the header and
-OAuth session context must remain stable through the final read. Moving a historical row alone does not prove a new capture.
+`expected_scope` checks the target application's `sys_id` or `global`, not the selected session application.
+For creation, it must match the explicit `scope`. The application record must resolve independently of update-set access.
+`expected_revision` checks an existing flow's `sys_mod_count`, available from `flow.status.flow.revision.mod_count`.
+These arguments are independent and optional for draft authoring. Creation does not accept an existing revision.
+When either argument binds an existing target, preview and apply check its header identity, scope, and revision.
+The immediate pre-write check rejects target drift. After saving, the target revision must advance exactly once.
+The final header read must remain stable. Failed persisted-state verification still returns `UNKNOWN_OUTCOME`.
+The existing 300-second single-use token, authorization generation, connection, production, policy, definition,
+dependency, and independent semantic readback checks remain in force.
 
-After a bound save, independent semantic readback and fresh `sys_update_xml` metadata must identify the expected
-application and update set. Missing, ambiguous, old, ACL-filtered, async, or raced readback returns `UNKNOWN_OUTCOME`.
-The draft can already be saved at this point. Do not replay it. Inspect status and Customer Updates.
-This establishes flow-header capture metadata only, not payload equality or capture of child artifacts.
-Unbound legacy calls remain compatible and report `capture.state="unverified"` explicitly.
-The installed concourse picker response shape is source-grounded but OAuth compatibility was not live-verified.
+Migration: `expected_update_set` is removed, with no compatibility alias. Remove it from existing requests.
+The native schema rejects that obsolete argument. Command state no longer stores it.
+Flow operations never select, reopen, relabel, repair, query, or validate update sets or Customer Updates.
+They never query the current session picker. ServiceNow performs its normal update-set capture.
+Missing, ignored, changed, unreadable, ambiguous, or stale update-set/capture metadata cannot block a flow operation.
+Success results contain no capture claim. Genuine write ambiguity or failed saved-state verification still forbids automatic replay.
 
 ## Explicit lifecycle effects and remaining contract gaps
 
 `flow_preview` accepts explicit lifecycle actions. Preview performs reads only.
-Apply requires the single-use token, exact revision, application, and update set from the preview.
+Apply requires the single-use token, exact target revision, and application scope from the preview.
 It never switches session context. Production policy blocks all lifecycle effects.
-Lifecycle commands require `expected_scope`, `expected_update_set`, and `expected_revision` even when draft authoring does not.
+Lifecycle commands require `expected_scope` and `expected_revision` even when draft authoring does not.
 Activate/publish/test require complete local semantic and dependency validation.
 Deactivate requires an active published flow with complete structural evidence.
 Subflow publication can update the version used by parent flows. It is not an isolated metadata operation.
@@ -1075,7 +1065,7 @@ Subflow publication can update the version used by parent flows. It is not an is
 | `validate_remote` | Unavailable. No independent compile/validation endpoint exists in the inspected local client. Saving persists, snapshot publication activates, and testing executes. |
 | `run`             | Unavailable. No independent production-run endpoint/version contract exists in the inspected local client. Test is not a run alias.                                  |
 
-For example, `flow_preview(action="test", sys_id=..., inputs=..., expected_scope=..., expected_update_set=..., expected_revision=...)`
+For example, `flow_preview(action="test", sys_id=..., inputs=..., expected_scope=..., expected_revision=...)`
 previews a real execution request. It does not execute until its token is applied.
 `inputs` supports static scalar subflow input values or supported classic trigger outputs.
 Supply every scalar subflow input explicitly, including optional inputs. Complex/list test mappings remain unsupported.
@@ -1092,7 +1082,7 @@ Publication/deactivation require matching save echo, independent Studio GET, and
 Only the action's explicit lifecycle fields may change. Existing IDs, content, and opaque settings remain strict.
 Publication also checks the independently read snapshot identity, owner, type, and master-snapshot flags.
 Snapshot content and runtime behavior remain unverified. Responses report `snapshot_content_verified=false`.
-Strict Customer Update checks remain in force for publication/deactivation. Test does not assert a configuration capture.
+No lifecycle action reads update sets or Customer Updates.
 Conservative rejection or `UNKNOWN_OUTCOME` does not authorize replay.
 
 Source: `publishFlowToServer`/`deactivateFlowCall` (97561-97577), `saveFlowSaga` response handling (99271-99297),
@@ -1112,8 +1102,8 @@ The inspected source provides no separate safe endpoint for those operations. Th
 Local official sources are `flow-test.md`, `flow-activate.md`, `publish-subflow.md`, and `flow-execution-details.md`
 under `docs/ServiceNowDocs/markdown/build-workflows/workflow-studio/`. The current-update-set behavior is documented in
 `docs/ServiceNowDocs/markdown/application-development/system-update-sets/select-update-set-system-settings.md`.
-Installed shell source establishes GET `/api/now/ui/concoursepicker/current` with `currentApplication.sysId` and
-`currentUpdateSet.sysId`. Read-only Table API metadata established lifecycle, execution-state choices, and capture fields.
+Earlier contract research inspected the shell's session picker and Customer Update fields.
+Current Flow tools do not use those contracts. Lifecycle and execution evidence comes from the target records.
 
 Authorized unsaved capture was attempted with a default-deny request guard installed before navigation.
 The guard allowed only same-origin GET navigation, static resources, and known read endpoints. It blocked all

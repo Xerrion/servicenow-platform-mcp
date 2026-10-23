@@ -1246,7 +1246,7 @@ async def save_draft(
         return await client.studio_request("flow", data=payload, create=create)
     except Exception:  # noqa: BLE001 — deliberately convert unexpected failures to safe diagnostics
         raise CapabilityError(
-            "The draft save did not return a completed result. UNKNOWN_OUTCOME: inspect the flow and capture "
-            "metadata before another preview. Do not replay the write.",
+            "The draft save did not return a completed result. UNKNOWN_OUTCOME: inspect the flow "
+            "before another preview. Do not replay the write.",
             "UNKNOWN_OUTCOME",
         ) from None

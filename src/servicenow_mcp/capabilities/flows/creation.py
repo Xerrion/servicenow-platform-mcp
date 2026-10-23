@@ -7,7 +7,7 @@ server defaults and revision. A local planning seed never authorizes a write.
 from typing import TYPE_CHECKING, Any
 
 from servicenow_mcp.capabilities.contracts import CapabilityError
-from servicenow_mcp.capabilities.flows import capture, editing, semantics, tree
+from servicenow_mcp.capabilities.flows import editing, semantics, target, tree
 from servicenow_mcp.capabilities.mutations.models import FlowCommand, fingerprint
 from servicenow_mcp.policy import check_table_access
 from servicenow_mcp.validation import validate_sys_id
@@ -68,15 +68,15 @@ async def preview(
 
 async def read_revision(client: ServiceNowClient, sys_id: str, scope: str) -> str:
     check_table_access("sys_hub_flow")
-    header = await client.flow_record("sys_hub_flow", sys_id, capture.HEADER_FIELDS)
-    revision = capture.scalar(header.get("sys_mod_count"))
+    header = await target.read_header(client, sys_id)
+    revision = target.scalar(header.get("sys_mod_count"))
     if (
-        capture.scalar(header.get("sys_id")) != sys_id
-        or capture.scalar(header.get("sys_scope")) != scope
+        target.scalar(header.get("sys_id")) != sys_id
+        or target.scalar(header.get("sys_scope")) != scope
         or not revision
         or not revision.isascii()
         or not revision.isdecimal()
-        or not capture.scalar(header.get("sys_updated_on"))
+        or not target.scalar(header.get("sys_updated_on"))
     ):
         raise CapabilityError("The created flow revision is incomplete.", "UNAVAILABLE")
     return revision
@@ -95,7 +95,7 @@ async def apply(
         raise CapabilityError(
             "Creation dependencies changed. Create a new preview.", "STALE_PREVIEW"
         )
-    await capture.require_current(command, client, binding_context)
+    await target.require_current(command, client, binding_context)
     sys_id = None
     header_state, definition_state, phase = "unknown", "not_sent", "create_properties"
     try:
@@ -114,22 +114,18 @@ async def apply(
                 "The new header contains unexpected authored content."
             )
         header_state = "verified"
-        # Each upstream write has its own revision and Customer Update verification.
         # Never guess that header creation starts at revision zero or one.
-        phase = "verify_header_capture"
-        await capture.verify_after(command, client, sys_id, binding_context)
         phase = "read_created_revision"
         revision = await read_revision(client, sys_id, properties["scope"])
         edit_command = FlowCommand(
             action="edit",
             sys_id=sys_id,
             edits=command.edits,
-            expected_scope=command.expected_scope,
-            expected_update_set=command.expected_update_set,
-            expected_revision=revision if command.expected_scope else None,
+            expected_scope=properties["scope"],
+            expected_revision=revision,
         )
         phase = "bind_created_revision"
-        bound = await capture.read_binding(edit_command, client)
+        bound = await target.read_binding(edit_command, client)
         phase = "prepare_complete_definition"
         if fingerprint(await client.studio_request(f"flow/{sys_id}")) != fingerprint(
             created
@@ -145,7 +141,7 @@ async def apply(
             [actual_state["logic"], actual_state["triggers"]]
         ) != fingerprint([state["logic"], state["triggers"]]):
             raise CapabilityError("Dependencies changed after header creation.")
-        await capture.require_current(edit_command, client, bound)
+        await target.require_current(edit_command, client, bound)
         if await read_revision(client, sys_id, properties["scope"]) != revision:
             raise CapabilityError(
                 "The created header changed before the complete save."
@@ -160,13 +156,10 @@ async def apply(
                 definition_state = "not_sent"
             raise
         definition_state = "verified"
-        phase = "verify_capture"
-        result["capture"] = await capture.verify_after(
+        phase = "verify_revision"
+        result["revision"] = await target.verify_after(
             edit_command, client, sys_id, bound
         )
-        result["revision"] = await read_revision(client, sys_id, properties["scope"])
-        if bound and result["revision"] != result["capture"]["revision"]:
-            raise CapabilityError("The flow changed after capture verification.")
         result.update(
             action="create", type=properties["type"], creation="complete_definition"
         )
@@ -186,7 +179,7 @@ async def apply(
                 if sys_id
                 else "The created flow ID is unknown. "
             )
-            + "Inspect the flow and Customer Updates before a new edit preview. Do not repeat creation. "
+            + "Inspect the flow before a new edit preview. Do not repeat creation. "
             + detail,
             "UNKNOWN_OUTCOME",
             outcome={

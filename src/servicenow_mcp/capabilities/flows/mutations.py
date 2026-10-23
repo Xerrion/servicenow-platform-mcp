@@ -5,12 +5,12 @@ from typing import TYPE_CHECKING, Any
 
 from servicenow_mcp.capabilities.contracts import CapabilityError
 from servicenow_mcp.capabilities.flows import (
-    capture,
     creation,
     editing,
     effects,
     payloads,
     semantics,
+    target,
 )
 from servicenow_mcp.capabilities.mutations.models import FlowCommand, fingerprint
 from servicenow_mcp.policy import check_table_access, mask_sensitive_fields
@@ -263,6 +263,13 @@ async def action_state(
     )
     flow = await client.studio_request(f"flow/{command.sys_id}")
     require_editable_draft(flow, command.sys_id or "")
+    if (
+        command.expected_scope is not None
+        and flow.get("scope") != command.expected_scope
+    ):
+        raise CapabilityError(
+            "The Studio target scope differs from expected_scope.", "CONTEXT_MISMATCH"
+        )
     if command.action == "add_subflow":
         if command.subflow_sys_id == command.sys_id:
             raise CapabilityError("A flow cannot call itself through draft authoring.")
@@ -305,13 +312,13 @@ async def action_state(
 async def preview(
     command: FlowCommand, client: ServiceNowClient
 ) -> tuple[dict[str, Any], str | None]:
-    context = await capture.read_binding(command, client)
+    context = await target.read_binding(command, client)
     summary, revision = await _preview(command, client)
     summary["context"] = {
         "state": "bound" if context else "unverified",
         "expected_scope": command.expected_scope,
-        "expected_update_set": command.expected_update_set,
-        "capture_scope": "flow_header_metadata_only",
+        "expected_revision": command.expected_revision,
+        "scope_semantics": "target_application",
     }
     return summary, fingerprint({"operation": revision, "context": context})
 
@@ -363,11 +370,11 @@ async def _preview(
 async def apply(
     command: FlowCommand, expected: str | None, client: ServiceNowClient
 ) -> dict[str, Any]:
-    context = await capture.read_binding(command, client)
+    context = await target.read_binding(command, client)
     _, revision = await _preview(command, client)
     if fingerprint({"operation": revision, "context": context}) != expected:
         raise CapabilityError(
-            "The flow, dependencies, or application/update-set context changed. Create a new preview.",
+            "The flow, dependencies, target scope, or revision changed. Create a new preview.",
             "STALE_PREVIEW",
         )
     result = await _apply(command, revision, client, binding_context=context)
@@ -375,11 +382,9 @@ async def apply(
         return result
     if command.action == "test":
         return result
-    result["capture"] = await capture.verify_after(
-        command, client, result["sys_id"], context
-    )
-    if context is not None:
-        result["revision"] = result["capture"]["revision"]
+    revision = await target.verify_after(command, client, result["sys_id"], context)
+    if revision is not None:
+        result["revision"] = revision
     return result
 
 
@@ -410,7 +415,7 @@ async def _apply(
                 "The creation properties changed. Create a new preview.",
                 "STALE_PREVIEW",
             )
-        await capture.require_current(command, client, binding_context)
+        await target.require_current(command, client, binding_context)
         saved = await semantics.save_draft(client, payload, create=True)
     else:
         flow, definition = await action_state(command, client)
@@ -462,7 +467,7 @@ async def _apply(
         payload[collection].append(instance)
         payloads.validate_definition(payload)
         semantics.studio_semantics(payload)
-        await capture.require_current(command, client, binding_context)
+        await target.require_current(command, client, binding_context)
         saved = await semantics.save_draft(client, payload)
     if (
         saved.get("active") is not False

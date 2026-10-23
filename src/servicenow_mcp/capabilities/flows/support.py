@@ -102,12 +102,12 @@ def ledger() -> dict[str, Any]:
                     "unverified."
                 ),
             },
-            "capture_context": {
-                "available": "optional_fail_closed_binding",
+            "target_binding": {
+                "available": "scope_and_revision",
                 "verification": "offline_regression",
                 "limitation": (
-                    "Installed concourse current schema; OAuth compatibility is not live-verified. Flow-header "
-                    "Customer Update metadata only, not payload/children."
+                    "Expected scope and revision refer to the target flow, not session selection. "
+                    "No update-set or Customer Update reads. ServiceNow controls normal capture."
                 ),
             },
             "validate_remote": {
@@ -122,7 +122,7 @@ def ledger() -> dict[str, Any]:
                 "effect": "callable_subflow_publication",
                 "reason": (
                     "Subflow-only POST flow/{id}/subflow. Flow snapshot publication also activates, so flow publish-only is rejected. "
-                    "Strict context, dependency, echo/GET, header, and snapshot-ownership checks. Snapshot content is not independently compared."
+                    "Target scope/revision, dependency, echo/GET, header, and snapshot-ownership checks. Snapshot content is not independently compared."
                 ),
             },
             "activate": {
@@ -132,7 +132,7 @@ def ledger() -> dict[str, Any]:
                 "effect": "publication_and_trigger_activation",
                 "reason": (
                     "Flow-only snapshot POST with complete saved draft. Enables triggers and can cause real work. "
-                    "Single-use context-bound preview and independent outcome reads. No automatic replay. No live effect verification."
+                    "Single-use scope/revision-bound preview and independent outcome reads. No automatic replay. No live effect verification."
                 ),
             },
             "deactivate": {

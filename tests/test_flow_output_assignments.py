@@ -184,7 +184,7 @@ async def test_assignment_save_echo_and_get_are_independent_and_never_replayed(
         )
     )
     coordinator, tools = routes(settings, flow)
-    update_set, capture_row = capture_routes()
+    _, capture_row = capture_routes()
 
     def save(request):
         body = json.loads(request.content)
@@ -232,7 +232,6 @@ async def test_assignment_save_echo_and_get_are_independent_and_never_replayed(
             action="edit",
             sys_id=FLOW,
             expected_scope="global",
-            expected_update_set=update_set,
             expected_revision="7",
             edits=[
                 {
@@ -729,29 +728,20 @@ async def test_output_assignment_native_mcp_preview_apply_and_result_schemas(set
         tasks.cancel_scope.cancel()
 
 
-async def test_assignment_context_change_before_apply_prevents_write(settings):
+async def test_assignment_target_scope_change_before_apply_prevents_write(settings):
     coordinator, tools = routes(settings, subflow())
-    update_set, _ = capture_routes()
+    capture_routes()
     preview = decode_response(
         await tools["flow_preview"](
             action="edit",
             sys_id=FLOW,
             expected_scope="global",
-            expected_update_set=update_set,
             expected_revision="7",
             edits=[{"op": "assign_outputs", "outputs": {"total": 1}}],
         )
     )
     assert preview["status"] == "success", preview
-    http_mock.get(f"{BASE}/api/now/ui/concoursepicker/current").respond(
-        200,
-        json={
-            "result": {
-                "currentApplication": {"sysId": "global"},
-                "currentUpdateSet": {"sysId": "e" * 32},
-            }
-        },
-    )
+    capture_routes(scope="e" * 32)
     applied = decode_response(
         await tools["mutation_apply"](preview_token=preview["data"]["preview_token"])
     )

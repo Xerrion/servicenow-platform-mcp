@@ -10,11 +10,11 @@ from typing import TYPE_CHECKING, Any
 
 from servicenow_mcp.capabilities.contracts import CapabilityError
 from servicenow_mcp.capabilities.flows import (
-    capture,
     data,
     editing,
     lifecycle,
     semantics,
+    target,
     tree,
 )
 from servicenow_mcp.capabilities.mutations.models import FlowCommand, fingerprint
@@ -162,12 +162,12 @@ async def state(command: FlowCommand, client: ServiceNowClient) -> dict[str, Any
             "The lifecycle target identity, scope, or write access differs from the bound draft."
         )
     if (
-        capture.scalar(before.get("sys_mod_count")) != command.expected_revision
-        or capture.scalar(before.get("sys_scope")) != command.expected_scope
+        target.scalar(before.get("sys_mod_count")) != command.expected_revision
+        or target.scalar(before.get("sys_scope")) != command.expected_scope
     ):
         raise CapabilityError("The lifecycle target revision changed.", "STALE_PREVIEW")
     if any(
-        capture.scalar(before.get(field)) is None for field in lifecycle.HEADER_FIELDS
+        target.scalar(before.get(field)) is None for field in lifecycle.HEADER_FIELDS
     ):
         raise CapabilityError("Lifecycle header evidence is incomplete.", "UNAVAILABLE")
     validation = None
@@ -178,7 +178,7 @@ async def state(command: FlowCommand, client: ServiceNowClient) -> dict[str, Any
             or flow.get("status") != "published"
             or flow.get("isPublished") is not True
             or not isinstance(flow.get("masterSnapshotId"), str)
-            or capture.scalar(before["active"]) != "true"
+            or target.scalar(before["active"]) != "true"
         ):
             raise CapabilityError(
                 "deactivate requires an active flow. Subflow unpublication is not deactivation."
@@ -192,8 +192,8 @@ async def state(command: FlowCommand, client: ServiceNowClient) -> dict[str, Any
             ) from None
         validate_sys_id(flow["masterSnapshotId"])
         if (
-            capture.scalar(before["master_snapshot"]) != flow["masterSnapshotId"]
-            or capture.scalar(before["status"]) != flow["status"]
+            target.scalar(before["master_snapshot"]) != flow["masterSnapshotId"]
+            or target.scalar(before["status"]) != flow["status"]
         ):
             raise CapabilityError(
                 "The published Studio definition and lifecycle header disagree.",
@@ -212,16 +212,16 @@ async def state(command: FlowCommand, client: ServiceNowClient) -> dict[str, Any
         if republish:
             validate_sys_id(flow["masterSnapshotId"])
             validation_flow = _draft_view(flow)
-            if capture.scalar(before["master_snapshot"]) != flow["masterSnapshotId"]:
+            if target.scalar(before["master_snapshot"]) != flow["masterSnapshotId"]:
                 raise CapabilityError(
                     "The previous published version differs from the lifecycle header.",
                     "UNAVAILABLE",
                 )
         editing.require_editable(validation_flow, command.sys_id or "")
         if (
-            capture.scalar(before["active"]) != "false"
-            or capture.scalar(before["status"]) != flow["status"]
-            or capture.scalar(before["type"]) != flow["type"]
+            target.scalar(before["active"]) != "false"
+            or target.scalar(before["status"]) != flow["status"]
+            or target.scalar(before["type"]) != flow["type"]
         ):
             raise CapabilityError(
                 "The Studio definition and lifecycle header disagree.", "UNAVAILABLE"
@@ -269,8 +269,8 @@ async def state(command: FlowCommand, client: ServiceNowClient) -> dict[str, Any
             check_table_access(table)
             record = await client.flow_test_record(table, inputs[name])
             if (
-                capture.scalar(record.get("sys_id")) != inputs[name]
-                or not (capture.scalar(record.get("sys_mod_count")) or "").isdecimal()
+                target.scalar(record.get("sys_id")) != inputs[name]
+                or not (target.scalar(record.get("sys_mod_count")) or "").isdecimal()
             ):
                 raise CapabilityError(
                     "The selected test record is missing, unreadable, or has no stable revision.",
@@ -336,7 +336,7 @@ async def apply(
             "The lifecycle target or dependency changed. Create a new preview.",
             "STALE_PREVIEW",
         )
-    await capture.require_current(command, client, context)
+    await target.require_current(command, client, context)
     flow = current["flow"]
     operation = (
         "test"
@@ -365,12 +365,12 @@ async def apply(
                 "sys_flow_context", echo, lifecycle.EXECUTION_FIELDS
             )
             if (
-                capture.scalar(execution.get("sys_id")) != echo
-                or capture.scalar(execution.get("state"))
+                target.scalar(execution.get("sys_id")) != echo
+                or target.scalar(execution.get("state"))
                 not in lifecycle.EXECUTION_STATES
             ):
                 raise ValueError("Unrelated or incomplete test context")
-            context_flow = capture.scalar(execution.get("flow"))
+            context_flow = target.scalar(execution.get("flow"))
             if context_flow != flow["id"]:
                 validate_sys_id(context_flow or "")
                 check_table_access("sys_hub_flow_snapshot")
@@ -389,22 +389,19 @@ async def apply(
                 "sys_hub_flow", flow["id"], lifecycle.HEADER_FIELDS
             ):
                 raise ValueError("Test changed draft state")
-            await capture.require_current(command, client, context)
+            await target.require_current(command, client, context)
             return {
                 "action": "test",
                 "sys_id": flow["id"],
                 "execution_sys_id": echo,
-                "state": capture.scalar(execution["state"]),
-                "terminal": capture.scalar(execution["state"])
+                "state": target.scalar(execution["state"]),
+                "terminal": target.scalar(execution["state"])
                 in {"COMPLETE", "ERROR", "CANCELLED"},
-                "execution_succeeded": (
-                    capture.scalar(execution["state"]) == "COMPLETE"
-                )
-                if capture.scalar(execution["state"])
+                "execution_succeeded": (target.scalar(execution["state"]) == "COMPLETE")
+                if target.scalar(execution["state"])
                 in {"COMPLETE", "ERROR", "CANCELLED"}
                 else None,
                 "follow_up": "Use flow.status with this exact execution_sys_id. Do not replay the test.",
-                "capture": "not_asserted_for_execution",
                 "version_content_verified": False,
             }
         if not isinstance(echo, dict) or echo.get("id") != flow["id"]:
@@ -431,12 +428,12 @@ async def apply(
             "sys_hub_flow", flow["id"], lifecycle.HEADER_FIELDS
         )
         if (
-            capture.scalar(header.get("sys_id")) != flow["id"]
-            or capture.scalar(header.get("active")) != str(active).lower()
-            or capture.scalar(header.get("sys_scope")) != command.expected_scope
-            or capture.scalar(header.get("type")) != flow["type"]
-            or capture.scalar(header.get("status")) != actual.get("status")
-            or capture.scalar(header.get("master_snapshot"))
+            target.scalar(header.get("sys_id")) != flow["id"]
+            or target.scalar(header.get("active")) != str(active).lower()
+            or target.scalar(header.get("sys_scope")) != command.expected_scope
+            or target.scalar(header.get("type")) != flow["type"]
+            or target.scalar(header.get("status")) != actual.get("status")
+            or target.scalar(header.get("master_snapshot"))
             != actual.get("masterSnapshotId")
         ):
             raise ValueError("Independent lifecycle header mismatch")
@@ -446,8 +443,8 @@ async def apply(
                 raise ValueError("Missing snapshot identity")
             validate_sys_id(snapshot)
             if (
-                capture.scalar(header.get("master_snapshot")) != snapshot
-                or capture.scalar(header.get("status")) != "published"
+                target.scalar(header.get("master_snapshot")) != snapshot
+                or target.scalar(header.get("status")) != "published"
             ):
                 raise ValueError("Snapshot header mismatch")
             check_table_access("sys_hub_flow_snapshot")

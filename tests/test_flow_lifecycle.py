@@ -1,4 +1,4 @@
-"""Read-only lifecycle validation/status and fail-closed update capture checks."""
+"""Read-only lifecycle evidence and target guards independent of update-set metadata."""
 
 import copy
 import json
@@ -137,7 +137,6 @@ def status_header():
         "latest_snapshot": "c" * 32,
         "sys_updated_on": "2026-10-14 10:00:00",
         "sys_mod_count": "7",
-        "sys_update_name": f"sys_hub_flow_{FLOW}",
     }
 
 
@@ -219,6 +218,7 @@ def capture_routes(*, scope="global", state="in progress", revision="7"):
         },
     )
     header = status_header()
+    header["sys_scope"] = scope
     header["sys_mod_count"] = revision
     http_mock.get(f"{BASE}/api/now/table/sys_hub_flow/{FLOW}").respond(
         200, json={"result": header}
@@ -251,9 +251,9 @@ def capture_routes(*, scope="global", state="in progress", revision="7"):
         "concurrent_save",
     ],
 )
-async def test_bound_save_verifies_fresh_capture_without_replay(settings, defect):
+async def test_update_set_metadata_does_not_change_verified_save(settings, defect):
     _, tools = fixtures(settings, typed_flow())
-    update_set, row = capture_routes()
+    _, row = capture_routes()
 
     def save(request):
         body = json.loads(request.content)
@@ -307,7 +307,6 @@ async def test_bound_save_verifies_fresh_capture_without_replay(settings, defect
                 },
             ],
             expected_scope="global",
-            expected_update_set=update_set,
             expected_revision="7",
         ),
     )
@@ -315,10 +314,16 @@ async def test_bound_save_verifies_fresh_capture_without_replay(settings, defect
     applied = decode_response(
         await tools["mutation_apply"](preview_token=result["data"]["preview_token"])
     )
-    if defect:
+    if defect == "concurrent_save":
         assert applied["error"]["code"] == "UNKNOWN_OUTCOME", applied
     else:
-        assert applied["data"]["capture"]["state"] == "metadata_verified", applied
+        assert applied["status"] == "success", applied
+        assert applied["data"]["revision"] == "8" and "capture" not in applied["data"]
+    assert all(
+        "sys_update_" not in call.request.url.path
+        and "concoursepicker" not in call.request.url.path
+        for call in http_mock.calls
+    )
     assert route.call_count == 1
     assert (
         await tools["mutation_apply"](preview_token=result["data"]["preview_token"])
@@ -326,9 +331,9 @@ async def test_bound_save_verifies_fresh_capture_without_replay(settings, defect
 
 
 @pytest.mark.parametrize("defect", ["scope", "state", "revision", "unreadable"])
-async def test_bound_preview_blocks_wrong_or_unknown_context(settings, defect):
+async def test_scope_and_revision_guards_ignore_update_set_state(settings, defect):
     coordinator, tools = fixtures(settings, typed_flow())
-    update_set, _ = capture_routes(
+    capture_routes(
         scope="1" * 32 if defect == "scope" else "global",
         state="complete" if defect == "state" else "in progress",
         revision="8" if defect == "revision" else "7",
@@ -347,12 +352,13 @@ async def test_bound_preview_blocks_wrong_or_unknown_context(settings, defect):
                 },
             ],
             expected_scope="global",
-            expected_update_set=update_set,
             expected_revision="7",
         ),
     )
-    assert result["status"] == "error"
-    assert len(coordinator.store) == 0
+    assert result["status"] == (
+        "error" if defect in {"scope", "revision"} else "success"
+    ), result
+    assert len(coordinator.store) == (0 if defect in {"scope", "revision"} else 1)
     assert all(call.request.method == "GET" for call in http_mock.calls)
 
 
@@ -433,7 +439,7 @@ async def test_status_and_validate_revision_race_is_incomplete(settings):
 
 async def test_context_change_after_preview_blocks_put(settings):
     _, tools = fixtures(settings, typed_flow())
-    update_set, _ = capture_routes()
+    capture_routes()
     preview = decode_response(
         await tools["flow_preview"](
             action="edit",
@@ -446,7 +452,6 @@ async def test_context_change_after_preview_blocks_put(settings):
                 },
             ],
             expected_scope="global",
-            expected_update_set=update_set,
             expected_revision="7",
         ),
     )
@@ -506,14 +511,12 @@ async def test_incomplete_dependency_never_reports_valid(settings):
     )
 
 
-@pytest.mark.parametrize(
-    "field", ["expected_scope", "expected_update_set", "expected_revision"]
-)
-async def test_incomplete_context_binding_is_rejected_before_reads(settings, field):
+@pytest.mark.parametrize("field", ["expected_scope", "expected_revision"])
+async def test_scope_and_revision_arguments_are_independent(settings, field):
     coordinator, tools = fixtures(settings, typed_flow())
+    capture_routes()
     args = {
         "expected_scope": "global",
-        "expected_update_set": "9" * 32,
         "expected_revision": "7",
     }
     args.pop(field)
@@ -523,46 +526,51 @@ async def test_incomplete_context_binding_is_rejected_before_reads(settings, fie
         edits=[{"op": "update_inputs", "step": "1", "inputs": {}}],
         **args,
     )
-    assert result.is_error
-    assert len(coordinator.store) == 0
-    assert not http_mock.calls
-
-
-async def test_context_read_shape_and_capture_query_are_bounded(settings):
-    from servicenow_mcp.capabilities.flows import capture
-    from servicenow_mcp.platform.client import ServiceNowClient
-
-    update_set, _ = capture_routes()
-    async with ServiceNowClient(settings, OAuthPKCEProvider(settings)) as client:
-        assert await client.flow_session_context() == {
-            "scope": "global",
-            "update_set": update_set,
-        }
-        row = await capture.read_capture(client, FLOW)
-        assert row is not None
-        assert row["name"] == f"sys_hub_flow_{FLOW}"
-    request = next(
-        c.request
-        for c in http_mock.calls
-        if c.request.url.path.endswith("sys_update_xml")
+    assert not result.is_error, result
+    assert len(coordinator.store) == 1
+    assert all(
+        "sys_update_" not in call.request.url.path
+        and "concoursepicker" not in call.request.url.path
+        for call in http_mock.calls
     )
-    assert request.url.params["sysparm_limit"] == "2"
-    assert "payload" not in request.url.params["sysparm_fields"]
 
 
-async def test_capture_ambiguity_and_unreadable_current_context_are_explicit(settings):
-    from servicenow_mcp.capabilities.contracts import CapabilityError
-    from servicenow_mcp.capabilities.flows import capture
+async def test_target_binding_reads_only_identity_scope_and_revision(settings):
+    from servicenow_mcp.capabilities.flows import target
+    from servicenow_mcp.capabilities.mutations.models import FlowCommand
     from servicenow_mcp.platform.client import ServiceNowClient
 
+    capture_routes()
+    async with ServiceNowClient(settings, OAuthPKCEProvider(settings)) as client:
+        command = FlowCommand(
+            action="edit",
+            sys_id=FLOW,
+            edits=[{"op": "update_inputs", "step": "1", "inputs": {}}],
+            expected_scope="global",
+            expected_revision="7",
+        )
+        bound = await target.read_binding(command, client)
+        assert bound == {"header": status_header()}
+    assert len(http_mock.calls) == 1
+    assert http_mock.calls[0].request.url.params["sysparm_fields"] == ",".join(
+        target.HEADER_FIELDS
+    )
+
+
+async def test_status_does_not_read_ambiguous_capture_or_session_context(settings):
     _, row = capture_routes()
     http_mock.get(f"{BASE}/api/now/table/sys_update_xml").respond(
         200,
         json={"result": [row, {**row, "sys_id": "7" * 32}]},
     )
-    async with ServiceNowClient(settings, OAuthPKCEProvider(settings)) as client:
-        with pytest.raises(CapabilityError, match="ambiguous"):
-            await capture.read_capture(client, FLOW)
+    tools = _register_and_get_tools(settings, OAuthPKCEProvider(settings))
+    result = decode_response(await tools["flow"](action="status", sys_id=FLOW))
+    assert result["status"] == "success" and result["data"]["complete"] is True
+    assert "capture" not in result["data"] and "session_context" not in result["data"]
+    assert all(
+        call.request.url.path == f"/api/now/table/sys_hub_flow/{FLOW}"
+        for call in http_mock.calls
+    )
 
 
 async def test_lifecycle_ledger_does_not_alias_effects(settings):
@@ -619,7 +627,7 @@ async def test_validation_checks_real_logic_family_constraints(settings):
 
 async def test_bound_write_production_gate_unchanged(settings):
     coordinator, tools = fixtures(settings, typed_flow())
-    update_set, _ = capture_routes()
+    capture_routes()
     preview = decode_response(
         await tools["flow_preview"](
             action="edit",
@@ -632,7 +640,6 @@ async def test_bound_write_production_gate_unchanged(settings):
                 },
             ],
             expected_scope="global",
-            expected_update_set=update_set,
             expected_revision="7",
         ),
     )

@@ -3,6 +3,7 @@
 import copy
 import json
 import re
+from pathlib import Path
 from typing import Any
 
 import httpx2
@@ -15,6 +16,9 @@ from tests.test_flow_output_assignments import definitions as output_definitions
 
 ACTION, SUBFLOW, SNAPSHOT, UPDATE_SET = "b" * 32, "c" * 32, "d" * 32, "e" * 32
 STUDIO = "/api/now/processflow"
+CATALOG_INPUTS = json.loads(
+    (Path(__file__).parent / "fixtures/flow_service_catalog_inputs.json").read_text()
+)["inputs"]
 
 
 def create_request(*, subflow: bool = False) -> dict[str, Any]:
@@ -191,7 +195,12 @@ class StudioModel:
                 "Flow operations must not read update sets or capture metadata"
             )
         result: Any
-        if method == "POST" and path == STUDIO + "/flow":
+        if method == "GET" and path.startswith("/api/now/table/sys_hub_flow_input/"):
+            assert self.flow is not None
+            identity = path.rsplit("/", 1)[1]
+            row = next(r for r in self.flow["inputs"] if r.get("id") == identity)
+            result = {"sys_id": identity, "model": self.flow["id"], "name": row["name"]}
+        elif method == "POST" and path == STUDIO + "/flow":
             body = json.loads(request.content)
             self.bodies.append(body)
             if self.defect == "post_timeout":
@@ -215,7 +224,7 @@ class StudioModel:
             result = {"data": self.flow}
         elif method == "PUT" and path == STUDIO + "/flow":
             body = json.loads(request.content)
-            self.bodies.append(body)
+            self.bodies.append(copy.deepcopy(body))
             if self.defect == "put_timeout":
                 raise httpx2.ReadTimeout("private-body-marker", request=request)
             if self.defect == "put_rejected":
@@ -230,6 +239,16 @@ class StudioModel:
                 for _, row in declarations.walk(body[section]):
                     if row.get("uiUniqueId") and not row.get("id"):
                         row["id"] = self.identity()
+            if (
+                body["type"] == "flow"
+                and not body["inputs"]
+                and any(
+                    t["type"] == "service_catalog" for t in body["triggerInstances"]
+                )
+            ):
+                body["inputs"] = copy.deepcopy(CATALOG_INPUTS)
+                for row in body["inputs"]:
+                    row["id"] = self.identity()
             for row in body["stages"].values():
                 row.setdefault("id", self.identity())
             if self.component_mirror:

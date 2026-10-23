@@ -2063,6 +2063,24 @@ async def plan(
     else:
         _preserve_stage_attachments(flow, payload, roots)
     payload["triggerInstances"] = triggers
+    generated_trigger_inputs = None
+    if (
+        payload["type"] == "flow"
+        and not flow["inputs"]
+        and len(triggers) == 1
+        and triggers[0]["type"] == "service_catalog"
+        and any(edit["op"] == "set_trigger" for edit in command.edits or [])
+    ):
+        definition = catalog["service_catalog"]
+        if definition["id"] != triggers[0]["triggerDefinitionId"]:
+            raise CapabilityError(
+                "The Service Catalog definition identity changed.", "UNAVAILABLE"
+            )
+        check_table_access("sys_hub_flow_input")
+        generated_trigger_inputs = {
+            "definition_id": definition["id"],
+            "declarations": trigger_edits.service_catalog_inputs(definition),
+        }
     if any(edit.get("op") in trigger_edits.OPS for edit in command.edits or []):
         trigger_edits.check_dependencies(
             flow["triggerInstances"],
@@ -2250,6 +2268,7 @@ async def plan(
             )
         ],
         "removed_fields": removed_fields,
+        "generated_trigger_inputs": generated_trigger_inputs,
         "reference_revision": fingerprint(reference_evidence),
     }
     trace_flow_preview_boundary(
@@ -2514,6 +2533,13 @@ def preview_summary(
             else {}
         ),
     }
+    if result["generated_trigger_inputs"]:
+        summary["fields"]["inputs"] = fields.summary(
+            {
+                **result["payload"],
+                "inputs": result["generated_trigger_inputs"]["declarations"],
+            }
+        )["inputs"]
     # A same-value input preview can locate serializer differences without another write.
     # It does not reconstruct an earlier request/echo or prove how the server normalizes saves.
     roots = tree.build_tree(flow)
@@ -2598,6 +2624,7 @@ async def save_plan(
         generated_stages=set(result["created_stages"]),
         generated_fields=result["created_fields"],
         removed_fields=result["removed_fields"],
+        generated_trigger_inputs=result["generated_trigger_inputs"],
     )
     actual_outline = trigger_lines(saved["triggerInstances"]) + tree.outline(
         tree.build_tree(saved)

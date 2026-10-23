@@ -89,6 +89,11 @@ class MutationCoordinator:
             command.action == "edit" or command.action == "create" and command.edits
         ):
             for edit in command.edits or []:
+                if (
+                    edit.get("op") == "set_trigger"
+                    and edit.get("type") == "service_catalog"
+                ):
+                    gate_write("sys_hub_flow_input", self.settings)
                 if edit.get("op") in {"create_field", "update_field", "delete_field"}:
                     field_table = {
                         "inputs": "sys_hub_flow_input",

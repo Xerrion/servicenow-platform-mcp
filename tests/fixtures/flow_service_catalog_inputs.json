@@ -1,0 +1,73 @@
+{
+  "evidence": "Complete sanitized flow.inputs from exact read-only Studio GET of the retained revision-1 one-shot fixture, 2026-10-23. Historical full PUT/echo is not retained. IDs synthetic. Values are public schema defaults only. Independent catalog output parameters supply the expected metadata before saving.",
+  "inputs": [
+    {
+      "id": "00000000000000000000000000000001",
+      "label": "Table Name",
+      "name": "table_name",
+      "type": "table_name",
+      "type_label": "Table Name",
+      "hint": "",
+      "order": 100,
+      "extended": false,
+      "mandatory": false,
+      "readonly": false,
+      "maxsize": 40,
+      "children": [],
+      "data_structure": "",
+      "reference": "",
+      "reference_display": "",
+      "ref_qual": "",
+      "choiceOption": "",
+      "table": "",
+      "columnName": "",
+      "defaultValue": "sc_req_item",
+      "defaultDisplayValue": "sc_req_item",
+      "use_dependent": false,
+      "dependent_on": "",
+      "show_ref_finder": false,
+      "local": false,
+      "attributes": {
+        "uiType": "table_name",
+        "test_input_hidden": "true",
+        "uiTypeLabel": "Table Name",
+        "element_mapping_provider": "com.glide.flow_design.action.data.FlowDesignVariableMapper"
+      },
+      "sys_class_name": ""
+    },
+    {
+      "id": "00000000000000000000000000000002",
+      "label": "Request Item",
+      "name": "request_item",
+      "type": "reference",
+      "type_label": "Reference",
+      "hint": "",
+      "order": 100,
+      "extended": false,
+      "mandatory": true,
+      "readonly": false,
+      "maxsize": 32,
+      "children": [],
+      "data_structure": "",
+      "reference": "sc_req_item",
+      "reference_display": "Requested Item",
+      "ref_qual": "",
+      "choiceOption": "",
+      "table": "",
+      "columnName": "",
+      "defaultValue": "",
+      "use_dependent": false,
+      "dependent_on": "",
+      "show_ref_finder": false,
+      "local": false,
+      "searchField": "number",
+      "attributes": {
+        "uiType": "reference",
+        "uiTypeLabel": "Reference",
+        "element_mapping_provider": "com.glide.flow_design.action.data.FlowDesignVariableMapper",
+        "default_search_field": "number"
+      },
+      "sys_class_name": ""
+    }
+  ]
+}

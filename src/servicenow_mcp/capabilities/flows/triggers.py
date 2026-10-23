@@ -32,6 +32,70 @@ SCHEDULE_INPUTS = {
 }
 
 
+def service_catalog_inputs(definition: dict[str, Any]) -> list[dict[str, Any]]:
+    """Expected backend-owned call inputs, bound to the independent catalog.
+
+    Service Catalog supplies a requested record (create-sc-flow.md:27). Its
+    native input DTO projection is captured in flow_service_catalog_inputs.json.
+    REST/external createFlowInputs:184408-184414 does NOT cover this trigger.
+    Runtime timestamps remain trigger outputs, not authored flow interfaces.
+    """
+    if definition.get("type") != "service_catalog":
+        return []
+    outputs = definition.get("outputs", [])
+    if any(
+        data.value_type(row).kind not in {"table_name", "reference"}
+        and not (
+            data.value_type(row).kind == "glide_date_time"
+            and data.spec(row).get("attributes", {}).get("test_input_hidden") == "true"
+        )
+        for row in outputs
+    ):
+        raise CapabilityError(
+            "The catalog has an unsupported call-input contract.", "UNAVAILABLE"
+        )
+    result = []
+    for kind in ("table_name", "reference"):
+        matches = [
+            data.spec(row) for row in outputs if data.value_type(row).kind == kind
+        ]
+        if len(matches) != 1:
+            raise CapabilityError(
+                "The Service Catalog call-input schema is ambiguous.", "UNAVAILABLE"
+            )
+        row = copy.deepcopy(matches[0])
+        if (
+            not isinstance(row.get("name"), str)
+            or not isinstance(row.get("type_label"), str)
+            or not isinstance(row.get("attributes"), dict)
+        ):
+            raise CapabilityError(
+                "The catalog call-input parameter is incomplete.", "UNAVAILABLE"
+            )
+        row.pop("id", None)  # New flow-owned records receive different database IDs.
+        if row.get("internal_link") == "":
+            row.pop("internal_link")
+        # Native declaration flag, separate from the output picker's control.
+        row["readonly"] = False
+        attributes = row.setdefault("attributes", {})
+        for key, value in {
+            "uiType": row["type"],
+            "uiTypeLabel": row["type_label"],
+            "element_mapping_provider": "com.glide.flow_design.action.data.FlowDesignVariableMapper",
+        }.items():
+            if key in attributes and attributes[key] != value:
+                raise CapabilityError(
+                    "The catalog call-input mapping metadata conflicts.", "UNAVAILABLE"
+                )
+            attributes[key] = value
+        result.append(row)
+    if len({row["name"] for row in result}) != len(result):
+        raise CapabilityError(
+            "The catalog call-input names are ambiguous.", "UNAVAILABLE"
+        )
+    return result
+
+
 def choices(spec: dict[str, Any]) -> set[Any]:
     return {
         row["value"]

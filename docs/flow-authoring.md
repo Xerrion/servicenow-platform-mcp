@@ -248,6 +248,27 @@ Only these null/absent cache-entry forms compare equivalently. Nonempty values, 
 Existing choice ordering retains its value-based comparison. The native handler index `startingIndexOfErrorHandlingInstances` remains authoritative.
 Ordinary edits do not add the editor-only `startOfErrorHandlingInstances` alias when the saved definition contains only the native index.
 
+### Service Catalog call inputs
+
+The backend creates a flow-owned call interface when an empty flow receives a Service Catalog trigger during full save.
+The observed inputs are `table_name` (`table_name`, default table `sc_req_item`, hidden test input) and `request_item` (mandatory reference to `sc_req_item`).
+They are separate from trigger output-definition records and from authored subflow declarations.
+
+The planner binds their complete expected native DTOs to the independently read Service Catalog definition before the write.
+Names, types, references, defaults, labels, constraints, and unknown metadata come from its table-name and reference output parameters, not hardcoded field names.
+The captured native declaration projection adds the flow-variable mapper/UI attributes, uses declaration `readonly=false`, and omits the empty parameter-only `internal_link`.
+Hidden runtime date/time outputs remain trigger outputs. Ambiguous or unsupported catalog shapes reject before saving.
+
+The header POST remains empty, with its existing strict verification. The native full PUT retains backend-generated interface behavior.
+Preview `fields.inputs` describes the expected generated interface. During echo and GET verification, the exact generated input records must match the target flow through `sys_hub_flow_input.model`, their own IDs, and catalog-bound names.
+Only then does comparison bind their generated IDs to the expected DTOs. Extra, missing, or changed declarations still fail, and echo-to-GET IDs remain strict.
+Saved interfaces are preserved on later edits. Triggerless subflow input CRUD, other triggers, and unexpected flow inputs receive no such allowance.
+Input-table write policy is checked for a Service Catalog trigger operation. This does not add interface update/delete permissions.
+
+Service Catalog is not REST/external: the client `createFlowInputs` branch at 184408-184414 does not apply to it.
+The supported backend-owned form comes from the retained native GET and catalog metadata, with requested-record semantics documented in `create-sc-flow.md:27`.
+The historical one-shot outcome remains unknown. Native seven-step serialization beyond this input projection has separate unresolved differences recorded in [live verification](flow-live-verification.md).
+
 ## Structural edits
 
 `flow_preview(action="edit", sys_id=..., edits=[...])` applies an ordered list of edits to one draft and

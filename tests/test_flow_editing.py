@@ -171,8 +171,30 @@ def fixtures(settings: Settings, flow: dict[str, Any]):
     return coordinator, get_tool_functions(server)
 
 
-def persist(flow: dict[str, Any]) -> None:
+def persist(flow: dict[str, Any], *, generated_catalog_inputs: bool = False) -> None:
     """Model a saved definition separately from the preview's original object."""
+    if generated_catalog_inputs:
+        flow["inputs"] = copy.deepcopy(
+            json.loads(
+                (
+                    Path(__file__).parent / "fixtures/flow_service_catalog_inputs.json"
+                ).read_text()
+            )["inputs"]
+        )
+        for index, row in enumerate(flow["inputs"], start=128):
+            row["id"] = f"{index:032x}"
+            http_mock.get(
+                f"{BASE}/api/now/table/sys_hub_flow_input/{row['id']}"
+            ).respond(
+                200,
+                json={
+                    "result": {
+                        "sys_id": row["id"],
+                        "model": flow["id"],
+                        "name": row["name"],
+                    }
+                },
+            )
     for index, logic in enumerate(flow["flowLogicInstances"], start=10):
         logic.setdefault("id", f"{index:032x}")
     http_mock.get(f"{BASE}/api/now/processflow/flow/{FLOW}").respond(
@@ -188,7 +210,7 @@ async def test_if_with_trigger_and_nested_step(settings: Settings):
     def save(request):
         data = json.loads(request.content)
         saved.update(data)
-        persist(data)
+        persist(data, generated_catalog_inputs=True)
         return httpx2.Response(200, json={"result": {"data": data}})
 
     route = http_mock.route(method="PUT", url=f"{BASE}/api/now/processflow/flow").mock(
@@ -358,7 +380,7 @@ async def test_saved_trigger_without_label_is_read_by_name(settings: Settings):
         data = json.loads(request.content)
         for trigger in data["triggerInstances"]:
             trigger.pop("label")
-        persist(data)
+        persist(data, generated_catalog_inputs=True)
         return httpx2.Response(200, json={"result": {"data": data}})
 
     http_mock.route(method="PUT", url=f"{BASE}/api/now/processflow/flow").mock(

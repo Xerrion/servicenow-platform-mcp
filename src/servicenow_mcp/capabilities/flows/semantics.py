@@ -1375,6 +1375,61 @@ async def _bind_new_variable_blocks(
     return bound
 
 
+async def _bind_trigger_inputs(
+    client: ServiceNowClient,
+    expected: dict[str, Any],
+    saved: dict[str, Any],
+    manifest: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Reconcile only independently catalog-bound, newly generated call inputs."""
+    if manifest is None:
+        return expected
+    triggers = expected["triggerInstances"]
+    if (
+        expected["type"] != "flow"
+        or expected["inputs"]
+        or len(triggers) != 1
+        or triggers[0]["type"] != "service_catalog"
+        or triggers[0]["triggerDefinitionId"] != manifest["definition_id"]
+    ):
+        raise SemanticMismatch("flow.inputs", "INVALID_TRIGGER_INPUT_MANIFEST")
+    declarations, rows = manifest["declarations"], saved["inputs"]
+    if len(rows) != len(declarations):
+        raise SemanticMismatch(
+            "flow.inputs",
+            "COUNT_MISMATCH",
+            expected_count=len(declarations),
+            actual_count=len(rows),
+        )
+    bound = copy.deepcopy(expected)
+    bound["inputs"] = []
+    identities = set()
+    check_table_access("sys_hub_flow_input")
+    for index, (declaration, row) in enumerate(zip(declarations, rows, strict=True)):
+        identity = row.get("id")
+        _identity(identity, f"flow.inputs[{index}].id")
+        if identity in identities:
+            raise SemanticMismatch("flow.inputs", "DUPLICATE_IDENTITY", "actual")
+        identities.add(identity)
+        record = await client.get_record(
+            "sys_hub_flow_input", identity, fields=["sys_id", "model", "name"]
+        )
+        for key, value in {
+            "sys_id": identity,
+            "model": expected["id"],
+            "name": declaration["name"],
+        }.items():
+            observed = record.get(key)
+            if isinstance(observed, dict):
+                observed = observed.get("value")
+            if observed != value:
+                raise SemanticMismatch(
+                    f"flow.inputs[{index}].id", "TRIGGER_INPUT_OWNER_MISMATCH", "actual"
+                )
+        bound["inputs"].append({**copy.deepcopy(declaration), "id": identity})
+    return bound
+
+
 async def verify_saved(
     client: ServiceNowClient,
     expected: dict[str, Any],
@@ -1386,11 +1441,15 @@ async def verify_saved(
     generated_stages: set[str] | None = None,
     generated_fields: list[dict[str, str]] | None = None,
     removed_fields: list[dict[str, str]] | None = None,
+    generated_trigger_inputs: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Verify the echo and a separate GET. Never retry a write or expose input values in errors."""
     phase = "request.echo"
     try:
-        bound = await _bind_new_variable_blocks(client, expected, echo, generated_ids)
+        bound = await _bind_trigger_inputs(
+            client, expected, echo, generated_trigger_inputs
+        )
+        bound = await _bind_new_variable_blocks(client, bound, echo, generated_ids)
         compare_saved(
             bound,
             echo,
@@ -1405,7 +1464,10 @@ async def verify_saved(
         phase = "readback.get"
         actual = await client.studio_request(f"flow/{expected['id']}")
         phase = "request.readback"
-        bound = await _bind_new_variable_blocks(client, expected, actual, generated_ids)
+        bound = await _bind_trigger_inputs(
+            client, expected, actual, generated_trigger_inputs
+        )
+        bound = await _bind_new_variable_blocks(client, bound, actual, generated_ids)
         compare_saved(
             bound,
             actual,

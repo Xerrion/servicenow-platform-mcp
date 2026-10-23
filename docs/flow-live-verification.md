@@ -589,3 +589,56 @@ The 14 tracked and four untracked unrelated changes were preserved. No stash, re
 Integration-tree checks are NOT RUN because the prerequisite live create gate did not pass.
 After that gate is resolved, `main..feat/flow-authoring` identifies the committed integration range. An isolated integration branch can merge that committed range without importing dirty worktree changes.
 The last unchanged-source local gates remain `mise run schemas`, `mise run check`, and `mise run test`: 3545 passed, 66 deselected, plus 190 focused isolated-checkpoint tests.
+
+## Read-only Service Catalog input diagnosis and local reconciliation, 2026-10-23
+
+This task sent no live preview, create, apply, save, edit, delete, or lifecycle request.
+Only exact read-only Studio definition/snapshot GETs used normal OS-cached OAuth against `tv2dev`; no update-set, session, old fixture, or LogView reads occurred.
+The retained fixture remains `ca324deac30c9b905cf89fcd2b01315d`. Its historical one-shot result remains `UNKNOWN_OUTCOME`.
+The historical full PUT and echo were not retained outside the old child process. The saved operation journal retains the empty-request/two-returned-input count and the verified-empty header progress.
+The new sanitized fixture is the exact later GET's complete input DTO projection, not a substitute historical echo.
+
+The two concrete flow-owned declarations are:
+
+| Name           | Type         | Reference/default                         | Native metadata                                    |
+| -------------- | ------------ | ----------------------------------------- | -------------------------------------------------- |
+| `table_name`   | `table_name` | Default and display default `sc_req_item` | Hidden test input, nonmandatory, maximum size 40.  |
+| `request_item` | `reference`  | Reference `sc_req_item`, empty default    | Mandatory, maximum size 32, search field `number`. |
+
+Both have native declaration `readonly=false`, separate assigned database IDs, and mapper/UI attributes.
+Their IDs differ from the trigger-output parameter IDs. After removing only those new IDs and applying the captured native declaration projection,
+the independently retained catalog's table-name and reference output parameters exactly match both complete observed input DTOs.
+The projection preserves all other catalog metadata. Its field names are selected from metadata; a renamed-catalog regression verifies that no Service Catalog field names are hardcoded.
+
+The ownership timing is established by the successful empty-header verification in creation.py:107-115, followed by the full save and two returned flow inputs.
+They are backend-materialized call inputs for the newly configured trigger, not unexpected authored subflow inputs.
+Official local `create-sc-flow.md:27` identifies the requested item as the trigger record.
+The trigger catalog creates output parameter bindings at 58112-58179. The client runtime/test selector reads these parameter types, references, defaults, and hidden-field metadata (63325-63380, 8031-8058).
+Crucially, `createFlowInputs` at 184408-184414 includes only REST/external triggers; the Service Catalog type does not satisfy either predicate (106624-106625, 148726-148734).
+The fix does not claim this unrelated frontend adapter constructs the two Service Catalog declarations.
+
+Local verification now uses a narrow backend-generated-input expectation bound before the PUT to the actual selected catalog definition.
+The initial header-empty guard is unchanged. During echo and GET checks, the exact `sys_hub_flow_input` records must verify ID, `model` owner, and catalog-supplied name before generated IDs enter comparison.
+The entire expected declaration DTO still compares strictly. Ordinary `compare_saved` without this bound expectation still rejects zero-to-two input changes.
+Echo-to-GET identity changes, extra/missing inputs, type/reference/value/default changes, unknown attributes, wrong owners, and unrelated setting changes reject.
+Later edits preserve saved declarations and opaque attributes. Different-trigger complete creation and authored triggerless subflow interfaces do not use this allowance.
+The input table is included in the existing write-policy gate for Service Catalog trigger operations; no update/delete permission was added.
+
+The captured input DTOs now drive backend behavior in complete-create/edit HTTP fixtures and all four real local Python 3.15 stdio mock-HTTP variants.
+A nine-edit/seven-step regression verifies the generated interfaces, variable pill, trigger condition, owner reads, and subsequent preservation.
+Two older passthrough save mocks failed because they incorrectly kept the interface empty. They now materialize the captured native records without weakening their assertions.
+Focused combined checks passed 271 tests; final targeted editing/input/stdio checks passed 70 tests.
+Final code gates passed `mise run check`, `mise run test`, and `mise run schemas`: 3561 passed, 66 deselected.
+The isolated staged checkpoint passed 321 focused editing, complete-create, trigger, DTO, cache, and stdio tests.
+
+### Remaining fresh-instance DTO evidence
+
+The bounded pass also compared fresh current constructors with the same native seven-step GET, using an exact independently read published Log snapshot and the retained trigger catalog.
+Logic definitions and persisted identities were joined from that GET solely to expose shape differences. This is reconstruction, not the unavailable historical request/echo proof.
+It found 944 differences: 934 missing-field forms, six value differences, and four numeric-order representation differences.
+They group into fresh Log DTOs (757 repeated differences across four instances), If (89), Else (32), and the trigger (66). The existing fresh assignment constructor had no differences in that reconstruction.
+Examples include editor descriptor fields versus seven-field stored bindings, fresh `isNew`/`isDirty` fields versus native defaults, embedded action-status/definition DTO projections, and trigger wrapper fields.
+These differences are not normalized by the input fix. Their exact root cause is the fresh-instance path: `calls.step` builds editor state, while `_native_existing_step` has no saved prototype on an empty created flow; `tree.new_logic_step` and `new_trigger` also emit editor forms.
+The complete captured-input HTTP regression does not certify these other native instance forms.
+This is a concrete remaining serialization gap, not a reason to issue another blind create or to ignore unknown metadata.
+The existing live fixture and prior successful incremental fixture received no writes during this task. Main integration remains withheld until the complete native one-shot path is actually verified.

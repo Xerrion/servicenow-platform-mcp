@@ -1,73 +1,42 @@
-# Choose the available tools
+# Choose tools
 
-`MCP_TOOL_PACKAGE` defaults to `readonly`.
-`SERVICENOW_ENV` defaults to `prod`, which blocks change previews and application.
-Tool selection does not grant ServiceNow permissions.
-Restart the application after changing settings.
+Your AI app can use only the tools enabled in its server configuration. Set
+`MCP_TOOL_PACKAGE` to a preset or a list of groups. Restart the server after a
+change.
 
-## Preset packages
+## Presets
 
-| Package         | Available work                                                                                                                      |
-| --------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `readonly`      | Records, metadata, attachments, history, submitted answers, investigations, audits, flows, code search, CMDB, and catalog browsing. |
-| `core_readonly` | Queries, table descriptions, and attachment reads.                                                                                  |
-| `full`          | All read tools, all change previews, and shared application.                                                                        |
-| `none`          | Only `list_tool_packages`.                                                                                                          |
+- `readonly`: all read groups. This is the default.
+- `core_readonly`: `query`, `describe`, and `attachment`.
+- `full`: all read and write groups.
+- `none`: no groups. The package list remains available.
 
-`list_tool_packages` lists package definitions and groups without contacting ServiceNow.
-It does not report the active package.
-Use the AI app's tool list to check the actual registered surface.
+A preset stands alone. Do not add a preset name to a list of groups.
 
-## Read groups
+## Select groups
 
-| Group             | Tool                                                                                                 |
-| ----------------- | ---------------------------------------------------------------------------------------------------- |
-| `query`           | List records, read an exact record, or calculate aggregates.                                         |
-| `describe`        | Inspect tables, inherited fields, and script fields.                                                 |
-| `record_read`     | Read a record by `sys_id` or its actual `name`.                                                      |
-| `resolve_choice`  | List or resolve choice keys.                                                                         |
-| `attachment`      | List, inspect, or download attachments.                                                              |
-| `analysis`        | Read journals and submitted requested-item answers.                                                  |
-| `audit`           | Inspect audit configuration and field history.                                                       |
-| `investigate`     | Run bounded checks or explain findings.                                                              |
-| `flow`            | Inspect Flow Designer configuration, validate locally, and read lifecycle or exact execution status. |
-| `code_search`     | Search scripts or inspect search coverage.                                                           |
-| `cmdb`            | Read CIs, relationships, and class metadata.                                                         |
-| `service_catalog` | Browse catalogs, categories, items, variables, carts, wish lists, and delegation checks.             |
+For example, this selection reads records and prepares record changes:
 
-## Change groups
-
-| Group                   | Preview tool                                                                                        |
-| ----------------------- | --------------------------------------------------------------------------------------------------- |
-| `record_write`          | `record_preview` for create, update, and delete.                                                    |
-| `attachment_write`      | `attachment_preview` for upload and delete.                                                         |
-| `service_catalog_write` | `service_catalog_preview` for orders, record producers, order guides, wish lists, and cart changes. |
-
-Selecting any change group registers `apply_change` exactly once.
-Application rejects commands from families that are not enabled.
-Every change requires preview followed by apply.
-A preview token does not prove human approval.
-
-For a development instance:
-
-```dotenv
+```text
 MCP_TOOL_PACKAGE=query,describe,record_read,record_write
-SERVICENOW_ENV=dev
 ```
 
-Verify the instance URL before permitting changes.
-`SERVICENOW_ENV` controls local protection and does not select or detect the instance.
+Read groups are `query`, `describe`, `record_read`, `attachment`,
+`investigate`, `resolve_choice`, `service_catalog`, `analysis`, `audit`,
+`flow`, `code_search`, and `cmdb`.
 
-## Custom selections
+Write groups are `record_write`, `attachment_write`, and
+`service_catalog_write`. Each adds its preview tool and `apply_change`. Select
+only the groups you need.
 
-A custom selection uses comma-separated group names:
+`list_tool_packages` is always available. It lists the presets and their groups.
+See the [Tool reference](Tool-Reference.md) for tool names and actions.
 
-```dotenv
-MCP_TOOL_PACKAGE=query,describe,service_catalog
-```
+## Before enabling writes
 
-Use a preset alone or combine group names.
-Unknown names, empty names, and a preset combined with groups fail startup.
-Repeated groups are deduplicated in their first-occurrence order.
+The configured environment must allow writes. The signed-in account also needs
+permission in ServiceNow. `SERVICENOW_ENV` is a local setting; it does not tell
+the server whether the selected instance is production.
 
-See [[Tool-Reference]] for current inputs and [[Safety-and-Policy]] for change limits.
+Use a test instance first. Review each preview before asking the app to apply
+it. See [Safety and policy](Safety-and-Policy.md) for the limits and recovery steps.

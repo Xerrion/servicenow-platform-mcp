@@ -5,7 +5,7 @@ import json
 import re
 import sys
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, override
 from urllib.parse import urlsplit
 
 from pydantic import SecretStr
@@ -51,6 +51,7 @@ def _native_backend() -> Any:
             # The native backend otherwise tries to unlock collections/items.
             # Opt-in cache access must fail rather than open an unlock workflow.
             class UnlockedSecretService(Keyring):
+                @override
                 def get_preferred_collection(self) -> Any:
                     import secretstorage
 
@@ -64,6 +65,7 @@ def _native_backend() -> Any:
                         connection.close()
                         raise
 
+                @override
                 def unlock(self, item: Any) -> None:
                     if item.is_locked():
                         raise KeyringLocked("Credential item is locked")

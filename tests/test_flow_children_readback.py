@@ -1,17 +1,20 @@
 """Source-compatible GET projections can omit Studio's derived UI child cache."""
 
 import copy
+import json
 
+import httpx2
 import pytest
 
 from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.capabilities.contracts import CapabilityError
-from servicenow_mcp.capabilities.flows import semantics, tree
+from servicenow_mcp.capabilities.flows import data, lifecycle, semantics, tree
 from servicenow_mcp.platform.client import ServiceNowClient
 from tests._mock_transport import http_mock
 from tests.helpers import decode_response
 from tests.test_flow import _register_and_get_tools
-from tests.test_flow_editing import BASE, DEFS, FLOW, base_flow, fixtures
+from tests.test_flow_editing import BASE, DEFS, FLOW, base_flow, fixtures, persist
+from tests.test_flow_fields import plan
 from tests.test_flow_lifecycle import status_header, validation_flow, validation_routes
 
 
@@ -298,4 +301,399 @@ async def test_registered_validation_checks_child_cache_and_dangling_pills(
     result = decode_response(await tools["flow"](action="validate", sys_id=FLOW))
     assert result["data"]["valid"] is not True
     assert result["data"]["diagnostics"]
+    assert all(call.request.method == "GET" for call in http_mock.calls)
+
+
+def reference_array_input_flow(*, packed):
+    """Synthetic item packing follows Studio's declaration/value split.
+
+    declarations.py cites the array registration, packing, and restoration source.
+    The parent owns reference; child_reference is not a packed item property.
+    """
+    flow = validation_flow()
+    item = {
+        "name": "request_ids_child0",
+        "type": "reference",
+        "uiUniqueId": "reference-item-ui",
+        "children": [],
+    }
+    parameter = {
+        "name": "request_ids",
+        "type": "array.reference",
+        "reference": "sc_req_item",
+        "uiUniqueId": "reference-array-ui",
+        "vendor": {"keep": [False, 0]},
+        "children": [] if packed else [item],
+    }
+    if packed:
+        parameter["attributes"] = {
+            "child_name": item["name"],
+            "child_type": item["type"],
+            "child_uiUniqueId": item["uiUniqueId"],
+        }
+    binding = {
+        "name": "request_ids",
+        "value": "",
+        "displayValue": "",
+        "children": [],
+        "parameter": copy.deepcopy(parameter),
+        "vendor": {"binding": True},
+    }
+    flow["actionInstances"][1]["inputs"].append(binding)
+    flow["actionInstances"][1]["actionType"]["inputs"].append(parameter)
+    return flow
+
+
+@pytest.mark.parametrize("packed", [False, True])
+@pytest.mark.parametrize("values", [["a" * 32, "b" * 32], []])
+async def test_reference_array_static_input_preview_apply_keeps_declared_schema(
+    settings, packed, values
+):
+    flow = reference_array_input_flow(packed=packed)
+    before = copy.deepcopy(flow)
+    coordinator, tools = fixtures(settings, flow)
+    saved = {}
+
+    def save(request):
+        body = json.loads(request.content)
+        saved.update(copy.deepcopy(body))
+        persist(body)
+        return httpx2.Response(200, json={"result": {"data": body}})
+
+    write = http_mock.route(method="PUT", url=f"{BASE}/api/now/processflow/flow").mock(
+        side_effect=save
+    )
+    preview = decode_response(
+        await tools["flow_preview"](
+            action="edit",
+            sys_id=FLOW,
+            edits=[
+                {
+                    "op": "update_inputs",
+                    "step": "ui-2",
+                    "inputs": {"request_ids": values},
+                }
+            ],
+        )
+    )
+    assert preview["status"] == "success", preview
+    assert not write.called
+    applied = decode_response(
+        await tools["mutation_apply"](preview_token=preview["data"]["preview_token"])
+    )
+    assert applied["status"] == "success", applied
+    row = saved["actionInstances"][1]["inputs"][-1]
+    assert row["value"] == row["displayValue"] == ""
+    assert [child["value"] for child in row["children"]] == values
+    assert all(child["type"] == "reference" for child in row["children"])
+    assert all(child["reference"] == "sc_req_item" for child in row["children"])
+    assert all(
+        child["parameter"]["reference"] == "sc_req_item" for child in row["children"]
+    )
+    assert row["parameter"] == before["actionInstances"][1]["inputs"][-1]["parameter"]
+    declared = data.children(row)
+    assert len(declared) == 1
+    assert declared[0]["type"] == "reference"
+    assert declared[0]["reference"] == "sc_req_item"
+    assert declared[0]["uiUniqueId"] == "reference-item-ui"
+    assert row["vendor"] == {"binding": True}
+    assert flow == before
+    assert write.call_count == 1 and len(coordinator.store) == 0
+    assert any(
+        call.request.method == "GET"
+        and call.request.url.path == f"/api/now/processflow/flow/{FLOW}"
+        for call in http_mock.calls[http_mock.calls.index(write.calls[0]) + 1 :]
+    )
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        ["not-a-sys-id"],
+        ["a" * 31],
+        ["g" * 32],
+        [""],
+        [None],
+        [True],
+        [7],
+        [{"sys_id": "a" * 32}],
+        [["a" * 32]],
+        "a" * 32,
+        '["' + "a" * 32 + '"]',
+    ],
+)
+async def test_reference_array_invalid_literal_input_never_stages(settings, value):
+    flow = reference_array_input_flow(packed=True)
+    coordinator, tools = fixtures(settings, flow)
+    result = decode_response(
+        await tools["flow_preview"](
+            action="edit",
+            sys_id=FLOW,
+            edits=[
+                {
+                    "op": "update_inputs",
+                    "step": "ui-2",
+                    "inputs": {"request_ids": value},
+                }
+            ],
+        )
+    )
+    assert result["status"] == "error", result
+    assert len(coordinator.store) == 0
+    assert all(call.request.method == "GET" for call in http_mock.calls)
+
+
+@pytest.mark.parametrize("packed", [False, True])
+@pytest.mark.parametrize(
+    "defect",
+    [
+        None,
+        "value",
+        "order",
+        "count",
+        "type",
+        "table",
+        "parameter_table",
+        "schema",
+        "identity",
+        "metadata",
+    ],
+)
+async def test_reference_array_input_independent_get_rejects_binding_drift(
+    settings, packed, defect
+):
+    flow = reference_array_input_flow(packed=packed)
+    flow_before = copy.deepcopy(flow)
+    fixtures(settings, flow)
+    expected = (
+        await plan(
+            settings,
+            flow,
+            [
+                {
+                    "op": "update_inputs",
+                    "step": "ui-2",
+                    "inputs": {"request_ids": ["a" * 32, "b" * 32]},
+                }
+            ],
+        )
+    )["payload"]
+    actual = copy.deepcopy(expected)
+    row = actual["actionInstances"][1]["inputs"][-1]
+    if defect == "value":
+        row["children"][0]["value"] = "c" * 32
+    elif defect == "order":
+        row["children"].reverse()
+    elif defect == "count":
+        row["children"].pop()
+    elif defect == "type":
+        row["children"][0]["type"] = "string"
+    elif defect == "table":
+        row["children"][0]["reference"] = "sys_user"
+    elif defect == "parameter_table":
+        row["children"][0]["parameter"]["reference"] = "sys_user"
+    elif defect == "schema":
+        row["parameter"]["reference"] = "sys_user"
+    elif defect == "identity":
+        row["children"][0]["uiUniqueId"] = "changed-item-ui"
+    elif defect == "metadata":
+        row["parameter"]["vendor"]["keep"] = [True, 0]
+    expected_before = copy.deepcopy(expected)
+    actual_before = copy.deepcopy(actual)
+    http_mock.get(f"{BASE}/api/now/processflow/flow/{FLOW}").respond(
+        200, json={"result": {"data": actual}}
+    )
+    async with ServiceNowClient(settings, OAuthPKCEProvider(settings)) as client:
+        if defect:
+            with pytest.raises(CapabilityError) as error:
+                await semantics.verify_saved(
+                    client, expected, copy.deepcopy(expected), generated_ids=set()
+                )
+            assert error.value.code == "UNKNOWN_OUTCOME"
+        else:
+            assert (
+                await semantics.verify_saved(
+                    client, expected, copy.deepcopy(expected), generated_ids=set()
+                )
+                == actual
+            )
+    assert flow == flow_before
+    assert expected == expected_before
+    assert actual == actual_before
+    assert all(call.request.method == "GET" for call in http_mock.calls)
+
+
+@pytest.mark.parametrize("packed", [False, True])
+@pytest.mark.parametrize(
+    "defect",
+    [
+        None,
+        "omitted_binding_schema",
+        "invalid_id",
+        "wrong_item_type",
+        "child_table",
+        "missing_table",
+        "missing_schema",
+        "wrong_schema_item_type",
+        "missing_schema_table",
+    ],
+)
+async def test_reference_array_lifecycle_validates_static_items_and_empty_schema(
+    settings, packed, defect
+):
+    flow = reference_array_input_flow(packed=packed)
+    fixtures(settings, flow)
+    built = (
+        await plan(
+            settings,
+            flow,
+            [
+                {
+                    "op": "update_inputs",
+                    "step": "ui-2",
+                    "inputs": {"request_ids": ["a" * 32]},
+                }
+            ],
+        )
+    )["payload"]
+    row = built["actionInstances"][1]["inputs"][-1]
+    parameter = built["actionInstances"][1]["actionType"]["inputs"][-1]
+    if defect == "invalid_id":
+        row["children"][0]["value"] = "invalid"
+    elif defect == "wrong_item_type":
+        row["children"][0]["parameter"]["type"] = "string"
+    elif defect == "child_table":
+        row["children"][0]["parameter"]["reference"] = "sys_user"
+    elif defect == "missing_table":
+        row["parameter"].pop("reference")
+    elif defect == "omitted_binding_schema":
+        if packed:
+            for name in ("child_name", "child_type", "child_uiUniqueId"):
+                row["parameter"]["attributes"].pop(name)
+        else:
+            row["parameter"]["children"] = []
+    elif defect == "missing_schema":
+        if packed:
+            parameter["attributes"].pop("child_type")
+        else:
+            parameter["children"] = []
+    elif defect == "wrong_schema_item_type":
+        if packed:
+            parameter["attributes"]["child_type"] = "string"
+        else:
+            parameter["children"][0]["type"] = "string"
+    elif defect == "missing_schema_table":
+        parameter.pop("reference")
+    validation_routes(built)
+    before = copy.deepcopy(built)
+    async with ServiceNowClient(settings, OAuthPKCEProvider(settings)) as client:
+        result = await lifecycle.validate_definition(built, client)
+    valid = defect in (None, "omitted_binding_schema")
+    if valid:
+        assert result["valid"] is True and result["complete"] is True, result
+    else:
+        assert result["valid"] is not True, result
+        assert result["diagnostics"], result
+    assert built == before
+    if valid or defect in (
+        "missing_schema",
+        "wrong_schema_item_type",
+        "missing_schema_table",
+    ):
+        row["children"] = []
+        empty_before = copy.deepcopy(built)
+        validation_routes(built)
+        async with ServiceNowClient(settings, OAuthPKCEProvider(settings)) as client:
+            empty = await lifecycle.validate_definition(built, client)
+        if valid:
+            assert empty["valid"] is True and empty["complete"] is True, empty
+        else:
+            assert empty["valid"] is not True, empty
+            assert empty["diagnostics"], empty
+        assert built == empty_before
+        row["children"] = before["actionInstances"][1]["inputs"][-1]["children"]
+    assert built == before
+    assert all(call.request.method == "GET" for call in http_mock.calls)
+
+
+@pytest.mark.parametrize("packed", [False, True])
+@pytest.mark.parametrize(
+    "reference,pill,valid",
+    [
+        ("sc_req_item", "ui-1.record", True),
+        ("task", "ui-1.record", True),
+        ("sys_user", "ui-1.record", False),
+        ("sc_req_item", "ui-1.count", False),
+        ("sc_req_item", "ui-1.records", False),
+    ],
+)
+async def test_reference_array_input_element_pills_obey_scalar_type_and_parent_table(
+    settings, packed, reference, pill, valid
+):
+    flow = reference_array_input_flow(packed=packed)
+    flow["actionInstances"][1]["inputs"][-1]["parameter"]["reference"] = reference
+    coordinator, tools = fixtures(settings, flow)
+    result = decode_response(
+        await tools["flow_preview"](
+            action="edit",
+            sys_id=FLOW,
+            edits=[
+                {
+                    "op": "update_inputs",
+                    "step": "ui-2",
+                    "inputs": {"request_ids": ["{{" + pill + "}}"]},
+                }
+            ],
+        )
+    )
+    assert result["status"] == ("success" if valid else "error"), result
+    assert len(coordinator.store) == int(valid)
+    assert all(call.request.method == "GET" for call in http_mock.calls)
+
+
+@pytest.mark.parametrize("values", [[], ["a" * 32]])
+@pytest.mark.parametrize(
+    "defect",
+    [
+        "missing_table",
+        "dynamic_table",
+        "child_table",
+        "child_type",
+        "missing_item",
+        "two_items",
+    ],
+)
+async def test_reference_array_input_requires_complete_authoritative_item_schema(
+    settings, values, defect
+):
+    flow = reference_array_input_flow(packed=False)
+    parameter = flow["actionInstances"][1]["inputs"][-1]["parameter"]
+    if defect == "missing_table":
+        parameter.pop("reference")
+    elif defect == "dynamic_table":
+        parameter["reference"] = "{{ui-1.record}}"
+    elif defect == "child_table":
+        parameter["children"][0]["reference"] = "sys_user"
+    elif defect == "child_type":
+        parameter["children"][0]["type"] = "string"
+    elif defect == "missing_item":
+        parameter["children"] = []
+    else:
+        parameter["children"].append(copy.deepcopy(parameter["children"][0]))
+    coordinator, tools = fixtures(settings, flow)
+    result = decode_response(
+        await tools["flow_preview"](
+            action="edit",
+            sys_id=FLOW,
+            edits=[
+                {
+                    "op": "update_inputs",
+                    "step": "ui-2",
+                    "inputs": {"request_ids": values},
+                }
+            ],
+        )
+    )
+    assert result["status"] == "error", result
+    assert len(coordinator.store) == 0
     assert all(call.request.method == "GET" for call in http_mock.calls)

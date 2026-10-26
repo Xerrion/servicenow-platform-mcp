@@ -2,6 +2,87 @@
 
 ## Unreleased
 
+### Features
+
+- Experimental `flow_write` creation/editing configures complete inactive flows
+  and triggerless subflows without executing the authored flow. Native routes
+  include Do Until, Go back to, Decision Tables with generated ordered branches,
+  timers, legacy workflow calls, Dynamic Flow, and Get Flow Outputs. Dedicated
+  assignments, generated companions, system-locked metadata, and placeholders
+  are distinguished from standalone blocks.
+- Application-trigger authoring adds Inbound Email, Remote Table Query,
+  asynchronous REST interfaces, Proactive Analytics, MetricBase, and SLA Task.
+  Typed REST interface schemas honor catalog allowlists and protected generated
+  fields. Saved picker attachment uses exact template metadata, native version
+  gates, inherited read-only defaults, and independently bound references;
+  calendar/timezone fields are conditional on installed definitions.
+- Dynamic input/choice/template metadata uses a separate reviewed
+  `resolve_schema` preview/apply. Apply executes only the metadata-declared
+  provider action, with potentially arbitrary effects, never the authored flow.
+  Opaque 300-second schema tokens are consumed by a new create/edit preview;
+  authoring checks retained schemas/dependencies without rerunning providers.
+  Post-effect retention failures report the executed-provider outcome without
+  retry or rollback claims.
+- Release-27800/engine-2 active/published working-draft editing retains target
+  scope/revision checks and selected runtime preservation. Verification reads
+  complete serialized snapshot envelopes/chunks or native version-owned rows
+  and referenced blocks, not a mutable Studio getter facade. Raw serialized
+  engine markers remain distinct from native GET DTO fields.
+- Native top-level and strictly associated legacy/Rome root handlers support
+  bounded sandwich/Parallel order projections while preserving saved raw types,
+  identities, pills, and stages. An ordinary first Try or order zero alone does
+  not establish a handler wrapper. Unresolved closing orders remain strict.
+- Flow canvas and contract reads sort native arrow orders by their right-hand
+  position while retaining original order text. Verified logic types permit the
+  native root `TOP_LEVEL_TRY` or fully associated legacy `TRY` wrapper at zero.
+  Bounds and incomplete-data diagnostics remain in force.
+- Subflow interfaces add static/table-backed Choice and Date/Time plus
+  Array.Choice, Array.Date/Time, and source-native Array.Array forms alongside Object and
+  Array.Reference authoring. Literal values and whole pills retain declared
+  recursive schemas, choices, reference tables, and producer visibility.
+  Array.Array literal nesting is rejected because the native save serializer
+  clears it; empty/typed-pill forms are supported. Reference literals check
+  sys_id syntax and table metadata, not per-record runtime access. Studio's
+  scalar flow-variable and Object-child picker constraints remain unchanged.
+- Declaration settings include source-backed scalar/root widget types, native
+  table-choice metadata, array row bounds, static reference qualifiers and
+  dependencies, eligible name changes, and explicit guarded structure resets.
+  Saved flow-variable names remain read-only; consumers are never rewritten
+  implicitly. Native Object/Array settings expose no whole-parent default
+  editor; scalar-child and Array.Choice item defaults remain supported.
+- Typed input authoring adds rich native scalar/widgets, explicit basic/inline
+  script modes, source-bound transform compositions, and declared per-call or
+  flow-global connection overrides. Scripts and transforms are saved, never
+  evaluated during authoring. Supported script references retain producer
+  identity through reordering; alias clears/deletions retain native tombstones
+  and shared-use semantics without reading credentials or invoking connections.
+- Subflow tests accept declared Object and Array.String/Integer/Boolean/Object
+  values through Studio's dedicated Test-modal children serializer. Every visible
+  root and nested Object input stays explicit. Hidden/read-only overrides,
+  reference-bearing nested widgets, Array.Reference tests, record/glide lists,
+  dynamic schemas, and trigger arrays/complex values remain unsupported.
+- Exact execution evidence distinguishes context ownership from the compiled
+  `sys_hub_snapshot` identity and parent. Incomplete snapshot evidence retains
+  known context state. Authored-version and snapshot-content equality remain
+  unverified. A bounded read-only live check verified ownership on a known owned
+  Log-subflow context without reading compiled payloads or causing flow effects.
+  Targeted offline MCP smoke exercised the source-derived authoring/test variants,
+  including independent readback and replay rejection. This is not live mutation
+  compatibility certification.
+- Existing lifecycle actions remain separate from authoring: flow activation,
+  callable-subflow publication, deactivation, and saved-owner tests require
+  explicit previews and can cause real work. No independent compiler,
+  production-run, or flow publish-only operation is introduced.
+
+### Documentation
+
+- Orient the README and public Flow guides around create/edit authoring, with
+  canonical native-family routes, exact edit fields, metadata-provider review,
+  protected/source-defined constraints, and strict reconciliation after
+  `UNKNOWN_OUTCOME`. Separate installed metadata capability from source,
+  offline, and bounded live evidence. Historical verification records remain
+  unchanged.
+
 ### Internal changes
 
 - Application HTTP now uses `httpx2` (pinned `>=2.12.0,<3`, locked 2.12.0). `httpx`

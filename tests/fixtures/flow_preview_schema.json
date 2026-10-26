@@ -14,8 +14,7 @@
           "publish",
           "deactivate",
           "test",
-          "validate_remote",
-          "run"
+          "resolve_schema"
         ],
         "title": "Action",
         "type": "string"
@@ -108,6 +107,18 @@
         "default": null,
         "title": "Subflow Sys Id"
       },
+      "input_name": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Input Name"
+      },
       "inputs": {
         "anyOf": [
           {
@@ -122,6 +133,28 @@
         ],
         "default": null,
         "title": "Inputs"
+      },
+      "connection_overrides": {
+        "anyOf": [
+          {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "object"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Connection Overrides"
       },
       "edits": {
         "anyOf": [
@@ -143,6 +176,22 @@
         ],
         "default": null,
         "title": "Edits"
+      },
+      "schema_tokens": {
+        "anyOf": [
+          {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 200,
+            "type": "array"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Schema Tokens"
       },
       "expected_scope": {
         "anyOf": [

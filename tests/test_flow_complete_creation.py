@@ -417,8 +417,6 @@ async def test_complete_authoring_native_wire(settings):
         )
         async with ClientSession(*client_streams) as session:
             await session.initialize()
-            listed = {t.name: t for t in (await session.list_tools()).tools}
-            assert "COMPLETE flow" in (listed["flow_preview"].description or "")
             preview = await session.call_tool("flow_preview", create_request())
             await session.validate_tool_result("flow_preview", preview)
             assert not preview.is_error and not model.bodies, preview

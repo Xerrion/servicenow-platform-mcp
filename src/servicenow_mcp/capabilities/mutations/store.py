@@ -70,15 +70,19 @@ class PreviewTokenStore:
             return token
 
     async def consume(self, token: str) -> StagedMutation:
+        return (await self.consume_many([token]))[0]
+
+    async def consume_many(self, tokens: list[str]) -> list[StagedMutation]:
+        """Consume the entire submitted set, including when one token is invalid."""
         async with self._lock:
             self._sweep()
-            entry = self._remove(token)
-            if entry is None:
+            entries = [self._remove(token) for token in tokens]
+            if any(entry is None for entry in entries):
                 raise CapabilityError(
                     "Invalid or expired preview token. Create a new preview.",
                     "PREVIEW_EXPIRED",
                 )
-            return entry.mutation
+            return [entry.mutation for entry in entries if entry is not None]
 
     async def clear(self) -> None:
         async with self._lock:

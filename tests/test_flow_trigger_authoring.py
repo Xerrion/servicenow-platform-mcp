@@ -9,7 +9,15 @@ import pytest
 from servicenow_mcp.capabilities.contracts import CapabilityError
 from tests._mock_transport import http_mock
 from tests.helpers import decode_response
-from tests.test_flow_editing import BASE, DEFS, FLOW, base_flow, fixtures, persist
+from tests.test_flow_editing import (
+    BASE,
+    DEFS,
+    FLOW,
+    base_flow,
+    fixtures,
+    native_trigger_labels,
+    persist,
+)
 from tests.test_flow_fields import plan
 
 
@@ -93,6 +101,44 @@ def categories():
         }
     result.append(schedule)
     return result
+
+
+@pytest.mark.parametrize(
+    "kind,names,values",
+    [
+        ("run_once", {"glide_date_time": "run_in"}, {"run_in": "2035-01-01 12:00:00"}),
+        ("daily", {"glide_time": "time"}, {"time": "1970-01-01 12:00:00"}),
+        (
+            "weekly",
+            {"glide_time": "time"},
+            {"time": "1970-01-01 12:00:00", "day_of_week": "1"},
+        ),
+        (
+            "monthly",
+            {"integer": "day_of_month", "glide_time": "time"},
+            {"day_of_month": 15, "time": "1970-01-01 12:00:00"},
+        ),
+        ("repeat", {"glide_duration": "repeat"}, {"repeat": "1970-01-02 00:00:00"}),
+    ],
+)
+async def test_current_native_schedule_names_bind_to_declared_roles(
+    settings, kind, names, values
+):
+    flow = base_flow()
+    fixtures(settings, flow)
+    catalog = categories()
+    for row in catalog[-1]["triggers"][kind]["inputs"]:
+        row["name"] = names.get(row["name"], row["name"])
+        row["parameter"]["name"] = row["name"]
+    http_mock.get(f"{BASE}/api/now/trigger_api/trigger_categories").respond(
+        200, json={"result": catalog}
+    )
+    result = await plan(
+        settings, flow, [{"op": "set_trigger", "type": kind, "inputs": values}]
+    )
+    saved = result["payload"]["triggerInstances"][0]
+    assert {row["name"]: row["value"] for row in saved["inputs"]} == values
+    assert all(call.request.method == "GET" for call in http_mock.calls)
 
 
 @pytest.mark.parametrize(
@@ -510,6 +556,7 @@ async def test_saved_trigger_update_remove_and_replace_have_guarded_save_contrac
             assert body["deletedTriggers"] == [{"id": "c" * 32}]
         if operation == "replace":
             body["triggerInstances"][0]["id"] = "d" * 32
+        native_trigger_labels(body)
         echo = copy.deepcopy(body)
         actual = copy.deepcopy(body)
         if defect == "retained_deleted" and operation != "update_trigger":
@@ -801,6 +848,7 @@ async def test_all_trigger_families_save_only_draft_with_independent_get(
             body["actionInstances"][0]["inputs"] == flow["actionInstances"][0]["inputs"]
         )
         body["triggerInstances"][0]["id"] = "d" * 32
+        native_trigger_labels(body)
         echo = copy.deepcopy(body)
         actual = copy.deepcopy(body)
         trigger = actual["triggerInstances"][0]

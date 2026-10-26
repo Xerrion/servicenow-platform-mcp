@@ -58,6 +58,10 @@ def test_all_fresh_action_conditional_and_trigger_fields_match_the_actual_captur
             uid=actual["uiUniqueIdentifier"],
         )
         expected = native.action(fresh.raw, flow)
+        # The native constructor omits getter-owned alias metadata.
+        assert "aliasIds" not in expected
+        assert actual["aliasIds"] == []
+        expected["aliasIds"] = []
         expected.update({key: actual[key] for key in ("id", "order", "parent")})
         all_differences.extend(
             differences(expected, actual, "ACTION[" + actual["order"] + "]")

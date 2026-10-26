@@ -7,7 +7,7 @@ import httpx2
 import pytest
 
 from servicenow_mcp.capabilities.contracts import CapabilityError
-from servicenow_mcp.capabilities.flows import declarations, semantics
+from servicenow_mcp.capabilities.flows import data, declarations, semantics
 from tests._mock_transport import http_mock
 from tests.helpers import decode_response
 from tests.test_flow_editing import BASE, FLOW, persist
@@ -1101,3 +1101,472 @@ async def test_existing_reference_output_leaf_uses_native_sys_id_and_keeps_facet
     assert child["reference"] == "sc_req_item"
     assert child["fieldFacetMap"] == {"vendor": {"keep": True}}
     assert result["payload"]["outputs"] == flow["outputs"]
+
+
+def reference_array_output_edits():
+    """Native registration packs one scalar Reference schema on each array parent."""
+    return [
+        {
+            "op": "create_field",
+            "collection": "outputs",
+            "name": "request_ids",
+            "label": "Requested items",
+            "type": "array.reference",
+            "reference": "sc_req_item",
+        },
+        {
+            "op": "create_field",
+            "collection": "outputs",
+            "name": "payload",
+            "label": "Payload",
+            "type": "object",
+        },
+        {
+            "op": "create_field",
+            "collection": "outputs",
+            "parent": "payload",
+            "name": "request_ids",
+            "label": "Requested items",
+            "type": "array.reference",
+            "reference": "sc_req_item",
+        },
+        {
+            "op": "create_field",
+            "collection": "outputs",
+            "name": "rows",
+            "label": "Rows",
+            "type": "array.object",
+        },
+        {
+            "op": "create_field",
+            "collection": "outputs",
+            "parent": "rows.rows_child0",
+            "name": "request_ids",
+            "label": "Requested items",
+            "type": "array.reference",
+            "reference": "sc_req_item",
+        },
+    ]
+
+
+def reference_array_output_routes(settings, flow):
+    coordinator, tools = routes(settings, flow)
+    http_mock.get(f"{BASE}/api/now/table/sys_db_object").respond(
+        200, json={"result": [{"name": "sc_req_item", "super_class.name": "task"}]}
+    )
+    return coordinator, tools
+
+
+@pytest.mark.parametrize("values", [["a" * 32, "b" * 32], []])
+async def test_reference_array_output_native_ids_and_empty_lists_keep_schema(
+    settings, values
+):
+    flow = subflow()
+    reference_array_output_routes(settings, flow)
+    result = await plan(
+        settings,
+        flow,
+        reference_array_output_edits()[:1]
+        + [{"op": "assign_outputs", "outputs": {"request_ids": values}}],
+    )
+    declaration = result["payload"]["outputs"][1]
+    row = result["payload"]["flowLogicInstances"][0]["outputsToAssign"][0]
+    assert declaration["type"] == "array.reference"
+    assert declaration["reference"] == "sc_req_item"
+    assert declaration["children"] == []
+    assert declaration["attributes"]["child_type"] == "reference"
+    assert "child_reference" not in declaration["attributes"]
+    item = data.children(declaration)[0]
+    assert item["type"] == "reference" and item["reference"] == "sc_req_item"
+    assert row["value"] == row["displayValue"] == ""
+    assert [child["value"] for child in row["children"]] == values
+    assert all(child["displayValue"] == child["value"] for child in row["children"])
+    assert all(child["type"] == "reference" for child in row["children"])
+    assert all(child["reference"] == "sc_req_item" for child in row["children"])
+    assert all(child["uiUniqueId"] == item["uiUniqueId"] for child in row["children"])
+    assert result["payload"]["flowLogicInstances"][0]["data"]["request_ids"] == values
+    semantics.studio_semantics(result["payload"])
+
+
+async def test_reference_arrays_nested_in_object_and_object_array_use_native_children(
+    settings,
+):
+    flow = subflow()
+    reference_array_output_routes(settings, flow)
+    result = await plan(
+        settings,
+        flow,
+        reference_array_output_edits()
+        + [
+            {
+                "op": "assign_outputs",
+                "outputs": {
+                    "payload": {"request_ids": ["a" * 32, "b" * 32]},
+                    "rows": [{"request_ids": ["c" * 32]}, {"request_ids": []}],
+                },
+            }
+        ],
+    )
+    step = result["payload"]["flowLogicInstances"][0]
+    payload_array = step["outputsToAssign"][0]["children"][0]
+    row_arrays = [row["children"][0] for row in step["outputsToAssign"][1]["children"]]
+    for array, values in (
+        (payload_array, ["a" * 32, "b" * 32]),
+        (row_arrays[0], ["c" * 32]),
+        (row_arrays[1], []),
+    ):
+        assert array["value"] == array["displayValue"] == ""
+        assert array["reference"] == "sc_req_item"
+        assert [child["value"] for child in array["children"]] == values
+        assert all(child["reference"] == "sc_req_item" for child in array["children"])
+    assert step["data"]["payload"] == ""
+    assert step["data"]["rows"][0]["children"][0]["value"] == ["c" * 32]
+    assert step["data"]["rows"][1]["children"][0]["value"] == []
+    assert (
+        data.children(result["payload"]["outputs"][2]["children"][0])[0]["reference"]
+        == "sc_req_item"
+    )
+    semantics.studio_semantics(result["payload"])
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        [""],
+        [None],
+        [True],
+        [7],
+        [{"sys_id": "a" * 32}],
+        [["a" * 32]],
+        ["a" * 31],
+        ["g" * 32],
+        ["a" * 32 + "," + "b" * 32],
+        "a" * 32,
+        {"value": "a" * 32},
+        ["{{ui-1.count}}"],
+        ["{{ui-1.records}}"],
+    ],
+)
+async def test_reference_array_output_invalid_items_never_stage(settings, value):
+    coordinator, tools = reference_array_output_routes(settings, subflow())
+    result = decode_response(
+        await tools["flow_preview"](
+            action="edit",
+            sys_id=FLOW,
+            edits=reference_array_output_edits()[:1]
+            + [{"op": "assign_outputs", "outputs": {"request_ids": value}}],
+        )
+    )
+    assert result["status"] == "error", result
+    assert len(coordinator.store) == 0
+    assert all(call.request.method == "GET" for call in http_mock.calls)
+
+
+@pytest.mark.parametrize(
+    "reference,valid", [("sc_req_item", True), ("sys_user", False)]
+)
+async def test_reference_array_output_element_pills_match_parent_reference_table(
+    settings, reference, valid
+):
+    coordinator, tools = reference_array_output_routes(settings, subflow())
+    edits = reference_array_output_edits()[:1]
+    edits[0]["reference"] = reference
+    http_mock.get(f"{BASE}/api/now/table/sys_db_object").respond(
+        200, json={"result": [{"name": reference, "super_class.name": "task"}]}
+    )
+    result = decode_response(
+        await tools["flow_preview"](
+            action="edit",
+            sys_id=FLOW,
+            edits=edits
+            + [
+                {
+                    "op": "assign_outputs",
+                    "outputs": {"request_ids": ["{{ui-1.record}}"]},
+                }
+            ],
+        )
+    )
+    assert result["status"] == ("success" if valid else "error"), result
+    assert len(coordinator.store) == int(valid)
+    assert all(call.request.method == "GET" for call in http_mock.calls)
+
+
+@pytest.mark.parametrize("values", [["a" * 32, "b" * 32], []])
+@pytest.mark.parametrize("side", ["echo", "readback"])
+@pytest.mark.parametrize(
+    "defect",
+    [
+        None,
+        "value",
+        "count",
+        "type",
+        "table",
+        "identity",
+        "schema_table",
+        "schema_item",
+        "metadata",
+        "mirror",
+    ],
+)
+async def test_reference_array_output_preview_apply_checks_independent_get(
+    settings, values, side, defect
+):
+    flow = subflow()
+    coordinator, tools = reference_array_output_routes(settings, flow)
+
+    def save(request):
+        body = json.loads(request.content)
+        for index, (_, node) in enumerate(
+            declarations.walk(body["outputs"][1:]), start=10
+        ):
+            node["id"] = f"{index:032x}"
+        persist(body)
+        echo = copy.deepcopy(body)
+        actual = copy.deepcopy(body)
+        target = echo if side == "echo" else actual
+        declaration = target["outputs"][1]
+        row = target["flowLogicInstances"][0]["outputsToAssign"][0]
+        assert row["value"] == row["displayValue"] == ""
+        assert [child["value"] for child in row["children"]] == values
+        if defect == "value":
+            if values:
+                row["children"][0]["value"] = "c" * 32
+            else:
+                row["value"] = []
+        elif defect == "count":
+            row["children"].append(
+                {**copy.deepcopy(data.children(declaration)[0]), "value": "c" * 32}
+            )
+        elif defect == "type":
+            row["type"] = "array.string"
+        elif defect == "table":
+            row["reference"] = "sys_user"
+        elif defect == "identity":
+            row["uiUniqueId"] = "changed-array-ui"
+        elif defect == "schema_table":
+            declaration["reference"] = "sys_user"
+        elif defect == "schema_item":
+            declaration["attributes"]["child_uiUniqueId"] = "changed-item-ui"
+        elif defect == "metadata":
+            row["vendor"] = {"unexpected": True}
+        elif defect == "mirror":
+            target["flowLogicInstances"][0]["data"]["request_ids"] = ["d" * 32]
+        persist(actual)
+        return httpx2.Response(200, json={"result": {"data": echo}})
+
+    write = http_mock.route(method="PUT", url=f"{BASE}/api/now/processflow/flow").mock(
+        side_effect=save
+    )
+    preview = decode_response(
+        await tools["flow_preview"](
+            action="edit",
+            sys_id=FLOW,
+            edits=reference_array_output_edits()[:1]
+            + [{"op": "assign_outputs", "outputs": {"request_ids": values}}],
+        )
+    )
+    assert preview["status"] == "success", preview
+    assert (
+        preview["data"]["summary"]["output_assignments"][0]["outputs"][0]["value"]
+        == values
+    )
+    assert not write.called
+    applied = decode_response(
+        await tools["mutation_apply"](preview_token=preview["data"]["preview_token"])
+    )
+    if defect:
+        assert applied["error"]["code"] == "UNKNOWN_OUTCOME", applied
+    else:
+        assert applied["status"] == "success", applied
+    assert write.call_count == 1 and len(coordinator.store) == 0
+    replay = decode_response(
+        await tools["mutation_apply"](preview_token=preview["data"]["preview_token"])
+    )
+    assert replay["status"] == "error" and write.call_count == 1
+
+
+async def test_saved_reference_array_update_preserves_schema_and_element_identity(
+    settings,
+):
+    flow = subflow()
+    reference_array_output_routes(settings, flow)
+    flow = (
+        await plan(
+            settings,
+            flow,
+            reference_array_output_edits()[:1]
+            + [{"op": "assign_outputs", "outputs": {"request_ids": ["a" * 32]}}],
+        )
+    )["payload"]
+    step = flow["flowLogicInstances"][0]
+    step["id"] = "d" * 32
+    row = step["outputsToAssign"][0]
+    row["vendor"] = {"keep": [False, 0]}
+    row["children"][0]["vendor"] = {"index": 0}
+    before = copy.deepcopy(flow)
+    reference_array_output_routes(settings, flow)
+    result = await plan(
+        settings,
+        flow,
+        [
+            {
+                "op": "assign_outputs",
+                "step": "d" * 32,
+                "outputs": {"request_ids": ["b" * 32, "c" * 32]},
+            }
+        ],
+    )
+    saved = result["payload"]["flowLogicInstances"][0]["outputsToAssign"][0]
+    original = before["flowLogicInstances"][0]["outputsToAssign"][0]
+    assert result["payload"]["outputs"] == before["outputs"]
+    assert saved["vendor"] == original["vendor"]
+    assert saved["uiUniqueId"] == original["uiUniqueId"]
+    assert saved["children"][0]["vendor"] == {"index": 0}
+    assert saved["children"][0]["uiUniqueId"] == original["children"][0]["uiUniqueId"]
+    assert saved["children"][1]["uiUniqueId"] == original["children"][0]["uiUniqueId"]
+    assert [child["value"] for child in saved["children"]] == ["b" * 32, "c" * 32]
+    assert result["payload"]["flowLogicInstances"][0]["data"]["request_ids"] == [
+        "b" * 32,
+        "c" * 32,
+    ]
+
+
+@pytest.mark.parametrize("values", [[], ["a" * 32]])
+@pytest.mark.parametrize(
+    "defect",
+    [
+        "missing_table",
+        "dynamic_table",
+        "child_table",
+        "child_type",
+        "missing_item",
+        "two_items",
+    ],
+)
+async def test_reference_array_output_invalid_saved_schema_never_stages(
+    settings, values, defect
+):
+    flow = subflow()
+    declaration = {
+        "id": "b" * 32,
+        "name": "request_ids",
+        "type": "array.reference",
+        "reference": "sc_req_item",
+        "children": [
+            {"name": "request_ids_child0", "type": "reference", "children": []}
+        ],
+    }
+    if defect == "missing_table":
+        declaration.pop("reference")
+    elif defect == "dynamic_table":
+        declaration["reference"] = "{{ui-1.record}}"
+    elif defect == "child_table":
+        declaration["children"][0]["reference"] = "sys_user"
+    elif defect == "child_type":
+        declaration["children"][0]["type"] = "records"
+    elif defect == "missing_item":
+        declaration["children"] = []
+    else:
+        declaration["children"].append(copy.deepcopy(declaration["children"][0]))
+    flow["outputs"] = [declaration]
+    coordinator, tools = reference_array_output_routes(settings, flow)
+    result = decode_response(
+        await tools["flow_preview"](
+            action="edit",
+            sys_id=FLOW,
+            edits=[{"op": "assign_outputs", "outputs": {"request_ids": values}}],
+        )
+    )
+    assert result["status"] == "error", result
+    assert len(coordinator.store) == 0
+    assert all(call.request.method == "GET" for call in http_mock.calls)
+
+
+@pytest.mark.parametrize(
+    "defect", [None, "sys_id", "table", "type", "cardinality", "identity", "schema"]
+)
+async def test_nested_reference_array_output_preview_apply_and_local_validation(
+    settings, defect
+):
+    from servicenow_mcp.auth import OAuthPKCEProvider
+    from servicenow_mcp.capabilities.flows import lifecycle
+    from servicenow_mcp.platform.client import ServiceNowClient
+    from tests.test_flow_lifecycle import validation_routes
+
+    flow = subflow()
+    flow["subFlowInstances"] = []
+    for step in flow["actionInstances"]:
+        step["actionType"]["inputs"] = [
+            {"name": item["name"], **item["parameter"]} for item in step["inputs"]
+        ]
+        step["actionType"].setdefault("outputs", [])
+    coordinator, tools = reference_array_output_routes(settings, flow)
+    saved = {}
+
+    def save(request):
+        body = json.loads(request.content)
+        for index, (_, node) in enumerate(
+            declarations.walk(body["outputs"][1:]), start=10
+        ):
+            node["id"] = f"{index:032x}"
+        persist(body)
+        echo = copy.deepcopy(body)
+        actual = copy.deepcopy(body)
+        array = actual["flowLogicInstances"][0]["outputsToAssign"][1]["children"][0][
+            "children"
+        ][0]
+        item = array["children"][0]
+        if defect == "sys_id":
+            item["value"] = "invalid-id"
+        elif defect == "table":
+            item["reference"] = "sys_user"
+        elif defect == "type":
+            item["type"] = "string"
+        elif defect == "cardinality":
+            array["type"] = "reference"
+        elif defect == "identity":
+            item["uiUniqueId"] = "changed-item-ui"
+        elif defect == "schema":
+            actual["outputs"][3]["children"][0]["reference"] = "sys_user"
+        saved.update(copy.deepcopy(actual))
+        persist(actual)
+        return httpx2.Response(200, json={"result": {"data": echo}})
+
+    write = http_mock.route(method="PUT", url=f"{BASE}/api/now/processflow/flow").mock(
+        side_effect=save
+    )
+    preview = decode_response(
+        await tools["flow_preview"](
+            action="edit",
+            sys_id=FLOW,
+            edits=reference_array_output_edits()
+            + [
+                {
+                    "op": "assign_outputs",
+                    "outputs": {
+                        "payload": {"request_ids": []},
+                        "rows": [{"request_ids": ["a" * 32, "b" * 32]}],
+                    },
+                }
+            ],
+        )
+    )
+    assert preview["status"] == "success", preview
+    assert not write.called
+    applied = decode_response(
+        await tools["mutation_apply"](preview_token=preview["data"]["preview_token"])
+    )
+    if defect:
+        assert applied["error"]["code"] == "UNKNOWN_OUTCOME", applied
+    else:
+        assert applied["status"] == "success", applied
+        validation_routes(saved)
+        before = copy.deepcopy(saved)
+        async with ServiceNowClient(settings, OAuthPKCEProvider(settings)) as client:
+            validation = await lifecycle.validate_definition(saved, client)
+        assert validation["valid"] is True and validation["complete"] is True, (
+            validation
+        )
+        assert saved == before
+    assert write.call_count == 1 and len(coordinator.store) == 0

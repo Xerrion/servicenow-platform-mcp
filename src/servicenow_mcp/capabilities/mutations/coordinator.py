@@ -68,6 +68,11 @@ class MutationCoordinator:
             gate_write("sys_hub_action_instance_v2", self.settings)
         if isinstance(command, FlowCommand) and command.action == "add_subflow":
             gate_write("sys_hub_sub_flow_instance_v2", self.settings)
+        if isinstance(command, FlowCommand) and command.action == "resolve_schema":
+            gate_write("sys_hub_action_type_definition", self.settings)
+            gate_write("sys_hub_action_type_snapshot", self.settings)
+            gate_write("sys_hub_action_instance_v2", self.settings)
+            gate_write("sys_flow_context", self.settings)
         if isinstance(command, FlowCommand) and command.action in {
             "activate",
             "publish",
@@ -149,6 +154,15 @@ class MutationCoordinator:
             )
 
     async def preview(self, command: MutationCommand) -> CapabilityResult:
+        evidence_entries: list[StagedMutation] = []
+        if isinstance(command, FlowCommand):
+            if command.schema_evidence:
+                raise CapabilityError(
+                    "Schema evidence must come from single-use schema_tokens."
+                )
+            evidence_entries = await self.store.consume_many(
+                command.schema_tokens or []
+            )
         if isinstance(command, FlowCommand):
             trace_flow_preview_boundary(
                 "command", action=command.action, edits=command.edits
@@ -156,6 +170,24 @@ class MutationCoordinator:
         self._gate(command)
         await self.auth.get_headers()
         generation = self.auth.authorization_generation
+        if isinstance(command, FlowCommand) and evidence_entries:
+            evidence = []
+            for entry in evidence_entries:
+                if entry.kind != "schema_evidence" or entry.evidence is None:
+                    raise CapabilityError(
+                        "schema_tokens must refer to retained schema evidence.",
+                        "SCHEMA_TOKEN_INVALID",
+                    )
+                self._apply_gate(entry)
+                if entry.authorization_generation != generation:
+                    raise CapabilityError(
+                        "Authorization changed. Resolve the schema again.",
+                        "SCHEMA_AUTHORIZATION_CHANGED",
+                    )
+                evidence.append(flows.validate_schema_evidence(entry.evidence))
+            command = command.model_copy(
+                update={"schema_tokens": None, "schema_evidence": evidence}, deep=True
+            )
         async with self.clients() as client:
             with require_authorization_generation(generation):
                 if isinstance(command, RecordCommand):
@@ -210,6 +242,10 @@ class MutationCoordinator:
                 limitations.append(
                     "This is an explicit lifecycle effect. Test executes real actions. Activate publishes and enables triggers. Existing executions are not cancelled by deactivation."
                 )
+            if command.action == "resolve_schema":
+                limitations.append(
+                    "Apply executes the metadata-selected provider action once. It may have arbitrary side effects. A retained schema token still requires a separate reviewed authoring preview."
+                )
         data = MutationPreview(
             family=command.family,
             action=command.action,
@@ -222,6 +258,11 @@ class MutationCoordinator:
 
     async def apply(self, preview_token: str) -> CapabilityResult:
         staged = await self.store.consume(preview_token)
+        if staged.kind != "mutation":
+            raise CapabilityError(
+                "Schema evidence tokens cannot be applied. Supply schema_tokens to a new authoring preview.",
+                "PREVIEW_TOKEN_KIND",
+            )
         command = staged.command
         self._apply_gate(staged)
         with (
@@ -245,6 +286,43 @@ class MutationCoordinator:
                     raise CapabilityError(
                         "This mutation family is not supported.", "MUTATION_DISABLED"
                     )
+        if isinstance(value, flows.SchemaResolution):
+            try:
+                self._apply_gate(staged)
+                if (
+                    self.auth.authorization_generation
+                    != staged.authorization_generation
+                ):
+                    raise CapabilityError(
+                        "Authorization changed after provider execution."
+                    )
+                token = await self.store.create(
+                    StagedMutation(
+                        command=command,
+                        instance=staged.instance,
+                        authorization_generation=staged.authorization_generation,
+                        fingerprint=staged.fingerprint,
+                        owning_table=staged.owning_table,
+                        kind="schema_evidence",
+                        evidence=flows.validate_schema_evidence(value.evidence),
+                    )
+                )
+            except Exception:  # noqa: BLE001 - provider effect already occurred
+                raise CapabilityError(
+                    "The provider executed, but its schema evidence was not retained. "
+                    "No schema token is available. Do not replay the action automatically.",
+                    "SCHEMA_EVIDENCE_NOT_RETAINED",
+                    outcome={"provider_executed": True, "schema_retained": False},
+                ) from None
+            return CapabilityResult(
+                data={
+                    "action": "resolve_schema",
+                    "schema_token": token,
+                    "expires_in_seconds": self.store.ttl_seconds,
+                    "summary": value.summary,
+                    "provider_executed": True,
+                }
+            )
         empty_guide = (
             isinstance(command, CatalogCommand)
             and command.action == "submit_guide"

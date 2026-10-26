@@ -26,7 +26,13 @@ from typing import TYPE_CHECKING, Any, Final, Literal, NoReturn
 
 from servicenow_mcp.capabilities.contracts import CapabilityError, CapabilityResult
 from servicenow_mcp.capabilities.contracts import result as operation_result
-from servicenow_mcp.capabilities.flows import lifecycle, semantics, support
+from servicenow_mcp.capabilities.flows import (
+    handlers,
+    lifecycle,
+    semantics,
+    support,
+    tree,
+)
 from servicenow_mcp.capabilities.flows._flow_models import (
     ActionTypeRef,
     ContractBinding,
@@ -367,6 +373,7 @@ def _build_v2_node(
     *,
     kind: str,
     action_type_lookup: dict[str, dict[str, Any]] | None = None,
+    handler_main: str | None = None,
 ) -> dict[str, Any]:
     """Build a canvas node for a persisted V2 action, logic, or subflow instance."""
     decoded, decode_error = _maybe_decode(
@@ -421,6 +428,9 @@ def _build_v2_node(
         wait_for_completion=wait,
         decode_error=decode_error,
     ).to_payload()
+    logic_type = _v(row.get("logic_definition.type")) if kind == "logic" else ""
+    if logic_type:
+        node["logic_type"] = logic_type
     try:
         reference = action_type or logic_definition or subflow
         semantics.table_step(
@@ -431,7 +441,14 @@ def _build_v2_node(
             parent=node["parent_ui_id"],
             definition=reference.sys_id if reference else "",
             inputs=decoded,
-            settings={"wait_for_completion": wait} if kind == "subflow" else {},
+            settings=(
+                {"wait_for_completion": wait}
+                if kind == "subflow"
+                else {"logic_type": logic_type}
+                if kind == "logic"
+                else {}
+            ),
+            handler_main=handler_main,
         )
         if (
             kind == "subflow"
@@ -783,6 +800,12 @@ def _trigger_activation(
         "monthly",
         "repeat",
         "run_once",
+        "email",
+        "remote_table_query",
+        "rest_async",
+        "analytics",
+        "metric",
+        "sla_task",
     }:
         # Native trigger instances have no active column or superclass. The
         # flag is on sys_hub_flow_base (flow_trigger_activation.json). Studio
@@ -1261,6 +1284,8 @@ def _contract_steps(
             else:
                 definition = node["logic_definition"]
                 step["logic"] = {"name": definition["name"]}
+                if node.get("logic_type"):
+                    step["logic"]["type"] = node["logic_type"]
                 step["conditions"] = [_contract_binding(value) for value in inputs]
             if assignments:
                 step["output_assignments"] = [
@@ -1763,7 +1788,7 @@ async def _load_inspection(
                 [("action", row) for row in actions_v2]
                 + [("logic", row) for row in logic_v2]
                 + [("subflow", row) for row in subflows_v2],
-                key=lambda item: _safe_int(_v(item[1].get("order"))),
+                key=lambda item: _canvas_order_key(_v(item[1].get("order"))),
             )
             bounded_nodes = combined_nodes[:effective_limit]
             if len(combined_nodes) > effective_limit:
@@ -2041,16 +2066,34 @@ def assemble_inspection(
     # Build V2 canvas nodes in global persisted order.
     canvas: list[dict[str, Any]] = []
     if selected_node_section in selected_sections:
+        native_rows = (
+            [("action", row) for row in node_actions_v2]
+            + [("logic", row) for row in node_logic_v2]
+            + [("subflow", row) for row in snapshot.node_subflows_v2]
+        )
+        handler_main = (
+            handlers.table_main(native_rows)
+            if not truncation.get(selected_node_section)
+            and not _saturated_datasets(
+                datasets,
+                requested_limits,
+                _SECTION_DEPENDENCIES[selected_node_section],
+            )
+            else None
+        )
         nodes: list[dict[str, Any]] = [
             _build_v2_node(row, kind="action", action_type_lookup=action_type_lookup)
             for row in node_actions_v2
         ]
-        nodes.extend(_build_v2_node(row, kind="logic") for row in node_logic_v2)
+        nodes.extend(
+            _build_v2_node(row, kind="logic", handler_main=handler_main)
+            for row in node_logic_v2
+        )
         nodes.extend(
             _build_v2_node(row, kind="subflow") for row in snapshot.node_subflows_v2
         )
-        nodes.sort(key=lambda n: _safe_int(n["order"]))
-        issues = _canvas_issues(nodes)
+        nodes.sort(key=lambda n: _canvas_order_key(n["order"]))
+        issues = _canvas_issues(nodes, handler_main=handler_main)
         if issues:
             truncation.setdefault(selected_node_section, {}).update(
                 {"incomplete_semantics": issues}
@@ -2218,8 +2261,17 @@ def assemble_inspection(
     return operation_result(data=data, truncation=truncation)
 
 
-def _canvas_issues(nodes: list[dict[str, Any]]) -> list[str]:
+def _canvas_issues(
+    nodes: list[dict[str, Any]], *, handler_main: str | None = None
+) -> list[str]:
     """Report partial fields and malformed topology without discarding returned nodes."""
+
+    def logic_type(node: dict[str, Any]) -> Any:
+        kind = node.get("logic_type")
+        return (
+            handlers.TRY if kind == "TRY" and node["ui_uuid"] == handler_main else kind
+        )
+
     issues: list[str] = []
     by_ui = {node["ui_uuid"]: node for node in nodes if node["ui_uuid"]}
     if len(by_ui) != len(nodes):
@@ -2231,11 +2283,41 @@ def _canvas_issues(nodes: list[dict[str, Any]]) -> list[str]:
         identities
     ):
         issues.append("Missing or duplicate persisted step identities.")
-    orders = [node["order"] for node in nodes]
-    if any(_safe_int(value) == 10**9 for value in orders) or len(set(orders)) != len(
-        orders
-    ):
+    orders: list[int] = []
+    order_by_ui: dict[str, int] = {}
+    first_child_by_parent: dict[str, dict[str, Any]] = {}
+    for node in nodes:
+        first_child_by_parent.setdefault(node["parent_ui_id"], node)
+        try:
+            order = tree.order_key(node["order"])
+        except CapabilityError:
+            issues.append("Invalid or duplicate persisted step orders.")
+            continue
+        top_try = (
+            node["kind"] == "logic"
+            and not node["parent_ui_id"]
+            and logic_type(node) == handlers.TRY
+        )
+        if order < (0 if top_try else 1):
+            issues.append("Invalid or duplicate persisted step orders.")
+        orders.append(order)
+        order_by_ui[node["ui_uuid"]] = order
+    if len(set(orders)) != len(orders):
         issues.append("Invalid or duplicate persisted step orders.")
+    wrappers = [
+        node
+        for node in nodes
+        if node["kind"] == "logic" and logic_type(node) in handlers.TYPES
+    ]
+    roots = [node for node in nodes if not node["parent_ui_id"]]
+    if wrappers and (
+        len(wrappers) != 2
+        or len(roots) != 2
+        or [logic_type(node) for node in roots] != [handlers.TRY, handlers.CATCH]
+    ):
+        issues.append(
+            "Top-level handler wrappers do not form one owned root Try/Catch pair."
+        )
     for node in nodes:
         if node.get("incomplete_semantics"):
             issues.append(
@@ -2247,6 +2329,27 @@ def _canvas_issues(nodes: list[dict[str, Any]]) -> list[str]:
             not node["subflow"]["sys_id"] or "wait_for_completion" not in node
         ):
             issues.append("A subflow definition or wait setting is unreadable.")
+        if "->" in node["order"] and not _canvas_order_key(node["order"])[0]:
+            branch = by_ui.get(node["parent_ui_id"])
+            head = node["order"].split("->", 1)[0]
+            branch_order = order_by_ui.get(branch["ui_uuid"]) if branch else None
+            parallel = by_ui.get(branch["parent_ui_id"]) if branch else None
+            if (
+                branch is None
+                or branch["kind"] != "logic"
+                or branch.get("logic_type") != "PARALLELBLOCK"
+                or parallel is None
+                or parallel["kind"] != "logic"
+                or parallel.get("logic_type") != "PARALLEL"
+                or branch_order is None
+                or str(branch_order) != head
+                or order_by_ui[node["ui_uuid"]] != branch_order + 1
+                or first_child_by_parent[node["parent_ui_id"]] is not node
+                or node.get("logic_type") == "CATCH"
+            ):
+                issues.append(
+                    "A Parallel arrow order does not match its branch parent and first-child position."
+                )
         seen = {node["ui_uuid"]}
         parent = node["parent_ui_id"]
         while parent:
@@ -2286,12 +2389,12 @@ async def _action_inspect(
     return assemble_inspection(snapshot, max_row_limit=settings.max_row_limit)
 
 
-def _safe_int(value: str) -> int:
-    """Best-effort int conversion for sorting; non-numeric sorts last."""
+def _canvas_order_key(value: str) -> tuple[bool, int]:
+    """Keep unreadable labels last without inventing a valid persisted order."""
     try:
-        return int(value)
-    except TypeError, ValueError:
-        return 10**9
+        return False, tree.order_key(value)
+    except CapabilityError:
+        return True, 0
 
 
 def _flatten_record(row: dict[str, Any]) -> dict[str, Any]:

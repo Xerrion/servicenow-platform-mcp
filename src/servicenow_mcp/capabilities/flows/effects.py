@@ -10,9 +10,11 @@ from typing import TYPE_CHECKING, Any
 
 from servicenow_mcp.capabilities.contracts import CapabilityError
 from servicenow_mcp.capabilities.flows import (
+    active_drafts,
     data,
     editing,
     lifecycle,
+    native,
     semantics,
     target,
     tree,
@@ -25,18 +27,224 @@ if TYPE_CHECKING:
     from servicenow_mcp.platform.client import ServiceNowClient
 
 OPS = {"activate", "publish", "deactivate", "test"}
-LIFECYCLE_FIELDS = {"active", "status", "isPublished", "masterSnapshotId"}
+LIFECYCLE_FIELDS = {
+    "active",
+    "status",
+    "isPublished",
+    "masterSnapshotId",
+    "latestSnapshot",
+    "remoteTriggerSysId",
+    "version",
+}
+_TEST_ARRAYS = {
+    "array.string": "string",
+    "array.integer": "integer",
+    "array.boolean": "boolean",
+    "array.object": "object",
+}
+_TEST_COMPLEX = {"object", *_TEST_ARRAYS}
 
 
 def _draft_view(flow: dict[str, Any]) -> dict[str, Any]:
     """Only lifecycle-owned state differs for structural semantic comparison."""
-    return {
+    result = {
         **copy.deepcopy(flow),
         "active": False,
         "status": "draft",
         "isPublished": False,
         "masterSnapshotId": "",
     }
+    for key in ("latestSnapshot", "remoteTriggerSysId", "version"):
+        result.pop(key, None)
+    return result
+
+
+def _test_schema(row: dict[str, Any], *, nested: bool = False) -> dict[str, Any]:
+    parameter = data.spec(row)
+    kind = data.value_type(row).kind
+    attributes = parameter.get("attributes", {})
+    if not isinstance(attributes, dict):
+        raise CapabilityError("Test input attributes are incomplete.", "UNAVAILABLE")
+    if any(
+        parameter.get(key)
+        for key in (
+            "dynamic",
+            "data_structure",
+            "dependent_on",
+            "use_dependent",
+            "scriptActive",
+        )
+    ) or row.get("scriptActive"):
+        raise CapabilityError(
+            "Dynamic, dependent, or scripted subflow test inputs require another adapter.",
+            "UNAVAILABLE",
+        )
+    if kind not in {
+        *_TEST_COMPLEX,
+        "slushbucket",
+        "approval_rules",
+        "schedule_date_time",
+        "template_value",
+        "conditions",
+        "boolean",
+        "integer",
+        "long",
+        "string",
+        "choice",
+        "reference",
+        "document_id",
+        "table_name",
+        "field_name",
+        "json",
+    }:
+        raise CapabilityError("This test input type is unsupported.", "UNAVAILABLE")
+    if nested and kind in {
+        "reference",
+        "document_id",
+        "slushbucket",
+        "approval_rules",
+        "schedule_date_time",
+        "template_value",
+        "conditions",
+    }:
+        raise CapabilityError(
+            "Nested record references or reference-bearing widgets require independent record binding and are unsupported.",
+            "UNAVAILABLE",
+        )
+    children = data.children(row)
+    if kind == "object":
+        if not children:
+            raise CapabilityError(
+                "Object test inputs require a complete declared child schema.",
+                "UNAVAILABLE",
+            )
+    elif kind in _TEST_ARRAYS:
+        if (
+            len(children) != 1
+            or data.value_type(children[0]).kind != _TEST_ARRAYS[kind]
+        ):
+            raise CapabilityError(
+                "Array test inputs require one matching declared item schema.",
+                "UNAVAILABLE",
+            )
+    elif children:
+        raise CapabilityError(
+            "Scalar test inputs cannot contain child schemas.", "UNAVAILABLE"
+        )
+    names = [child.get("name") for child in children]
+    if any(not isinstance(name, str) or not name.split(".")[-1] for name in names):
+        raise CapabilityError("Test input child names are incomplete.", "UNAVAILABLE")
+    if len({str(name).split(".")[-1] for name in names}) != len(names):
+        raise CapabilityError("Test input child names are ambiguous.", "UNAVAILABLE")
+    return {
+        **copy.deepcopy(parameter),
+        "name": row["name"],
+        "type": kind,
+        "children": [_test_schema(child, nested=True) for child in children],
+    }
+
+
+def _validate_test_value(schema: dict[str, Any], value: Any) -> None:
+    attributes = schema.get("attributes", {})
+    if attributes.get("test_input_hidden") == "true":
+        raise CapabilityError("Hidden test inputs cannot be overridden.")
+    if attributes.get("test_input_read_only") == "true" or any(
+        schema.get(key) is True for key in ("readonly", "readOnly", "read_only")
+    ):
+        raise CapabilityError("Read-only test inputs cannot be overridden.")
+    kind = schema["type"]
+    if kind == "object":
+        if not isinstance(value, dict):
+            raise CapabilityError("Object test inputs require native JSON objects.")
+        names = {child["name"].split(".")[-1] for child in schema["children"]}
+        if set(value) - names:
+            raise CapabilityError("The test object contains undeclared fields.")
+        for child in schema["children"]:
+            name = child["name"].split(".")[-1]
+            if name not in value:
+                if child.get("attributes", {}).get("test_input_hidden") == "true":
+                    continue
+                if child.get("mandatory") is True:
+                    raise CapabilityError("A required nested test input is missing.")
+                raise CapabilityError(
+                    "Supply every visible nested subflow test input explicitly, including optional fields. No test default is selected implicitly."
+                )
+            _validate_test_value(child, value[name])
+        return
+    if kind in _TEST_ARRAYS:
+        if not isinstance(value, list):
+            raise CapabilityError("Array test inputs require native JSON arrays.")
+        if schema.get("mandatory") is True and not value:
+            raise CapabilityError("A mandatory test array is empty.")
+        for element in value:
+            _validate_test_value(schema["children"][0], element)
+        return
+    if (
+        isinstance(value, dict | list)
+        or isinstance(value, str)
+        and ("{{" in value or "}}" in value or "javascript:" in value.lower())
+    ):
+        raise CapabilityError(
+            "Test inputs require static native values without scripts or pills."
+        )
+    if kind == "boolean" and type(value) is not bool:
+        raise CapabilityError("Boolean test inputs require JSON booleans.")
+    if kind in {"integer", "long"} and type(value) is not int:
+        raise CapabilityError("Integer test inputs require JSON integers.")
+    if kind in {
+        "string",
+        "choice",
+        "reference",
+        "document_id",
+        "table_name",
+        "field_name",
+        "json",
+    } and not isinstance(value, str):
+        raise CapabilityError("This test input requires a native string.")
+    data.set_value({"name": schema["name"], "parameter": schema}, value)
+
+
+def _test_modal_children(schema: dict[str, Any], value: Any) -> list[dict[str, Any]]:
+    if schema["type"] == "object":
+        entries = (
+            (child, value[child["name"].split(".")[-1]])
+            for child in schema["children"]
+            if child["name"].split(".")[-1] in value
+        )
+    elif schema["type"] in _TEST_ARRAYS:
+        entries = ((schema["children"][0], element) for element in value)
+    else:
+        return []
+    result = []
+    for child, child_value in entries:
+        children = _test_modal_children(child, child_value)
+        result.append(
+            {
+                "name": child["name"].split(".")[-1],
+                "value": "" if child["type"] in _TEST_COMPLEX else child_value,
+                **({"children": children} if children else {}),
+            }
+        )
+    return result
+
+
+def _test_output_map(flow: dict[str, Any], inputs: dict[str, Any]) -> dict[str, Any]:
+    # Test-modal outputMap is not an authoring binding or raw complex JSON.
+    # constructTestModalData:193691-193770 emits named children and blank empty arrays.
+    # Array.Object rows repeat the declared item name: buildObjectArrayStructure:93333-93353.
+    if flow["type"] != "subflow":
+        return inputs
+    result = {}
+    for row in flow["inputs"]:
+        name = row["name"]
+        if name not in inputs:
+            continue
+        if data.value_type(row).kind not in _TEST_COMPLEX:
+            result[name] = inputs[name]
+            continue
+        children = _test_modal_children(_test_schema(row), inputs[name])
+        result[name] = {"children": children} if children else ""
+    return result
 
 
 def _test_inputs(command: FlowCommand, flow: dict[str, Any]) -> dict[str, Any]:
@@ -107,7 +315,7 @@ def _test_inputs(command: FlowCommand, flow: dict[str, Any]) -> dict[str, Any]:
                 raise CapabilityError("A required test input is missing.")
             if flow["type"] == "subflow":
                 raise CapabilityError(
-                    "Supply every scalar subflow test input explicitly, including optional inputs. No test default is selected implicitly."
+                    "Supply every subflow test input explicitly, including optional inputs. No test default is selected implicitly."
                 )
             continue
         value = provided[name]
@@ -117,24 +325,32 @@ def _test_inputs(command: FlowCommand, flow: dict[str, Any]) -> dict[str, Any]:
                     "Trigger test records require a native sys_id string."
                 )
             validate_sys_id(value)
-        if (
-            tree.pills(value)
-            or isinstance(value, dict | list)
-            or isinstance(value, str)
-            and ("{{" in value or "}}" in value)
-        ):
-            raise CapabilityError("Test inputs require static scalar native values.")
-        probe = {"name": name, "parameter": {**copy.deepcopy(spec), "readonly": False}}
-        if (
-            spec.get("children")
-            or data.value_type(row).kind in {"object", "glide_list", "records"}
-            or data.value_type(row).kind.startswith("array.")
-        ):
-            raise CapabilityError(
-                "Complex/list test input serialization requires another adapter.",
-                "UNAVAILABLE",
-            )
-        data.set_value(probe, value)
+        if flow["type"] == "subflow":
+            _validate_test_value(_test_schema(row), value)
+        else:
+            if (
+                tree.pills(value)
+                or isinstance(value, dict | list)
+                or isinstance(value, str)
+                and ("{{" in value or "}}" in value)
+            ):
+                raise CapabilityError(
+                    "Test inputs require static scalar native values."
+                )
+            probe = {
+                "name": name,
+                "parameter": {**copy.deepcopy(spec), "readonly": False},
+            }
+            if (
+                spec.get("children")
+                or kind in {"object", "glide_list", "records"}
+                or kind.startswith("array.")
+            ):
+                raise CapabilityError(
+                    "Complex/list trigger test inputs require another adapter.",
+                    "UNAVAILABLE",
+                )
+            data.set_value(probe, value)
         if kind in {"reference", "document_id"}:
             table = linked["value"] if linked else spec.get("reference")
             if not isinstance(table, str) or not table:
@@ -162,6 +378,16 @@ async def state(command: FlowCommand, client: ServiceNowClient) -> dict[str, Any
             "The lifecycle target identity, scope, or write access differs from the bound draft."
         )
     if (
+        flow.get("snapshot") is not False
+        or flow.get("masterSnapshot") is not False
+        or flow.get("jsonSnapshot") is True
+        or flow.get("parentFlow")
+    ):
+        raise CapabilityError(
+            "Lifecycle operations require the editable owner, not an immutable published snapshot.",
+            "UNAVAILABLE",
+        )
+    if (
         target.scalar(before.get("sys_mod_count")) != command.expected_revision
         or target.scalar(before.get("sys_scope")) != command.expected_scope
     ):
@@ -175,8 +401,8 @@ async def state(command: FlowCommand, client: ServiceNowClient) -> dict[str, Any
         if (
             flow.get("type") != "flow"
             or flow.get("active") is not True
-            or flow.get("status") != "published"
-            or flow.get("isPublished") is not True
+            or (flow.get("status"), flow.get("isPublished"))
+            not in {("published", True), ("draft", False)}
             or not isinstance(flow.get("masterSnapshotId"), str)
             or target.scalar(before["active"]) != "true"
         ):
@@ -202,9 +428,8 @@ async def state(command: FlowCommand, client: ServiceNowClient) -> dict[str, Any
     else:
         validation_flow = flow
         republish = (
-            command.action in {"activate", "publish"}
-            and flow.get("active") is False
-            and flow.get("isPublished") is True
+            command.action in {"activate", "publish", "test"}
+            and type(flow.get("active")) is bool
             and flow.get("status") in {"draft", "published"}
             and isinstance(flow.get("masterSnapshotId"), str)
             and bool(flow["masterSnapshotId"])
@@ -219,7 +444,7 @@ async def state(command: FlowCommand, client: ServiceNowClient) -> dict[str, Any
                 )
         editing.require_editable(validation_flow, command.sys_id or "")
         if (
-            target.scalar(before["active"]) != "false"
+            target.scalar(before["active"]) != str(flow["active"]).lower()
             or target.scalar(before["status"]) != flow["status"]
             or target.scalar(before["type"]) != flow["type"]
         ):
@@ -309,7 +534,8 @@ async def preview(
         "input_names": sorted((current["inputs"] or {}).keys()),
         "test_inputs": mask_sensitive_fields(current["inputs"] or {}),
         "revision": command.expected_revision,
-        "verification": "source_derived_offline_only",
+        "verification": "offline_regression_and_bounded_development_evidence",
+        "live_verification_scope": "tv2dev native release 27800/engine 2, owned future Run Once Log flow and scalar Log subflow, 2026-10-23. Not a verification of this target.",
         "automatic_replay": False,
     }, fingerprint(current)
 
@@ -347,44 +573,73 @@ async def apply(
         if flow["type"] == "subflow"
         else "snapshot"
     )
+    wire = native.rest_payload(flow)
+    wire.pop("labelCacheAsJsonString", None)
     payload = (
-        {"flow": flow, "outputMap": current["inputs"], "runOnThread": False}
+        {
+            "flow": wire,
+            "outputMap": _test_output_map(flow, current["inputs"]),
+            "runOnThread": False,
+        }
         if command.action == "test"
         else None
         if operation == "deactivate"
-        else flow
+        else wire
     )
     accepted_context: str | None = None
+    phase = "effect.request"
+    echo_engine_unset = False
+    runtime_version = None
     try:
         echo = await client.studio_lifecycle(flow["id"], operation, payload)
         if command.action == "test":
             validate_sys_id(echo)
             accepted_context = echo
+            phase = "test.context"
             check_table_access("sys_flow_context")
             execution = await client.flow_record(
                 "sys_flow_context", echo, lifecycle.EXECUTION_FIELDS
             )
-            if (
-                target.scalar(execution.get("sys_id")) != echo
-                or target.scalar(execution.get("state"))
-                not in lifecycle.EXECUTION_STATES
-            ):
+            if target.scalar(execution.get("sys_id")) != echo:
                 raise ValueError("Unrelated or incomplete test context")
+            snapshot_evidence, diagnostics = await lifecycle.execution_snapshot(
+                execution, flow["id"], client
+            )
             context_flow = target.scalar(execution.get("flow"))
-            if context_flow != flow["id"]:
+            owner_pending = context_flow in {None, ""}
+            if not owner_pending and context_flow != flow["id"]:
                 validate_sys_id(context_flow or "")
                 check_table_access("sys_hub_flow_snapshot")
-                version = await client.studio_request(
+                ancestor = await client.studio_request(
                     f"flow/{context_flow}", minimal=True
                 )
                 if (
-                    version.get("id") != context_flow
-                    or version.get("parentFlow") != flow["id"]
-                    or version.get("snapshot") is not True
+                    ancestor.get("id") != context_flow
+                    or ancestor.get("parentFlow") != flow["id"]
+                    or ancestor.get("snapshot") is not True
                 ):
-                    raise ValueError("Unrelated test snapshot")
+                    raise ValueError("Unrelated test context")
+            context_state = target.scalar(execution.get("state"))
+            if context_state not in {None, "", *lifecycle.EXECUTION_STATES}:
+                raise ValueError("Unrecognized execution state")
+            if owner_pending or context_state in {None, ""}:
+                diagnostics.append(
+                    lifecycle.diagnostic(
+                        "PENDING_EXECUTION",
+                        "execution",
+                        "Execution owner or state is not yet available. Do not replay the test.",
+                        incomplete=True,
+                    )
+                )
+            phase = "test.draft"
             actual = await client.studio_request(f"flow/{flow['id']}")
-            semantics.compare_saved(flow, actual, generated_ids=set())
+            semantics.compare_saved(
+                flow,
+                actual,
+                generated_ids=set(),
+                allow_active_draft=active_drafts.eligible(flow),
+            )
+            phase = "test.header"
             if current["header"] != await client.flow_record(
                 "sys_hub_flow", flow["id"], lifecycle.HEADER_FIELDS
             ):
@@ -394,12 +649,17 @@ async def apply(
                 "action": "test",
                 "sys_id": flow["id"],
                 "execution_sys_id": echo,
-                "state": target.scalar(execution["state"]),
-                "terminal": target.scalar(execution["state"])
-                in {"COMPLETE", "ERROR", "CANCELLED"},
-                "execution_succeeded": (target.scalar(execution["state"]) == "COMPLETE")
-                if target.scalar(execution["state"])
-                in {"COMPLETE", "ERROR", "CANCELLED"}
+                **snapshot_evidence,
+                "complete": not diagnostics,
+                "diagnostics": diagnostics,
+                "state": context_state,
+                "context_owner_verified": not owner_pending,
+                "terminal": (context_state in {"COMPLETE", "ERROR", "CANCELLED"})
+                if not owner_pending and context_state in lifecycle.EXECUTION_STATES
+                else None,
+                "execution_succeeded": (context_state == "COMPLETE")
+                if not owner_pending
+                and context_state in {"COMPLETE", "ERROR", "CANCELLED"}
                 else None,
                 "follow_up": "Use flow.status with this exact execution_sys_id. Do not replay the test.",
                 "version_content_verified": False,
@@ -407,10 +667,53 @@ async def apply(
         if not isinstance(echo, dict) or echo.get("id") != flow["id"]:
             raise ValueError("Lifecycle identity")
         actual = await client.studio_request(f"flow/{flow['id']}")
-        _compare_content(flow, echo)
-        _compare_content(flow, actual)
+        phase = "publication.content"
+        echo_engine_unset = (
+            type(echo.get("flowEngineVersion")) is int
+            and echo.get("flowEngineVersion") == 0
+            and flow.get("flowEngineVersion") == actual.get("flowEngineVersion") == 2
+            and active_drafts.eligible(actual)
+        )
+        comparison_echo = copy.deepcopy(echo)
+        if echo_engine_unset:
+            # The captured native publish response leaves this getter at zero.
+            # The owner GET and selected published version must independently
+            # establish engine 2; no persisted engine change is normalized.
+            comparison_echo["flowEngineVersion"] = 2
+        comparison_before = copy.deepcopy(flow)
+        native_release = (
+            actual.get("authoredOnReleaseVersion") == active_drafts.NATIVE_RELEASE
+        )
+        if command.action in {"activate", "publish"} and native_release:
+            elapsed = actual.get("attributes", {}).get("timeFromCreateToActivate")
+            if elapsed is not None:
+                if (
+                    not isinstance(elapsed, str)
+                    or not elapsed.isascii()
+                    or not elapsed.isdecimal()
+                    or echo.get("attributes", {}).get("timeFromCreateToActivate")
+                    != elapsed
+                ):
+                    raise ValueError("Publication timing metadata is inconsistent")
+                # This server-owned elapsed-time metric is not authored content.
+                comparison_before.setdefault("attributes", {})[
+                    "timeFromCreateToActivate"
+                ] = elapsed
+        if (
+            command.action == "deactivate"
+            and native_release
+            and echo.get("userHasRolesAssignedToFlow") is False
+            and actual.get("userHasRolesAssignedToFlow")
+            is flow.get("userHasRolesAssignedToFlow")
+            is True
+        ):
+            # Native deactivate leaves a false UI permission getter in its echo.
+            # Stored runAs/runWithRoles remain strict in both comparisons.
+            comparison_echo["userHasRolesAssignedToFlow"] = True
+        _compare_content(comparison_before, comparison_echo)
+        _compare_content(comparison_before, actual)
         semantics.compare_saved(
-            _draft_view(echo), _draft_view(actual), generated_ids=set()
+            _draft_view(comparison_echo), _draft_view(actual), generated_ids=set()
         )
         if any(
             echo.get(k) != actual.get(k) or type(echo.get(k)) is not type(actual.get(k))
@@ -420,10 +723,23 @@ async def apply(
         active = command.action != "deactivate"
         if actual.get("active") is not active:
             raise ValueError("Unexpected activation state")
-        if command.action != "deactivate" and (
-            actual.get("status") != "published" or actual.get("isPublished") is not True
+        native_owner = active_drafts.eligible(actual)
+        if (
+            flow.get("authoredOnReleaseVersion") == active_drafts.NATIVE_RELEASE
+            and flow.get("flowEngineVersion") == 2
+            and not native_owner
+        ):
+            raise ValueError("Native lifecycle owner/version evidence is incomplete")
+        if (
+            command.action != "deactivate"
+            and not native_owner
+            and (
+                actual.get("status") != "published"
+                or actual.get("isPublished") is not True
+            )
         ):
             raise ValueError("Publication not established")
+        phase = "publication.header"
         header = await client.flow_record(
             "sys_hub_flow", flow["id"], lifecycle.HEADER_FIELDS
         )
@@ -437,34 +753,49 @@ async def apply(
             != actual.get("masterSnapshotId")
         ):
             raise ValueError("Independent lifecycle header mismatch")
+        if native_owner:
+            phase = "publication.snapshot"
+            runtime = await active_drafts.read(
+                command,
+                actual,
+                client,
+                revision=target.scalar(header.get("sys_mod_count")),
+                require_save_profile=False,
+            )
+            runtime_version = runtime["snapshot"]["id"]
         if command.action != "deactivate":
             snapshot = actual.get("masterSnapshotId")
             if not isinstance(snapshot, str):
                 raise ValueError("Missing snapshot identity")
             validate_sys_id(snapshot)
-            if (
-                target.scalar(header.get("master_snapshot")) != snapshot
-                or target.scalar(header.get("status")) != "published"
+            if target.scalar(
+                header.get("master_snapshot")
+            ) != snapshot or target.scalar(header.get("status")) != actual.get(
+                "status"
             ):
                 raise ValueError("Snapshot header mismatch")
             check_table_access("sys_hub_flow_snapshot")
-            published = await client.studio_request(f"flow/{snapshot}", minimal=True)
-            if (
-                published.get("id") != snapshot
-                or published.get("parentFlow") != flow["id"]
-                or published.get("snapshot") is not True
-                or published.get("masterSnapshot") is not True
-                or published.get("type") != flow["type"]
-            ):
-                raise ValueError("Snapshot ownership mismatch")
+            phase = "publication.snapshot"
+            if not native_owner:
+                published = await client.studio_request(
+                    f"flow/{snapshot}", minimal=True
+                )
+                if (
+                    published.get("id") != snapshot
+                    or published.get("parentFlow") != flow["id"]
+                    or published.get("snapshot") is not True
+                    or published.get("masterSnapshot") is not True
+                    or published.get("type") != flow["type"]
+                ):
+                    raise ValueError("Snapshot ownership mismatch")
         elif any(
             actual.get(k) != flow.get(k)
             for k in ("status", "isPublished", "masterSnapshotId")
         ):
             raise ValueError("Deactivation changed publication version")
-    except Exception:  # noqa: BLE001 - contain ambiguous effects without exposing payloads or retrying
+    except Exception as exc:  # noqa: BLE001 - contain ambiguous effects without exposing payloads or retrying
         raise CapabilityError(
-            "Lifecycle result or independent readback is incomplete. UNKNOWN_OUTCOME: inspect flow.status before another preview. "
+            f"Lifecycle result or independent readback is incomplete ({phase}, {exc.detail() if isinstance(exc, semantics.SemanticMismatch) else type(exc).__name__}). UNKNOWN_OUTCOME: inspect flow.status before another preview. "
             + (
                 f"Returned execution_sys_id={accepted_context}. "
                 if accepted_context
@@ -481,6 +812,8 @@ async def apply(
         "status": actual["status"],
         "snapshot_sys_id": actual.get("masterSnapshotId"),
         "snapshot_content_verified": False,
+        "runtime_snapshot_sys_id": runtime_version,
+        "native_echo_engine_unset": echo_engine_unset,
         "execution_requested_directly": False,
         "triggers_enabled": active if flow["type"] == "flow" else None,
     }

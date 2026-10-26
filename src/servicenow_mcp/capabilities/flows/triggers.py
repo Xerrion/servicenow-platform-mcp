@@ -11,7 +11,13 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from servicenow_mcp.capabilities.contracts import CapabilityError
-from servicenow_mcp.capabilities.flows import data, tree
+from servicenow_mcp.capabilities.flows import (
+    application_triggers,
+    data,
+    native,
+    saved_triggers,
+    tree,
+)
 from servicenow_mcp.policy import check_table_access, mask_sensitive_fields
 from servicenow_mcp.validation import validate_identifier, validate_sys_id
 
@@ -21,7 +27,7 @@ if TYPE_CHECKING:
 
 RECORD = {"record_create", "record_update", "record_create_or_update"}
 SCHEDULED = {"daily", "weekly", "monthly", "run_once", "repeat"}
-SUPPORTED = RECORD | SCHEDULED | {"service_catalog"}
+SUPPORTED = RECORD | SCHEDULED | {"service_catalog"} | application_triggers.SUPPORTED
 OPS = {"set_trigger", "update_trigger", "remove_trigger"}
 SCHEDULE_INPUTS = {
     "daily": {"glide_time": "glide_time"},
@@ -30,6 +36,30 @@ SCHEDULE_INPUTS = {
     "run_once": {"glide_date_time": "glide_date_time"},
     "repeat": {"glide_duration": "glide_duration"},
 }
+
+
+def schedule_inputs(definition: dict[str, Any]) -> dict[str, str]:
+    """Bind schedule roles by declared native types, not historical UI names."""
+    kind = definition["type"]
+    rows = definition.get("inputs", [])
+    actual: dict[str, str] = {}
+    for row in rows:
+        name, parameter_type = row["name"], row["type"]
+        if not isinstance(name, str) or not isinstance(parameter_type, str):
+            raise CapabilityError(
+                "Scheduled parameter names and types must be readable.", "UNAVAILABLE"
+            )
+        actual[name] = parameter_type
+    if (
+        len(actual) != len(rows)
+        or sorted(actual.values()) != sorted(SCHEDULE_INPUTS[kind].values())
+        or any(row["parameter"].get("name") != row["name"] for row in rows)
+    ):
+        raise CapabilityError(
+            "This scheduled definition uses a different input contract, such as recurrence/timezone metadata.",
+            "UNAVAILABLE",
+        )
+    return actual
 
 
 def service_catalog_inputs(definition: dict[str, Any]) -> list[dict[str, Any]]:
@@ -104,6 +134,8 @@ def choices(spec: dict[str, Any]) -> set[Any]:
 
 
 def require_supported(trigger: dict[str, Any]) -> None:
+    if saved_triggers.is_saved(trigger):
+        return
     if (
         trigger.get("type") not in SUPPORTED
         or trigger.get("fromTemplate")
@@ -129,6 +161,12 @@ def _datetime(value: Any) -> datetime:
 
 
 def validate_values(trigger: dict[str, Any], definition: dict[str, Any]) -> None:
+    if saved_triggers.is_saved(trigger):
+        saved_triggers.validate(trigger, definition)
+        return
+    if trigger.get("type") in application_triggers.SUPPORTED:
+        application_triggers.validate(trigger, definition)
+        return
     require_supported(trigger)
     if trigger.get("triggerDefinitionId") != definition.get("id") or trigger[
         "type"
@@ -153,9 +191,12 @@ def validate_values(trigger: dict[str, Any], definition: dict[str, Any]) -> None
     for spec in definition["inputs"]:
         item = data.named(inputs, spec["name"])
         parameter = spec["parameter"]
-        if (
-            data.value_type(item) != data.value_type(parameter)
-            or item.get("parameter") != parameter
+        if data.value_type(item) != data.value_type(parameter) or item.get(
+            "parameter"
+        ) != (
+            native.trigger_parameter(parameter)
+            if "remoteSysId" in trigger
+            else parameter
         ):
             raise CapabilityError(
                 "The saved trigger parameter differs from its current definition. Create a fresh trigger preview.",
@@ -240,14 +281,12 @@ def validate_values(trigger: dict[str, Any], definition: dict[str, Any]) -> None
                 "This trigger input type requires another value adapter.", "UNAVAILABLE"
             )
     if trigger["type"] in SCHEDULED:
-        expected = SCHEDULE_INPUTS[trigger["type"]]
-        if {spec["name"]: spec["type"] for spec in definition["inputs"]} != expected:
-            raise CapabilityError(
-                "This scheduled definition uses a different input contract, such as recurrence/timezone metadata.",
-                "UNAVAILABLE",
-            )
+        expected = schedule_inputs(definition)
         if trigger["type"] == "monthly":
-            day = data.named(inputs, "integer")["value"]
+            day = data.named(
+                inputs,
+                next(name for name, kind in expected.items() if kind == "integer"),
+            )["value"]
             if type(day) is not int or not 1 <= day <= 31:
                 raise CapabilityError(
                     "Monthly integer requires a native day number from 1 through 31."
@@ -275,8 +314,23 @@ def validate_values(trigger: dict[str, Any], definition: dict[str, Any]) -> None
 
 
 def update(
-    trigger: dict[str, Any], definition: dict[str, Any], changes: dict[str, Any]
+    trigger: dict[str, Any],
+    definition: dict[str, Any],
+    changes: dict[str, Any],
+    *,
+    schemas: dict[str, Any] | None = None,
 ) -> None:
+    if (
+        not saved_triggers.is_saved(trigger)
+        and trigger.get("type") in application_triggers.SUPPORTED
+    ):
+        application_triggers.update(trigger, definition, changes, schemas)
+        return
+    if saved_triggers.is_saved(trigger):
+        saved_triggers.update(trigger, definition, changes, schemas=schemas)
+        return
+    if schemas is not None:
+        raise CapabilityError("Only REST triggers accept interface_schemas.")
     require_supported(trigger)
     if not changes:
         raise CapabilityError("update_trigger requires nonempty inputs.")
@@ -290,7 +344,7 @@ def update(
         condition_names = {
             item["name"]
             for item in trigger["inputs"]
-            if item.get("type") == "conditions"
+            if data.value_type(item).kind == "conditions"
         }
         if not condition_names <= changes.keys():
             raise CapabilityError(
@@ -308,13 +362,13 @@ def update(
         item["value"] = value
         item["displayValue"] = (
             value
-            if item["type"]
+            if data.value_type(item).kind
             in {"conditions", "glide_time", "glide_duration", "glide_date_time"}
             else ""
         )
-        if item["type"] == "conditions" and value == "":
+        if data.value_type(item).kind == "conditions" and value == "":
             item["value"] = item["displayValue"] = "^EQ"
-        if item["type"] == "conditions":
+        if data.value_type(item).kind == "conditions":
             key = "additionalMetadata" if name == "additional_condition" else "metadata"
             metadata = trigger.get(key, {})
             if metadata.get("predicates") or metadata.get("query_parse", {}).get(
@@ -333,10 +387,23 @@ async def prepare(
     client: ServiceNowClient,
     *,
     resolver: PillResolver,
+    flow: dict[str, Any] | None = None,
+    authored: bool = False,
 ) -> dict[str, Any]:
-    validate_values(trigger, definition)
+    saved = saved_triggers.is_saved(trigger)
+    if not saved and trigger.get("type") in application_triggers.SUPPORTED:
+        return await application_triggers.prepare(
+            trigger, definition, client, resolver=resolver, flow=flow, authored=authored
+        )
+    saved_evidence = {}
+    if saved:
+        saved_evidence = await saved_triggers.prepare(
+            trigger, definition, client, flow=flow, authored=authored
+        )
+    else:
+        validate_values(trigger, definition)
     if trigger["type"] not in RECORD:
-        return {}
+        return saved_evidence
     table_input = data.named(trigger["inputs"], "table")
     table = table_input["value"]
     check_table_access("sys_db_object")
@@ -379,7 +446,7 @@ async def prepare(
     # fields. An unreadable/unknown field cannot silently broaden a trigger.
     terms_checked = 0
     for item in trigger["inputs"]:
-        if item["type"] != "conditions" or item["value"] in ("", "^EQ"):
+        if data.value_type(item).kind != "conditions" or item["value"] in ("", "^EQ"):
             continue
         for term in item["value"].split("^"):
             if not term or term == "EQ":
@@ -409,6 +476,7 @@ async def prepare(
                 "condition." + match.group(1), "Condition", table, path
             )
     return {
+        **({"saved_references": saved_evidence} if saved else {}),
         "table": records[0],
         "descriptor": descriptor,
         "dictionary": {
@@ -444,12 +512,16 @@ def check_dependencies(
     old_label = old.get("label") or old["name"]
     changed_source = replaced or not after or after[0]["type"] != old["type"]
     if after:
-        old_table = next(
-            (row["value"] for row in old["inputs"] if row["name"] == "table"), None
-        )
-        new_table = next(
-            (row["value"] for row in after[0]["inputs"] if row["name"] == "table"), None
-        )
+        old_table = {
+            row["name"]: row["value"]
+            for row in old["inputs"]
+            if data.value_type(row).kind == "table_name"
+        }
+        new_table = {
+            row["name"]: row["value"]
+            for row in after[0]["inputs"]
+            if data.value_type(row).kind == "table_name"
+        }
         changed_source |= old_table != new_table or old_label != (
             after[0].get("label") or after[0]["name"]
         )
@@ -492,7 +564,13 @@ def summary(instances: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "inputs": mask_sensitive_fields(
                 {row["name"]: row["value"] for row in item["inputs"]}
             ),
-            "schedule_timezone": "instance" if item["type"] in SCHEDULED else None,
+            "schedule_timezone": (
+                "native_definition"
+                if saved_triggers.is_saved(item)
+                else "instance"
+                if item["type"] in SCHEDULED
+                else None
+            ),
         }
         for item in instances
     ]

@@ -210,8 +210,7 @@ class FlowCommand(Command):
         "publish",
         "deactivate",
         "test",
-        "validate_remote",
-        "run",
+        "resolve_schema",
     ]
     sys_id: str | None = None
     name: str | None = None
@@ -220,15 +219,94 @@ class FlowCommand(Command):
     flow_type: Literal["flow", "subflow"] | None = None
     action_type_sys_id: str | None = None
     subflow_sys_id: str | None = None
+    input_name: str | None = None
     inputs: dict[str, JsonValue] | None = Field(default=None, repr=False)
+    connection_overrides: dict[str, str | None] | None = Field(default=None, repr=False)
     edits: list[dict[str, JsonValue]] | None = Field(default=None, repr=False)
+    schema_tokens: list[str] | None = Field(default=None, repr=False, max_length=200)
+    schema_evidence: list[dict[str, JsonValue]] = Field(
+        default_factory=list, repr=False
+    )
     expected_scope: str | None = None
     expected_revision: str | None = None
     instance_id: str = Field(default_factory=lambda: uuid.uuid4().hex)
     ui_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
 
+    @model_validator(mode="before")
+    @classmethod
+    def reject_external_evidence(cls, value: object) -> object:
+        if isinstance(value, dict) and "schema_evidence" in value:
+            raise CapabilityError(
+                "Schema evidence is server-held. Supply schema_tokens instead."
+            )
+        return value
+
     @model_validator(mode="after")
     def check_action(self) -> Self:
+        if self.input_name is not None and self.action != "resolve_schema":
+            raise CapabilityError("input_name is accepted only by resolve_schema.")
+        if self.connection_overrides is not None:
+            if self.action != "resolve_schema":
+                raise CapabilityError(
+                    "connection_overrides is accepted only by resolve_schema."
+                )
+            validate_payload(
+                self.connection_overrides,
+                field_name="connection_overrides",
+                validate_keys=False,
+            )
+            for source, child in self.connection_overrides.items():
+                # Native reset mappings survive provider-context projection.
+                if source == "" and child == "":
+                    continue
+                validate_sys_id(source)
+                if child is not None:
+                    validate_sys_id(child)
+        if self.schema_tokens is not None:
+            if self.action not in {"create", "edit"}:
+                raise CapabilityError(
+                    "schema_tokens is accepted only by create and edit."
+                )
+            if len(set(self.schema_tokens)) != len(self.schema_tokens):
+                raise CapabilityError("schema_tokens must not contain duplicates.")
+            for token in self.schema_tokens:
+                try:
+                    valid = str(uuid.UUID(token)) == token
+                except ValueError:
+                    valid = False
+                if not valid:
+                    raise CapabilityError(
+                        "schema_tokens requires canonical UUID strings."
+                    )
+        if self.action == "resolve_schema":
+            if not self.action_type_sys_id or not self.input_name:
+                raise CapabilityError(
+                    "resolve_schema requires action_type_sys_id and input_name."
+                )
+            validate_sys_id(self.action_type_sys_id)
+            validate_identifier(self.input_name)
+            if any(
+                value is not None
+                for value in (
+                    self.sys_id,
+                    self.name,
+                    self.scope,
+                    self.description,
+                    self.flow_type,
+                    self.subflow_sys_id,
+                    self.edits,
+                    self.expected_revision,
+                )
+            ):
+                raise CapabilityError(
+                    "resolve_schema accepts only action_type_sys_id, input_name, inputs, connection_overrides, and expected_scope."
+                )
+            if self.expected_scope is not None and self.expected_scope != "global":
+                validate_sys_id(self.expected_scope)
+            validate_payload(
+                self.inputs or {}, field_name="inputs", validate_keys=False
+            )
+            return self
         if self.flow_type is not None and self.action != "create":
             raise CapabilityError("flow_type is accepted only for creation.")
         if self.action in {
@@ -236,17 +314,10 @@ class FlowCommand(Command):
             "publish",
             "deactivate",
             "test",
-            "validate_remote",
-            "run",
         }:
             if not self.sys_id:
                 raise CapabilityError("Lifecycle operations require sys_id.")
             validate_sys_id(self.sys_id)
-            if self.action in {"validate_remote", "run"}:
-                raise CapabilityError(
-                    "No independent remote compile/validation or production-run contract is established by the local Studio 27 source. Save is not validation; test is not a run alias.",
-                    "UNAVAILABLE",
-                )
             if not self.expected_scope or not self.expected_revision:
                 raise CapabilityError(
                     "Lifecycle effects require expected_scope and expected_revision."
@@ -388,6 +459,8 @@ class StagedMutation(Command):
     authorization_generation: int
     fingerprint: str | None = None
     owning_table: str | None = None
+    kind: Literal["mutation", "schema_evidence"] = "mutation"
+    evidence: dict[str, JsonValue] | None = Field(default=None, repr=False)
 
 
 class MutationPreview(BaseModel):

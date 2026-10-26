@@ -171,14 +171,23 @@ def fixtures(settings: Settings, flow: dict[str, Any]):
     return coordinator, get_tool_functions(server)
 
 
-def persist(flow: dict[str, Any], *, generated_catalog_inputs: bool = False) -> None:
-    """Model a saved definition separately from the preview's original object."""
+def native_trigger_labels(flow: dict[str, Any]) -> None:
+    """Model the native parameter getter from the writable REST label slot."""
     for trigger in flow["triggerInstances"]:
-        if trigger.get("type") == "service_catalog" and "remoteSysId" in trigger:
+        if (
+            trigger.get("type")
+            in {"service_catalog", "daily", "weekly", "monthly", "run_once", "repeat"}
+            and "remoteSysId" in trigger
+        ):
             for row in trigger["inputs"]:
                 parameter = row["parameter"]
                 if "type_label" in parameter:
                     parameter["uiDisplayTypeLabel"] = parameter.pop("type_label")
+
+
+def persist(flow: dict[str, Any], *, generated_catalog_inputs: bool = False) -> None:
+    """Model a saved definition separately from the preview's original object."""
+    native_trigger_labels(flow)
     if generated_catalog_inputs:
         flow["inputs"] = copy.deepcopy(
             json.loads(

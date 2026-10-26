@@ -2,6 +2,7 @@
 
 createStage: bundle:184105-184139; addNewFlowStage/detach/delete:204322-204398.
 Stage indexes refer to component array positions, not flow-logic instances.
+canAddStages ancestor exclusions: bundle:1575,16243-16250; sandwich is not excluded.
 """
 
 import copy
@@ -195,7 +196,8 @@ async def test_stage_destructive_dependencies_are_explicit(settings, defect):
 
 
 @pytest.mark.parametrize("kind", ["FOREACH", "PARALLEL"])
-async def test_stage_attachment_rejects_excluded_scope(settings, kind):
+@pytest.mark.parametrize("op", ["attach_stage", "update_stage"])
+async def test_stage_attachment_rejects_excluded_scope(settings, kind, op):
     flow = stage_flow()
     definition = next(d for d in family_definitions() if d["type"] == kind)
     flow["flowLogicInstances"] = [
@@ -210,13 +212,177 @@ async def test_stage_attachment_rejects_excluded_scope(settings, kind):
             "inputs": [],
         }
     ]
-    flow["actionInstances"][0].update(parent="block", order=2)
-    with pytest.raises(CapabilityError, match="For Each or Parallel"):
+    for action in flow["actionInstances"]:
+        action["order"] += 1
+    flow["actionInstances"][0]["parent"] = "block"
+    flow["subFlowInstances"][0]["order"] += 1
+    source_index = 1
+    if kind == "PARALLEL":
+        branch = next(d for d in family_definitions() if d["type"] == "PARALLELBLOCK")
+        flow["flowLogicInstances"].append(
+            {
+                "id": "e" * 32,
+                "uiUniqueIdentifier": "branch",
+                "definitionId": branch["id"],
+                "flowLogicDefinition": branch,
+                "type": "flowlogic",
+                "parent": "block",
+                "order": 2,
+                "inputs": [],
+            }
+        )
+        for action in flow["actionInstances"]:
+            action["order"] += 1
+        flow["actionInstances"][0].update(parent="branch", order="2->3")
+        flow["subFlowInstances"][0]["order"] += 1
+        source_index = 2
+    edit = {"op": op, "stage": "saved-stage"}
+    if op == "attach_stage":
+        edit["step"] = "ui-1"
+    else:
+        flow["stages"]["saved-stage"]["componentIndexes"] = [source_index]
+        edit["label"] = "Renamed"
+    with pytest.raises(CapabilityError):
         await plan(
             settings,
             flow,
-            [{"op": "attach_stage", "stage": "saved-stage", "step": "ui-1"}],
+            [edit],
         )
+
+
+@pytest.mark.parametrize("defect", [None, "stage_id", "database_id", "source_index"])
+async def test_until_stage_attach_move_and_independent_readback(settings, defect):
+    # Native DOUNTIL metadata; canAddStages excludes only FOREACH and PARALLEL
+    # ancestors (bundle:1575,16243-16250), not display_as_sandwich blocks.
+    flow = stage_flow()
+    parameters = [
+        {"name": "condition_name", "type": "string", "mandatory": False},
+        {"name": "condition", "type": "string", "mandatory": True},
+    ]
+    definition = {
+        "id": "eaeb040687210300e6c2c88fc0e3ec89",
+        "name": "Do the following until",
+        "type": "DOUNTIL",
+        "connectedTo": "",
+        "inputs": parameters,
+        "variables": [],
+        "userCanRead": True,
+        "attributes": {
+            "allow_children": "true",
+            "allow_siblings": "true",
+            "can_be_nested": "false",
+            "decorator_is_top": "true",
+            "display_as_sandwich": "true",
+            "first_label": "Do",
+            "line_type": "cc_curve",
+            "pills_draggable_outside_block": "false",
+            "second_label": "until",
+        },
+    }
+    flow["flowLogicInstances"] = [
+        {
+            "id": "d" * 32,
+            "uiUniqueIdentifier": "until-ui",
+            "definitionId": definition["id"],
+            "flowLogicDefinition": definition,
+            "type": "flowlogic",
+            "parent": "",
+            "order": 2,
+            "orderBottom": 5,
+            "children": ["ui-2", "ui-3"],
+            "inputs": [
+                {"name": parameter["name"], "parameter": parameter, "value": value}
+                for parameter, value in zip(
+                    parameters, ["Complete", "true"], strict=True
+                )
+            ],
+        }
+    ]
+    flow["actionInstances"][1].update(parent="until-ui", order=3)
+    flow["actionInstances"][2].update(parent="until-ui", order=4)
+    flow["subFlowInstances"][0]["order"] = 6
+    before = copy.deepcopy(flow)
+    expected_stage = {
+        **flow["stages"]["saved-stage"],
+        "componentIndexes": [2],
+    }
+    _, tools = fixtures(settings, flow)
+    _, row = capture_routes()
+    saved_definition = {}
+    independent_reads = []
+
+    def read_saved(request):
+        independent_reads.append(copy.deepcopy(saved_definition))
+        return httpx2.Response(200, json={"result": {"data": saved_definition}})
+
+    def save(request):
+        payload = json.loads(request.content)
+        assert payload["stages"] == {"saved-stage": expected_stage}
+        components = sorted(
+            payload["actionInstances"]
+            + payload["flowLogicInstances"]
+            + payload["subFlowInstances"],
+            key=lambda step: step["order"],
+        )
+        attached = components[expected_stage["componentIndexes"][0]]
+        assert attached["uiUniqueIdentifier"] == "ui-3"
+        assert attached["parent"] == "until-ui"
+        assert attached["order"] == 3
+        assert payload["flowLogicInstances"][0]["orderBottom"] == 5
+        actual = copy.deepcopy(payload)
+        if defect == "stage_id":
+            actual["stages"]["saved-stage"]["stageId"] = "different"
+        elif defect == "database_id":
+            actual["stages"]["saved-stage"]["id"] = "e" * 32
+        elif defect == "source_index":
+            actual["stages"]["saved-stage"]["componentIndexes"] = [3]
+        saved_definition.update(actual)
+        http_mock.get(f"{BASE}/api/now/processflow/flow/{FLOW}").mock(
+            side_effect=read_saved
+        )
+        http_mock.get(f"{BASE}/api/now/table/sys_hub_flow/{FLOW}").respond(
+            200, json={"result": {**status_header(), "sys_mod_count": "8"}}
+        )
+        http_mock.get(f"{BASE}/api/now/table/sys_update_xml").respond(
+            200, json={"result": [{**row, "sys_mod_count": "8"}]}
+        )
+        # Echo remains correct so only the independent GET can reveal corruption.
+        return httpx2.Response(200, json={"result": {"data": payload}})
+
+    write = http_mock.route(method="PUT", url=f"{BASE}/api/now/processflow/flow").mock(
+        side_effect=save
+    )
+    preview = decode_response(
+        await tools["flow_preview"](
+            action="edit",
+            sys_id=FLOW,
+            expected_scope="global",
+            expected_revision="7",
+            edits=[
+                {"op": "attach_stage", "stage": "saved-stage", "step": "ui-3"},
+                {"op": "move_step", "step": "ui-3", "before": "ui-2"},
+            ],
+        )
+    )
+    assert preview["status"] == "success", preview
+    reviewed = preview["data"]["summary"]["stages"][0]
+    assert reviewed["stage"] == "saved-stage"
+    assert reviewed["componentIndexes"] == [2]
+    assert flow == before
+    assert not write.called
+    applied = decode_response(
+        await tools["mutation_apply"](preview_token=preview["data"]["preview_token"])
+    )
+    assert write.call_count == 1
+    assert independent_reads
+    if defect:
+        assert applied["error"]["code"] == "UNKNOWN_OUTCOME", applied
+    else:
+        assert applied["status"] == "success", applied
+        assert applied["data"]["revision"] == "8"
+        assert independent_reads[-1]["stages"] == {"saved-stage": expected_stage}
+    assert flow == before
+    assert all(call.request.method in {"GET", "PUT"} for call in http_mock.calls)
 
 
 @pytest.mark.parametrize(
@@ -477,14 +643,13 @@ async def test_stage_update_keeps_unknown_state_metadata(settings):
     assert "vendor_state" not in stages.summary(planned["payload"], [])[0]["states"]
 
 
-@pytest.mark.parametrize("attribute", ["display_as_sandwich", "is_dumb"])
-async def test_native_ui_stage_placement_exclusions(settings, attribute):
+async def test_stage_attachment_rejects_first_grouping_child(settings):
     flow = saved_branches()
     flow["stages"] = stage_flow()["stages"]
     flow["flowLogicInstances"][0]["flowLogicDefinition"].setdefault("attributes", {})[
-        attribute
+        "is_dumb"
     ] = "true"
-    with pytest.raises(CapabilityError):
+    with pytest.raises(CapabilityError, match="first child of a grouping block"):
         await plan(
             settings,
             flow,

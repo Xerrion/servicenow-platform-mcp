@@ -30,11 +30,12 @@ async def authorize(self):
     return AccessToken(value=SecretStr('your-api-key-here'), expires_at=time.monotonic() + 3600)
 OAuthPKCEProvider._authorize = authorize
 settings = Settings(_env_file=None)
-action = os.environ['TEST_FLOW_EFFECT']
+action = os.environ['TEST_FLOW_EFFECT'].removesuffix('_pending')
+pending = os.environ['TEST_FLOW_EFFECT'].endswith('_pending')
 _, _, flow, header, args = effect_routes(settings, action)
 def effect(request):
     if action == 'test':
-        http_mock.get(BASE + '/api/now/table/sys_flow_context/' + 'd'*32).respond(200, json={'result': {'sys_id':'d'*32, 'flow':FLOW, 'state':'QUEUED'}})
+        http_mock.get(BASE + '/api/now/table/sys_flow_context/' + 'd'*32).respond(200, json={'result': {'sys_id':'d'*32, 'flow':'' if pending else FLOW, 'state':'QUEUED'}})
         return httpx2.Response(200, json={'result': {'data':'d'*32}})
     saved = copy.deepcopy(flow)
     saved['active'] = action != 'deactivate'
@@ -57,7 +58,9 @@ assert write.call_count == 1
 """
 
 
-@pytest.mark.parametrize("action", ["activate", "publish", "deactivate", "test"])
+@pytest.mark.parametrize(
+    "action", ["activate", "publish", "deactivate", "test", "test_pending"]
+)
 async def test_lifecycle_stdio_without_update_sets(tmp_path, action):
     root = Path(__file__).resolve().parents[1]
     params = StdioServerParameters(
@@ -90,12 +93,12 @@ async def test_lifecycle_stdio_without_update_sets(tmp_path, action):
                 not in listed["flow_preview"].input_schema["properties"]
             )
             args = {
-                "action": action,
+                "action": action.removesuffix("_pending"),
                 "sys_id": "a" * 32,
                 "expected_scope": "global",
                 "expected_revision": "7",
             }
-            if action == "test":
+            if action.startswith("test"):
                 args["inputs"] = {"request_item": "f" * 32}
             preview = await session.call_tool("flow_preview", args)
             await session.validate_tool_result("flow_preview", preview)
@@ -107,11 +110,19 @@ async def test_lifecycle_stdio_without_update_sets(tmp_path, action):
             await session.validate_tool_result("mutation_apply", result)
             assert not result.is_error, result
             data = result.structured_content["data"]
-            assert data["action"] == action and "capture" not in data
-            if action == "test":
+            assert (
+                data["action"] == action.removesuffix("_pending")
+                and "capture" not in data
+            )
+            if action.startswith("test"):
                 assert (
                     data["execution_sys_id"] == "d" * 32 and data["state"] == "QUEUED"
                 )
+                assert data["context_owner_verified"] is (action == "test")
+                if action == "test_pending":
+                    assert (
+                        data["terminal"] is None and data["execution_succeeded"] is None
+                    )
             else:
                 assert data["revision"] == "8"
     assert "Traceback" not in errors_path.read_text()

@@ -7,11 +7,15 @@ from typing import TYPE_CHECKING, Any
 
 from servicenow_mcp.capabilities.contracts import CapabilityError, CapabilityResult
 from servicenow_mcp.capabilities.flows import (
+    active_drafts,
     assignments,
     calls,
     data,
+    decisions,
     editing,
     handlers,
+    logic_blocks,
+    saved_triggers,
     semantics,
     support,
     tree,
@@ -42,7 +46,14 @@ HEADER_FIELDS = [
     "sys_updated_on",
     "sys_mod_count",
 ]
-EXECUTION_FIELDS = ["sys_id", "flow", "state", "sys_created_on", "sys_updated_on"]
+EXECUTION_FIELDS = [
+    "sys_id",
+    "flow",
+    "snapshot",
+    "state",
+    "sys_created_on",
+    "sys_updated_on",
+]
 EXECUTION_STATES = {
     "ERROR",
     "CONTINUE_SYNC",
@@ -124,16 +135,6 @@ def check_bindings(items: Any, parameters: Any, path: str) -> list[dict[str, Any
                 ),
             )
             continue
-        if item.get("scriptActive"):
-            diagnostics.append(
-                diagnostic(
-                    "UNVERIFIED_SCRIPT",
-                    path,
-                    "Local validation cannot establish script behavior.",
-                    incomplete=True,
-                ),
-            )
-            continue
         try:
             expected_type = data.value_type(parameter)
             if data.value_type(item) != expected_type:
@@ -144,6 +145,35 @@ def check_bindings(items: Any, parameters: Any, path: str) -> list[dict[str, Any
                         "The saved binding type differs from its declared parameter.",
                     ),
                 )
+                continue
+            if item.get("scriptActive"):
+                # The common resolver checks the native script mode, saved
+                # fallback and lexical dependencies without evaluating code.
+                continue
+            if expected_type.kind == "array.reference":
+                declared_children = data.children(parameter)
+                child_values = item.get("children", [])
+                if not isinstance(child_values, list) or any(
+                    not isinstance(child, dict) for child in child_values
+                ):
+                    raise CapabilityError("Array.Reference child values are malformed.")
+                if data.whole_pill(item.get("value")):
+                    if child_values:
+                        raise CapabilityError(
+                            "Whole Array pills cannot contain child values."
+                        )
+                else:
+                    if item.get("value") != "" or item.get("displayValue", "") != "":
+                        raise CapabilityError(
+                            "Array.Reference parents require blank serialized values."
+                        )
+                    for child in child_values:
+                        data.reference_array_item(child.get("value"))
+                        diagnostics.extend(
+                            check_bindings(
+                                [child], declared_children, path + ".children"
+                            )
+                        )
                 continue
             if item.get("children"):
                 declared_children = data.children(parameter)
@@ -174,7 +204,7 @@ def check_bindings(items: Any, parameters: Any, path: str) -> list[dict[str, Any
                     )
             else:
                 candidate = copy.deepcopy(item)
-                candidate["parameter"] = copy.deepcopy(parameter)
+                candidate["parameter"] = copy.deepcopy(data.spec(parameter))
                 # Read-only is an authoring restriction, not a semantic defect in persisted values.
                 candidate["parameter"].pop("readonly", None)
                 candidate["parameter"].pop("readOnly", None)
@@ -355,7 +385,9 @@ async def validate_definition(
     dependency_evidence: dict[str, Any] = {}
     definition_cache: dict[str, dict[str, Any]] = {}
     try:
-        semantics.studio_semantics(flow)
+        semantics.studio_semantics(
+            flow, allow_active_draft=active_drafts.eligible(flow)
+        )
         roots = tree.build_tree(flow)
         assignments.hydrate(roots)
     except semantics.IncompleteSemantics as exc:
@@ -443,6 +475,32 @@ async def validate_definition(
             ),
         )
     for trigger in triggers:
+        if saved_triggers.is_saved(trigger):
+            try:
+                saved_triggers.require_version(flow)
+                snapshot = await saved_triggers.read(
+                    trigger.get("triggerDefinitionId", ""), client
+                )
+                definition = snapshot["definition"]
+                saved_triggers.validate(trigger, definition)
+                dependency_evidence["trigger"] = snapshot
+                dependency_evidence["trigger_tables"] = await trigger_edits.prepare(
+                    copy.deepcopy(trigger),
+                    definition,
+                    client,
+                    resolver=editing.PillResolver(client, trigger),
+                    flow=flow,
+                )
+            except Exception:  # noqa: BLE001 — incomplete native evidence cannot establish validity
+                diagnostics.append(
+                    diagnostic(
+                        "UNREADABLE_TRIGGER_SCHEMA",
+                        "triggerInstances.inputs",
+                        "The current saved-trigger schema, template, or reference evidence could not be established.",
+                        incomplete=True,
+                    )
+                )
+            continue
         if trigger.get("type") not in trigger_edits.SUPPORTED:
             diagnostics.append(
                 diagnostic(
@@ -483,6 +541,7 @@ async def validate_definition(
                         definition,
                         client,
                         resolver=editing.PillResolver(client, trigger),
+                        flow=flow,
                     )
                 if schema_types(trigger.get("outputs")) != schema_types(
                     definition.get("outputs")
@@ -526,9 +585,20 @@ async def validate_definition(
         return {"valid": None, "complete": False, "diagnostics": diagnostics}
     for step in tree.walk(roots):
         path = f"{tree.COLLECTIONS[step.kind]}[{step.uid}]"
+        if step.logic_type == "PLACEHOLDER":
+            diagnostics.append(
+                diagnostic(
+                    "UNRESOLVED_PLACEHOLDER",
+                    path,
+                    "Replace or remove the unresolved native placeholder before completing the authored flow.",
+                )
+            )
+            continue
         if step.kind == "flowlogic" and step.logic_type not in support.LOGIC_TYPES | {
             "CATCH",
             "SETFLOWVARIABLES",
+            "DECISIONBLOCK",
+            *logic_blocks.STRUCTURAL_PRESERVED,
             assignments.KIND,
             *handlers.TYPES,
         }:
@@ -639,12 +709,29 @@ async def validate_definition(
                 if (
                     not current
                     or not isinstance(definition, dict)
-                    or current.get("type") != step.logic_type
+                    or current.get("type") != definition.get("type")
                     or current.get("userCanRead") is not True
                     or schema_types(current.get("inputs"))
                     != schema_types(definition.get("inputs"))
                 ):
                     raise ValueError("Logic definition drift")
+                if step.logic_type == "DECISION":
+                    dependency_reason = "DECISION_METADATA_UNVERIFIED"
+                    dependency_evidence[
+                        "decision:" + step.uid
+                    ] = await decisions.validate(step, flow, client)
+                elif step.logic_type in logic_blocks.TYPES:
+                    dependency_reason = "UTILITY_METADATA_UNVERIFIED"
+                    dependency_evidence[
+                        "utility:" + step.uid
+                    ] = await logic_blocks.prepare(
+                        copy.deepcopy(step),
+                        flow,
+                        client,
+                        changed_inputs=set(),
+                        resolver=resolver,
+                        definition=current,
+                    )
         except Exception as exc:  # noqa: BLE001 — preserve safe fallback behavior for unexpected failures
             status = getattr(exc, "status_code", None)
             http_status = (
@@ -679,6 +766,27 @@ async def validate_definition(
                     incomplete=True,
                 ),
             )
+        elif step.logic_type in {"DECISION", "DECISIONBLOCK", *logic_blocks.TYPES}:
+            # Native adapters validate their input contracts and metadata;
+            # generic pill validation below still checks caller dependencies.
+            pass
+        elif step.logic_type in logic_blocks.STRUCTURAL_PRESERVED:
+            for item in data.bindings(step.raw["inputs"]):
+                if (
+                    data.value_type(item).kind in {"reference", "document_id"}
+                    and item.get("value") not in ("", None)
+                    and not tree.pills(item.get("value"))
+                ):
+                    try:
+                        validate_sys_id(item["value"])
+                    except ValueError:
+                        diagnostics.append(
+                            diagnostic(
+                                "INVALID_PRESERVED_REFERENCE",
+                                path + ".inputs",
+                                "A preserved native reference is not a valid record identity.",
+                            )
+                        )
         elif step.logic_type != "SETFLOWVARIABLES":
             items = step.raw["inputs"]
             parameters = definition.get("inputs")
@@ -737,17 +845,11 @@ async def validate_definition(
         ):
             try:
                 for item in step.raw.get(key, []):
-                    if any(
-                        binding.get("scriptActive") for binding in data.bindings([item])
+                    if (
+                        key == "inputs"
+                        and step.logic_type in {"DECISION", "DECISIONBLOCK"}
+                        and item.get("name") not in {"decision_label", "label"}
                     ):
-                        diagnostics.append(
-                            diagnostic(
-                                "UNVERIFIED_SCRIPT",
-                                path + "." + key,
-                                "Local validation cannot establish script behavior.",
-                                incomplete=True,
-                            ),
-                        )
                         continue
                     try:
                         parameter = (
@@ -875,6 +977,67 @@ async def validate(sys_id: str, client: ServiceNowClient) -> CapabilityResult:
     )
 
 
+async def execution_snapshot(
+    context: dict[str, Any], sys_id: str, client: ServiceNowClient
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Verify the exact compiled snapshot's owner, never its authored content or version."""
+    evidence: dict[str, Any] = {
+        "snapshot_sys_id": None,
+        "snapshot_owner_verified": False,
+        "snapshot_content_verified": False,
+        "version_verified": False,
+    }
+    snapshot_id = scalar(context.get("snapshot"))
+    if context.get("snapshot") is None:
+        code = "MISSING_EXECUTION_SNAPSHOT"
+        message = "The execution snapshot reference is unavailable; snapshot ownership is unverified."
+    elif snapshot_id == "":
+        code = "PENDING_EXECUTION_SNAPSHOT"
+        message = "The execution has not yet reported a compiled snapshot. Do not replay the test."
+    else:
+        if snapshot_id is None or re.fullmatch(r"[0-9a-f]{32}", snapshot_id) is None:
+            code = "MALFORMED_EXECUTION_SNAPSHOT"
+            message = "The execution snapshot reference is malformed; snapshot ownership is unverified."
+        else:
+            evidence["snapshot_sys_id"] = snapshot_id
+            try:
+                check_table_access("sys_hub_snapshot")
+                snapshot = await client.get_record(
+                    "sys_hub_snapshot",
+                    snapshot_id,
+                    fields=["sys_id", "parent", "sys_mod_count", "sys_updated_on"],
+                )
+            except Exception:  # noqa: BLE001 — an unreadable snapshot does not authorize effect replay
+                code = "UNREADABLE_EXECUTION_SNAPSHOT"
+                message = "The exact compiled snapshot is unreadable; snapshot ownership is unverified."
+            else:
+                identity = (
+                    scalar(snapshot.get("sys_id"))
+                    if isinstance(snapshot, dict)
+                    else None
+                )
+                parent = (
+                    scalar(snapshot.get("parent"))
+                    if isinstance(snapshot, dict)
+                    else None
+                )
+                if (
+                    identity is None
+                    or parent is None
+                    or re.fullmatch(r"[0-9a-f]{32}", identity) is None
+                    or re.fullmatch(r"[0-9a-f]{32}", parent) is None
+                ):
+                    code = "MALFORMED_EXECUTION_SNAPSHOT"
+                    message = "The compiled snapshot identity or parent is incomplete or malformed."
+                else:
+                    if identity == snapshot_id and parent == sys_id:
+                        evidence["snapshot_owner_verified"] = True
+                        return evidence, []
+                    code = "EXECUTION_SNAPSHOT_MISMATCH"
+                    message = "The compiled snapshot identity or parent does not match the exact execution snapshot and requested flow."
+    return evidence, [diagnostic(code, "execution.snapshot", message, incomplete=True)]
+
+
 async def status(
     sys_id: str, execution_sys_id: str | None, client: ServiceNowClient
 ) -> CapabilityResult:
@@ -961,32 +1124,45 @@ async def status(
             "sys_id": execution_sys_id,
             "state": None,
             "terminal": None,
+            "context_owner_verified": False,
+            "snapshot_sys_id": None,
+            "snapshot_owner_verified": False,
+            "snapshot_content_verified": False,
             "version_verified": False,
         }
         try:
             context = await client.flow_record(
                 "sys_flow_context", execution_sys_id, EXECUTION_FIELDS
             )
-            if (
-                any(scalar(context.get(k)) is None for k in EXECUTION_FIELDS)
-                or scalar(context["sys_id"]) != execution_sys_id
+            if scalar(context.get("sys_id")) != execution_sys_id:
+                raise ValueError("Unexpected context identity")
+            snapshot_evidence, snapshot_diagnostics = await execution_snapshot(
+                context, sys_id, client
+            )
+            execution.update(snapshot_evidence)
+            diagnostics.extend(snapshot_diagnostics)
+            if any(
+                scalar(context.get(k)) is None
+                for k in EXECUTION_FIELDS
+                if k != "snapshot"
             ):
                 raise ValueError("Incomplete context")
-            if scalar(context["flow"]) not in {sys_id, master, latest}:
-                version_id = scalar(context["flow"]) or ""
-                validate_sys_id(version_id)
+            context_flow = scalar(context["flow"]) or ""
+            if context_flow not in {sys_id, master, latest}:
+                validate_sys_id(context_flow)
                 check_table_access("sys_hub_flow_snapshot")
-                version = await client.studio_request(
-                    f"flow/{version_id}", minimal=True
+                ancestor = await client.studio_request(
+                    f"flow/{context_flow}", minimal=True
                 )
                 if (
-                    version.get("id") != version_id
-                    or version.get("parentFlow") != sys_id
-                    or version.get("snapshot") is not True
+                    ancestor.get("id") != context_flow
+                    or ancestor.get("parentFlow") != sys_id
+                    or ancestor.get("snapshot") is not True
                 ):
                     raise ValueError("Unrelated context")
             context_state = scalar(context["state"])
             execution.update(
+                context_owner_verified=True,
                 state=context_state,
                 terminal=context_state in {"ERROR", "COMPLETE", "CANCELLED"}
                 if context_state in EXECUTION_STATES

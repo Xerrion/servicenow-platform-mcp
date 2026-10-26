@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, NoReturn
 from servicenow_mcp.capabilities.contracts import CapabilityError
 from servicenow_mcp.capabilities.flows import (
     active_drafts,
+    authoring_ownership,
     data,
     declarations,
     handlers,
@@ -287,10 +288,10 @@ def _json(value: Any) -> str:
 
 
 class IncompleteSemantics(CapabilityError):
-    """A parser invariant with a safe schema path, never a source value."""
+    """A parse failure; effect boundaries own unknown-outcome classification."""
 
     def __init__(self, path: str, invariant: str) -> None:
-        super().__init__(invariant, "UNKNOWN_OUTCOME")
+        super().__init__(invariant, "UNAVAILABLE")
         self.path = path
 
 
@@ -349,7 +350,7 @@ class SemanticStep:
     kind: str
     identity: str
     ui_id: str
-    order: int
+    order: int | str
     parent: str
     definition: str
     inputs: str
@@ -374,6 +375,7 @@ def table_step(
     definition: str,
     inputs: Any,
     settings: dict[str, Any],
+    handler_main: str | None = None,
 ) -> SemanticStep:
     """Adapt a decoded V2 table row to the same semantic fields used by Studio."""
     if (
@@ -384,10 +386,19 @@ def table_step(
     ):
         _incomplete()
     try:
-        numeric_order = int(order)
-    except ValueError:
+        numeric_order = tree.order_key(order)
+    except CapabilityError:
         _incomplete()
-    if numeric_order < 1:
+    hidden_try = (
+        kind == "flowlogic"
+        and parent == ""
+        and (
+            settings.get("logic_type") == "TOP_LEVEL_TRY"
+            or settings.get("logic_type") == "TRY"
+            and ui_id == handler_main
+        )
+    )
+    if numeric_order < (0 if hidden_try else 1):
         _incomplete()
     if isinstance(inputs, list):
         bindings = _bindings(inputs)
@@ -407,7 +418,7 @@ def table_step(
         kind,
         identity,
         ui_id,
-        numeric_order,
+        order if "->" in order else numeric_order,
         parent,
         definition,
         bindings,
@@ -464,15 +475,18 @@ def studio_semantics(
         _incomplete(
             "flow.triggerInstances", "Subflow definitions cannot contain triggers."
         )
-    active = allow_active_draft and active_drafts.eligible(flow)
+    versioned = allow_active_draft and active_drafts.eligible(flow)
     prerequisites = {
         "active": (
-            active,
+            flow["active"] if versioned else False,
             "Local validation requires an inactive draft or the explicitly supported active-draft profile.",
         ),
-        "status": ("draft", "Local validation requires a saved draft status."),
+        "status": (
+            flow["status"] if versioned else "draft",
+            "Local validation requires an editable owner status.",
+        ),
         "isPublished": (
-            False,
+            flow["isPublished"] if versioned else False,
             "Read the boolean publication flag. Local validation requires an unpublished draft.",
         ),
         "snapshot": (
@@ -484,7 +498,7 @@ def studio_semantics(
             "Read the boolean master-snapshot flag. Local validation requires a root draft.",
         ),
         "masterSnapshotId": (
-            flow["masterSnapshotId"] if active else "",
+            flow["masterSnapshotId"] if versioned else "",
             "Read the master snapshot reference. This adapter requires an explicitly empty reference.",
         ),
         "flowEngineVersion": (
@@ -531,6 +545,7 @@ def studio_semantics(
             "flow.stages",
             "Read configured stages as an object or a legacy list. Missing stages are unknown.",
         )
+    legacy_main = tree.legacy_handler_uid(flow)
     steps: list[SemanticStep] = []
     identities: set[str] = set()
     ui_ids: set[str] = set()
@@ -563,26 +578,32 @@ def studio_semantics(
             identities.add(identity)
             ui_ids.add(ui_id)
             order_raw = raw.get("order")
-            if isinstance(order_raw, bool) or not isinstance(order_raw, int | str):
+            try:
+                numeric_order = tree.order_key(order_raw)
+            except CapabilityError:
                 _incomplete(
                     path + ".order",
-                    "Read a positive integer order or its numeric string representation. Booleans are invalid.",
+                    "Read a native integer order or a Parallel N->M label. No legacy dotted order is inferred.",
                 )
-            try:
-                order = int(order_raw)
-            except ValueError:
-                _incomplete(path + ".order", "The step order must parse as an integer.")
+            order = (
+                order_raw
+                if isinstance(order_raw, str) and "->" in order_raw
+                else numeric_order
+            )
             top_try = (
                 kind == "flowlogic"
-                and raw.get("flowLogicDefinition", {}).get("type") == "TOP_LEVEL_TRY"
+                and (
+                    raw.get("flowLogicDefinition", {}).get("type") == "TOP_LEVEL_TRY"
+                    or ui_id == legacy_main
+                )
                 and raw.get("parent") == ""
             )
-            if order < (0 if top_try else 1) or order in orders:
+            if numeric_order < (0 if top_try else 1) or numeric_order in orders:
                 _incomplete(
                     path + ".order",
                     "Step orders must be positive and unique across all step collections.",
                 )
-            orders.add(order)
+            orders.add(numeric_order)
             parent = raw.get("parent")
             if not isinstance(parent, str):
                 _incomplete(
@@ -715,7 +736,7 @@ def studio_semantics(
         children = raw.get("children")
         expected_children = [
             step.ui_id
-            for step in sorted(steps, key=lambda s: s.order)
+            for step in sorted(steps, key=lambda s: tree.order_key(s.order))
             if step.parent == raw["uiUniqueIdentifier"]
         ]
         if not isinstance(children, list) or children != expected_children:
@@ -745,12 +766,16 @@ def studio_semantics(
             parent = by_ui[parent].parent
     # The client reconstructs this entire UI family after GET. Missing fields are
     # not missing topology, but explicit caches must agree before they are ignored.
-    metadata = tree.ui_metadata(tree.build_tree(flow))
+    roots = tree.build_tree(flow)
+    metadata = tree.ui_metadata(roots)
+    handlers.validate(flow, roots)
     if any(
-        row.get("flowLogicDefinition", {}).get("type") == handlers.TRY
-        for row in flow["flowLogicInstances"]
+        step.logic_type in {"DOUNTIL", "GOBACKTO", "DECISION", "DECISIONBLOCK"}
+        for step in tree.walk(roots)
     ):
-        handlers.validate(flow, tree.build_tree(flow))
+        tree.validate_structure(roots)
+    if tree.projected(roots) and not handlers.pair(roots):
+        tree.validate_projection(roots)
     for collection in COLLECTIONS:
         for index, raw in enumerate(flow[collection]):
             expected = metadata[raw["uiUniqueIdentifier"]]
@@ -836,7 +861,7 @@ def studio_semantics(
     settings["label_cache"] = cache
     return FlowSemantics(
         flow["id"],
-        tuple(sorted(steps, key=lambda s: s.order)),
+        tuple(sorted(steps, key=lambda s: tree.order_key(s.order))),
         _json(triggers),
         _json(settings),
     )
@@ -900,7 +925,7 @@ def _compare_component_mirror_ids(
     def ordered(definition: dict[str, Any]) -> list[dict[str, Any]]:
         return sorted(
             (row for key in COLLECTIONS for row in definition[key]),
-            key=lambda row: int(row["order"]),
+            key=lambda row: tree.order_key(row["order"]),
         )
 
     if "componentInstances" in expected and _json(
@@ -1307,7 +1332,7 @@ async def _bind_new_variable_blocks(
     saved: dict[str, Any],
     generated_ids: set[str],
 ) -> dict[str, Any]:
-    """Bind new assignment/conditional blocks to independently read owners.
+    """Bind new native flow-logic blocks to independently read owners.
 
     New Studio instances omit flowBlockId (206651-206672,221783-221799).
     The observed dictionary maps logic-instance block to sys_hub_flow_block and
@@ -1324,8 +1349,6 @@ async def _bind_new_variable_blocks(
             row.get("id", "") not in generated_ids
             or row.get("id")
             or "flowBlockId" in row
-            or row.get("flowLogicDefinition", {}).get("type")
-            not in {"SETFLOWVARIABLES", "IF", "ELSE"}
         ):
             continue
         matches = [
@@ -1463,6 +1486,7 @@ async def verify_saved(
     generated_fields: list[dict[str, str]] | None = None,
     removed_fields: list[dict[str, str]] | None = None,
     generated_trigger_inputs: dict[str, Any] | None = None,
+    generated_authoring_rows: dict[str, Any] | None = None,
     allow_active_draft: bool = False,
     actual: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -1473,6 +1497,10 @@ async def verify_saved(
             client, expected, echo, generated_trigger_inputs
         )
         bound = await _bind_new_variable_blocks(client, bound, echo, generated_ids)
+        if generated_authoring_rows:
+            bound = await authoring_ownership.bind(
+                client, bound, echo, generated_authoring_rows
+            )
         compare_saved(
             bound,
             echo,
@@ -1493,6 +1521,10 @@ async def verify_saved(
             client, expected, actual, generated_trigger_inputs
         )
         bound = await _bind_new_variable_blocks(client, bound, actual, generated_ids)
+        if generated_authoring_rows:
+            bound = await authoring_ownership.bind(
+                client, bound, actual, generated_authoring_rows
+            )
         compare_saved(
             bound,
             actual,

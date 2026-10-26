@@ -27,7 +27,7 @@ def attachments(flow: dict[str, Any]) -> dict[str, list[str]]:
         )
     ordered = sorted(
         (row for key in tree.COLLECTIONS.values() for row in flow[key]),
-        key=lambda row: int(row["order"]),
+        key=lambda row: tree.order_key(row["order"]),
     )
     links: dict[str, list[str]] = {}
     for key, stage in stages.items():
@@ -296,14 +296,10 @@ def edit_stage(
                     )
                 if any(
                     parent.logic_type in {"FOREACH", "PARALLEL"}
-                    or parent.raw.get("flowLogicDefinition", {})
-                    .get("attributes", {})
-                    .get("display_as_sandwich")
-                    in {True, "true"}
                     for parent in data.Scope(roots).parents[step.uid]
                 ):
                     raise CapabilityError(
-                        "Stages cannot attach inside For Each or Parallel, or sandwich blocks."
+                        "Stages cannot attach inside For Each or Parallel."
                     )
                 parent = data.Scope(roots).parents[step.uid]
                 if (
@@ -395,7 +391,8 @@ def serialize(
     ordered = list(tree.walk(roots))
     positions = {step.uid: index for index, step in enumerate(ordered)}
     original_ordered = sorted(
-        tree.walk(tree.build_tree(original)), key=lambda step: int(step.raw["order"])
+        tree.walk(tree.build_tree(original)),
+        key=lambda step: tree.order_key(step.raw["order"]),
     )
     original_parents = {step.uid: step.raw["parent"] for step in original_ordered}
     originally_attached = {
@@ -426,14 +423,10 @@ def serialize(
                 )
             if any(
                 parent.logic_type in {"FOREACH", "PARALLEL"}
-                or parent.raw.get("flowLogicDefinition", {})
-                .get("attributes", {})
-                .get("display_as_sandwich")
-                in {True, "true"}
                 for parent in scope.parents[uid]
             ):
                 raise CapabilityError(
-                    "Stages cannot attach inside For Each or Parallel, or sandwich blocks."
+                    "Stages cannot attach inside For Each or Parallel."
                 )
             indexes.append(positions[uid])
         flow["stages"][key]["componentIndexes"] = sorted(indexes)

@@ -9,6 +9,7 @@ import httpx2
 import pytest
 
 from servicenow_mcp.auth import OAuthPKCEProvider
+from servicenow_mcp.capabilities.contracts import CapabilityError
 from servicenow_mcp.capabilities.flows import handlers, semantics, tree
 from servicenow_mcp.platform.client import ServiceNowClient
 from tests._complete_flow_fixture import STUDIO, create_request, edit_request
@@ -94,7 +95,7 @@ def test_derived_root_cache_never_hides_configuration_or_mirror_corruption(defec
         else:
             row["column_name"] = "meaningful"
         actual[FIELD] = json.dumps(actual["label_cache"])
-    with pytest.raises(semantics.SemanticMismatch):
+    with pytest.raises(CapabilityError):
         semantics.compare_saved(expected, actual, generated_ids=set())
 
 

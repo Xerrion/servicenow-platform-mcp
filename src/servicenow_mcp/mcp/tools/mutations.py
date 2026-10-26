@@ -177,8 +177,7 @@ def register_tools(mcp: MCPServer, coordinator: MutationCoordinator) -> None:
                 "publish",
                 "deactivate",
                 "test",
-                "validate_remote",
-                "run",
+                "resolve_schema",
             ],
             sys_id: str | None = None,
             name: str | None = None,
@@ -187,7 +186,9 @@ def register_tools(mcp: MCPServer, coordinator: MutationCoordinator) -> None:
             flow_type: Literal["flow", "subflow"] | None = None,
             action_type_sys_id: str | None = None,
             subflow_sys_id: str | None = None,
+            input_name: str | None = None,
             inputs: dict[str, JsonValue] | None = None,
+            connection_overrides: dict[str, str | None] | None = None,
             edits: Annotated[
                 list[dict[str, JsonValue]],
                 Field(
@@ -197,139 +198,206 @@ def register_tools(mcp: MCPServer, coordinator: MutationCoordinator) -> None:
                 ),
             ]
             | None = None,
+            schema_tokens: Annotated[list[str], Field(max_length=200)] | None = None,
             expected_scope: str | None = None,
             expected_revision: str | None = None,
         ) -> CapabilityResult:
-            """Preview Workflow Studio authoring or an explicitly selected lifecycle effect without changing ServiceNow.
+            """Preview native Flow CREATE/EDIT or a separately selected effect without changing ServiceNow.
 
-            create requires name and explicit scope sys_id (or global). description is optional.
-            Supply edits to create a COMPLETE flow in this one request. The server resolves definitions and node identities.
-            Use the same ordered edit operations below, with ref aliases for new steps and {{ref.output}} pills.
-            The entire plan validates before the property POST. Apply then reads the created header and revision before one full save.
-            This is not transactional. UNKNOWN_OUTCOME includes error.outcome with the known sys_id and persisted/unknown progress.
-            Never repeat creation after an uncertain response. Inspect the existing flow, then preview incremental edits.
-            Apply returns refs mapping aliases to persisted sys_id/ui_id/kind. Bound writes also return a fresh revision.
-            No activation, publication, testing, or execution occurs. Omitting edits retains header-only creation.
-            flow_type=flow|subflow selects creation type. Omit for flow. A new subflow is inactive, unpublished, and triggerless.
-            Lifecycle actions require sys_id plus expected_scope and expected_revision.
-              activate: flow-only. Publishes its snapshot AND enables triggers. This can start real work after activation.
-              publish: subflow-only. Publishes a callable subflow and can update versions used by parent flows.
-                Flow publish-only is unavailable because snapshot publication activates flows.
-              deactivate: active flow-only. Disables new trigger starts. Does not cancel existing executions or unpublish a subflow.
-              test: executes the saved inactive draft asynchronously with real action side effects. inputs supplies static scalar
-                subflow input values or supported classic trigger output values. Record tests require explicit triggering record sys_ids.
-                Returns an exact execution context ID and observed state, not a promise of successful completion.
-                Use flow.status with execution_sys_id for bounded read-only follow-up. Never replay an uncertain test.
-              validate_remote and run: explicitly unavailable. No separate compiler or production-run contract exists in the local source.
-                flow.validate remains read-only local validation. Saving and testing are not aliases for remote validation or production run.
-            Lifecycle preview binds complete current definitions/dependencies. Apply sends one explicit effect and independently reads its outcome.
-            expected_scope independently checks the target application's sys_id or global, not the selected session application.
-            expected_revision independently checks an existing target's sys_mod_count from flow.status.
-            Both are optional for draft authoring and required for lifecycle effects. Creation forbids expected_revision.
-            Update sets are not tool arguments. ServiceNow controls normal update-set capture.
-            MCP does not read, select, reopen, relabel, or repair update sets or Customer Updates.
-            add_action requires sys_id and a published action_type_sys_id snapshot.
-            add_subflow requires sys_id and a published subflow definition subflow_sys_id.
-            inputs is a native object of static scalar values for add_action and add_subflow.
-            edit requires sys_id and edits: an ordered native array of 1-200 objects with an op key (256 KiB, depth 32).
-            create accepts the same edits. Complete creation permits at most 200 nodes, including hidden handler wrappers.
-              set_trigger: type=service_catalog|record_create|record_update|record_create_or_update|daily|weekly|monthly|run_once|repeat,
-                static native inputs, replace=true to replace an existing trigger. No activation or execution.
-                Record inputs: table, condition (static encoded query), and run/session/user choices from the current catalog.
-                Changing tables requires explicit conditions and consumers updated first. Current-record pills use <trigger label>_1.current.
-                daily: glide_time='1970-01-01 HH:MM:SS'. weekly also needs day_of_week from the catalog choice list.
-                monthly also needs integer day 1-31. run_once: glide_date_time='YYYY-MM-DD HH:MM:SS'.
-                repeat: glide_duration is an epoch-based timestamp after '1970-01-01 00:00:00', at least the catalog minimum.
-                Classic schedules use the instance timezone. No timezone conversion, Recurrence, or saved trigger definitions.
-              update_trigger: nonempty inputs. Preserves trigger identity, other values, and opaque metadata.
-              remove_trigger: no fields. Removes the saved instance with a native ID tombstone. Used pills block removal.
-              set_error_handler: enabled=boolean. Creates current-catalog native top-level Try/Catch wrappers when enabled=true.
-                Disabling a populated handler preserves its contents as read-only. Disabling an empty handler removes the wrappers.
-                This configures draft error handling only. It does not activate, publish, or execute the flow.
-              remove_error_handler: no fields. Requires an empty handler. Delete or move its contents explicitly first.
-                parent=main|error_handler selects a native wrapper region for supported insert_logic/move_step operations.
-                error_handler.<catalog output path> pills resolve to the Catch UI identity. Use leaf paths from preview error_handler.outputs.
-                Error Status pills are visible only inside their handler. Main-step outputs cannot cross into it.
-                The handler contains at most ten actions, flow-logic steps, or subflow calls. Legacy/sandwich wrapper contracts are unavailable.
-              insert_logic: logic (If, Else If, Else, For Each, Try, Parallel, Parallel Branch, End,
-                Exit Loop, Skip Iteration), inputs, and one of parent,
-                after, or before. ref names the new block for later edits in the same call.
-              insert_action: action_type_sys_id (published snapshot), inputs, optional ref and parent/after/before.
-              insert_subflow: subflow_sys_id (published definition), inputs, optional ref and parent/after/before.
-                Both insert into existing structured drafts, including enabled handler branches. Inputs use the existing scalar/complex serializers.
-                Published readable/entitled snapshots and their inputs bind the preview. Dynamic/dependent insertion inputs remain unavailable
-                except native document/field parameters resolved from a static table or a record pill with a known reference table.
-                Read-only table defaults are not caller overrides. Get Catalog Variables supports simple item_option_new selections
-                as comma-separated sys_id:item_option_new tokens. Its selected outputs are read independently and bound to preview/apply.
-                approval_rules accepts native Any/All U/G pill clauses with user/group reference checks.
-                schedule_date_time accepts the native approval no-deadline JSON with action=none and date={{}}.
-                No automatic approval deadline, complex catalog-variable, or template-value edit adapter is enabled.
-                Later edits can use {{ref.output_path}} and placement refs. Subflow calls wait for completion.
-              move_step: step, and one of parent, after, or before. Moving Try includes its paired Catch and both subtrees.
-                Catch cannot move independently. Pair moves recheck stages, handler regions, and all pill dependencies.
-              update_inputs: step, inputs. Native objects and arrays require declared child schemas.
-                Pills use trigger paths, <producer UI ID>.<output>, flow_variable.<name>, or subflow.<input>.
-                Type, cardinality, reference tables, and producer visibility are checked after all edits.
-                Whole Object/Array.String/Integer/Boolean/Object pills use one exact {{producer.path}} value and no child values.
-                Source and target must have the same recursive Object fields and types. Array item schemas must match.
-                Published action/subflow producer definitions are read independently. Subflow input schemas are also supported.
-                References require compatible tables. No implicit schema replacement or dynamic schema inference.
-              delete_step: step, children=reject|delete|promote. Connected branches need cascade=connected
-                and children=delete. Saved action/logic deletion uses tombstones. Saved subflow calls are omitted
-                from the complete draft list. Referenced definitions are not deleted. Connection overrides block deletion.
-                Dangling references fail. Values are never cleared automatically.
-              set_variables: inputs mapping existing variable names to values, parent/after/before.
-              assign_outputs: outputs mapping top-level declared output names to native values or scalar typed pills.
-                Without step, inserts a native Assign Subflow Outputs step using parent/after/before and optional ref.
-                With step, updates named rows and appends missing rows. Unmentioned rows retain their order and values.
-              clear_output_assignment: step, name. Removes that assignment row, not the declared output or logic step.
-                Assignments require an unpublished triggerless subflow. Declare outputs first, including within the same edits.
-                Blank value assigns an empty value. Clearing removes the row. Used output declarations cannot be deleted.
-                Object values use local child keys. Array.String/Integer/Boolean/Object values use native arrays.
-                Nested values may mix literals and scalar leaf pills. Each named output replaces its complete value.
-                Omitted object fields use declared defaults or empty values. Unmentioned output rows remain unchanged.
-                Assign a nested field inside its parent Object value, not as a separate dotted output target.
-                Whole Object/Array pills are supported for compatible schemas, including inside native complex values.
-                Loop/parallel assignments, scripts, and output-to-output pills are unavailable.
-              create_field: collection=inputs|outputs|flowVariables, name, label, type=string|integer|boolean|reference|json.
-                reference requires a table name. Optional hint/maxsize. Subflow inputs accept mandatory boolean.
-                Subflow interfaces accept static default_value. Variables are initialized with set_variables.
-                Subflow interfaces also support object, array.string, array.integer, array.boolean, array.object.
-                To add a child, supply parent as a declaration path and name as a local identifier.
-                Arrays register one fixed item schema automatically: <array path>.<local array name>_child0.
-                Add Array.Object fields under that item path. New nested input leaf pills use subflow.<path>.
-              update_field: collection, name, label/hint/type/reference/maxsize. Interfaces also accept default_value.
-                Only subflow inputs accept mandatory. Names cannot be renamed.
-                Identity/name remain fixed. Type/reference changes require no consumers and no stored value.
-                Nested name is a full declaration path. Array item type is fixed. Complex type replacement is unavailable.
-              delete_field: collection, name. References, assignment targets, transforms, and scripts block removal.
-                Interface CRUD requires an unpublished triggerless subflow. Flow-owned interfaces retain label/hint edits only.
-                Object removal includes its declared children. Used descendants block removal. Array items cannot be deleted separately.
-                Complex flow variables, complex defaults, direct nested Reference/JSON creation, and Array.Reference/Array.Array/Choice are unavailable.
-                New variables and input pills work in later edits within the same request.
-              create_stage: label, value, optional duration (epoch-based timestamp), always_show boolean,
-                states (pending/in_progress/skipped/complete/error labels), ref for later stage edits.
-              update_stage: stage key/ref, label/value/duration/always_show/states, or zero-based order.
-              attach_stage/detach_stage: stage key/ref and step. One stage per step. No implicit replacement.
-              delete_stage: stage key/ref. Detach all steps first. Dependent error stages block deletion.
-                create_stage(type=error): step and optional ref only. Creates and attaches a conditional Error state.
-                The last eligible standard-stage attachment before the enclosing If/Else If/Else supplies its ancestor.
-                Error names and ancestry are native and cannot be renamed. update_stage supports duration, always_show, and state labels.
-                delete_stage removes the error state. detach_stage also removes it, matching Studio. Recreate to attach elsewhere.
-                Error stages report state only. They neither throw exceptions nor enable a handler or activate the flow.
-                These operations author stage state, not flow-logic steps. For Each/Parallel children are excluded.
-            Steps are referenced by sys_id, UI identifier, display order, or a ref alias.
-            Draft authoring supports inactive, unpublished flow/subflow drafts. edit also supports already-active V2 root drafts
-            with status=draft, isPublished=false, snapshot/jsonSnapshot/masterSnapshot=false, valid version/snapshot/trigger references,
-            required expected_scope and expected_revision, source-matched Studio, and save-as-you-go explicitly disabled.
-            The trigger plan selects the published JSON runtime snapshot. Preview binds it and full plan/trigger evidence.
-            Apply revalidates, sends one draft PUT with status=modified, and verifies active/version/runtime preservation.
-            No edit lock, publication, activation, deactivation, or execution occurs. Active-published flows and published subflows remain unsupported.
-            Unknown configuration metadata drift returns UNKNOWN_OUTCOME, even if error.outcome.runtime_preservation is verified.
-            Do not replay uncertain saves. Existing edit-operation restrictions remain. Lifecycle effects require their explicit action names.
-            Apply the single-use preview_token with mutation_apply. The upstream API is undocumented.
-            Apply uses independent semantic readback. No automatic retries.
-            flow.describe reports adapter support separately from catalog discovery and live verification.
+            create requires name and explicit scope sys_id (or global); description is optional.
+            flow_type=flow|subflow defaults to flow. A new owner is inactive/unpublished; subflows are triggerless.
+            Supply 1-200 ordered edits for complete creation, or omit edits for an empty header. create/edit share
+            the existing typed planner, serializers and request-local ref aliases; later pills use {{ref.output}}.
+            Complete creation permits at most 200 nodes including generated handler wrappers. Plans are bounded
+            to 256 KiB/depth 32 and validate before the property POST. Apply independently reads the new header/revision
+            before one complete save. It returns refs mapped to persisted sys_id/ui_id/kind and a fresh revision.
+            Creation is not transactional: UNKNOWN_OUTCOME reports known identity/progress in error.outcome.
+            Never repeat uncertain creation; inspect the existing owner and preview incremental edits.
+            CREATE/EDIT does not publish, activate, test, run the authored flow or implicitly execute schema providers.
+
+            resolve_schema is a SEPARATE reviewed provider effect, not a flow save or authored-flow execution.
+            It requires action_type_sys_id and input_name; inputs contains native sibling/dependency values.
+            Published input metadata selects the provider. expected_scope optionally binds its application.
+            connection_overrides supplies the complete inspected effective alias context, including aliases used
+            by other calls. It maps declared source alias sys_ids to declared child sys_ids or null.
+            Only resolve_schema accepts the exact native reset pair {"":""}; other empty keys/values reject.
+            Preview reads metadata only. Its mutation_apply executes the provider once with potentially real
+            side effects, then returns an opaque schema_token expiring after 300 seconds. Start a NEW create/edit
+            preview with schema_tokens (at most 200 distinct tokens), the same dependencies/connections and normal inputs.
+            Review resolved_schemas and the whole authoring plan before separately applying that authoring token.
+            An accepted create/edit command consumes all schema tokens even if planning fails; tokens cannot be
+            replayed, supplied as raw evidence, applied directly or shared across connection/authorization changes.
+            Provider/master/snapshot metadata, revisions and output evidence are checked before/after execution
+            and again for authoring. Scoped-name dispatch is not an atomic exact-version execution pin:
+            observed_binding_verified and exact_execution_version_verified are distinct. Save/apply never reruns it.
+            Resolved dynamic_inputs uses a native object, dynamic_choice a choice name, dynamic_template encoded
+            selections. Unknown/nested provider output grammar or unresolved dependencies reject, never infer fields.
+
+            Explicit lifecycle effects require sys_id, expected_scope and expected_revision:
+              activate: flow-only snapshot publication AND trigger activation; this can start real work.
+              publish: callable subflow-only publication; parent callers may use the new version.
+                There is no flow publish-only action because native snapshot publication activates flows.
+              deactivate: active flow-only; disables new trigger starts, does not cancel existing contexts.
+              test: executes the saved editable owner asynchronously with real action side effects.
+                inputs supplies every visible subflow input/Object field explicitly: static scalar or declared
+                Object/Array.String/Integer/Boolean/Object values, or supported scalar classic-trigger outputs.
+                Nested references, Array.Reference and record-list test values remain outside this test serializer.
+                Record tests require explicit triggering record sys_ids. Native Test-modal children are separate
+                from authoring bindings; these test limits are not CREATE/EDIT limitations.
+                Returns an exact accepted context ID, not a promise of completion. Initial ownership/state may
+                be pending with terminal=null. Use flow.status(execution_sys_id=...) for bounded read-only follow-up.
+                Compiled-snapshot ownership does not prove authored version/content equality. Never replay uncertainty.
+            flow.validate is read-only LOCAL validation, not remote compilation. Lifecycle apply sends one explicit
+            effect with independent outcome reads. No independent production-run/remote-validator action is exposed.
+            expected_scope checks the target application, not the selected session application. expected_revision
+            checks the target sys_mod_count from flow.status. Both are required for versioned-owner edits; ordinary
+            inactive drafts may omit them. Creation forbids expected_revision. ServiceNow controls update-set capture;
+            MCP does not select, inspect or repair update sets or Customer Updates.
+
+            add_action/add_subflow retain their narrower header-append contract: sys_id plus published
+            action_type_sys_id/subflow_sys_id and native static scalar inputs. Use ordered edits for structured authoring.
+            edit requires sys_id and edits, an ordered array of objects with op. create accepts the same operations:
+              insert_logic: logic accepts native type/catalog name, inputs, optional ref and parent/after/before.
+                Direct families: IF, ELSEIF, ELSE, FOREACH, DOUNTIL, GOBACKTO, DECISION, TIMER, RUNWORKFLOW,
+                RUNDYNAMICFLOW, GETFLOWOUTPUTS, END, TRY, PARALLEL, PARALLELBLOCK, BREAK, CONTINUE.
+                Else If/Else stay connected. Parallel Branch requires Parallel. Try generates its paired Catch.
+                SETFLOWVARIABLES/ASSIGNSUBFLOWOUTPUTS use dedicated operations; CATCH/DECISIONBLOCK/top-level
+                wrappers are generated/managed by their constructs, not generic insertion. UPDATEFLOWTEMPLATE
+                is preserved system-locked/read-only; PLACEHOLDER is internal/transient, not an authorable block.
+                Do Until inputs.condition is required, condition_name optional; native non-nesting and closing
+                body-output scope apply. Unresolved nested closing orders require saved integer orderBottom.
+                Go back to inputs.go_back_to_step accepts alias/UI ID/sys_id/order and pins native identity.
+                It must terminate an eligible conditional/Decision Branch/Catch, outside the top-level handler,
+                targeting native earlier sibling/ancestor construct starts within the enclosing Parallel boundary.
+                Decision inputs: decision_table, optional decision_label, execution=first_match|run_all,
+                has_branches/include_otherwise booleans; answer_table/outputs are derived read-only metadata.
+                decision_inputs maps declared native inputs. Omit branches for authoritative answer order, or pass
+                the COMPLETE ordered [{answer,label?,ref?}] list; Otherwise uses answer="" last.
+                update_inputs accepts the same Decision fields. Table changes require explicit complete writable
+                decision_inputs; removing populated generated branches requires children=delete.
+                Generated branches permit label updates only. Result pills use declared answer.result_elements
+                fields, or run_all records through For Each item.result_elements; metadata reads do not decide.
+                TIMER: explicit duration_type; explicit_duration uses timer_duration; relative_duration also
+                uses timer_relative_duration_operator=before|after and timer_relative_duration_datetime;
+                percentage_duration uses timer_percentage=0-100 and percentage_timer_input_datetime.
+                timer_schedule is optional. Durations use native epoch offsets, zero allowed, maximum 9999:59:59.
+                RUNWORKFLOW: workflow_reference, workflow_inputs, explicit wait, table-bound current when declared;
+                active published workflow availability and its readable native interface are required.
+                RUNDYNAMICFLOW: published flow_template, flow, explicit wait_for_completion, dynamic_inputs.
+                GETFLOWOUTPUTS: compatible context and optional published flow_template for declared outputs.
+                Dynamic templates need native publication/scope access, not an invented activation gate.
+                Workflow wait=false exposes no output pills; Dynamic Flow wait=false retains context only.
+              insert_action/insert_subflow: published action_type_sys_id/subflow_sys_id, native inputs,
+                optional ref and parent/after/before. Published entitled schemas bind preview/apply.
+                Native text/rich-text/numeric/date/reference-picker/field-list/slushbucket grammars are preserved.
+                Get Catalog Variables uses native CSV: bare item_option_new IDs or sys_id:source_table when the
+                installed include_multirow_variablesets capability permits it. Selected scalar/Object/Array/MRVS
+                output schemas/defaults/provenance are independently read, not guessed from sample values.
+                approval_rules uses native goals, Any/All/count/percentage/manual clauses and typed approvers.
+                schedule_date_time approval JSON uses action/date_type/date/duration/duration_type/schedule/
+                schedule_label; active outcomes require a compatible Date/Time pill, none uses date="{{}}".
+              update_inputs: step plus changed native inputs or supported input modes; omitted values remain.
+                Pills use trigger paths, <producer UI ID>.<output>, flow_variable.<name> or subflow.<input>.
+                Type/cardinality/reference tables and producer visibility are checked after all edits.
+                Declared Object/Array values and compatible whole pills use complete recursive schemas.
+                Array.String/Integer/Boolean/Object/Reference/Choice/DateTime are supported. Array.Array accepts
+                [] or whole typed/item-Array pills; literal nested arrays reject because native save erases them.
+                Array.Reference literals validate sys_id syntax/table metadata, not record existence or ACL access.
+                No arbitrary array indexing, caller schema replacement or output-to-output pills.
+              input_scripts on insert_action/insert_subflow/insert_logic/update_inputs/set_variables maps unique
+                declared scriptable input names to source: nonempty enables, null selects basic mode retaining
+                inactive code/dependencies, "" clears. Ordinary inputs can supply a retained basic fallback.
+                Qualified template_input.column names configure selected template columns; coalesce_fields encoded
+                in a template requires native upsert metadata and selected non-password columns. Whole template
+                pills are limited to compatible standard-template subflow context, not flows/dynamic templates.
+                Named fd_data references are lexically validated, pinned and rebound across ordering edits;
+                ambiguous/computed forms fail closed. No JavaScript is evaluated or runtime return type certified.
+              input_transforms maps input names to {source:"{{producer.path}}",transforms:[{transform_sys_id,
+                compositions?:[{composition_sys_id,parameters:{nativeName:typedValue}}]}]}, or null to remove.
+                Native metadata/types bind the full ordered transform chain; no transform executes.
+                Same-field ordinary inputs or active scripts conflict; null removal rechecks restored source type.
+              connection_overrides on insert_action/insert_subflow/update_inputs maps declared source alias sys_ids
+                to declared child alias sys_ids or null. set_connection_overrides uses that field for root context.
+                Native per-call lists replace, not per-key merge, root context; reset tombstones are preserved.
+                Public authoring empty keys are forbidden. No credentials are read or integration invoked.
+              move_step: step and parent/after/before; Try moves linked Catch and both subtrees together.
+                Independent Catch/Decision Branch moves reject. Stages, topology and surviving pills remain checked.
+              delete_step: step, children=reject|delete|promote; connected cascade requires cascade=connected and
+                children=delete. Saved action/logic tombstones and subflow list omission preserve definitions.
+                Connection mappings use native shared-reference cleanup. Dangling references never clear silently.
+              set_trigger: type=service_catalog|record_create|record_update|record_create_or_update|daily|weekly|
+                monthly|run_once|repeat|email|remote_table_query|rest_async|analytics|metric|sla_task, native inputs;
+                replace=true explicitly replaces an existing trigger. update_trigger preserves unmentioned values;
+                remove_trigger uses saved ID tombstones. Surviving consumers block replacement/removal.
+                Record table/condition/run choices follow catalog/descriptor/dictionary metadata. Conditions are
+                static encoded queries, not JavaScript/query directives; source table changes need explicit conditions.
+                Classic daily time uses 1970-01-01 HH:MM:SS; weekly adds day_of_week, monthly day_of_month=1-31;
+                run_once uses run_in timestamp; repeat is a positive epoch-offset duration meeting catalog minimum.
+                Classic schedules use instance timezone. Do not guess catalog names or convert timezone values.
+                Saved set_trigger.template_id requires readable native flow version other than "1". Recurrence,
+                calendars/timezones follow selected writable metadata; inherited fromTemplate values stay read-only.
+                This attaches an existing saved definition, not create/edit of the saved template itself.
+                Saved Service Catalog/REST/external flow-owned interfaces follow exact native ownership metadata.
+                Application types use native email/remote-table/analytics/metric reference and condition metadata;
+                sla_task has no authored inputs in this catalog. Availability depends on installed features/access.
+                REST set/update_trigger.interface_schemas maps declared roots to {type,children:[{name,label,type,
+                mandatory?,maxsize?,children?}]}. Each supplied root replaces its complete schema; [] clears children.
+                Root/child allowlists apply. Scalar inputs stay separate. A fixed metadata-only GraphQL query reads
+                server base_path; path derives from display_path. Protected fields cannot be overridden.
+                Trigger configuration never invokes REST, processes email, queries a remote table or starts a flow.
+              set_error_handler: enabled boolean; current native wrappers or strictly identified legacy/Rome roots.
+                Populated disabled contents stay read-only; disabling an empty handler removes wrappers.
+              remove_error_handler requires empty contents. parent=main|error_handler selects the region.
+                error_handler.<catalog leaf> pills stay handler-scoped; main outputs cannot cross into it.
+                At most ten handler actions/logic/subflow calls; native sandwich/Parallel ordering remains enforced.
+              set_variables: inputs mapping declared variables to native values, optional input_scripts/input_transforms,
+                parent/after/before. Native input/flowVariables mirrors remain synchronized.
+              assign_outputs: outputs mapping declared top-level names to native scalar/Object/Array values or pills.
+                Without step inserts with optional ref/placement; with step updates/appends rows, retaining others.
+              clear_output_assignment: step,name removes only that row. Assignments require a supported editable
+                triggerless subflow, including eligible published working drafts. Loop/Parallel placement is legal
+                with ordinary pill scope. No scripts/transforms on the native custom assignment widget.
+                Nested targets use their parent Object value. Each named output replaces its complete value;
+                omitted object fields use declared defaults/empty values. Used declarations cannot be deleted.
+              create_field: collection=inputs|outputs|flowVariables, name,label,type, optional parent declaration path.
+                Variables: string/integer/boolean/glide_date_time/decimal/float/reference/json; scalar only.
+                Subflow interfaces additionally accept choice/number/object, array.string/integer/boolean/object/
+                reference/choice/datetime/array and extra root widgets only when the native picker/serializer supports them.
+                reference requires table metadata. Arrays create fixed item schemas at <path>.<local-name>_child0;
+                add Array.Object fields beneath that path. Direct Object-child Reference/JSON creation is excluded.
+              update_field: collection,name and native label/hint/type/reference/maxsize/default_value/mandatory,
+                choices or choice_source={table,field}, choice_option="1"|"3", reference_qualifier, dependent_on,
+                max_rows as applicable. Defaults are static scalar values; variables use set_variables instead.
+                Native table-choice defaultChoices/provenance are retained, not flattened into a local choice union.
+                new_name only renames newly created declarations or native-name-editable interface rows;
+                saved variable names stay fixed and consumers must be explicitly rebound, never aliased.
+                Type/reference changes require no consumers/stored values. Actual complex type changes require
+                reset_structure=true or prior explicit child deletion; protected descendants/defaults still block loss.
+                Object/Array whole-parent defaults are not exposed by native settings; scalar children and
+                Array.Choice item defaults use their declared settings. max_rows is positive integer or null.
+                reference_qualifier is static; dependent_on is a sibling root input name or "" on native dependent widgets.
+              delete_field: collection,name full declaration path. Used descendants, assignments, pills, transforms,
+                source links and scripts block removal; synthetic array items cannot be deleted independently.
+                Interface CRUD requires supported editable triggerless subflows, including eligible published drafts.
+                Flow-owned interfaces retain label/hint-only edits; trigger-owned interfaces remain protected.
+              create_stage: label,value, optional duration/always_show/states/ref. update_stage adds zero-based order.
+              attach_stage/detach_stage: stage key/ref,step; one per step, no implicit replacement.
+              delete_stage: detach all steps first; dependent error stages block removal.
+                create_stage(type=error) uses step/ref; native names/ancestry stay fixed. detach removes keyed error state.
+                For Each/Parallel ancestry is excluded; Do Until/Try bodies use ordinary native placement guards.
+                Stages report state, not exceptions, handler activation or execution.
+
+            Steps use sys_id/UI ID/display order/ref. edit supports inactive drafts and native release 27800/engine-2
+            active/published flow/subflow owners with expected_scope/revision, save-as-you-go explicitly disabled
+            and valid runtime references. Immutable snapshots reject. Active plans/callable masters select runtime.
+            Preservation binds complete JSON snapshot chunk storage or complete version-owned rows, not mutable GET
+            facades/arbitrary test snapshots, including native subflow columns and actual referenced-block metadata.
+            Apply revalidates then sends one draft PUT and independently checks version/content/trigger preservation.
+            No edit lock or lifecycle effect occurs. Bounded unknown configuration metadata stays strict;
+            drift returns UNKNOWN_OUTCOME even when runtime_preservation is verified. Never replay uncertain saves.
+            Apply the single-use preview_token with mutation_apply; the upstream API is undocumented, no automatic retries.
+            flow.describe separates installed authoring profiles, source/fixture evidence and narrowly scoped live proof.
+            Saving does not certify engine instructions, runtime behavior or compatibility with every release/plugin.
             """
             return await coordinator.preview(
                 FlowCommand(
@@ -341,8 +409,11 @@ def register_tools(mcp: MCPServer, coordinator: MutationCoordinator) -> None:
                     flow_type=flow_type,
                     action_type_sys_id=action_type_sys_id,
                     subflow_sys_id=subflow_sys_id,
+                    input_name=input_name,
                     inputs=inputs,
+                    connection_overrides=connection_overrides,
                     edits=edits,
+                    schema_tokens=schema_tokens,
                     expected_scope=expected_scope,
                     expected_revision=expected_revision,
                 ),
@@ -356,6 +427,8 @@ def register_tools(mcp: MCPServer, coordinator: MutationCoordinator) -> None:
         preview_token is single-use and expires after 300 seconds. It is consumed on success,
         rejection, cancellation, or failure. Apply rechecks policy, connection, authorization,
         and detectable state changes. No mutation is replayed automatically.
+        Applying resolve_schema returns a schema_token, not a saved flow. Consume it only in a new
+        flow_preview create/edit schema_tokens list, then review and apply that separate authoring preview.
         If the remote outcome is unknown, check ServiceNow before creating another preview.
         """
         return await coordinator.apply(preview_token)

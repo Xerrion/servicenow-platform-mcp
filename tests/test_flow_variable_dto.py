@@ -676,7 +676,8 @@ def test_fresh_native_instance_uses_independent_schema_without_reusing_saved_rec
     result = native.action(step.raw, flow)
     assert flow == saved
     assert "id" not in result and "flowBlockId" not in result
-    assert result["metadata"] == {} and result["aliasIds"] == []
+    assert result["metadata"] == {}
+    assert "aliasIds" not in result
     assert result["inputs"][0]["name"] == "message"
     assert (
         result["inputs"][0]["parameter"]["attributes"]["element_mapping_provider"]

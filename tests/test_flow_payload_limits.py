@@ -10,7 +10,7 @@ from servicenow_mcp.capabilities.contracts import (
     CapabilityError,
     validate_payload,
 )
-from servicenow_mcp.capabilities.flows import editing, mutations, semantics
+from servicenow_mcp.capabilities.flows import editing, semantics
 from servicenow_mcp.capabilities.mutations.models import FlowCommand
 from tests._mock_transport import http_mock
 from tests.helpers import decode_response
@@ -54,13 +54,10 @@ def test_large_studio_settings_remain_strictly_compared():
     assert "private-sensitive-marker" not in str(error.value)
 
 
-@pytest.mark.parametrize(
-    "require_editable", [editing.require_editable, mutations.require_editable_draft]
-)
-def test_draft_authoring_uses_the_same_studio_definition_limit(require_editable):
+def test_draft_authoring_uses_the_shared_studio_definition_limit():
     flow = sized_flow(304455)
     flow["subFlowInstances"] = []
-    require_editable(flow, flow["id"])
+    editing.require_editable(flow, flow["id"])
 
 
 def test_caller_edits_keep_the_smaller_input_limit():

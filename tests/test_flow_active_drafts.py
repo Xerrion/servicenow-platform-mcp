@@ -7,7 +7,6 @@ metadata remains strict, even when runtime preservation succeeds.
 """
 
 import copy
-import hashlib
 import json
 from typing import Any
 
@@ -15,14 +14,14 @@ import httpx2
 import pytest
 
 from servicenow_mcp.capabilities.flows import active_drafts, semantics
+from tests._compiled_snapshot_fixture import snapshot_storage
 from tests._mock_transport import http_mock
 from tests.helpers import decode_response
 from tests.test_flow_data_edits import typed_flow
-from tests.test_flow_editing import BASE, DEFS, FLOW, fixtures
+from tests.test_flow_editing import BASE, DEFS, FLOW, fixtures, native_trigger_labels
 
 MAIN, SELECTED, TRIGGER, PLAN, PROPERTY = (character * 32 for character in "bcdef")
 TIME = "2026-10-22 10:00:00"
-SOURCE = b"Synthetic offline Studio source profile"
 
 
 class ActiveModel:
@@ -36,6 +35,7 @@ class ActiveModel:
             remoteTriggerSysId=TRIGGER,
             version="13",
             updated=TIME,
+            authoredOnReleaseVersion=active_drafts.NATIVE_RELEASE,
         )
         self.flow["actionInstances"] = self.flow["actionInstances"][:1]
         self.flow["subFlowInstances"] = []
@@ -62,6 +62,7 @@ class ActiveModel:
             "parentFlow": FLOW,
             "security": {"can_read": True},
         }
+        self.serialized_record, self.serialized_chunks = snapshot_storage(self.snapshot)
         self.main = {
             "sys_id": MAIN,
             "parent_flow": FLOW,
@@ -103,20 +104,21 @@ class ActiveModel:
                 "sys_updated_on": TIME,
             }
         ]
-        self.source = SOURCE
         self.writes = []
         self.after_save = None
         self.change_echo = None
         self.coordinator, self.tools = fixtures(settings, self.flow)
-        monkeypatch.setattr(
-            active_drafts, "SOURCE_SHA256", hashlib.sha256(SOURCE).hexdigest()
-        )
         for path, getter in (
             (f"/api/now/table/sys_hub_flow/{FLOW}", lambda: self.header),
             (f"/api/now/table/sys_hub_flow_snapshot/{MAIN}", lambda: self.main),
             (f"/api/now/table/sys_flow_trigger/{TRIGGER}", lambda: self.trigger),
             ("/api/now/table/sys_flow_trigger_plan", lambda: self.plans),
             ("/api/now/table/sys_properties", lambda: self.properties),
+            (
+                f"/api/now/table/sys_hub_snapshot/{SELECTED}",
+                lambda: self.serialized_record,
+            ),
+            ("/api/now/table/sys_hub_snapshot_chunk", lambda: self.serialized_chunks),
         ):
 
             def respond(request, getter=getter):
@@ -128,9 +130,6 @@ class ActiveModel:
                 200, json={"result": {"data": copy.deepcopy(self.snapshot)}}
             )
         )
-        http_mock.get(f"{BASE}/scripts/designer-bundle.min.js").mock(
-            side_effect=lambda _: httpx2.Response(200, content=self.source)
-        )
         self.write = http_mock.route(
             method="PUT", url=f"{BASE}/api/now/processflow/flow"
         ).mock(side_effect=self.save)
@@ -141,6 +140,7 @@ class ActiveModel:
         assert body["status"] == "modified" and body["active"] is True
         assert body["version"] == "13" and body["latestSnapshot"] == SELECTED
         saved = {**body, "status": "draft", "updated": "2026-10-22 10:01:00"}
+        native_trigger_labels(saved)
         self.flow.clear()
         self.flow.update(copy.deepcopy(saved))
         self.header.update(sys_mod_count="8", sys_updated_on=saved["updated"])
@@ -269,7 +269,7 @@ async def test_active_drafts_require_both_target_bindings(
         "lock",
         "property_missing",
         "property_ambiguous",
-        "source",
+        "native_release",
         "plan_ambiguous",
         "plan_owner",
         "plan_trigger",
@@ -291,8 +291,8 @@ async def test_missing_runtime_proof_blocks_preview(settings, monkeypatch, defec
         model.properties.clear()
     elif defect == "property_ambiguous":
         model.properties *= 2
-    elif defect == "source":
-        model.source = b"Unknown Studio build"
+    elif defect == "native_release":
+        model.flow["authoredOnReleaseVersion"] = 1
     elif defect == "plan_ambiguous":
         model.plans *= 2
     elif defect == "plan_owner":
@@ -301,12 +301,18 @@ async def test_missing_runtime_proof_blocks_preview(settings, monkeypatch, defec
         model.plans[0]["trigger"] = MAIN
     elif defect == "plan_snapshot":
         model.plans[0]["snapshot"] = PLAN
+        http_mock.get(f"{BASE}/api/now/processflow/flow/{PLAN}").respond(
+            404, json={"error": "Unknown version"}
+        )
     elif defect == "snapshot_owner":
         model.snapshot["parentFlow"] = MAIN
     elif defect == "snapshot_published":
         model.snapshot["isPublished"] = False
     elif defect == "snapshot_json":
         model.snapshot["jsonSnapshot"] = False
+        http_mock.get(f"{BASE}/api/now/table/sys_hub_flow_snapshot/{SELECTED}").respond(
+            403, json={"error": "Published version metadata unavailable"}
+        )
     elif defect == "snapshot_read":
         model.snapshot["security"]["can_read"] = False
     elif defect == "main_owner":
@@ -327,7 +333,7 @@ async def test_missing_runtime_proof_blocks_preview(settings, monkeypatch, defec
         "scope",
         "revision",
         "definition",
-        "source",
+        "native_release",
         "property",
         "plan",
         "trigger",
@@ -347,8 +353,8 @@ async def test_apply_revalidates_all_preview_evidence(settings, monkeypatch, def
         model.header["sys_mod_count"] = "8"
     elif defect == "definition":
         model.flow["actionInstances"][0]["inputs"][0]["parameter"]["maxsize"] = 254
-    elif defect == "source":
-        model.source += b" changed"
+    elif defect == "native_release":
+        model.flow["authoredOnReleaseVersion"] = 1
     elif defect == "property":
         model.properties[0]["sys_mod_count"] = "1"
     elif defect == "plan":

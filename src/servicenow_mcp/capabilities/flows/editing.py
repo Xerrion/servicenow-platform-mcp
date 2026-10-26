@@ -6,7 +6,6 @@ existing steps into a branch. The result is validated and saved in one PUT.
 """
 
 import copy
-import json
 import re
 import uuid
 from collections.abc import Iterator
@@ -15,18 +14,28 @@ from typing import TYPE_CHECKING, Any
 from servicenow_mcp.capabilities.contracts import CapabilityError
 from servicenow_mcp.capabilities.flows import (
     active_drafts,
+    application_triggers,
     assignments,
     calls,
+    connection_inputs,
     data,
+    decisions,
+    declaration_choices,
     declarations,
+    dynamic_inputs,
     fields,
     handlers,
+    input_modes,
+    input_transforms,
+    logic_blocks,
     native,
     payloads,
+    saved_triggers,
     semantics,
     stages,
     support,
     target,
+    template_modes,
     tree,
     widgets,
 )
@@ -54,6 +63,7 @@ OPS = {
     "move_step",
     "delete_step",
     "update_inputs",
+    "set_connection_overrides",
     "update_field",
     "create_field",
     "delete_field",
@@ -87,18 +97,59 @@ def _inputs(edit: dict[str, Any]) -> dict[str, Any]:
 def _check_edit(edit: dict[str, Any]) -> None:
     placement = {"parent", "after", "before"}
     allowed = {
-        "insert_action": {"action_type_sys_id", "inputs", "ref", *placement},
-        "insert_subflow": {"subflow_sys_id", "inputs", "ref", *placement},
+        "insert_action": {
+            "action_type_sys_id",
+            "inputs",
+            "ref",
+            "input_scripts",
+            "input_transforms",
+            "connection_overrides",
+            *placement,
+        },
+        "insert_subflow": {
+            "subflow_sys_id",
+            "inputs",
+            "ref",
+            "input_scripts",
+            "input_transforms",
+            "connection_overrides",
+            *placement,
+        },
         "set_error_handler": {"enabled"},
         "remove_error_handler": set(),
-        "set_trigger": {"type", "inputs", "replace"},
-        "update_trigger": {"inputs"},
+        "set_trigger": {
+            "type",
+            "template_id",
+            "inputs",
+            "replace",
+            "interface_schemas",
+        },
+        "update_trigger": {"inputs", "interface_schemas"},
         "remove_trigger": set(),
-        "insert_logic": {"logic", "inputs", "ref", *placement},
+        "insert_logic": {
+            "logic",
+            "inputs",
+            "ref",
+            "decision_inputs",
+            "branches",
+            "input_scripts",
+            "input_transforms",
+            *placement,
+        },
         "move_step": {"step", *placement},
         "delete_step": {"step", "children", "cascade"},
-        "update_inputs": {"step", "inputs"},
-        "set_variables": {"inputs", *placement},
+        "update_inputs": {
+            "step",
+            "inputs",
+            "decision_inputs",
+            "branches",
+            "children",
+            "input_scripts",
+            "input_transforms",
+            "connection_overrides",
+        },
+        "set_connection_overrides": {"connection_overrides"},
+        "set_variables": {"inputs", "input_scripts", "input_transforms", *placement},
         "assign_outputs": {"outputs", "step", "ref", *placement},
         "clear_output_assignment": {"step", "name"},
         "create_field": {"collection", "name", "parent", *fields.SETTINGS},
@@ -139,6 +190,12 @@ def _check_edit(edit: dict[str, Any]) -> None:
         )
     if "replace" in edit and not isinstance(edit["replace"], bool):
         raise CapabilityError("replace must be a JSON boolean.")
+    if "interface_schemas" in edit and (
+        not isinstance(edit["interface_schemas"], dict) or not edit["interface_schemas"]
+    ):
+        raise CapabilityError(
+            "interface_schemas must be a nonempty object; clear an explicit root with children=[]."
+        )
 
 
 def require_editable(
@@ -168,8 +225,8 @@ def require_editable(
     if flow.get("type") == "subflow" and flow["triggerInstances"]:
         raise CapabilityError("Subflow drafts cannot contain triggers.")
     if (
-        flow.get("status") != "draft"
-        or flow.get("isPublished") is not False
+        (flow.get("status") != "draft" and not active)
+        or (flow.get("isPublished") is not False and not active)
         or (flow.get("masterSnapshotId") and not active)
     ):
         raise CapabilityError(
@@ -342,6 +399,8 @@ class PillResolver:
         self.schemas: dict[str, dict[str, Any]] = {}
         self.definition_cache: dict[str, dict[str, Any]] = {}
         self.linked_tables: dict[str, dict[str, Any]] = {}
+        self.input_transform_metadata: dict[str, Any] | None = None
+        self.input_transform_active: set[str] = set()
 
     async def static_table(self, source: dict[str, Any]) -> dict[str, Any]:
         table = source.get("value")
@@ -389,47 +448,23 @@ class PillResolver:
         return self.linked_tables[table]
 
     def prescription(self, pill: str) -> str:
-        """Resolve only saved identity transforms. Preserve their opaque metadata.
-
-        pharmacyPill:61324-61331. Nonidentity transforms need typed adapters.
-        """
-        if not pill.startswith("fd_transform:"):
+        """Project identity pills only; transformed values retain their final types."""
+        ordinary = input_transforms.source(self.flow, pill)
+        if ordinary == pill:
             return pill
         identity = pill.removeprefix("fd_transform:")
-        compound = (
-            self.flow.get("pharmacy", {}).get("pharmacyCompound", {}).get(identity)
+        compounds = self.flow.get("pharmacy", {}).get("pharmacyCompound", {})
+        return (
+            pill
+            if any(row.get("sourceUiId") == identity for row in compounds.values())
+            else ordinary
         )
-        if (
-            not isinstance(compound, dict)
-            or compound.get("uiId") != identity
-            or compound.get("attachedTo") != self.flow.get("id")
-            or compound.get("scopeId") != self.flow.get("scope")
-        ):
-            raise CapabilityError(
-                "The encoded transform is missing or belongs to another flow.",
-                "UNAVAILABLE",
-            )
-        if (
-            compound.get("order") != 0
-            or compound.get("sourceUiId")
-            or compound.get("transformDefinitionId")
-            or compound.get("compositions")
-        ):
-            raise CapabilityError(
-                "Nonidentity transforms require another type adapter.", "UNAVAILABLE"
-            )
-        expression = compound.get("prescription")
-        result = data.whole_pill(expression)
-        if result is None or result.startswith("fd_transform:"):
-            raise CapabilityError(
-                "The transform prescription requires one ordinary typed pill.",
-                "UNAVAILABLE",
-            )
-        return result
 
     async def resolve(
         self, pill: str, consumer: tree.Step | None = None
     ) -> dict[str, Any]:
+        if pill.startswith("fd_transform:"):
+            return await input_transforms.resolve(self.flow, pill, self, consumer)
         pill = self.prescription(pill)
         prefix, separator, suffix = pill.partition(".")
         if not separator or not suffix:
@@ -457,13 +492,19 @@ class PillResolver:
                     raise CapabilityError(
                         "The producer definition is not readable.", "UNAVAILABLE"
                     )
-                outputs = (
-                    handlers.outputs(definition)
-                    if producer.logic_type == handlers.CATCH
-                    else definition.get(
-                        "variables" if producer.kind == "flowlogic" else "outputs"
-                    )
+                outputs = definition.get(
+                    "variables" if producer.kind == "flowlogic" else "outputs"
                 )
+                if producer.logic_type == handlers.CATCH:
+                    outputs = handlers.outputs(definition)
+                elif producer.logic_type in {"DECISION", "DECISIONBLOCK"}:
+                    outputs = decisions.output_schema(
+                        producer, list(self.scope.steps.values())
+                    )
+                elif producer.logic_type in logic_blocks.TYPES:
+                    selected_outputs = logic_blocks.output_schema(producer)
+                    if selected_outputs is not None:
+                        outputs = selected_outputs
                 if (
                     producer.kind == "action"
                     and definition.get("type") == "GETCATALOGVARIABLES"
@@ -483,6 +524,11 @@ class PillResolver:
                 output = data.named(outputs, path[0])
                 if producer:
                     output = await calls.linked_output(producer, output, self)
+                    if (
+                        producer.raw.get("actionType", {}).get("type")
+                        == "GETCATALOGVARIABLES"
+                    ):
+                        output = data.catalog_schema(output)
                 if producer and producer.logic_type == "FOREACH" and path[0] == "item":
                     output = copy.deepcopy(output)
                     items = data.named(producer.raw["inputs"], "items")["value"]
@@ -501,6 +547,52 @@ class PillResolver:
                             "For Each requires a Records producer with a known table."
                         )
                     output.update(type="reference", reference=source["reference"])
+                    source_producer = self.scope.steps.get(
+                        next(iter(references)).partition(".")[0]
+                    )
+                    if (
+                        source_producer is not None
+                        and source_producer.logic_type == "DECISION"
+                        and source["reference"] == "sys_decision_multi_result"
+                    ):
+                        output["attributes"] = {
+                            **data.spec(output).get("attributes", {}),
+                            "decision_table": data.named(
+                                source_producer.raw["inputs"], "decision_table"
+                            )["value"],
+                        }
+                attributes = data.spec(output).get("attributes", {})
+                decision_id = (
+                    attributes.get("decision_table")
+                    if isinstance(attributes, dict)
+                    else None
+                )
+                if (
+                    data.value_type(output).reference == "sys_decision_multi_result"
+                    and decision_id
+                    and len(path) > 1
+                ):
+                    if path[1] != "result_elements" or len(path) < 3:
+                        raise CapabilityError(
+                            "Decision multi-result fields require result_elements and a native result field."
+                        )
+                    validate_sys_id(decision_id)
+                    key = "decision/answers/" + decision_id
+                    if key not in self.definition_cache:
+                        self.definition_cache[key] = await decisions.answer_fields(
+                            decision_id, self.client
+                        )
+                    label += (
+                        "\u279b"
+                        + str(
+                            data.spec(output).get("label")
+                            or output.get("display_name")
+                            or output["name"]
+                        )
+                        + "\u279bResult elements"
+                    )
+                    output = data.named(self.definition_cache[key]["fields"], path[2])
+                    path = [path[0], *path[3:]]
                 for path_index, field in enumerate(path[1:], start=1):
                     value_type = data.value_type(output)
                     if value_type.many:
@@ -523,7 +615,7 @@ class PillResolver:
                 else:
                     kind = data.value_type(output)
                     parameter = data.spec(output)
-                    if kind.kind in declarations.LABELS:
+                    if kind.kind in declarations.LABELS or kind.kind == "array":
                         self.schemas[pill] = copy.deepcopy(parameter)
                     self.cache[pill] = {
                         "name": pill,
@@ -555,32 +647,50 @@ class PillResolver:
         )
         if output is None:
             raise CapabilityError(f"The trigger has no output named '{path[0]}'.")
+        if data.value_type(output).kind in declarations.LABELS:
+            key = "trigger/" + self.trigger["type"] + "/" + path[0]
+            if key not in self.definition_cache:
+                self.definition_cache[key] = await application_triggers.output_schema(
+                    self.trigger, path[0], self.client
+                )
+            output = {**output, "parameter": self.definition_cache[key]}
         trigger_name = f"Trigger - {trigger_label(self.trigger)}"
-        label = (
-            f"{trigger_name}\u279b{output['parameter'].get('label') or output['label']}"
-        )
-        if len(path) == 1:
-            resolved_type = trigger_edits.output_type(self.trigger, output)
-            reference = resolved_type.reference
-            return {
-                "name": pill,
-                "label": label,
-                "reference": reference,
-                "reference_display": output["parameter"].get("reference_display", ""),
-                "type": resolved_type.kind,
-                "base_type": resolved_type.kind,
-                "parent_table_name": None,
-                "column_name": None,
-                "choices": None,
-                "attributes": output["parameter"].get("attributes"),
-            }
-        table = trigger_edits.output_type(self.trigger, output).reference
-        if not table:
-            raise CapabilityError(
-                f"Trigger output '{path[0]}' is not a record and has no fields."
-            )
-        if pill not in self.cache:
-            self.cache[pill] = await self._field(pill, label, table, path[1:])
+        parameter = data.spec(output)
+        label = f"{trigger_name}\u279b{parameter.get('label') or output.get('label') or output['name']}"
+        resolved_type = trigger_edits.output_type(self.trigger, output)
+        for path_index, field in enumerate(path[1:], start=1):
+            if resolved_type.many:
+                raise CapabilityError(
+                    "Select a loop item before traversing a collection pill."
+                )
+            if resolved_type.kind in {"reference", "document_id"}:
+                if not resolved_type.reference:
+                    raise CapabilityError(
+                        "The trigger reference table is unavailable.", "UNAVAILABLE"
+                    )
+                if pill not in self.cache:
+                    self.cache[pill] = await self._field(
+                        pill, label, resolved_type.reference, path[path_index:]
+                    )
+                return self.cache[pill]
+            output = data.child(output, field)
+            parameter = data.spec(output)
+            label += "\u279b" + str(parameter.get("label") or output["name"])
+            resolved_type = data.value_type(output)
+        if resolved_type.kind in declarations.LABELS or resolved_type.kind == "array":
+            self.schemas[pill] = copy.deepcopy(parameter)
+        self.cache[pill] = {
+            "name": pill,
+            "label": label,
+            "reference": resolved_type.reference,
+            "reference_display": parameter.get("reference_display", ""),
+            "type": resolved_type.kind,
+            "base_type": resolved_type.kind,
+            "parent_table_name": None,
+            "column_name": None,
+            "choices": parameter.get("choices"),
+            "attributes": parameter.get("attributes"),
+        }
         return self.cache[pill]
 
     async def validate(
@@ -589,12 +699,29 @@ class PillResolver:
         consumer: tree.Step,
         declared: dict[str, Any] | None = None,
     ) -> None:
+        if (
+            widgets.kind(declared if declared is not None else item)
+            in template_modes.TYPES
+        ):
+            await self._template(
+                item, declared if declared is not None else data.spec(item), consumer
+            )
+            return
+        await input_modes.validate(item, consumer, self)
+        if item.get("scriptActive"):
+            return
         for binding, parameter in self._bindings(item, declared):
             kind = widgets.kind(parameter)
-            if kind == "template_value":
+            if widgets.kind(parameter) in template_modes.TYPES:
                 await self._template(binding, parameter, consumer)
                 continue
-            if kind == "conditions" and consumer.kind == "action":
+            if binding is not item:
+                await input_modes.validate(binding, consumer, self)
+                if binding.get("scriptActive"):
+                    continue
+            if kind == "conditions" and (
+                consumer.kind == "action" or consumer.logic_type == "DECISION"
+            ):
                 schema = data.spec(parameter)
                 dependency = schema.get("dependent_on")
                 if not isinstance(dependency, str) or not dependency:
@@ -603,7 +730,12 @@ class PillResolver:
                         "UNAVAILABLE",
                     )
                 source = data.named(
-                    consumer.raw["inputs"], dependency.removeprefix("inputs.")
+                    consumer.raw[
+                        "decisionTableInputs"
+                        if consumer.logic_type == "DECISION"
+                        else "inputs"
+                    ],
+                    dependency.removeprefix("inputs."),
                 )
                 await self.static_table(source)
                 widgets.validate("conditions", binding.get("value"), schema)
@@ -614,170 +746,128 @@ class PillResolver:
                         source["value"],
                         path,
                     )
-            value = widgets.pill_text(binding, kind, data.spec(parameter))
+            if kind == "field_list":
+                schema = data.spec(parameter)
+                if dependency := schema.get("dependent_on"):
+                    source = data.named(
+                        consumer.raw[
+                            "decisionTableInputs"
+                            if consumer.logic_type == "DECISION"
+                            else "inputs"
+                        ],
+                        dependency.removeprefix("inputs."),
+                    )
+                else:
+                    source = {
+                        "parameter": {"type": "table_name"},
+                        "value": schema.get("reference"),
+                    }
+                await self.static_table(source)
             approval_types = (
-                dict(widgets.approval_references(value))
+                dict(widgets.approval_references(binding.get("value", "")))
                 if kind == "approval_rules"
                 else {}
             )
-            for pill in tree.pills(value):
-                resolved = await self.resolve(pill, consumer)
-                source = data.ValueType(
-                    resolved["type"], resolved.get("reference") or ""
-                )
-                target = data.value_type(parameter)
-                interpolated = value != "{{" + pill + "}}"
-                if kind == "approval_rules":
-                    if source.kind not in {
-                        "reference",
-                        "document_id",
-                    } or source.reference != approval_types.get(pill):
-                        raise CapabilityError(
-                            "Approval approvers must use the declared user/group reference type."
-                        )
-                    continue
-                data.compatible(source, target, interpolated=interpolated)
-                if not interpolated and (
-                    target.kind == "object" or target.kind.startswith("array.")
-                ):
-                    if binding.get("scriptActive") or any(
-                        data.spec(parameter).get(key)
-                        for key in ("readonly", "readOnly", "read_only")
-                    ):
-                        raise CapabilityError(
-                            "Whole complex pill targets cannot be scripted or read-only.",
-                            "UNAVAILABLE",
-                        )
-                    if binding.get("children"):
-                        raise CapabilityError(
-                            "Whole complex pills cannot coexist with child values."
-                        )
-                    schema = self.schemas.get(pill)
-                    if schema is None:
-                        raise CapabilityError(
-                            "The whole-pill producer schema is unavailable.",
-                            "UNAVAILABLE",
-                        )
-                    await self._structure(schema, parameter)
-                    produced = await self._whole_schema(pill, consumer)
-                    await self._structure(produced, parameter)
-                if not interpolated and target.kind == "choice":
-                    allowed = {
-                        c["value"] for c in data.spec(parameter).get("choices", [])
-                    }
-                    produced = {c["value"] for c in resolved.get("choices") or []}
-                    if not allowed or not produced or not produced <= allowed:
-                        raise CapabilityError(
-                            "Choice pills require a declared producer choice set contained in the target choices.",
-                        )
-                if (
-                    target.reference
-                    and source.reference
-                    and not await self._is_table(source.reference, target.reference)
-                ):
-                    raise CapabilityError(
-                        "The pill reference table is incompatible with the input."
-                    )
-
-    async def _template(
-        self, binding: dict[str, Any], parameter: dict[str, Any], consumer: tree.Step
-    ) -> None:
-        value = binding.get("value")
-        widgets.validate("template_value", value, data.spec(parameter))
-        schema = data.spec(parameter)
-        table = schema.get("reference")
-        if dependency := schema.get("dependent_on"):
-            source = data.named(
-                consumer.raw["inputs"], dependency.removeprefix("inputs.")
-            )
-            if (
-                data.value_type(source).kind != "table_name"
-                or not isinstance(source.get("value"), str)
-                or tree.pills(source["value"])
+            for value, target_kind in widgets.pill_bindings(
+                binding, kind, data.spec(parameter)
             ):
-                raise CapabilityError(
-                    "Template fields require a static declared table dependency."
-                )
-            if table and source["value"] != table:
-                raise CapabilityError(
-                    "The template table differs from its declared reference."
-                )
-            table = source["value"]
-        if not table:
-            raise CapabilityError(
-                "The template field table is unavailable.", "UNAVAILABLE"
-            )
-        validate_identifier(table)
-        check_table_access(table)
-        for column, encoded in widgets.template_fields(value):
-            row = await self._dictionary(table, column)
-            kind = row["internal_type"]
-            if kind not in {
-                "reference",
-                "string",
-                "html",
-                "translated_html",
-                "integer",
-                "boolean",
-                "choice",
-                "journal_input",
-            }:
-                raise CapabilityError(
-                    "This template column type requires another adapter.", "UNAVAILABLE"
-                )
-            pills = tree.pills(encoded)
-            if pills:
-                target = data.ValueType(
-                    "string"
-                    if kind in {"html", "translated_html", "journal_input"}
-                    else kind,
-                    row.get("reference", ""),
-                )
-                for pill in pills:
+                if isinstance(value, str):
+                    remainder = tree.PILL.sub("", value)
+                    if "{{" in remainder or "}}" in remainder:
+                        raise CapabilityError(
+                            "A saved binding contains malformed pill syntax."
+                        )
+                for pill in tree.pills(value):
+                    if kind == "approval_rules" and pill.startswith("static."):
+                        continue  # The native approval parser validates these literal identities.
                     resolved = await self.resolve(pill, consumer)
                     source = data.ValueType(
                         resolved["type"], resolved.get("reference") or ""
                     )
-                    data.compatible(
-                        source, target, interpolated=encoded != "{{" + pill + "}}"
+                    target_type = data.value_type(parameter)
+                    target = data.ValueType(
+                        target_kind or target_type.kind, target_type.reference
                     )
-                    if target.reference and not await self._is_table(
-                        source.reference, target.reference
+                    interpolated = kind == "json" or value != "{{" + pill + "}}"
+                    if kind == "approval_rules":
+                        expected = approval_types.get(pill)
+                        if source.kind not in {"reference", "document_id"} or (
+                            source.reference not in {"sys_user", "sys_user_group"}
+                            if expected == "unknown"
+                            else source.reference != expected
+                        ):
+                            raise CapabilityError(
+                                "Approval approvers must use the declared user/group reference type."
+                            )
+                        continue
+                    if kind == "schedule_date_time":
+                        if interpolated or source.kind not in {
+                            "date",
+                            "datetime",
+                            "glide_date",
+                            "glide_date_time",
+                            "due_date",
+                            "schedule_date_time",
+                            "integer_date",
+                        }:
+                            raise CapabilityError(
+                                "Approval dates require one native Date-family producer pill."
+                            )
+                        continue
+                    data.compatible(source, target, interpolated=interpolated)
+                    if not interpolated and (
+                        target.kind in {"object", "array"}
+                        or target.kind.startswith("array.")
+                    ):
+                        if input_modes.readonly(parameter):
+                            raise CapabilityError(
+                                "Whole complex pill targets cannot be read-only.",
+                                "UNAVAILABLE",
+                            )
+                        if binding.get("children"):
+                            raise CapabilityError(
+                                "Whole complex pills cannot coexist with child values."
+                            )
+                        schema = self.schemas.get(pill)
+                        if schema is None:
+                            raise CapabilityError(
+                                "The whole-pill producer schema is unavailable.",
+                                "UNAVAILABLE",
+                            )
+                        await self._structure(schema, parameter)
+                        produced = await self._whole_schema(pill, consumer)
+                        await self._structure(produced, parameter)
+                    if not interpolated and target.kind == "choice":
+                        allowed = {
+                            c["value"] for c in data.spec(parameter).get("choices", [])
+                        }
+                        produced = {c["value"] for c in resolved.get("choices") or []}
+                        if not allowed or not produced or not produced <= allowed:
+                            raise CapabilityError(
+                                "Choice pills require a declared producer choice set contained in the target choices."
+                            )
+                    if (
+                        target.reference
+                        and source.reference
+                        and not await self._is_table(source.reference, target.reference)
                     ):
                         raise CapabilityError(
-                            "The template reference pill has an incompatible table."
+                            "The pill reference table is incompatible with the input."
                         )
-            elif kind == "reference" and encoded:
-                try:
-                    reference = json.loads(encoded)
-                except ValueError:
-                    raise CapabilityError(
-                        "Template references require native reference JSON."
-                    ) from None
-                if (
-                    not isinstance(reference, dict)
-                    or reference.get("table") != row["reference"]
-                    or reference.get("value") != reference.get("sys_id")
-                ):
-                    raise CapabilityError(
-                        "Template reference JSON identity or table is inconsistent."
-                    )
-                validate_sys_id(reference["value"])
-            elif (
-                kind in {"integer", "boolean"}
-                and encoded
-                and not re.fullmatch(
-                    r"-?\d+" if kind == "integer" else r"true|false|0|1", encoded
-                )
-            ):
-                raise CapabilityError(
-                    "The template scalar value has an invalid native type."
-                )
+
+    async def _template(
+        self, binding: dict[str, Any], parameter: dict[str, Any], consumer: tree.Step
+    ) -> None:
+        await template_modes.validate_binding(binding, parameter, consumer, self)
 
     def _bindings(
         self, item: dict[str, Any], declared: dict[str, Any] | None = None
     ) -> Iterator[tuple[dict[str, Any], dict[str, Any]]]:
         parameter = declared if declared is not None else data.spec(item)
+        if data.spec(parameter).get("type") in dynamic_inputs.MODES:
+            for binding in dynamic_inputs.bindings(item):
+                yield from self._bindings(binding)
+            return
         yield item, parameter
         actual_children = item.get("children", [])
         if not isinstance(actual_children, list) or any(
@@ -807,6 +897,23 @@ class PillResolver:
             raise CapabilityError(
                 "The whole-pill producer schema is unavailable.", "UNAVAILABLE"
             )
+        if pill.startswith("fd_transform:"):
+            return copy.deepcopy(schema)
+        if self.trigger is not None and pill.startswith(
+            trigger_pill_prefix(self.trigger) + "."
+        ):
+            path = pill[len(trigger_pill_prefix(self.trigger)) + 1 :].split(".")
+            key = "trigger/" + self.trigger["type"] + "/" + path[0]
+            if key not in self.definition_cache:
+                self.definition_cache[key] = await application_triggers.output_schema(
+                    self.trigger, path[0], self.client
+                )
+            current_schema = self.definition_cache[key]
+            for segment in path[1:]:
+                current_schema = data.child(current_schema, segment)
+            await self._structure(current_schema, schema)
+            await self._structure(schema, current_schema)
+            return current_schema
         prefix, _, path = pill.partition(".")
         producer = self.scope.steps.get(prefix)
         if producer is None and prefix != "subflow":
@@ -815,6 +922,34 @@ class PillResolver:
                 "UNAVAILABLE",
             )
         if producer is not None:
+            if producer.raw.get("actionType", {}).get("type") == "GETCATALOGVARIABLES":
+                key = "catalog/" + producer.uid
+                if key not in self.definition_cache:
+                    self.definition_cache[key] = await calls.catalog_selection(
+                        producer, self.flow, self.client, changed=False
+                    )
+                segments = path.split(".")
+                current_schema = data.catalog_schema(
+                    data.named(self.definition_cache[key]["schema"], segments[0])
+                )
+                for segment in segments[1:]:
+                    current_schema = data.child(current_schema, segment)
+                await self._structure(current_schema, schema)
+                await self._structure(schema, current_schema)
+                return current_schema
+            if producer.kind == "flowlogic" and producer.logic_type in {
+                "RUNDYNAMICFLOW",
+                "GETFLOWOUTPUTS",
+            }:
+                segments = path.split(".")
+                current_schema = await logic_blocks.published_output(
+                    producer, segments[0], self
+                )
+                for segment in segments[1:]:
+                    current_schema = data.child(current_schema, segment)
+                await self._structure(current_schema, schema)
+                await self._structure(schema, current_schema)
+                return current_schema
             if producer.kind not in {"action", "subflow"}:
                 raise CapabilityError(
                     "Whole pills from this flow-logic family require another schema adapter.",
@@ -899,13 +1034,25 @@ class PillResolver:
                 "Whole-pill reference fields require declared source and target tables.",
                 "UNAVAILABLE",
             )
-        allowed = fields.INTERFACE_TYPES.keys() | {"choice", "document_id"}
+        allowed = (
+            fields.INTERFACE_TYPES.keys()
+            | widgets.TEXT_TYPES
+            | widgets.NUMERIC_TYPES
+            | widgets.INTEGER_TYPES
+            | widgets.TEMPORAL_TYPES
+            | {"choice", "document_id", "array", "datetime"}
+        )
         if produced.kind not in allowed or wanted.kind not in allowed:
             raise CapabilityError(
                 "This whole-pill field type requires another schema adapter.",
                 "UNAVAILABLE",
             )
         data.compatible(produced, wanted, interpolated=False)
+        if wanted.kind == "array" and (data.children(source) or data.children(target)):
+            raise CapabilityError(
+                "Generic Array pills cannot carry an unregistered nested item schema.",
+                "UNAVAILABLE",
+            )
         if (
             wanted.reference
             and produced.reference
@@ -974,8 +1121,8 @@ class PillResolver:
                     )
                 await self._structure(left[0], right[0], depth + 1)
         elif wanted.kind == "choice":
-            allowed = {row["value"] for row in data.spec(target).get("choices", [])}
-            actual = {row["value"] for row in data.spec(source).get("choices", [])}
+            allowed = {row["value"] for row in declarations.choices(data.spec(target))}
+            actual = {row["value"] for row in declarations.choices(data.spec(source))}
             if not allowed or not actual or not actual <= allowed:
                 raise CapabilityError(
                     "Whole-pill choice fields require compatible declared choice sets."
@@ -1012,6 +1159,7 @@ class PillResolver:
     async def _field(
         self, pill: str, label: str, table: str, path: list[str]
     ) -> dict[str, Any]:
+        check_table_access(table)
         for name in path[:-1]:
             validate_identifier(name)
             row = await self._dictionary(table, name)
@@ -1019,6 +1167,7 @@ class PillResolver:
                 raise CapabilityError(f"'{name}' on {table} is not a reference field.")
             label = f"{label}\u279b{row['column_label']}"
             table = row["reference"]
+            check_table_access(table)
         column = path[-1]
         validate_identifier(column)
         row = await self._dictionary(table, column)
@@ -1164,13 +1313,34 @@ async def load_state(
         await client.studio_definitions("flow_logic")
         if needs & {"insert_logic", "set_variables", *assignments.OPS, *handlers.OPS}
         or handlers.pair(tree.build_tree(flow))
+        or any(
+            step.logic_type in {"DECISION", "DECISIONBLOCK", *logic_blocks.TYPES}
+            for step in tree.walk(tree.build_tree(flow))
+        )
         else []
     )
     triggers = (
         await client.studio_definitions("triggers") if needs & trigger_edits.OPS else []
     )
     state = {"flow": flow, "logic": logic, "triggers": triggers}
-    if flow["active"] is True:
+    if needs & trigger_edits.OPS:
+        template_ids = {
+            _str(edit, "template_id", required=True) or ""
+            for edit in command.edits or []
+            if edit.get("op") == "set_trigger" and "template_id" in edit
+        }
+        template_ids.update(
+            item["triggerDefinitionId"]
+            for item in flow["triggerInstances"]
+            if saved_triggers.is_saved(item)
+        )
+        if template_ids:
+            saved_triggers.require_version(flow)
+            state["saved_triggers"] = {
+                identity: await saved_triggers.read(identity, client)
+                for identity in sorted(template_ids)
+            }
+    if active_drafts.eligible(flow):
         state["active_runtime"] = await active_drafts.read(command, flow, client)
     return state
 
@@ -1307,6 +1477,7 @@ async def plan(
     if handlers.pair(roots):
         handlers.check_catalog(roots, state["logic"])
     assignments.hydrate(roots)
+    script_bindings = input_modes.Scripts(roots)
     triggers = list(copy.deepcopy(flow["triggerInstances"]))
     logic_by_name = {d["name"].lower(): d for d in state["logic"]}
     logic_by_name.update({d["type"].lower(): d for d in state["logic"]})
@@ -1331,10 +1502,23 @@ async def plan(
     created_fields: list[dict[str, str]] = []
     removed_fields: list[dict[str, str]] = []
     reference_tables: set[str] = set()
+    declaration_choice_evidence: dict[str, Any] = {}
+    declaration_type_evidence: dict[str, Any] = {}
+    declaration_type_catalog: list[dict[str, Any]] | None = None
+    declaration_qualifiers: list[tuple[str, str]] = []
     trigger_evidence: dict[str, Any] = {}
     call_evidence: dict[str, Any] = {}
     call_definitions: dict[tuple[bool, str], dict[str, Any]] = {}
     dependency_changed: set[str] = set()
+    logic_evidence: dict[str, Any] = {}
+    logic_changed: dict[str, set[str]] = {}
+    transform_metadata: dict[str, Any] | None = None
+    mode_schema_cache: dict[str, dict[str, Any]] = {}
+    mode_targets: dict[str, set[str]] = {}
+    generated_authoring_rows: dict[str, list[Any]] = {
+        "transforms": [],
+        "connections": [],
+    }
     # Bind client stage UUIDs to this exact definition and edit list. Replanning
     # preview/apply must not create different stage keys.
     stage_seed = fingerprint(
@@ -1343,9 +1527,237 @@ async def plan(
             "edits": command.model_dump(mode="json")["edits"],
         }
     )
+
+    def record_deletions(steps: list[tree.Step]) -> None:
+        components = {step.uid: step for step in tree.walk(roots)}
+        components.update({step.uid: step for step in steps})
+        connection_inputs.cleanup_removed(
+            working, steps, components=components.values()
+        )
+        for removed_step in steps:
+            if removed_step.kind == "subflow" and removed_step.raw.get("id"):
+                # Complete-list omission is Studio's subflow call deletion
+                # wire contract (bundle:205202, 205365, 130432).
+                omitted_subflows.append(
+                    {
+                        "id": removed_step.raw["id"],
+                        "uiUniqueIdentifier": removed_step.uid,
+                    }
+                )
+            elif removed_step.raw.get("id"):
+                key = (
+                    "deletedActions"
+                    if removed_step.kind == "action"
+                    else "deletedFlowLogicInstances"
+                )
+                pending_deletions.setdefault(key, []).append(
+                    {"id": removed_step.raw["id"]}
+                )
+
+    async def configure_decision(
+        selected: tree.Step,
+        edit: dict[str, Any],
+        index: int,
+        *,
+        new: bool,
+        previous: tree.Step | None = None,
+    ) -> None:
+        if "children" in edit and edit["children"] != "delete":
+            raise CapabilityError(
+                "Decision reconfiguration children must be delete when supplied."
+            )
+        configured = await decisions.configure(
+            selected,
+            working,
+            state["logic"],
+            client,
+            decision_inputs=edit.get("decision_inputs"),
+            branches=edit.get("branches"),
+            delete_children=edit.get("children") == "delete",
+            seed=fingerprint([stage_seed, "decision", index]),
+            new=new,
+            previous=previous,
+            script_inputs={
+                name
+                for name, code in input_modes.scripts(edit.get("input_scripts")).items()
+                if code
+            },
+        )
+        created.extend(configured["created"])
+        record_deletions(configured["removed"])
+        logic_evidence["configure:" + str(index)] = configured["evidence"]
+
+    def mode_flow() -> dict[str, Any]:
+        current = {**working, "triggerInstances": triggers}
+        for kind, collection in tree.COLLECTIONS.items():
+            current[collection] = [
+                step.raw for step in tree.walk(roots) if step.kind == kind
+            ]
+        return current
+
+    def record_connections(
+        owner: dict[str, Any], component_uid: str | None, prior_sources: set[str]
+    ) -> None:
+        for mapping in owner.get("aliasOverride", {}).get("aliasOverrideMappings", []):
+            source = mapping.get("sourceAlias")
+            if (
+                source is not None
+                and (source or component_uid is not None)
+                and source not in prior_sources
+                and mapping.get("id", "") == ""
+            ):
+                entry = {"component_ui_id": component_uid, "source_alias": source}
+                if entry not in generated_authoring_rows["connections"]:
+                    generated_authoring_rows["connections"].append(entry)
+
+    def mode_aliases(value: Any) -> Any:
+        aliases = {
+            step.raw["_alias"]: step.uid
+            for step in tree.walk(roots)
+            if step.raw.get("_alias")
+        }
+        if wrappers := handlers.pair(roots):
+            aliases["error_handler"] = wrappers[1].uid
+        if isinstance(value, str):
+            return tree.PILL.sub(
+                lambda match: (
+                    "{{"
+                    + aliases[match[1].partition(".")[0]]
+                    + "."
+                    + match[1].partition(".")[2]
+                    + "}}"
+                    if match[1].partition(".")[0] in aliases
+                    else match[0]
+                ),
+                value,
+            )
+        if isinstance(value, dict):
+            return {key: mode_aliases(child) for key, child in value.items()}
+        if isinstance(value, list):
+            return [mode_aliases(child) for child in value]
+        return value
+
+    async def apply_modes(
+        selected: tree.Step, edit: dict[str, Any], index: int
+    ) -> None:
+        nonlocal transform_metadata
+        requested = input_modes.scripts(edit.get("input_scripts"))
+        modes = {name: code for name, code in requested.items() if "." not in name}
+        columns = {name: code for name, code in requested.items() if "." in name}
+        transforms = (
+            input_transforms.parse(edit["input_transforms"])
+            if "input_transforms" in edit
+            else {}
+        )
+        if not (requested or transforms):
+            return
+        if {name for name, code in requested.items() if code} & set(transforms):
+            raise CapabilityError(
+                "An input cannot use both script and transform modes."
+            )
+        if set(_inputs(edit)) & set(transforms):
+            raise CapabilityError(
+                "Transform source options and ordinary inputs cannot set the same input."
+            )
+        if set(transforms) & input_modes.STATIC_SELECTORS.get(
+            selected.logic_type or "", set()
+        ):
+            raise CapabilityError(
+                "Native structural target and schema selectors require static values."
+            )
+        tree.renumber(roots)
+        current = mode_flow()
+        resolver = PillResolver(
+            client, triggers[0] if triggers else None, current, roots
+        )
+        resolver.definition_cache.update(mode_schema_cache)
+        resolver.input_transform_metadata = transform_metadata
+        if selected.logic_type in logic_blocks.TYPES:
+            logic_evidence["hydrate:" + str(index)] = await logic_blocks.hydrate(
+                selected,
+                current,
+                client,
+                input_scripts=modes,
+                resolver=resolver,
+                definition=next(
+                    row
+                    for row in state["logic"]
+                    if row["id"] == selected.raw["definitionId"]
+                ),
+                changed_inputs=logic_changed.get(selected.uid, set()),
+            )
+        if selected.kind in {"action", "subflow"}:
+            subflow = selected.kind == "subflow"
+            identity = (
+                (
+                    selected.raw.get("subFlow", {}).get("parentFlow")
+                    or selected.raw["subflowSysId"]
+                )
+                if subflow
+                else selected.raw["actionTypeSysId"]
+            )
+            key = (subflow, identity)
+            if key not in call_definitions:
+                call_definitions[key] = await calls.definition(
+                    working, identity, subflow=subflow, client=client
+                )
+            names = (
+                set(modes) | set(transforms) | {name.split(".")[0] for name in columns}
+            )
+            names = {
+                name
+                for name in names
+                if data.spec(input_modes.input_binding(selected, name)).get("type")
+                not in dynamic_inputs.MODES
+            }
+            input_modes.bind_schema(selected, call_definitions[key], names)
+            call_evidence["input_modes:" + selected.uid] = call_definitions[key]
+        fallback = {**_inputs(edit), **(edit.get("decision_inputs") or {})}
+        input_modes.apply(selected, modes, fallback)
+        if columns:
+            await template_modes.apply(current, selected, columns, resolver)
+        if requested:
+            script_bindings.capture(
+                roots,
+                step_uid=selected.uid,
+                names={
+                    name.split(".")[0]
+                    for name, code in requested.items()
+                    if code is not None
+                },
+            )
+        if transforms:
+            old_ids = set(current.get("pharmacy", {}).get("pharmacyCompound", {}))
+            call_evidence["transforms:" + str(index)] = await input_transforms.apply(
+                current,
+                selected,
+                mode_aliases(transforms),
+                resolver,
+                seed=fingerprint([stage_seed, index]),
+            )
+            working["pharmacy"] = current["pharmacy"]
+            generated_authoring_rows["transforms"].extend(
+                sorted(set(current["pharmacy"]["pharmacyCompound"]) - old_ids)
+            )
+        transform_metadata = resolver.input_transform_metadata
+        mode_schema_cache.update(resolver.definition_cache)
+        mode_targets.setdefault(selected.uid, set()).update(
+            set(requested) | set(transforms)
+        )
+        if selected.logic_type == "SETFLOWVARIABLES":
+            selected.raw["flowVariables"] = copy.deepcopy(selected.raw["inputs"])
+
     for index, edit in enumerate(command.edits or [], start=1):
         _check_edit(edit)
         op = _str(edit, "op", required=True) or ""
+        interface_schemas = edit.get("interface_schemas")
+        assert interface_schemas is None or isinstance(interface_schemas, dict)
+        input_modes.scripts(edit.get("input_scripts"))
+        if "input_transforms" in edit:
+            input_transforms.parse(edit["input_transforms"])
+        if "connection_overrides" in edit:
+            connection_inputs.parse(edit["connection_overrides"])
+        script_bindings.rebind(roots)
         if flow["type"] == "subflow" and (op in trigger_edits.OPS or op in stages.OPS):
             raise CapabilityError(
                 "Subflow trigger and stage authoring are unavailable in this adapter.",
@@ -1372,26 +1784,18 @@ async def plan(
                     "Structural edits with interface-default pills require a complete default-binding adapter.",
                     "UNAVAILABLE",
                 )
-            for step in tree.walk(roots):
-                for key in (
-                    "inputs",
-                    "outputsToAssign",
-                    "dynamicInputs",
-                    "workflowInputs",
-                    "decisionTableInputs",
-                ):
-                    for item in data.bindings(step.raw.get(key, [])):
-                        if item.get("scriptActive") or "fd_data." in str(
-                            item.get("script", "")
-                        ):
-                            raise CapabilityError(
-                                "Structural edits cannot renumber inline-script references.",
-                                "UNAVAILABLE",
-                            )
             if any(
                 s.logic_type
                 not in support.LOGIC_TYPES
-                | {"CATCH", "SETFLOWVARIABLES", assignments.KIND, *handlers.TYPES}
+                | {
+                    "CATCH",
+                    "SETFLOWVARIABLES",
+                    assignments.KIND,
+                    *handlers.TYPES,
+                    "DECISIONBLOCK",
+                    "PLACEHOLDER",
+                    "UPDATEFLOWTEMPLATE",
+                }
                 for s in tree.walk(roots)
                 if s.kind == "flowlogic"
             ):
@@ -1399,7 +1803,30 @@ async def plan(
                     "Structural edits require family adapters for every existing flow-logic step.",
                     "UNAVAILABLE",
                 )
-        if op in {"insert_action", "insert_subflow"}:
+        if op == "set_connection_overrides":
+            if "connection_overrides" not in edit:
+                raise CapabilityError(
+                    "set_connection_overrides requires connection_overrides."
+                )
+            current = mode_flow()
+            prior_sources = {
+                row["sourceAlias"]
+                for row in current.get("aliasOverride", {}).get(
+                    "aliasOverrideMappings", []
+                )
+            }
+            call_evidence["connections:" + str(index)] = await connection_inputs.apply(
+                current,
+                None,
+                edit["connection_overrides"],
+                client=client,
+                definitions=call_definitions,
+            )
+            if "aliasOverride" in current:
+                working["aliasOverride"] = current["aliasOverride"]
+            record_connections(current, None, prior_sources)
+            summary.append(f"{index}. Configure flow connections")
+        elif op in {"insert_action", "insert_subflow"}:
             subflow = op == "insert_subflow"
             identity = (
                 _str(
@@ -1416,17 +1843,55 @@ async def plan(
                 )
             definition = call_definitions[call_key]
             call_evidence[str(index)] = definition
+            shell = {
+                "type": "subflow" if subflow else "action",
+                "flowSysId": working["id"],
+                "subflowSysId" if subflow else "actionTypeSysId": identity,
+                "subFlow" if subflow else "actionType": definition,
+            }
+            if "connection_overrides" in edit:
+                call_evidence[
+                    "connections:" + str(index)
+                ] = await connection_inputs.apply(
+                    working,
+                    shell,
+                    edit["connection_overrides"],
+                    client=client,
+                    definitions=call_definitions,
+                )
+            call_inputs = dict(_inputs(edit))
+            for name, transform in input_transforms.parse(
+                edit.get("input_transforms", {})
+            ).items():
+                if name in call_inputs:
+                    raise CapabilityError(
+                        "Transform source options and ordinary inputs cannot set the same input."
+                    )
+                if transform is not None:
+                    call_inputs[name] = transform["source"]
             step = calls.step(
                 working,
                 definition,
-                _inputs(edit),
+                call_inputs,
                 subflow=subflow,
                 uid=str(
                     uuid.UUID(
                         hex=fingerprint([stage_seed, "call", index])[:32], version=4
                     )
                 ),
+                schema_evidence=list(command.schema_evidence),
+                input_scripts={
+                    name: code
+                    for name, code in input_modes.scripts(
+                        edit.get("input_scripts")
+                    ).items()
+                    if "." not in name
+                },
+                connection_context=connection_inputs.effective(working, shell),
             )
+            if "aliasOverride" in shell:
+                step.raw["aliasOverride"] = shell["aliasOverride"]
+                record_connections(step.raw, step.uid, set())
             if definition.get("type") == "GETCATALOGVARIABLES":
                 call_evidence[
                     "catalog_insert:" + str(index)
@@ -1454,6 +1919,7 @@ async def plan(
                     )
                 step.raw["_alias"] = alias
             created.append(step.uid)
+            await apply_modes(step, edit, index)
             summary.append(f"{index}. Insert {definition['name']}")
         elif op in handlers.OPS:
             removed = handlers.edit(
@@ -1477,6 +1943,7 @@ async def plan(
             )
         elif op in {"create_field", "update_field", "delete_field"}:
             section = fields.collection(edit)
+            changed_name = str(edit.get("new_name") or edit.get("name") or "")
             existing = next(
                 (
                     row
@@ -1484,6 +1951,11 @@ async def plan(
                     if path == edit.get("name")
                 ),
                 None,
+            )
+            previous_nodes = (
+                copy.deepcopy(declarations.walk([existing]))
+                if existing is not None
+                else []
             )
             if op == "delete_field" and existing is not None:
                 removed_fields.extend(
@@ -1506,6 +1978,17 @@ async def plan(
                 # Preserve the established metadata-only adapter for flow-owned interfaces.
                 _update_field(working, edit)
             else:
+                type_labels, type_catalog = await fields.resolve_types(
+                    client, working, edit, catalog=declaration_type_catalog
+                )
+                if type_catalog is not None:
+                    declaration_type_catalog = type_catalog
+                    declaration_type_evidence[str(index)] = type_catalog
+                choice_metadata, choice_evidence = await declaration_choices.resolve(
+                    client, working, edit
+                )
+                if choice_evidence is not None:
+                    declaration_choice_evidence[str(index)] = choice_evidence
                 changed = fields.edit_field(
                     working,
                     edit,
@@ -1516,18 +1999,59 @@ async def plan(
                             version=4,
                         )
                     ),
+                    choice_metadata=choice_metadata,
+                    new_identities={row["uiUniqueId"] for row in created_fields},
+                    type_labels=type_labels,
                 )
                 if changed is not None:
                     created_fields.append(changed)
                 if op != "delete_field":
-                    changed_name = str(edit["name"])
+                    changed_name = str(edit.get("new_name") or edit["name"])
+                    if edit.get("new_name") and "." in str(edit["name"]):
+                        changed_name = (
+                            str(edit["name"]).rpartition(".")[0] + "." + changed_name
+                        )
                     if edit.get("parent"):
                         changed_name = str(edit["parent"]) + "." + changed_name
                     for path, declared in declarations.walk(working[section]):
                         if path != changed_name:
                             continue
-                        if declared.get("type") == "reference":
+                        if declared.get(
+                            "type"
+                        ) in fields.REFERENCE_TYPES and declared.get("reference"):
                             reference_tables.add(declared["reference"])
+                        if declared.get("type") in {
+                            "reference",
+                            "glide_list",
+                        } and declared.get("ref_qual"):
+                            declaration_qualifiers.append(
+                                (declared["reference"], declared["ref_qual"])
+                            )
+                current_nodes = declarations.walk(working[section])
+                current_by_ui = {
+                    declarations.identity(node): (path, node)
+                    for path, node in current_nodes
+                }
+                for created_field in created_fields:
+                    current = current_by_ui.get(created_field["uiUniqueId"])
+                    if created_field["collection"] == section and current is not None:
+                        created_field["name"] = current[0]
+                if op == "update_field":
+                    present = {
+                        node.get("id") for _, node in current_nodes if node.get("id")
+                    }
+                    removed_fields.extend(
+                        {
+                            "collection": section,
+                            **{
+                                key: node[key]
+                                for key in ("id", "uiUniqueId")
+                                if isinstance(node.get(key), str) and node[key]
+                            },
+                        }
+                        for _, node in previous_nodes
+                        if node.get("id") and node["id"] not in present
+                    )
                 if (
                     section == "flowVariables"
                     and existing is not None
@@ -1535,7 +2059,7 @@ async def plan(
                 ):
                     fields.refresh_assignments(
                         roots,
-                        data.named(working[section], str(edit["name"])),
+                        data.named(working[section], changed_name),
                         set(edit),
                     )
                 if (
@@ -1546,7 +2070,7 @@ async def plan(
                 ):
                     assignments.refresh_metadata(
                         roots,
-                        data.named(working[section], str(edit["name"])),
+                        data.named(working[section], changed_name),
                         set(edit),
                     )
             summary.append(
@@ -1626,7 +2150,22 @@ async def plan(
                     hex=fingerprint([stage_seed, "variables", index])[:32], version=4
                 )
             )
-            for name, value in _inputs(edit).items():
+            modes = input_modes.scripts(edit.get("input_scripts"))
+            values = dict(_inputs(edit))
+            for name in modes:
+                values.setdefault(
+                    name, data.default_value(data.named(working["flowVariables"], name))
+                )
+            for name, transform in input_transforms.parse(
+                edit.get("input_transforms", {})
+            ).items():
+                if name in _inputs(edit):
+                    raise CapabilityError(
+                        "Transform source options and ordinary inputs cannot set the same input."
+                    )
+                if transform is not None:
+                    values[name] = transform["source"]
+            for name, value in values.items():
                 parameter = data.named(working["flowVariables"], name)
                 binding = {
                     "id": "",
@@ -1636,7 +2175,7 @@ async def plan(
                     "value": "",
                     "scriptActive": False,
                 }
-                data.set_value(binding, value)
+                input_modes.value(binding, value, scripted=bool(modes.get(name)))
                 step.raw["inputs"].append(binding)
             if not step.raw["inputs"]:
                 raise CapabilityError("set_variables requires at least one assignment.")
@@ -1650,12 +2189,52 @@ async def plan(
                 after=_resolve_alias(roots, _str(edit, "after")),
                 before=_resolve_alias(roots, _str(edit, "before")),
             )
+            await apply_modes(step, edit, index)
             summary.append(f"{index}. Assign flow variables")
         elif op in trigger_edits.OPS:
             if len(triggers) > 1:
                 raise CapabilityError(
                     "This trigger adapter requires at most one trigger.", "UNAVAILABLE"
                 )
+            if triggers and saved_triggers.is_saved(triggers[0]):
+                snapshot = state["saved_triggers"][triggers[0]["triggerDefinitionId"]]
+                saved_triggers.validate(triggers[0], snapshot["definition"])
+            if op == "set_trigger" and "template_id" in edit:
+                template_id = _str(edit, "template_id", required=True) or ""
+                snapshot = state["saved_triggers"][template_id]
+                definition = snapshot["definition"]
+                if "type" in edit and _str(edit, "type") != definition["type"]:
+                    raise CapabilityError(
+                        "The requested trigger type differs from the saved template."
+                    )
+                if triggers and not edit.get("replace"):
+                    raise CapabilityError(
+                        "The flow already has a trigger. Set replace=true to swap it."
+                    )
+                if triggers:
+                    trigger_edits.require_supported(triggers[0])
+                    if triggers[0].get("id"):
+                        pending_deletions.setdefault("deletedTriggers", []).append(
+                            {"id": triggers[0]["id"]}
+                        )
+                triggers = [
+                    saved_triggers.new_instance(
+                        flow,
+                        definition,
+                        _inputs(edit),
+                        schemas=interface_schemas,
+                    )
+                ]
+                trigger_evidence[str(index)] = await trigger_edits.prepare(
+                    triggers[0],
+                    definition,
+                    client,
+                    resolver=PillResolver(client, triggers[0]),
+                    flow=working,
+                    authored=True,
+                )
+                summary.append(f"{index}. Set saved trigger {triggers[0]['name']}")
+                continue
             if op in {"update_trigger", "remove_trigger"}:
                 if not triggers:
                     raise CapabilityError(
@@ -1671,18 +2250,31 @@ async def plan(
                 summary.append(f"{index}. Remove trigger")
                 continue
             if op == "update_trigger":
-                definition = catalog.get(triggers[0]["type"])
+                definition = (
+                    state["saved_triggers"][triggers[0]["triggerDefinitionId"]][
+                        "definition"
+                    ]
+                    if saved_triggers.is_saved(triggers[0])
+                    else catalog.get(triggers[0]["type"])
+                )
                 if definition is None:
                     raise CapabilityError(
                         "The saved trigger definition is unavailable in the current catalog.",
                         "UNAVAILABLE",
                     )
-                trigger_edits.update(triggers[0], definition, _inputs(edit))
+                trigger_edits.update(
+                    triggers[0],
+                    definition,
+                    _inputs(edit),
+                    schemas=interface_schemas,
+                )
                 trigger_evidence[str(index)] = await trigger_edits.prepare(
                     triggers[0],
                     definition,
                     client,
                     resolver=PillResolver(client, triggers[0]),
+                    flow=working,
+                    authored=True,
                 )
                 summary.append(f"{index}. Update trigger inputs")
                 continue
@@ -1718,11 +2310,30 @@ async def plan(
             inputs = _inputs(edit)
             if (
                 kind in trigger_edits.SCHEDULED
-                and not trigger_edits.SCHEDULE_INPUTS[kind].keys() <= inputs.keys()
+                and not trigger_edits.schedule_inputs(definition).keys()
+                <= inputs.keys()
             ):
                 raise CapabilityError(
                     "Supply every native schedule input explicitly. Clock defaults are not selected automatically."
                 )
+            if kind in application_triggers.SUPPORTED:
+                triggers = [
+                    application_triggers.new_instance(
+                        working, definition, inputs, interface_schemas
+                    )
+                ]
+                trigger_evidence[str(index)] = await trigger_edits.prepare(
+                    triggers[0],
+                    definition,
+                    client,
+                    resolver=PillResolver(client, triggers[0]),
+                    flow=working,
+                    authored=True,
+                )
+                summary.append(f"{index}. Set trigger {definition['label']}")
+                continue
+            if "interface_schemas" in edit:
+                raise CapabilityError("Only REST triggers accept interface_schemas.")
             triggers = [new_trigger(flow, definition, inputs)]
             if kind != "service_catalog":
                 # Native blank conditions use ^EQ. Never choose wall-clock
@@ -1759,14 +2370,74 @@ async def plan(
                 raise CapabilityError(
                     "The flow-logic definition is unreadable.", "UNAVAILABLE"
                 )
-            step = tree.new_logic_step(flow["id"], definition, _inputs(edit))
+            values = dict(_inputs(edit))
+            for name, transform in input_transforms.parse(
+                edit.get("input_transforms", {})
+            ).items():
+                if name in values:
+                    raise CapabilityError(
+                        "Transform source options and ordinary inputs cannot set the same input."
+                    )
+                if transform is not None and name in {
+                    row["name"] for row in definition.get("inputs", [])
+                }:
+                    values[name] = transform["source"]
+            if definition["type"] == "GOBACKTO" and "go_back_to_step" in values:
+                target_ref = values["go_back_to_step"]
+                if not isinstance(target_ref, str) or not target_ref:
+                    raise CapabilityError(
+                        "Go Back To requires a target step reference."
+                    )
+                values["go_back_to_step"] = _resolve_alias(roots, target_ref)
+            if definition["type"] == "DECISION" and "answer_table" in values:
+                raise CapabilityError(
+                    "The decision answer table is derived from its selected table."
+                )
+            if definition["type"] != "DECISION" and set(edit) & {
+                "decision_inputs",
+                "branches",
+            }:
+                raise CapabilityError(
+                    "Decision configuration fields require Make a decision."
+                )
+            step = (
+                logic_blocks.new_step(
+                    flow,
+                    definition,
+                    values,
+                    input_scripts={
+                        name: code
+                        for name, code in input_modes.scripts(
+                            edit.get("input_scripts")
+                        ).items()
+                        if "." not in name
+                    },
+                )
+                if definition["type"] in logic_blocks.TYPES
+                else tree.new_logic_step(
+                    flow["id"],
+                    definition,
+                    values,
+                    input_scripts=input_modes.scripts(edit.get("input_scripts")),
+                )
+            )
             # A new error stage can reference this branch in the same preview.
             # Preserve that reviewed ancestry across preview/apply replanning.
             step.raw["uiUniqueIdentifier"] = str(
                 uuid.UUID(hex=fingerprint([stage_seed, "logic", index])[:32], version=4)
             )
-            for item in step.raw["inputs"]:
-                data.set_value(item, item["value"])
+            if definition["type"] not in logic_blocks.TYPES:
+                for item in step.raw["inputs"]:
+                    if input_modes.readonly(item):
+                        if item["name"] in values:
+                            raise CapabilityError(
+                                "Read-only flow-logic inputs cannot be set by callers."
+                            )
+                        continue
+                    input_modes.value(
+                        item, item["value"], scripted=bool(item.get("scriptActive"))
+                    )
+            logic_changed[step.uid] = set(values)
             tree.insert(
                 roots,
                 step,
@@ -1782,6 +2453,8 @@ async def plan(
                         "main and error_handler are reserved branch aliases."
                     )
                 step.raw["_alias"] = alias
+            if step.logic_type == "DECISION":
+                await configure_decision(step, edit, index, new=True)
             if step.logic_type == "TRY":
                 catch_def = next(
                     (d for d in state["logic"] if d["type"] == "CATCH"), None
@@ -1798,14 +2471,30 @@ async def plan(
                 )
                 catch.raw["connectedTo"] = step.uid
                 tree.insert(roots, catch, parent=None, after=step.uid, before=None)
+                created.append(catch.uid)
+            await apply_modes(step, edit, index)
             summary.append(f"{index}. Insert {definition['name']}")
         elif op in {"move_step", "delete_step", "update_inputs"}:
             label = _str(edit, "step", required=True) or ""
             ref = _resolve_alias(roots, label) or ""
             siblings, position, _ = tree.find(roots, ref)
+            if siblings[position].logic_type == "UPDATEFLOWTEMPLATE":
+                raise CapabilityError(
+                    "The source-generated Update Flow Template helper is read-only and cannot be changed through generic step operations."
+                )
             if siblings[position].logic_type in handlers.TYPES:
                 raise CapabilityError(
                     "Use handler operations for hidden wrapper settings. Wrapper moves and generic deletion are unavailable."
+                )
+            if op == "delete_step" and (
+                siblings[position]
+                .raw.get("flowLogicDefinition", {})
+                .get("attributes", {})
+                .get("can_delete")
+                in {False, "false"}
+            ):
+                raise CapabilityError(
+                    "This native structural block is managed by its containing operation and cannot be deleted independently."
                 )
             handlers.require_enabled(roots, ref)
             if op == "delete_step":
@@ -1815,6 +2504,10 @@ async def plan(
                 if disposition not in {"reject", "delete", "promote"}:
                     raise CapabilityError(
                         "children must be reject, delete, or promote."
+                    )
+                if removed.logic_type == "DECISION" and disposition == "promote":
+                    raise CapabilityError(
+                        "Decision branches cannot be promoted outside their decision."
                     )
                 if removed.children and disposition == "reject":
                     raise CapabilityError(
@@ -1845,34 +2538,7 @@ async def plan(
                     if disposition == "delete"
                     else [removed]
                 )
-                for step in deleting:
-                    if step.kind == "subflow" and step.raw.get("id"):
-                        # Complete-list omission is Studio's subflow call deletion
-                        # wire contract (bundle:205202, 205365, 130432).
-                        overrides = working.get("aliasOverride", {})
-                        if not isinstance(overrides, dict) or overrides.get(
-                            "aliasOverrideMappings"
-                        ):
-                            raise CapabilityError(
-                                "Subflow deletion with connection overrides is unavailable. "
-                                "The override cleanup contract is not implemented.",
-                                "UNAVAILABLE",
-                            )
-                        omitted_subflows.append(
-                            {
-                                "id": step.raw["id"],
-                                "uiUniqueIdentifier": step.uid,
-                            }
-                        )
-                    elif step.raw.get("id"):
-                        key = (
-                            "deletedActions"
-                            if step.kind == "action"
-                            else "deletedFlowLogicInstances"
-                        )
-                        pending_deletions.setdefault(key, []).append(
-                            {"id": step.raw["id"]}
-                        )
+                record_deletions(deleting)
                 siblings.pop(position)
                 for linked_step in linked:
                     siblings.remove(linked_step)
@@ -1890,7 +2556,126 @@ async def plan(
                 summary.append(f"{index}. Move step {label}")
             else:
                 siblings, position, _ = tree.find(roots, ref)
-                _update_inputs(siblings[position], _inputs(edit))
+                selected = siblings[position]
+                previous_decision = (
+                    copy.deepcopy(selected)
+                    if selected.logic_type == "DECISION"
+                    else None
+                )
+                updates = _inputs(edit)
+                modes = input_modes.scripts(edit.get("input_scripts"))
+                existing_names = {
+                    item.get("name")
+                    for collection in (
+                        "inputs",
+                        "dynamicInputs",
+                        "workflowInputs",
+                        "decisionTableInputs",
+                    )
+                    for item in selected.raw.get(collection, [])
+                }
+                input_modes.prepare(
+                    selected,
+                    {
+                        name: code
+                        for name, code in modes.items()
+                        if name in existing_names
+                    },
+                )
+                resets = {}
+                for name in modes:
+                    if "." not in name:
+                        continue
+                    template, column = template_modes.parse_selector(
+                        selected, name
+                    ) or ({}, "")
+                    if template.get("name") in updates and column in dict(
+                        widgets.template_fields(template.get("value"))
+                    ):
+                        resets[name] = None
+                if resets:
+                    tree.renumber(roots)
+                    reset_resolver = PillResolver(
+                        client, triggers[0] if triggers else None, mode_flow(), roots
+                    )
+                    reset_resolver.definition_cache.update(mode_schema_cache)
+                    await template_modes.apply(
+                        mode_flow(), selected, resets, reset_resolver
+                    )
+                    mode_schema_cache.update(reset_resolver.definition_cache)
+                if "connection_overrides" in edit:
+                    prior_sources = {
+                        row["sourceAlias"]
+                        for row in selected.raw.get("aliasOverride", {}).get(
+                            "aliasOverrideMappings", []
+                        )
+                        if row["sourceAlias"] or row.get("id", "") == ""
+                    }
+                    call_evidence[
+                        "connections:" + str(index)
+                    ] = await connection_inputs.apply(
+                        working,
+                        selected,
+                        edit["connection_overrides"],
+                        client=client,
+                        definitions=call_definitions,
+                    )
+                    record_connections(selected.raw, selected.uid, prior_sources)
+                if selected.logic_type == "GOBACKTO" and "go_back_to_step" in updates:
+                    updates = dict(updates)
+                    target_ref = updates["go_back_to_step"]
+                    if not isinstance(target_ref, str) or not target_ref:
+                        raise CapabilityError(
+                            "Go Back To requires a target step reference."
+                        )
+                    updates["go_back_to_step"] = _resolve_alias(roots, target_ref)
+                if selected.logic_type != "DECISION" and set(edit) & {
+                    "decision_inputs",
+                    "branches",
+                    "children",
+                }:
+                    raise CapabilityError(
+                        "Decision configuration fields require Make a decision."
+                    )
+                logic_changed.setdefault(selected.uid, set()).update(updates)
+                if selected.kind == "action" and any(
+                    data.spec(row).get("dynamic")
+                    for row in selected.raw.get("inputs", [])
+                ):
+                    identity = selected.raw["actionTypeSysId"]
+                    call_key = (False, identity)
+                    if call_key not in call_definitions:
+                        call_definitions[call_key] = await calls.definition(
+                            working, identity, subflow=False, client=client
+                        )
+                    updates = dynamic_inputs.adopt_bindings(
+                        selected.raw,
+                        call_definitions[call_key],
+                        updates,
+                        list(command.schema_evidence),
+                        connection_context=connection_inputs.effective(
+                            working, selected
+                        ),
+                    )
+                    call_evidence["dynamic:" + selected.uid] = call_definitions[
+                        call_key
+                    ]
+                _update_inputs(
+                    selected,
+                    {
+                        name: value
+                        for name, value in updates.items()
+                        if not modes.get(name)
+                    },
+                    input_scripts={
+                        name: code for name, code in modes.items() if "." not in name
+                    },
+                )
+                if selected.logic_type == "DECISION":
+                    await configure_decision(
+                        selected, edit, index, new=False, previous=previous_decision
+                    )
+                await apply_modes(selected, edit, index)
                 if any(
                     item["name"] in _inputs(edit)
                     and data.value_type(item).kind
@@ -1948,6 +2733,26 @@ async def plan(
                 if op == "create_stage":
                     created_stages.append(identity)
             summary.append(f"{index}. {op.replace('_', ' ').capitalize()} {identity}")
+    for step in tree.walk(roots):
+        if step.kind != "action" or not any(
+            data.spec(row).get("dynamic") for row in step.raw.get("inputs", [])
+        ):
+            continue
+        identity = step.raw["actionTypeSysId"]
+        call_key = (False, identity)
+        if call_key not in call_definitions:
+            call_definitions[call_key] = await calls.definition(
+                working, identity, subflow=False, client=client
+            )
+        updates = dynamic_inputs.adopt_bindings(
+            step.raw,
+            call_definitions[call_key],
+            {},
+            list(command.schema_evidence),
+            connection_context=connection_inputs.effective(working, step),
+        )
+        _update_inputs(step, updates)
+        call_evidence["dynamic:" + step.uid] = call_definitions[call_key]
     pill_aliases = {
         s.raw["_alias"]: s.uid for s in tree.walk(roots) if s.raw.get("_alias")
     }
@@ -1970,6 +2775,8 @@ async def plan(
     if wrappers:
         pill_aliases["error_handler"] = wrappers[1].uid
     for step in tree.walk(roots):
+        if step.logic_type in logic_blocks.TYPES:
+            logic_blocks.remap_staged(step, pill_aliases)
         step.raw.pop("_alias", None)
         rebound_handler_alias = False
         for key in (
@@ -2009,6 +2816,7 @@ async def plan(
                 step.raw["data"][row["name"]] = data.output_assignment_mirror(row)
         if rebound_handler_alias and step.logic_type == "SETFLOWVARIABLES":
             step.raw["flowVariables"] = copy.deepcopy(step.raw["inputs"])
+    script_bindings.rebind(roots)
     payload = tree.flatten(working, roots)
     handlers.serialize(payload, roots, flow)
     original_wrappers = handlers.pair(tree.build_tree(flow))
@@ -2053,16 +2861,89 @@ async def plan(
     else:
         _preserve_stage_attachments(flow, payload, roots)
     payload["triggerInstances"] = triggers
+    catalog_before = catalog_after = None
+    new_catalog_definition = None
+    if any(edit.get("op") in trigger_edits.OPS for edit in command.edits or []):
+        old_catalog_trigger = next(
+            (
+                row
+                for row in flow["triggerInstances"]
+                if row["type"] == "service_catalog"
+            ),
+            None,
+        )
+        if old_catalog_trigger is not None:
+            definition = (
+                state["saved_triggers"][old_catalog_trigger["triggerDefinitionId"]][
+                    "definition"
+                ]
+                if saved_triggers.is_saved(old_catalog_trigger)
+                else catalog.get("service_catalog")
+            )
+            if (
+                definition is None
+                or definition["id"] != old_catalog_trigger["triggerDefinitionId"]
+            ):
+                raise CapabilityError(
+                    "The previous Service Catalog definition identity changed.",
+                    "UNAVAILABLE",
+                )
+            catalog_before, owner_evidence = await saved_triggers.catalog_interface(
+                flow, definition, client
+            )
+            trigger_evidence["catalog_input_owners"] = owner_evidence
+        new_catalog_trigger = next(
+            (row for row in triggers if row["type"] == "service_catalog"), None
+        )
+        if new_catalog_trigger is not None:
+            new_catalog_definition = (
+                state["saved_triggers"][new_catalog_trigger["triggerDefinitionId"]][
+                    "definition"
+                ]
+                if saved_triggers.is_saved(new_catalog_trigger)
+                else catalog.get("service_catalog")
+            )
+            if (
+                new_catalog_definition is None
+                or new_catalog_definition["id"]
+                != new_catalog_trigger["triggerDefinitionId"]
+            ):
+                raise CapabilityError(
+                    "The proposed Service Catalog definition identity changed.",
+                    "UNAVAILABLE",
+                )
+            catalog_after = trigger_edits.service_catalog_inputs(new_catalog_definition)
+        application_triggers.reconcile_interfaces(
+            flow,
+            payload,
+            triggers,
+            roots,
+            catalog_before=catalog_before,
+            catalog_after=catalog_after,
+        )
+        if (
+            catalog_before is not None
+            or catalog_after is not None
+            or any(
+                application_triggers.owns_interface(row)
+                for row in flow["triggerInstances"] + triggers
+            )
+        ):
+            new_interfaces, old_interfaces = application_triggers.interface_manifests(
+                flow, payload
+            )
+            created_fields.extend(new_interfaces)
+            removed_fields.extend(old_interfaces)
     generated_trigger_inputs = None
     if (
         payload["type"] == "flow"
-        and not flow["inputs"]
+        and not payload["inputs"]
         and len(triggers) == 1
         and triggers[0]["type"] == "service_catalog"
         and any(edit["op"] == "set_trigger" for edit in command.edits or [])
     ):
-        definition = catalog["service_catalog"]
-        if definition["id"] != triggers[0]["triggerDefinitionId"]:
+        definition = new_catalog_definition
+        if definition is None or definition["id"] != triggers[0]["triggerDefinitionId"]:
             raise CapabilityError(
                 "The Service Catalog definition identity changed.", "UNAVAILABLE"
             )
@@ -2083,6 +2964,9 @@ async def plan(
             ),
         )
     payload.update(pending_deletions)
+    if "active_runtime" in state:
+        payload["status"] = "draft"
+        payload["isPublished"] = False
     trigger = triggers[0] if triggers else None
     assignments.validate(payload, roots)
     table_evidence = {}
@@ -2100,6 +2984,23 @@ async def plan(
             )
         table_evidence[table] = rows[0]
     usage = tree.used_pills(roots)
+    literal_uses: dict[str, dict[str, set[str]]] = {}
+    for step in tree.walk(roots):
+        for collection in input_modes.COLLECTIONS:
+            for item in data.bindings(step.raw.get(collection, [])):
+                if widgets.kind(item) == "approval_rules" and not item.get(
+                    "scriptActive"
+                ):
+                    for pill in widgets.approval_literal_pills(item.get("value", "")):
+                        literal_uses.setdefault(pill, {}).setdefault(
+                            step.uid, set()
+                        ).add(item["name"])
+    for pill, used in list(usage.items()):
+        if all(
+            set(names) <= literal_uses.get(pill, {}).get(uid, set())
+            for uid, names in used.items()
+        ):
+            usage.pop(pill)
     if len(usage) > 100:
         raise CapabilityError(
             "Reference validation supports at most 100 distinct pills per edit.",
@@ -2120,30 +3021,125 @@ async def plan(
                     raise CapabilityError(
                         "The assignment type differs from the declared flow variable."
                     )
-        for key in (
-            "inputs",
-            "outputsToAssign",
-            "dynamicInputs",
-            "workflowInputs",
-            "decisionTableInputs",
-        ):
-            for item in data.bindings(step.raw.get(key, [])):
-                value = widgets.pill_text(item, widgets.kind(item), data.spec(item))
-                if isinstance(value, str):
-                    remainder = tree.PILL.sub("", value)
-                    if "{{" in remainder or "}}" in remainder:
-                        raise CapabilityError(
-                            "A saved binding contains malformed pill syntax."
-                        )
     for trigger in triggers:
+        for item in trigger.get("inputs", []):
+            if application_triggers.saved_path_input(trigger, item.get("name", "")):
+                application_triggers.validate_path_input(trigger, item)
         if any(
             tree.pills(item.get("value"))
             for item in data.bindings(trigger.get("inputs", []))
+            if not application_triggers.saved_path_input(trigger, item.get("name", ""))
         ):
             raise CapabilityError(
                 "Trigger inputs cannot reference values produced by the flow."
             )
     resolver = PillResolver(client, trigger, payload, roots)
+    resolver.definition_cache.update(mode_schema_cache)
+    declaration_qualifier_evidence = (
+        await fields.qualifier_evidence(client, resolver, declaration_qualifiers)
+        if declaration_qualifiers
+        else {}
+    )
+    resolver.input_transform_metadata = transform_metadata
+    for (subflow, identity), definition in call_definitions.items():
+        resolver.definition_cache[
+            ("subflow" if subflow else "action") + "/" + identity
+        ] = definition
+    for step in tree.walk(roots):
+        script_names = {
+            item["name"]
+            for item in step.raw.get("inputs", [])
+            if item.get("script")
+            and data.spec(item).get("type") not in dynamic_inputs.MODES
+        }
+        if step.kind in {"action", "subflow"} and script_names:
+            subflow = step.kind == "subflow"
+            identity = (
+                (
+                    step.raw.get("subFlow", {}).get("parentFlow")
+                    or step.raw["subflowSysId"]
+                )
+                if subflow
+                else step.raw["actionTypeSysId"]
+            )
+            key = (subflow, identity)
+            if key not in call_definitions:
+                call_definitions[key] = await calls.definition(
+                    payload, identity, subflow=subflow, client=client
+                )
+            input_modes.bind_schema(step, call_definitions[key], script_names)
+            call_evidence["scripts:" + step.uid] = call_definitions[key]
+        if step.kind in {"action", "subflow"} and step.raw.get("aliasOverride", {}).get(
+            "aliasOverrideMappings"
+        ):
+            call_evidence[
+                "connections_saved:" + step.uid
+            ] = await connection_inputs.validate_existing(
+                payload, step, client=client, definitions=call_definitions
+            )
+    if payload.get("aliasOverride", {}).get("aliasOverrideMappings"):
+        call_evidence[
+            "connections_saved:flow"
+        ] = await connection_inputs.validate_existing(
+            payload, None, client=client, definitions=call_definitions
+        )
+    for step in tree.walk(roots):
+        if step.logic_type in logic_blocks.TYPES:
+            current = [
+                definition
+                for definition in state["logic"]
+                if definition.get("id") == step.raw.get("definitionId")
+                and definition.get("type") == step.logic_type
+            ]
+            if len(current) != 1 or current[0].get("userCanRead") is not True:
+                raise CapabilityError(
+                    "The utility block definition is unreadable or ambiguous.",
+                    "UNAVAILABLE",
+                )
+            logic_evidence[step.uid] = await logic_blocks.prepare(
+                step,
+                payload,
+                client,
+                changed_inputs=logic_changed.get(step.uid, set()),
+                resolver=resolver,
+                definition=current[0],
+            )
+        elif step.logic_type == "DECISION":
+            logic_evidence[step.uid] = await decisions.validate(step, payload, client)
+        for name in mode_targets.get(step.uid, set()):
+            if "." in name:
+                template_modes.parse_selector(step, name)
+            else:
+                input_modes.input_binding(step, name)
+        if step.logic_type == "DECISION" and step.raw.get("decisionTableInputs"):
+            references = {}
+            for item in step.raw["decisionTableInputs"]:
+                pill = data.whole_pill(item.get("value"))
+                if (
+                    data.value_type(item).kind == "document_id"
+                    and data.spec(item).get("dependent_on")
+                    and pill
+                    and not item.get("scriptActive")
+                ):
+                    source = await resolver.resolve(pill, step)
+                    if source["type"] not in {
+                        "reference",
+                        "document_id",
+                    } or not source.get("reference"):
+                        raise CapabilityError(
+                            "A dependent decision record input requires a known reference-table pill."
+                        )
+                    references[item["name"]] = source["reference"]
+            call_evidence[
+                "decision_dependencies:" + step.uid
+            ] = await calls.table_dependencies(
+                step,
+                references,
+                resolver,
+                inputs=copy.deepcopy(step.raw["decisionTableInputs"]),
+            )
+    if logic_evidence:
+        _refresh_component_mirror(flow, payload)
     for pill, used in list(usage.items()):
         ordinary = resolver.prescription(pill)
         if ordinary != pill:
@@ -2196,6 +3192,18 @@ async def plan(
                     if key == "outputsToAssign" and step.logic_type == assignments.KIND
                     else None
                 )
+                if (
+                    key == "decisionTableInputs"
+                    and data.value_type(item).kind == "document_id"
+                    and data.spec(item).get("dependent_on")
+                ):
+                    dependency = data.spec(item)["dependent_on"].removeprefix("inputs.")
+                    source = data.named(step.raw["decisionTableInputs"], dependency)
+                    await resolver.static_table(source)
+                    parameter = {
+                        **copy.deepcopy(data.spec(item)),
+                        "reference": source["value"],
+                    }
                 await resolver.validate(item, step, parameter)
     previous_cache = {
         entry["name"]: entry
@@ -2220,15 +3228,21 @@ async def plan(
     semantics.studio_semantics(
         payload,
         pending_deletions=pending_deletions,
-        allow_active_draft=flow["active"] is True,
+        allow_active_draft="active_runtime" in state,
     )
     reference_evidence: dict[str, Any] = {
         "calls": call_evidence,
+        "logic": logic_evidence,
         "trigger_dependencies": trigger_evidence,
+        "saved_triggers": state.get("saved_triggers", {}),
         "complex_schemas": resolver.schemas,
         "complex_definitions": resolver.definition_cache,
+        "input_transforms": resolver.input_transform_metadata,
         "linked_tables": resolver.linked_tables,
         "declaration_tables": table_evidence,
+        "declaration_choices": declaration_choice_evidence,
+        "declaration_types": declaration_type_evidence,
+        "declaration_qualifiers": declaration_qualifier_evidence,
         "pills": [
             {key: value for key, value in entry.items() if key != "usedInstances"}
             for entry in label_cache
@@ -2244,11 +3258,13 @@ async def plan(
     }
     native_steps = False
     for step in tree.walk(roots):
-        if step.uid not in created or flow.get("active") is not False:
+        if step.uid not in created:
             continue
         if step.kind == "action" and "internal_name" in step.raw["actionType"]:
             step.raw = native.action(step.raw, payload)
-        elif step.logic_type in {"IF", "ELSE"}:
+        elif step.logic_type in {"DECISION", "DECISIONBLOCK"}:
+            step.raw = decisions.serialize_new(step)
+        elif step.logic_type in {"IF", "ELSE", "DOUNTIL", "GOBACKTO"}:
             step.raw = {
                 **native.logic(step.raw),
                 **{
@@ -2267,16 +3283,25 @@ async def plan(
         ]
     if native_steps:
         _refresh_component_mirror(flow, payload)
-    if flow["active"] is False and any(
-        edit.get("op") == "set_trigger" and edit.get("type") == "service_catalog"
-        for edit in command.edits or []
+    if (
+        triggers
+        and not saved_triggers.is_saved(triggers[0])
+        and any(
+            edit.get("op") == "set_trigger"
+            and edit.get("type") in {"service_catalog", *trigger_edits.SCHEDULED}
+            for edit in command.edits or []
+        )
     ):
         payload["triggerInstances"] = [
-            native.catalog_trigger(triggers[0], catalog["service_catalog"])
+            native.catalog_trigger(triggers[0], catalog[triggers[0]["type"]])
         ]
     payloads.validate_definition(payload)
     if flow["active"] is False:
-        semantics.studio_semantics(payload, pending_deletions=pending_deletions)
+        semantics.studio_semantics(
+            payload,
+            pending_deletions=pending_deletions,
+            allow_active_draft="active_runtime" in state,
+        )
     result = {
         "payload": payload,
         "refs": {
@@ -2299,6 +3324,43 @@ async def plan(
         ],
         "removed_fields": removed_fields,
         "generated_trigger_inputs": generated_trigger_inputs,
+        "generated_authoring_rows": {
+            "transforms": sorted(
+                {
+                    identity
+                    for identity in generated_authoring_rows["transforms"]
+                    if identity
+                    in payload.get("pharmacy", {}).get("pharmacyCompound", {})
+                }
+            ),
+            "connections": [
+                entry
+                for entry in generated_authoring_rows["connections"]
+                if any(
+                    row.get("sourceAlias") == entry["source_alias"]
+                    and row.get("id", "") == ""
+                    for owner in (
+                        [payload]
+                        if entry["component_ui_id"] is None
+                        else [
+                            step.raw
+                            for step in tree.walk(roots)
+                            if step.uid == entry["component_ui_id"]
+                        ]
+                    )
+                    for row in owner.get("aliasOverride", {}).get(
+                        "aliasOverrideMappings", []
+                    )
+                )
+            ],
+            "alias_ids": [
+                step.uid
+                for step in tree.walk(roots)
+                if step.uid in created
+                and step.kind == "action"
+                and "aliasIds" not in step.raw
+            ],
+        },
         "reference_revision": fingerprint(reference_evidence),
     }
     trace_flow_preview_boundary(
@@ -2321,7 +3383,7 @@ def _refresh_component_mirror(before: dict[str, Any], after: dict[str, Any]) -> 
     # (97521-97527,101697-101712). Do not discard unknown mirror-only metadata.
     original = sorted(
         (row for key in tree.COLLECTIONS.values() for row in before[key]),
-        key=lambda row: int(row["order"]),
+        key=lambda row: tree.order_key(row["order"]),
     )
     if not isinstance(before["componentInstances"], list) or fingerprint(
         before["componentInstances"]
@@ -2334,7 +3396,7 @@ def _refresh_component_mirror(before: dict[str, Any], after: dict[str, Any]) -> 
     after["componentInstances"] = copy.deepcopy(
         sorted(
             (row for key in tree.COLLECTIONS.values() for row in after[key]),
-            key=lambda row: int(row["order"]),
+            key=lambda row: tree.order_key(row["order"]),
         )
     )
 
@@ -2359,7 +3421,7 @@ def _preserve_stage_attachments(
         return
     original = sorted(
         (step for key in tree.COLLECTIONS.values() for step in before[key]),
-        key=lambda s: int(s["order"]),
+        key=lambda s: tree.order_key(s["order"]),
     )
     ordered = list(tree.walk(roots))
     positions = {step.uid: i for i, step in enumerate(ordered)}
@@ -2484,12 +3546,32 @@ def _resolve_alias(roots: list[tree.Step], ref: str | None) -> str | None:
     return siblings[index].uid
 
 
-def _update_inputs(step: tree.Step, values: dict[str, Any]) -> None:
+def _update_inputs(
+    step: tree.Step,
+    values: dict[str, Any],
+    *,
+    input_scripts: dict[str, str | None] | None = None,
+) -> None:
+    if step.logic_type in logic_blocks.TYPES:
+        logic_blocks.update(step, values, input_scripts=input_scripts)
+        return
+    if step.logic_type == "DECISION" and "answer_table" in values:
+        raise CapabilityError(
+            "The decision answer table is derived from its selected table."
+        )
+    if step.logic_type == "DECISIONBLOCK" and set(values) - {"label"}:
+        raise CapabilityError(
+            "Decision branch answer identities are managed by their parent decision."
+        )
     if step.kind == "flowlogic" and step.logic_type not in {
         "IF",
         "ELSEIF",
         "FOREACH",
         "SETFLOWVARIABLES",
+        "DOUNTIL",
+        "GOBACKTO",
+        "DECISION",
+        "DECISIONBLOCK",
     }:
         raise CapabilityError(
             "This flow-logic family's input adapter is unavailable.", "UNAVAILABLE"
@@ -2582,6 +3664,9 @@ def preview_summary(
             roots, _str(edit, "step", required=True) or ""
         )
         bindings = {item["name"]: item for item in siblings[position].raw["inputs"]}
+        if set(_inputs(edit)) - set(bindings):
+            unchanged = False
+            break
         if any(
             fingerprint(bindings[name]["value"]) != fingerprint(value)
             for name, value in _inputs(edit).items()
@@ -2598,7 +3683,7 @@ def preview_summary(
                 result["payload"],
                 flow,
                 generated_ids=set(),
-                allow_active_draft=flow["active"] is True,
+                allow_active_draft=active_drafts.eligible(flow),
             )
         except semantics.SemanticMismatch as exc:
             check.update(
@@ -2682,7 +3767,7 @@ async def save_plan(
             ) from None
     if (
         saved.get("id") != command.sys_id
-        or saved.get("active") is not (runtime is not None)
+        or saved.get("active") is not result["payload"]["active"]
         or saved.get("status") != "draft"
     ):
         raise CapabilityError(
@@ -2701,6 +3786,7 @@ async def save_plan(
             generated_fields=result["created_fields"],
             removed_fields=result["removed_fields"],
             generated_trigger_inputs=result["generated_trigger_inputs"],
+            generated_authoring_rows=result.get("generated_authoring_rows"),
             allow_active_draft=runtime is not None,
             actual=actual,
         )

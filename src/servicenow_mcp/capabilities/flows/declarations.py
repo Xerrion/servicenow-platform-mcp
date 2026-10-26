@@ -6,6 +6,7 @@ Only edited roots are converted. Unknown metadata stays on its owner.
 """
 
 import copy
+import re
 from typing import Any
 
 from servicenow_mcp.capabilities.contracts import CapabilityError
@@ -15,6 +16,10 @@ ARRAYS = {
     "array.integer": "integer",
     "array.boolean": "boolean",
     "array.object": "object",
+    "array.reference": "reference",
+    "array.choice": "choice",
+    "array.datetime": "glide_date_time",
+    "array.array": "array",
 }
 LABELS = {
     "object": "Object",
@@ -22,6 +27,10 @@ LABELS = {
     "array.integer": "Array.Integer",
     "array.boolean": "Array.True/False",
     "array.object": "Array.Object",
+    "array.reference": "Array.Reference",
+    "array.choice": "Array.Choice",
+    "array.datetime": "Array.Date/Time",
+    "array.array": "Array.Array",
 }
 PACKED = (
     "name",
@@ -33,6 +42,111 @@ PACKED = (
     "maxsize",
     "uiUniqueId",
 )
+CHOICE_FIELDS = (
+    "choices",
+    "defaultChoices",
+    "defaultValue",
+    "choiceOption",
+    "choiceType",
+    "table",
+    "columnName",
+)
+
+
+def choice_source(row: dict[str, Any]) -> dict[str, str] | None:
+    """Read a native static/table choice identity; unresolved providers fail closed."""
+    table, field = row.get("table"), row.get("columnName")
+    table_backed = bool(table or field or row.get("choiceType") == "2")
+    if (
+        any(row.get(key) for key in ("dynamic", "data_structure"))
+        or not table_backed
+        and any(
+            row.get(key)
+            for key in (
+                "dependent_on",
+                "dependent",
+                "dependent_value",
+                "ref_qual",
+                "reference_qual",
+                "reference_qual_condition",
+                "dynamic_ref_qual",
+            )
+        )
+        or row.get("choiceOption") not in (None, "", "1", "3")
+    ):
+        raise CapabilityError(
+            "Dependent, qualified, or dynamic choice schemas require another resolver.",
+            "UNAVAILABLE",
+        )
+    if table or field or row.get("choiceType") == "2":
+        if (
+            row.get("choiceType") not in (None, "", "2")
+            or not isinstance(table, str)
+            or not re.fullmatch(r"[a-z][a-z0-9_]{0,79}", table)
+            or not isinstance(field, str)
+            or not re.fullmatch(r"[a-z][a-z0-9_]{0,79}", field)
+            or row.get("choices") != []
+        ):
+            raise CapabilityError(
+                "Table-backed choices require a table, columnName, and empty native choices.",
+                "UNAVAILABLE",
+            )
+        return {"table": table, "field": field}
+    if row.get("choiceType") not in (None, "", "1"):
+        raise CapabilityError("The native choice source is unresolved.", "UNAVAILABLE")
+    return None
+
+
+def choices(row: dict[str, Any]) -> list[dict[str, Any]]:
+    """Read native allowed choices without flattening table-backed declarations."""
+    # Parameter descriptors also carry owner table/column and dependency facets.
+    # Only explicit authoring mode 2 uses defaultChoices; a resolved descriptor's
+    # choices remain authoritative, including when they are empty.
+    if (
+        any(row.get(key) for key in ("dynamic", "data_structure"))
+        or row.get("choiceType") not in (None, "", "1", "2")
+        or row.get("choiceOption") not in (None, "", "1", "3")
+    ):
+        raise CapabilityError(
+            "The native choice provider or mode is unresolved.", "UNAVAILABLE"
+        )
+    source = choice_source(row) if row.get("choiceType") == "2" else None
+    result = row.get("defaultChoices" if source else "choices")
+    if (
+        not isinstance(result, list)
+        or not 1 <= len(result) <= 5000
+        or any(
+            not isinstance(choice, dict)
+            or not isinstance(choice.get("value"), str)
+            or not isinstance(choice.get("label"), str)
+            or not choice["label"].strip()
+            for choice in result
+        )
+        or source is None
+        and len({choice["value"] for choice in result}) != len(result)
+        or source is not None
+        and any(
+            not isinstance(choice.get("parameters", {}), dict)
+            for choice in result
+            if isinstance(choice, dict)
+        )
+    ):
+        raise CapabilityError(
+            "Choice schemas require one through 5000 labeled string options, uniquely valued for static lists.",
+            "UNAVAILABLE",
+        )
+    return result
+
+
+def reference_table(row: dict[str, Any]) -> str:
+    """Read Array.Reference's authoritative parent table, never child metadata."""
+    table = row.get("reference")
+    if not isinstance(table, str) or not re.fullmatch(r"[a-z][a-z0-9_]{0,79}", table):
+        raise CapabilityError(
+            "Array.Reference declarations require a static reference table.",
+            "UNAVAILABLE",
+        )
+    return table
 
 
 def identity(row: dict[str, Any]) -> str | None:
@@ -83,6 +197,13 @@ def unpack(row: dict[str, Any], *, recursive: bool = True) -> dict[str, Any]:
             cannotBeDeleted=True,
         )
         item["fieldFacetMap"] = {"uiUniqueId": item["uiUniqueId"]}
+        if kind == "array.reference":
+            item["reference"] = reference_table(result)
+        if kind == "array.choice":
+            choices(result)
+            for key in CHOICE_FIELDS:
+                if key in result:
+                    item[key] = copy.deepcopy(result[key])
         item["children"] = result.get("children", []) if kind == "array.object" else []
         if kind != "array.object" and result.get("children"):
             raise CapabilityError(
@@ -116,6 +237,23 @@ def pack(row: dict[str, Any]) -> dict[str, Any]:
                 "UNAVAILABLE",
             )
         item = items[0]
+        if result["type"] == "array.reference":
+            table = reference_table(result)
+            if item.get("reference", table) != table or item.get("children"):
+                raise CapabilityError(
+                    "Array.Reference item schema contradicts its parent table or scalar type.",
+                    "UNAVAILABLE",
+                )
+        if result["type"] == "array.choice":
+            choices(item)
+            for key in CHOICE_FIELDS:
+                if key in item:
+                    result[key] = copy.deepcopy(item[key])
+        if result["type"] != "array.object" and item.get("children"):
+            raise CapabilityError(
+                "A scalar Array item schema cannot contain child declarations.",
+                "UNAVAILABLE",
+            )
         storage = "fieldFacetMap" if result.get("parent") else "attributes"
         metadata = result.setdefault(storage, {})
         for key in PACKED:

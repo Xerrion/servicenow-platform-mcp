@@ -169,7 +169,6 @@ def action(raw: dict[str, Any], flow: dict[str, Any]) -> dict[str, Any]:
         generationSource="",
         uiComponentIndex=0,
         compiledSnapshot="",
-        aliasIds=[],
     )
     result["inputs"] = [binding(row) for row in raw["inputs"]]
     result["actionType"] = action_definition(raw["actionType"], flow)
@@ -179,6 +178,11 @@ def action(raw: dict[str, Any], flow: dict[str, Any]) -> dict[str, Any]:
 def logic(raw: dict[str, Any]) -> dict[str, Any]:
     definition = raw["flowLogicDefinition"]
     inputs = [binding(row) for row in raw["inputs"]]
+    if definition.get("type") in {"DOUNTIL", "GOBACKTO", "DECISION", "DECISIONBLOCK"}:
+        # Ordinary bindings in these native getters have no instance input ID.
+        # Their parameter.id remains the installed definition input identity.
+        for row in inputs:
+            row.pop("id", None)
     return {
         "uiUniqueIdentifier": raw["uiUniqueIdentifier"],
         "flowSysId": raw["flowSysId"],
@@ -209,7 +213,7 @@ def logic(raw: dict[str, Any]) -> dict[str, Any]:
         "decisionTableInformation": {},
         "continue": False,
         "afterTopLevelCatch": False,
-        "goBackTo": False,
+        "goBackTo": definition.get("type") == "GOBACKTO",
         "break": False,
         "updateFlowTemplate": False,
         "name": definition["name"]
@@ -219,22 +223,28 @@ def logic(raw: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def trigger_parameter(parameter: dict[str, Any]) -> dict[str, Any]:
+    """Catalog parameter to native trigger getter DTO, preserving unknown metadata."""
+    spec = copy.deepcopy(parameter)
+    if any(
+        spec.get(key) not in (None, "")
+        for key in ("data_structure", "internal_link", "sys_class_name")
+    ):
+        raise CapabilityError(
+            "The catalog trigger parameter has unsupported structural metadata.",
+            "UNAVAILABLE",
+        )
+    for key in ("type_label", "data_structure", "internal_link", "sys_class_name"):
+        spec.pop(key, None)
+    spec["uiDisplayTypeLabel"] = parameter.get("type_label", "")
+    return spec
+
+
 def catalog_trigger(raw: dict[str, Any], definition: dict[str, Any]) -> dict[str, Any]:
-    """Service Catalog wrapper DTO. Output schema remains catalog-owned."""
+    """Classic native trigger wrapper. Output schema remains catalog-owned."""
     inputs = []
     for row in raw["inputs"]:
-        spec = copy.deepcopy(row["parameter"])
-        if any(
-            spec.get(key) not in (None, "")
-            for key in ("data_structure", "internal_link", "sys_class_name")
-        ):
-            raise CapabilityError(
-                "The catalog trigger parameter has unsupported structural metadata.",
-                "UNAVAILABLE",
-            )
-        for key in ("type_label", "data_structure", "internal_link", "sys_class_name"):
-            spec.pop(key, None)
-        spec["uiDisplayTypeLabel"] = row["parameter"].get("type_label", "")
+        spec = trigger_parameter(row["parameter"])
         inputs.append(
             {
                 "name": row["name"],
@@ -294,10 +304,21 @@ def rest_payload(flow: dict[str, Any]) -> dict[str, Any]:
     The expected native DTO stays unchanged and comparison remains strict.
     """
     result = copy.deepcopy(flow)
-    if flow.get("active") is not False:
-        return result
     for trigger in result.get("triggerInstances", []):
-        if trigger.get("type") != "service_catalog":
+        if trigger.get("type") not in {
+            "service_catalog",
+            "daily",
+            "weekly",
+            "monthly",
+            "run_once",
+            "repeat",
+            "email",
+            "remote_table_query",
+            "rest_async",
+            "analytics",
+            "metric",
+            "sla_task",
+        }:
             continue
         for row in trigger["inputs"]:
             parameter = row["parameter"]

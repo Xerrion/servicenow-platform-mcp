@@ -19,7 +19,7 @@ OPS = {"assign_outputs", "clear_output_assignment"}
 def require_subflow(flow: dict[str, Any]) -> None:
     if flow.get("type") != "subflow" or flow.get("triggerInstances"):
         raise CapabilityError(
-            "Output assignment requires an unpublished triggerless subflow.",
+            "Output assignment requires a triggerless subflow.",
             "UNAVAILABLE",
         )
 
@@ -102,7 +102,15 @@ def _check_type(row: dict[str, Any], declared: dict[str, Any]) -> str:
             "The saved assignment type differs from its output declaration."
         )
     kind = data.value_type(declared).kind
-    if kind not in fields.INTERFACE_TYPES:
+    if kind in declarations.ARRAYS:
+        _item_schema(declared)
+    if kind == "choice" and declarations.choices(
+        data.spec(row)
+    ) != declarations.choices(data.spec(declared)):
+        raise CapabilityError(
+            "The saved assignment choice set differs from its declaration."
+        )
+    if kind not in fields.INTERFACE_TYPES and kind != "array":
         raise CapabilityError(
             "This output value requires another serializer.", "UNAVAILABLE"
         )
@@ -149,6 +157,15 @@ def _read(row: dict[str, Any], declared: dict[str, Any]) -> Any:
             raise CapabilityError(
                 "Array assignment item names differ from the declared schema."
             )
+        if kind == "array.reference":
+            for child in children:
+                data.reference_array_item(child.get("value"))
+                if (uid := declarations.identity(item)) and declarations.identity(
+                    child
+                ) != uid:
+                    raise CapabilityError(
+                        "The saved Array.Reference item identity differs from its declaration."
+                    )
         return [_read(child, item) for child in children]
     if _children(row):
         raise CapabilityError("Scalar output values cannot contain child bindings.")
@@ -208,6 +225,8 @@ def _write(row: dict[str, Any], declared: dict[str, Any], value: Any) -> None:
         existing = _children(row)
         children = []
         for index, element in enumerate(value):
+            if kind == "array.reference":
+                data.reference_array_item(element)
             binding = {
                 **copy.deepcopy(parameter),
                 **copy.deepcopy(existing[index] if index < len(existing) else {}),
@@ -280,20 +299,11 @@ def update(flow: dict[str, Any], step: tree.Step, edit: dict[str, Any]) -> None:
 
 
 def validate(flow: dict[str, Any], roots: list[tree.Step]) -> None:
-    scope = data.Scope(roots)
     for step in tree.walk(roots):
         if step.logic_type != KIND:
             continue
         require_subflow(flow)
         rows = _rows(step)
-        if any(
-            parent.logic_type in {"FOREACH", "DOUNTIL", "PARALLEL", "PARALLELBLOCK"}
-            for parent in scope.parents[step.uid]
-        ):
-            raise CapabilityError(
-                "Output assignments inside loops or parallel branches require another adapter.",
-                "UNAVAILABLE",
-            )
         for row in rows:
             declared = _declaration(flow, row["name"])
             _read(row, declared)

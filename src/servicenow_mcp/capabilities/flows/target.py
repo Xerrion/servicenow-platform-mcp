@@ -101,12 +101,16 @@ async def verify_after(
         if scalar(header["sys_scope"]) != scope:
             raise ValueError("Target scope changed")
         previous = before.get("header")
-        if (
-            previous is not None
-            and int(scalar(header["sys_mod_count"]) or "-1")
+        if previous is not None and (
+            int(scalar(header["sys_mod_count"]) or "-1")
+            <= int(scalar(previous["sys_mod_count"]) or "-1")
+            if command.action in {"activate", "publish", "deactivate"}
+            else int(scalar(header["sys_mod_count"]) or "-1")
             != int(scalar(previous["sys_mod_count"]) or "-1") + 1
         ):
-            raise ValueError("Target revision did not advance exactly once")
+            raise ValueError(
+                "Target revision did not advance under the operation contract"
+            )
         if await read_header(client, sys_id) != header:
             raise ValueError("Target changed during readback")
         return scalar(header["sys_mod_count"])

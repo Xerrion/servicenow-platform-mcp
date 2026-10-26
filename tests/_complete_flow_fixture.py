@@ -243,7 +243,21 @@ class StudioModel:
                         row["id"] = self.identity()
             for trigger in body["triggerInstances"]:
                 if (
-                    trigger.get("type") == "service_catalog"
+                    trigger.get("type")
+                    in {
+                        "service_catalog",
+                        "daily",
+                        "weekly",
+                        "monthly",
+                        "run_once",
+                        "repeat",
+                        "email",
+                        "remote_table_query",
+                        "rest_async",
+                        "analytics",
+                        "metric",
+                        "sla_task",
+                    }
                     and "remoteSysId" in trigger
                 ):
                     for row in trigger["inputs"]:

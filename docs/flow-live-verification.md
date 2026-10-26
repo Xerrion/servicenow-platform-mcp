@@ -1,5 +1,9 @@
 # EUC-2389 LogView acceptance assessment
 
+This is a chronological evidence record. Earlier limits and UNKNOWN outcomes remain historical.
+The current isolated authoring/lifecycle result is in [native working-draft completion](#native-working-drafts-and-safe-lifecycle-completion-2026-10-23).
+That result does not establish EUC-2389 business acceptance or authorize changes to LogView/AD.
+
 ## Scope and evidence
 
 Assessment date: 2026-10-20. Repository baseline: `c571175bdf467db558d54359f09e93f7d9747a94`.
@@ -921,3 +925,76 @@ No timeout retry or interactive browser authorization was needed. The earlier ac
 Focused read/model/stdio checks passed 331 tests.
 The isolated worktree passed `mise run check`, `mise run test`, and `mise run schemas`: 3562 passed, 66 deselected.
 The generated tool schemas left no diff. No dependency or global configuration change was required.
+
+## Native working drafts and safe lifecycle completion, 2026-10-23
+
+The completion pass started with local main `3de88b7` and the existing feature worktree.
+All legitimate existing changes were inspected and checkpointed in SSH-signed `42a2b2f`, including the lookup validation work.
+Ordinary merge `5e7f044` incorporated the trigger-activation read fix. That merge is unsigned and was not rewritten.
+Further implementation uses the local bundle and `docs/ServiceNowDocs`. It does not fetch a runtime bundle or install dependencies.
+
+Actual HTTP ran through the local Python 3.15 stdio server, full package and normal OS-cached OAuth against exactly `https://tv2dev.service-now.com`.
+Each intended mutation used one preview and one fresh token once. UNKNOWN operations were reconciled, never replayed.
+Only the two newly owned Log fixtures below received writes. No old fixture, LogView, AD, mail, integration or business record changed.
+There were no update-set, picker or capture queries, context switches, catalog associations, deletions or production runs.
+
+### Actual lifecycle matrix
+
+Flow fixture: `0d9fc6a28788df508643202cbbbb35b6`, `MCP Live - Lifecycle Completion 20261023T135101296486Z`, Global.
+Its only trigger is Run Once with native `run_in="2035-01-01 12:00:00"`. Content is static Logs and Set Flow Variables.
+Subflow fixture: `12f986aec304db905cf89fcd2b0131b5`, `MCP Live - Subflow Lifecycle 20261023T135101296486Z`, Global.
+It has one mandatory String input `note`, only Logs, no trigger and no authored callers.
+
+| Operation                                  | Actual result | Revision and final evidence                                                                                                                                        |
+| ------------------------------------------ | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Complete future-flow create                | PASS          | Revision `1`, inactive, complete native save and refs. Earlier `glide_date_time` preview rejected before any write.                                                |
+| Inactive published-flow draft edit         | PASS          | `4 -> 5`, published-to-draft insert, activation remains false and published content unchanged.                                                                     |
+| Explicit revised-content activation        | PASS          | `5 -> 7`, active/published, version `2`, selected master `64af0ea28788df508643202cbbbb3555`. No executions.                                                        |
+| Active flow reorder/insert/input-update    | PASS          | `7 -> 8`, active working draft, same version/reference, complete persisted runtime content, published record, trigger plan and trigger unchanged.                  |
+| Deactivate owned flow in finally           | PASS          | `8 -> 9`, inactive draft, published content unchanged. Bounded owned-context query remains empty.                                                                  |
+| Complete scalar-input subflow create       | PASS          | Revision `1`, inactive triggerless two-Log draft and native String declaration.                                                                                    |
+| Published-subflow working-draft edit       | PASS          | `3 -> 4`: original exact non-master version and its full getter fingerprint unchanged. `6 -> 7`: current callable master and all version-owned content unchanged.  |
+| Explicit changed-draft scalar subflow test | PASS          | Revision stays `7`. Context `ae6112ea9f44db901b187e647750be77`, initially QUEUED with pending ownership, then exact bounded status read `COMPLETE`, terminal=true. |
+| Explicit revised subflow publication       | PASS          | `7 -> 9`, active/callable, published, version `2`, master `dc0a4aaec304db905cf89fcd2b013130`. No invented subflow deactivation.                                    |
+
+The active flow's runtime-content fingerprint was `183193196c3b11390c1f0f60cba7d66eb86859219bfa74f0b26bd231037f2116`
+before/after active editing and after cleanup. The selected version record, plan and trigger fingerprints also matched across the edit.
+The subflow's original non-master version `a3f9c6aec304db905cf89fcd2b0131d9` retained full getter fingerprint
+`82975276b4567c53ab5a1999b800c624a72886285bdccbe19fd0a917f2b70804`, including after final publication.
+The current callable master content changed only on the explicit publication, not on draft saves or testing.
+Final owner revisions are both `9`. The flow is inactive. The published subflow remains callable as required by native semantics.
+
+### Historical UNKNOWN operations and reconciliation
+
+Initial subflow test context `27f90aaefc04db90bb5b8e36ff4aa643` and the later changed-draft context
+`c2bf42e27a88df50590a9d2c6ebac65a` both reached `COMPLETE` on exact reads. Their original apply results remain UNKNOWN.
+The later test's first context GET returned `state=QUEUED, flow=""`, establishing an asynchronous ownership-initialization race.
+The initial publication, initial flow activation/cleanup and intermediate revised subflow publication also remain UNKNOWN.
+Independent reads established persisted outcomes, allowing new, different fixture revisions after targeted fixes.
+No consumed token, test or publication was repeated as recovery. The flow was reconciled inactive after every activation window.
+
+### Native contracts and regression scope
+
+- The saved owner contract is release `27800`, engine `2`. Published owners save with `status=modified` and return a working draft without changing runtime activation.
+- Active runtime selection follows the exact owned trigger plan. Its `plan` can be an empty string while `snapshot`, `plan_id` and binding strategy establish ownership.
+- Native master GETs are editor facades. Preservation uses the exact selected version record and complete version-owned V2 instance, declaration and stage rows.
+- Subflow tests create non-master snapshots with the same version and published status. They do not select the current callable version. The owner's explicit master reference does.
+- Native publication/deactivation echoes can contain unset engine `0` while the pre-write owner and independent owner/version reads establish engine `2`.
+- Publication updates only the observed `attributes.timeFromCreateToActivate` elapsed-time metric, checked as a decimal String with echo/GET agreement.
+- Native deactivation can echo a false UI `userHasRolesAssignedToFlow` getter while the independent owner GET remains true. Stored run-as/roles remain strict.
+- Lifecycle operations can advance the owner revision twice. Verification requires a stable positive advance. Ordinary draft saves still require exactly one increment.
+- Accepted contexts can initially lack flow ownership or state. Results report pending ownership and unknown terminality, never false completion or automatic reexecution.
+
+Regression coverage includes captured native DTOs and lifecycle metadata, complete native creation, active/inactive published-owner saves,
+persisted runtime-content drift rejection, unknown metadata/engine/role drift, one-use effects and exact pending-context handling.
+Real offline Python 3.15 stdio tests use native-shaped mock HTTP responses with external network/browser access denied.
+Live evidence covers this safe Log-only matrix. Other schedules, complex test inputs, legacy/Recurrence variants and business workflows are not live-certified.
+Independent compilation, production run and flow publish-only remain unavailable platform contracts, not aliases for other effects.
+Publication results retain `snapshot_content_verified=false`: persisted ownership/content was read, but general expected-to-compiled-runtime equality was not established.
+
+Final source gates passed `mise run check`, `mise run test` and `mise run schemas`: **3714 passed, 66 deselected**.
+The focused lifecycle, versioned-owner, lookup, schedule and real offline stdio selection passed **371 tests**.
+The final read-only live pass confirmed both revision-9 owners, unchanged runtime fingerprints, local validation `valid=true, complete=true`,
+and contracts without warnings or truncation. Counts were six flow nodes/one trigger and four subflow nodes/no triggers.
+Contract summary completeness covers structural counts only, not a global metadata certificate.
+The exact final testcontext remained `COMPLETE`. No additional preview, effect or fixture mutation occurred during these final reads.

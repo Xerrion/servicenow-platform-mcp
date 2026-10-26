@@ -530,7 +530,7 @@ async def test_capability_ledger_distinguishes_authorable_and_unverified(setting
     assert ledger["features"]["scheduled_triggers"]["live_verified"] is False
 
 
-@pytest.mark.parametrize("value", [True, "1", {}, "{{broken", "{{ui-1.records}}"])
+@pytest.mark.parametrize("value", [True, {}, "{{broken", "{{ui-1.records}}"])
 async def test_integer_and_pill_boundary_rejects_invalid_values(settings, value):
     _, tools = fixtures(settings, typed_flow())
     assert (

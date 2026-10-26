@@ -9,6 +9,9 @@ import pytest
 from mcp.server import MCPServer
 
 from servicenow_mcp.auth import OAuthPKCEProvider
+from servicenow_mcp.capabilities.flows import editing
+from servicenow_mcp.capabilities.mutations.models import FlowCommand
+from servicenow_mcp.platform.client import ServiceNowClient
 from tests._mock_transport import http_mock
 from tests.helpers import decode_response, get_tool_functions, register_mutations
 
@@ -25,6 +28,10 @@ SNAPSHOT = "4" * 32
 
 
 def persist(flow):
+    for index, row in enumerate(
+        flow["actionInstances"] + flow["subFlowInstances"], start=128
+    ):
+        row.setdefault("id", f"{index:032x}")
     http_mock.get(f"{STUDIO}/flow/{FLOW}").respond(200, json={"result": {"data": flow}})
 
 
@@ -189,7 +196,7 @@ async def test_drift_or_policy_change_blocks_dispatch(settings: Settings, change
         ("isPublished", True),
         ("status", "published"),
         ("triggerInstances", [{"id": "x"}]),
-        ("label_cache", [{"name": "pill"}]),
+        ("label_cache", None),
         ("flowLogicInstances", [{"id": "x"}]),
     ],
 )
@@ -319,15 +326,27 @@ async def test_preserve_prior_action_and_reject_changed_save_inputs(settings: Se
             "order": "1",
             "actionTypeSysId": ACTION,
             "actionType": {"userCanRead": True},
-            "inputs": [{"name": "message", "value": "Existing"}],
+            "inputs": [
+                {
+                    "name": "message",
+                    "value": "Existing",
+                    "parameter": {"type": "string"},
+                }
+            ],
         },
     ]
 
     def save(request):
         data = json.loads(request.content)
-        assert data["actionInstances"][0] == flow["actionInstances"][0]
-        assert data["actionInstances"][1]["order"] == "2"
+        existing = flow["actionInstances"][0]
+        assert {key: data["actionInstances"][0][key] for key in existing} == {
+            **existing,
+            "order": 1,
+        }
+        assert data["actionInstances"][1]["order"] == 2
         data["actionInstances"][1]["inputs"][0]["value"] = "Changed by server"
+        data["actionInstances"][1]["id"] = "f" * 32
+        persist(data)
         return httpx2.Response(200, json={"result": {"data": data}})
 
     http_mock.route(method="PUT", url=f"{STUDIO}/flow").mock(side_effect=save)
@@ -361,14 +380,19 @@ async def test_server_assigns_new_action_id_without_replay(
         "order": "1",
         "actionTypeSysId": ACTION,
         "actionType": {"userCanRead": True},
-        "inputs": [{"name": "message", "value": "Existing"}],
+        "inputs": [
+            {"name": "message", "value": "Existing", "parameter": {"type": "string"}}
+        ],
     }
     flow["actionInstances"] = [existing]
     assigned_id = "f" * 32
 
     def save(request):
         data = json.loads(request.content)
-        assert data["actionInstances"][0] == existing
+        assert {key: data["actionInstances"][0][key] for key in existing} == {
+            **existing,
+            "order": 1,
+        }
         data["actionInstances"][1]["id"] = assigned_id
         if mismatch == "order":
             data["actionInstances"][1]["order"] = "3"
@@ -412,7 +436,13 @@ def subflow_fixture(settings):
             "order": "3",
             "actionTypeSysId": ACTION,
             "actionType": {"userCanRead": True},
-            "inputs": [{"name": "message", "value": "Existing"}],
+            "inputs": [
+                {
+                    "name": "message",
+                    "value": "Existing",
+                    "parameter": {"type": "string"},
+                }
+            ],
         },
     ]
     parent = {
@@ -465,6 +495,200 @@ def subflow_args():
     }
 
 
+@pytest.mark.parametrize("subflow", [False, True])
+@pytest.mark.parametrize("provided", [False, True])
+async def test_append_matches_insert_plan_for_native_scalar_defaults_and_context(
+    settings: Settings, subflow, provided
+):
+    if subflow:
+        _, tools, flow, _, _, definition = subflow_fixture(settings)
+    else:
+        _, tools, flow, definition = fixtures(settings)
+    definition["inputs"] = [
+        {
+            "id": "d" * 32,
+            "name": "message",
+            "type": "string",
+            "defaultValue": "Default message",
+            "maxsize": 255,
+        },
+        {
+            "id": "1" * 32,
+            "name": "enabled",
+            "type": "boolean",
+            "defaultValue": "true",
+        },
+        {
+            "id": "2" * 32,
+            "name": "count",
+            "type": "integer",
+            "defaultValue": "7",
+        },
+        {
+            "id": "3" * 32,
+            "name": "level",
+            "type": "choice",
+            "defaultValue": "info",
+            "choices": [
+                {"value": "info", "label": "Information"},
+                {"value": "debug", "label": "Debug"},
+            ],
+        },
+    ]
+    inputs = (
+        {"message": "Provided message", "enabled": False, "count": 0, "level": "debug"}
+        if provided
+        else {}
+    )
+    values = inputs or {
+        "message": "Default message",
+        "enabled": True,
+        "count": "7",
+        "level": "info",
+    }
+    target_key = "subflow_sys_id" if subflow else "action_type_sys_id"
+    identity = SUBFLOW if subflow else ACTION
+    command = FlowCommand(
+        action="edit",
+        sys_id=FLOW,
+        expected_scope="global",
+        expected_revision="7",
+        edits=[
+            {
+                "op": "insert_subflow" if subflow else "insert_action",
+                target_key: identity,
+                "inputs": inputs,
+                "ref": "appended_step",
+            }
+        ],
+    )
+    original = copy.deepcopy(flow)
+    async with ServiceNowClient(settings, OAuthPKCEProvider(settings)) as client:
+        state = await editing.load_state(command, client)
+        planned = await editing.plan(command, state, client)
+    collection = "subFlowInstances" if subflow else "actionInstances"
+    planned_step = planned["payload"][collection][-1]
+    assert {item["name"]: item["value"] for item in planned_step["inputs"]} == values
+    collections = ("actionInstances", "subFlowInstances")
+    assert {
+        row["id"]: row["uiUniqueIdentifier"]
+        for name in collections
+        for row in planned["payload"][name]
+        if row.get("id")
+    } == {
+        row["id"]: row["uiUniqueIdentifier"]
+        for name in collections
+        for row in original[name]
+    }
+    assert planned_step["order"] == max(
+        row["order"] for name in collections for row in planned["payload"][name]
+    )
+    header = {
+        "sys_id": FLOW,
+        "sys_scope": "global",
+        "sys_mod_count": "7",
+        "sys_updated_on": "2026-01-01 00:00:00",
+    }
+    http_mock.get(f"{BASE}/api/now/table/sys_hub_flow/{FLOW}").mock(
+        side_effect=lambda _: httpx2.Response(200, json={"result": header})
+    )
+    persisted = "9" * 32
+
+    def save(request):
+        data = json.loads(request.content)
+        assert data == planned["payload"]
+        assert data[collection][-1]["order"] == summary["proposed_order"]
+        data[collection][-1]["id"] = persisted
+        persist(data)
+        header.update(sys_mod_count="8", sys_updated_on="2026-01-01 00:00:01")
+        return httpx2.Response(200, json={"result": {"data": data}})
+
+    write = http_mock.route(method="PUT", url=f"{STUDIO}/flow").mock(side_effect=save)
+    preview = decode_response(
+        await tools["flow_preview"](
+            action="add_subflow" if subflow else "add_action",
+            sys_id=FLOW,
+            expected_scope="global",
+            expected_revision="7",
+            inputs=inputs,
+            **{target_key: identity},
+        )
+    )
+    assert preview["status"] == "success", preview
+    summary = preview["data"]["summary"]
+    assert summary["inputs"] == values
+    assert summary["proposed_order"] == planned_step["order"]
+    assert summary["existing_action_count"] == len(original["actionInstances"])
+    assert summary["existing_subflow_count"] == len(original["subFlowInstances"])
+    assert summary["context"] == {
+        "state": "bound",
+        "expected_scope": "global",
+        "expected_revision": "7",
+        "scope_semantics": "target_application",
+    }
+    assert not write.called
+    result = decode_response(
+        await tools["mutation_apply"](preview_token=preview["data"]["preview_token"])
+    )
+    assert result["status"] == "success", result
+    assert result["data"] == {
+        "action": "add_subflow" if subflow else "add_action",
+        "table": "sys_hub_flow",
+        "sys_id": FLOW,
+        "name": flow["name"],
+        "active": False,
+        "status": "draft",
+        "subflow_instance_sys_id" if subflow else "action_sys_id": persisted,
+        "revision": "8",
+    }
+    assert write.call_count == 1
+    assert flow == original
+
+
+@pytest.mark.parametrize("subflow", [False, True])
+@pytest.mark.parametrize("change", ["scope", "revision", "studio_scope"])
+async def test_append_context_drift_rejects_before_save(
+    settings: Settings, subflow, change
+):
+    if subflow:
+        coordinator, tools, flow, _, _, _ = subflow_fixture(settings)
+        args = subflow_args()
+    else:
+        coordinator, tools, flow, _ = fixtures(settings)
+        args = {"action": "add_action", "sys_id": FLOW, "action_type_sys_id": ACTION}
+    header = {
+        "sys_id": FLOW,
+        "sys_scope": "global",
+        "sys_mod_count": "7",
+        "sys_updated_on": "2026-01-01 00:00:00",
+    }
+    http_mock.get(f"{BASE}/api/now/table/sys_hub_flow/{FLOW}").mock(
+        side_effect=lambda _: httpx2.Response(200, json={"result": header})
+    )
+    write = http_mock.route(method="PUT", url=f"{STUDIO}/flow").respond(200, json={})
+    preview = decode_response(
+        await tools["flow_preview"](
+            **args, expected_scope="global", expected_revision="7"
+        )
+    )
+    assert preview["status"] == "success", preview
+    if change == "scope":
+        header["sys_scope"] = "8" * 32
+    elif change == "revision":
+        header["sys_mod_count"] = "8"
+    else:
+        flow["scope"] = "8" * 32
+    result = decode_response(
+        await tools["mutation_apply"](preview_token=preview["data"]["preview_token"])
+    )
+    assert result["error"]["code"] == (
+        "STALE_PREVIEW" if change == "revision" else "CONTEXT_MISMATCH"
+    )
+    assert not write.called
+    assert len(coordinator.store) == 0
+    assert all(call.request.method == "GET" for call in http_mock.calls)
+
+
 async def test_append_published_subflow_preserves_actions_and_waits(settings: Settings):
     _, tools, flow, _, _, _ = subflow_fixture(settings)
     before = copy.deepcopy(flow)
@@ -472,9 +696,14 @@ async def test_append_published_subflow_preserves_actions_and_waits(settings: Se
 
     def save(request):
         data = json.loads(request.content)
-        assert data["actionInstances"] == before["actionInstances"]
+        existing = before["actionInstances"][0]
+        assert len(data["actionInstances"]) == 1
+        assert {
+            key: data["actionInstances"][0][key] for key in existing if key != "order"
+        } == {key: value for key, value in existing.items() if key != "order"}
         instance = data["subFlowInstances"][0]
-        assert instance["order"] == "4"
+        assert instance["order"] == preview["data"]["summary"]["proposed_order"]
+        assert instance["order"] > data["actionInstances"][0]["order"]
         assert instance["subflowSysId"] == SNAPSHOT
         assert instance["waitForCompletion"]["value"] is True
         assert {i["name"]: i["value"] for i in instance["inputs"]} == subflow_args()[
@@ -576,8 +805,18 @@ async def test_append_action_after_subflow_uses_global_order(settings: Settings)
 
     def save(request):
         data = json.loads(request.content)
-        assert data["actionInstances"][-1]["order"] == "5"
-        assert data["subFlowInstances"] == flow["subFlowInstances"]
+        appended = data["actionInstances"][-1]
+        assert appended["order"] == preview["data"]["summary"]["proposed_order"]
+        assert appended["order"] > max(
+            row["order"]
+            for row in data["actionInstances"][:-1] + data["subFlowInstances"]
+        )
+        assert data["actionInstances"][0]["id"] == flow["actionInstances"][0]["id"]
+        existing = flow["subFlowInstances"][0]
+        assert len(data["subFlowInstances"]) == 1
+        assert {
+            key: data["subFlowInstances"][0][key] for key in existing if key != "order"
+        } == {key: value for key, value in existing.items() if key != "order"}
         persist(data)
         return httpx2.Response(200, json={"result": {"data": data}})
 
@@ -611,8 +850,9 @@ async def test_append_checks_independent_read_not_only_save_echo(
 
     def save(request):
         data = json.loads(request.content)
-        stored = copy.deepcopy(data)
         collection = "subFlowInstances" if kind == "add_subflow" else "actionInstances"
+        data[collection][-1]["id"] = "9" * 32
+        stored = copy.deepcopy(data)
         stored[collection][-1]["inputs"][0]["value"] = "different"
         persist(stored)
         return httpx2.Response(200, json={"result": {"data": data}})

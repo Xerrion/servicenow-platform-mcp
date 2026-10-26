@@ -28,6 +28,7 @@ def schema(kind="object"):
     return {
         "name": "payload",
         "type": kind,
+        **({"reference": "sc_req_item"} if kind == "array.reference" else {}),
         "children": [
             {
                 "name": "item",
@@ -129,7 +130,15 @@ def prepared(settings, kind="object", consumer="action"):
 
 
 @pytest.mark.parametrize(
-    "kind", ["object", "array.string", "array.integer", "array.boolean", "array.object"]
+    "kind",
+    [
+        "object",
+        "array.string",
+        "array.integer",
+        "array.boolean",
+        "array.object",
+        "array.reference",
+    ],
 )
 @pytest.mark.parametrize("consumer", ["action", "subflow", "assignment"])
 async def test_whole_binding_is_one_native_pill_with_no_literal_children(
@@ -1184,3 +1193,130 @@ async def test_choice_leaf_sets_are_compatible_without_ignoring_values(settings,
                     }
                 ],
             )
+
+
+@pytest.mark.parametrize("consumer", ["action", "subflow", "assignment"])
+@pytest.mark.parametrize(
+    "reference,allowed",
+    [
+        ("sc_req_item", True),
+        ("task", True),
+        ("sys_user", False),
+    ],
+)
+async def test_reference_array_whole_pills_check_parent_and_item_tables(
+    settings, consumer, reference, allowed
+):
+    flow, _, _ = prepared(settings, "array.reference", consumer)
+    target = (
+        flow["outputs"][-1]
+        if consumer == "assignment"
+        else flow["actionInstances" if consumer == "action" else "subFlowInstances"][
+            1 if consumer == "action" else 0
+        ]["inputs"][-1]["parameter"]
+    )
+    target["reference"] = reference
+    edit = (
+        {"op": "assign_outputs", "outputs": {"payload": "{{ui-1.payload}}"}}
+        if consumer == "assignment"
+        else {
+            "op": "update_inputs",
+            "step": "ui-2" if consumer == "action" else "ui-4",
+            "inputs": {"payload": "{{ui-1.payload}}"},
+        }
+    )
+    if allowed:
+        planned = await plan(settings, flow, [edit])
+        assert planned["payload"]["label_cache"][0]["reference"] == "sc_req_item"
+        assert target["children"][0].get("reference") is None
+    else:
+        with pytest.raises(CapabilityError, match="incompatible table"):
+            await plan(settings, flow, [edit])
+    assert all(call.request.method == "GET" for call in http_mock.calls)
+
+
+@pytest.mark.parametrize(
+    "defect",
+    [
+        "missing_table",
+        "invalid_table",
+        "missing_item",
+        "extra_item",
+        "wrong_type",
+        "wrong_table",
+        "item_children",
+        "scalar_cardinality",
+        "collection_traversal",
+    ],
+)
+async def test_reference_array_whole_pills_reject_incomplete_or_conflicting_schema(
+    settings, defect
+):
+    flow, tools, _ = prepared(settings, "array.reference")
+    target = flow["actionInstances"][1]["inputs"][-1]["parameter"]
+    if defect == "missing_table":
+        target.pop("reference")
+    elif defect == "invalid_table":
+        target["reference"] = "task.field"
+    elif defect == "missing_item":
+        target["children"] = []
+    elif defect == "extra_item":
+        target["children"].append(copy.deepcopy(target["children"][0]))
+    elif defect == "wrong_type":
+        target["children"][0]["type"] = "string"
+    elif defect == "wrong_table":
+        target["children"][0]["reference"] = "sys_user"
+    elif defect == "item_children":
+        target["children"][0]["children"] = [{"name": "extra", "type": "string"}]
+    elif defect == "scalar_cardinality":
+        target.update(type="reference", children=[])
+    pill = (
+        "{{ui-1.payload.item}}"
+        if defect == "collection_traversal"
+        else "{{ui-1.payload}}"
+    )
+    result = decode_response(
+        await tools["flow_preview"](
+            action="edit",
+            sys_id=FLOW,
+            edits=[
+                {"op": "update_inputs", "step": "ui-2", "inputs": {"payload": pill}}
+            ],
+        )
+    )
+    assert result["status"] == "error", result
+    assert all(call.request.method == "GET" for call in http_mock.calls)
+
+
+@pytest.mark.parametrize("defect", ["table", "item_type", "item_table", "missing_item"])
+async def test_reference_array_whole_pill_reads_independent_producer_schema(
+    settings, defect
+):
+    _flow, tools, current = prepared(settings, "array.reference")
+    independent = current["outputs"][-1]
+    if defect == "table":
+        independent["reference"] = "sys_user"
+    elif defect == "item_type":
+        independent["children"][0]["type"] = "string"
+    elif defect == "item_table":
+        independent["children"][0]["reference"] = "sys_user"
+    else:
+        independent["children"] = []
+    http_mock.get(f"{BASE}/api/now/processflow/action/action_types/{'a' * 32}").respond(
+        200, json={"result": current}
+    )
+    result = decode_response(
+        await tools["flow_preview"](
+            action="edit",
+            sys_id=FLOW,
+            edits=[
+                {
+                    "op": "update_inputs",
+                    "step": "ui-2",
+                    "inputs": {"payload": "{{ui-1.payload}}"},
+                }
+            ],
+        )
+    )
+    assert result["status"] == "error", result
+    assert all(call.request.method == "GET" for call in http_mock.calls)

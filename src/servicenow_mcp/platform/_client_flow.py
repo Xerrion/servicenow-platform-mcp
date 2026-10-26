@@ -1,9 +1,13 @@
 """Flow Designer API operations."""
 
-import hashlib
+import json
+import re
 from typing import TYPE_CHECKING, Any
 
-from servicenow_mcp.errors import NotFoundError, ServiceNowMCPError
+from pydantic import JsonValue, TypeAdapter, ValidationError
+
+from servicenow_mcp._json import JSON
+from servicenow_mcp.errors import AuthError, NotFoundError, ServiceNowMCPError
 from servicenow_mcp.platform._client_transport import ServiceNowRequestClient
 from servicenow_mcp.policy import INTERNAL_QUERY_LIMIT
 from servicenow_mcp.query_builder import ServiceNowQuery
@@ -17,21 +21,513 @@ from servicenow_mcp.validation import (
 if TYPE_CHECKING:
     import httpx2
 
+_PROVIDER_OUTPUT: TypeAdapter[dict[str, JsonValue]] = TypeAdapter(dict[str, JsonValue])
+
 
 class FlowDesignerApiClient(ServiceNowRequestClient):
     """Implement Flow Designer record discovery and bounded joins."""
 
-    async def studio_source_digest(self) -> str:
-        """Fingerprint the served Studio client without opening the editor or acquiring locks."""
+    async def studio_rest_trigger_base_path(self, flow_info: dict[str, Any]) -> str:
+        """Read native REST-trigger path metadata with one fixed GraphQL query.
+
+        ``flow_info`` is exactly ``{scopeId: flow.scope, flowName: flow.name,
+        basePath: {value: current_base_path_or_empty_string}}``. No persisted
+        flow id or internal name is required. This POST only reads metadata;
+        it never invokes the authored REST endpoint or retries the request.
+        Studio bundle:1071,140201-140205,336221-336231,476777-476805,
+        477058-477087.
+        """
+        if not isinstance(flow_info, dict) or set(flow_info) != {
+            "scopeId",
+            "flowName",
+            "basePath",
+        }:
+            raise ValueError("REST trigger flowInfo must contain only native fields.")
+        if any(
+            not isinstance(flow_info[name], str) or not flow_info[name].strip()
+            for name in ("scopeId", "flowName")
+        ):
+            raise ValueError(
+                "REST trigger scopeId and flowName must be nonempty strings."
+            )
+        base_path = flow_info["basePath"]
+        if (
+            not isinstance(base_path, dict)
+            or set(base_path) != {"value"}
+            or not isinstance(base_path["value"], str)
+        ):
+            raise ValueError("REST trigger basePath must contain only a string value.")
+        response = await self._ensure_client().post(
+            f"{self._settings.servicenow_instance_url}/api/now/graphql",
+            headers=await self._headers(),
+            json={
+                "operationName": "restTiggerInfoQuery",
+                "query": """query restTiggerInfoQuery($flowInfo: now_restTrigger_FlowInfoInput!) {
+    now {
+        restTrigger {
+            generateBasePath(flowInfo: $flowInfo) {
+                ...basePath
+                __typename
+            }
+        }
+    }
+}
+
+fragment basePath on now_restTrigger_BasePath {
+    ... on now_restTrigger_ErrorResponse {
+        message
+    }
+    ... on now_restTrigger_BasePathResponse {
+        path
+    }
+}""",
+                "variables": {"flowInfo": flow_info},
+            },
+            follow_redirects=False,
+        )
+        try:
+            self._raise_for_status(response)
+        except AuthError:
+            raise
+        except ServiceNowMCPError:
+            raise ServiceNowMCPError(
+                f"REST trigger metadata read returned HTTP {response.status_code}.",
+                status_code=response.status_code,
+            ) from None
+        if response.status_code != 200:
+            raise ServiceNowMCPError(
+                f"REST trigger metadata read returned HTTP {response.status_code}.",
+                status_code=response.status_code,
+            )
+        try:
+            payload = JSON.validate_json(response.content)
+        except ValidationError:
+            raise ServiceNowMCPError(
+                "Studio returned invalid REST trigger metadata JSON."
+            ) from None
+        if not isinstance(payload, dict) or (
+            "errors" in payload and payload["errors"] != []
+        ):
+            raise ServiceNowMCPError(
+                "Studio did not complete the REST trigger metadata query."
+            )
+        data = payload.get("data")
+        now = data.get("now") if isinstance(data, dict) else None
+        rest_trigger = now.get("restTrigger") if isinstance(now, dict) else None
+        result = (
+            rest_trigger.get("generateBasePath")
+            if isinstance(rest_trigger, dict)
+            else None
+        )
+        if not isinstance(result, dict):
+            raise ServiceNowMCPError(
+                "Studio returned incomplete REST trigger metadata."
+            )
+        if result.get("__typename") == "now_restTrigger_ErrorResponse":
+            if (
+                not isinstance(result.get("message"), str)
+                or not result["message"].strip()
+                or "path" in result
+            ):
+                raise ServiceNowMCPError(
+                    "Studio returned incomplete REST trigger metadata."
+                )
+            raise ServiceNowMCPError(
+                "Studio rejected REST trigger base path generation."
+            )
+        path = result.get("path")
+        if (
+            result.get("__typename") != "now_restTrigger_BasePathResponse"
+            or "message" in result
+            or not isinstance(path, str)
+            or not path.strip()
+        ):
+            raise ServiceNowMCPError(
+                "Studio returned incomplete REST trigger metadata."
+            )
+        return path
+
+    async def studio_schema_provider(
+        self, name: str, inputs: dict[str, JsonValue]
+    ) -> dict[str, JsonValue]:
+        """Execute one source-selected schema provider action without retries.
+
+        This is an effect, never a schema read. The reviewed apply path owns its use.
+        Studio bundle:234108-234131; action_execution base:1044-1045.
+        """
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*", name):
+            raise ValueError("Schema provider name must be a scoped action name.")
+        if not isinstance(inputs, dict):
+            raise TypeError("Schema provider inputs must be a native object.")
+        response = await self._ensure_client().post(
+            f"{self._settings.servicenow_instance_url}/api/now/action_execution/start",
+            headers=await self._headers(),
+            json={"name": name, "inputs": inputs},
+            follow_redirects=False,
+        )
+        try:
+            self._raise_for_status(response)
+        except AuthError:
+            raise
+        except ServiceNowMCPError:
+            raise ServiceNowMCPError(
+                f"Schema provider returned HTTP {response.status_code}. The action may have executed. Do not replay it automatically.",
+                status_code=response.status_code,
+            ) from None
+        result = self._extract_json_result(response)
+        if (
+            response.status_code != 200
+            or not isinstance(result, dict)
+            or result.get("error")
+            or result.get("errorMessage")
+            or (
+                "errorCode" in result
+                and (type(result["errorCode"]) is not int or result["errorCode"] != 0)
+            )
+            or not isinstance(result.get("output"), dict)
+        ):
+            raise ServiceNowMCPError(
+                "Schema provider response did not establish a completed result. "
+                "The action may have executed. Do not replay it automatically."
+            )
+        try:
+            return _PROVIDER_OUTPUT.validate_python(result["output"])
+        except ValidationError:
+            raise ServiceNowMCPError(
+                "Schema provider response did not establish a completed result. "
+                "The action may have executed. Do not replay it automatically."
+            ) from None
+
+    async def studio_saved_trigger(self, template_id: str) -> dict[str, Any]:
+        """Read a full native saved trigger template (Studio bundle:227216-227303)."""
+        validate_sys_id(template_id)
         response = await self._ensure_client().get(
-            f"{self._settings.servicenow_instance_url}/scripts/designer-bundle.min.js",
+            f"{self._settings.servicenow_instance_url}/api/now/hub/triggerpicker/{template_id}",
             headers=await self._headers(),
             follow_redirects=False,
         )
-        self._raise_for_flow_read_status(response)
-        if response.status_code != 200:
-            raise ServiceNowMCPError("The Studio client source is unavailable.")
-        return hashlib.sha256(response.content).hexdigest()
+        try:
+            self._raise_for_status(response)
+        except AuthError:
+            raise
+        except ServiceNowMCPError:
+            raise ServiceNowMCPError(
+                f"Saved trigger template read returned HTTP {response.status_code}.",
+                status_code=response.status_code,
+            ) from None
+        result = self._extract_json_result(response)
+        if (
+            response.status_code != 200
+            or not isinstance(result, dict)
+            or result.get("error")
+            or result.get("errorMessage")
+            or (
+                "errorCode" in result
+                and (type(result["errorCode"]) is not int or result["errorCode"] != 0)
+            )
+        ):
+            raise ServiceNowMCPError(
+                "Studio returned an incomplete saved trigger template."
+            )
+        data = result.get("data")
+        if (
+            not isinstance(data, dict)
+            or data.get("id") != template_id
+            or not isinstance(data.get("inputs"), list)
+            or not isinstance(data.get("outputs"), list)
+        ):
+            raise ServiceNowMCPError(
+                "Studio returned an incomplete saved trigger template."
+            )
+        return data
+
+    async def studio_decision_table(self, sys_id: str) -> dict[str, Any]:
+        """Read native decision inputs and answers (Studio bundle:450018-450125)."""
+        validate_sys_id(sys_id)
+        response = await self._ensure_client().get(
+            f"{self._settings.servicenow_instance_url}/api/now/decisiontable/decisions/{sys_id}",
+            headers=await self._headers(),
+            follow_redirects=False,
+        )
+        try:
+            self._raise_for_status(response)
+        except AuthError:
+            raise
+        except ServiceNowMCPError:
+            raise ServiceNowMCPError(
+                f"Decision table metadata read returned HTTP {response.status_code}.",
+                status_code=response.status_code,
+            ) from None
+        result = self._extract_json_result(response)
+        if (
+            response.status_code != 200
+            or not isinstance(result, dict)
+            or result.get("error")
+            or result.get("errorMessage")
+            or (
+                "errorCode" in result
+                and (type(result["errorCode"]) is not int or result["errorCode"] != 0)
+            )
+            or not isinstance(result.get("data"), dict)
+        ):
+            raise ServiceNowMCPError(
+                "Studio returned incomplete decision table metadata."
+            )
+        return result["data"]
+
+    async def studio_transform_definitions(self) -> list[dict[str, Any]]:
+        """Read native transform metadata without applying transformations.
+
+        Studio bundle:1074,499757-499763; sendRequest:30716-30720 and
+        glide.rest:161301-161317 establish the HTTP result.data envelope.
+        """
+        response = await self._ensure_client().get(
+            f"{self._settings.servicenow_instance_url}/api/now/transformdefinitions",
+            headers=await self._headers(),
+            follow_redirects=False,
+        )
+        try:
+            self._raise_for_status(response)
+        except AuthError:
+            raise
+        except ServiceNowMCPError:
+            raise ServiceNowMCPError(
+                f"Transform definition read returned HTTP {response.status_code}.",
+                status_code=response.status_code,
+            ) from None
+        result = self._extract_json_result(response)
+        if (
+            response.status_code != 200
+            or not isinstance(result, dict)
+            or result.get("error")
+            or result.get("errorMessage")
+            or (
+                "errorCode" in result
+                and (type(result["errorCode"]) is not int or result["errorCode"] != 0)
+            )
+            or not isinstance(result.get("data"), list)
+            or any(not isinstance(item, dict) for item in result["data"])
+        ):
+            raise ServiceNowMCPError(
+                "Studio returned incomplete transform definitions."
+            )
+        return result["data"]
+
+    async def studio_workflow_config(
+        self, sys_id: str
+    ) -> dict[str, Any] | list[dict[str, Any]]:
+        """Read native workflow input configuration without running the workflow.
+
+        Studio bundle:333397-333406,333448-333459,333506-333511;
+        glide.rest transformResponse:161301-161317 unwraps the direct result collection.
+        """
+        validate_sys_id(sys_id)
+        response = await self._ensure_client().get(
+            f"{self._settings.servicenow_instance_url}/api/now/v1/workflow/{sys_id}/config",
+            headers=await self._headers(),
+            follow_redirects=False,
+        )
+        try:
+            self._raise_for_status(response)
+        except AuthError:
+            raise
+        except ServiceNowMCPError:
+            raise ServiceNowMCPError(
+                f"Workflow configuration read returned HTTP {response.status_code}.",
+                status_code=response.status_code,
+            ) from None
+        result = self._extract_json_result(response)
+        if response.status_code != 200 or not isinstance(result, dict | list):
+            raise ServiceNowMCPError(
+                "Studio returned incomplete workflow configuration."
+            )
+        if isinstance(result, dict) and (
+            result.get("error") or result.get("errorMessage")
+        ):
+            raise ServiceNowMCPError(
+                "Studio returned incomplete workflow configuration."
+            )
+        members = result.values() if isinstance(result, dict) else result
+        if any(not isinstance(member, dict) for member in members):
+            raise ServiceNowMCPError(
+                "Studio returned incomplete workflow configuration."
+            )
+        return result
+
+    async def studio_catalog_selection(
+        self,
+        catalog_id: str,
+        model_id: str | None = None,
+        *,
+        include_multirow: bool,
+        selected_variables: dict[str, str],
+    ) -> dict[str, Any]:
+        """Read active catalog selections without executing an action.
+
+        Studio bundle:217830-217850; selectedVariables serialization:130876-130895.
+        An empty selection is the native empty string, not a serialized empty object.
+        """
+        validate_sys_id(catalog_id)
+        if model_id is not None:
+            validate_sys_id(model_id)
+        if type(include_multirow) is not bool:
+            raise ValueError("include_multirow must be a native boolean.")
+        if not isinstance(selected_variables, dict):
+            raise TypeError("selected_variables must be a native table-to-sysids map.")
+        for table, identities in selected_variables.items():
+            if not isinstance(table, str) or not isinstance(identities, str):
+                raise TypeError(
+                    "Catalog selection tables and sysid lists must be strings."
+                )
+            validate_identifier(table)
+            if "." in table:
+                raise ValueError("Catalog selections require single table names.")
+            for identity in identities.split(","):
+                validate_sys_id(identity)
+        data: dict[str, Any] = {
+            "includeMultiRowVariableSets": include_multirow,
+            "selectedVariables": (
+                json.dumps(selected_variables, separators=(",", ":"))
+                if selected_variables
+                else ""
+            ),
+        }
+        if model_id is not None:
+            data["flow_catalog_model"] = model_id
+        response = await self._ensure_client().post(
+            f"{self._settings.servicenow_instance_url}/api/now/processflow/flow/{catalog_id}/service_get_catalog_variables",
+            headers=await self._headers(),
+            json=data,
+            follow_redirects=False,
+        )
+        try:
+            self._raise_for_status(response)
+        except AuthError:
+            raise
+        except ServiceNowMCPError:
+            raise ServiceNowMCPError(
+                f"Catalog selection metadata read returned HTTP {response.status_code}.",
+                status_code=response.status_code,
+            ) from None
+        try:
+            envelope = JSON.validate_json(response.content)
+        except ValidationError:
+            raise ServiceNowMCPError(
+                "Studio returned incomplete catalog selection metadata."
+            ) from None
+        result = envelope.get("result") if isinstance(envelope, dict) else None
+        if (
+            response.status_code != 200
+            or not isinstance(result, dict)
+            or result.get("error")
+            or result.get("errorMessage")
+            or (
+                "errorCode" in result
+                and (type(result["errorCode"]) is not int or result["errorCode"] != 0)
+            )
+            or not isinstance(result.get("data"), dict)
+        ):
+            raise ServiceNowMCPError(
+                "Studio returned incomplete catalog selection metadata."
+            )
+        selected = result["data"]
+        if (
+            not isinstance(selected.get("availableList"), list)
+            or any(not isinstance(item, dict) for item in selected["availableList"])
+            or not isinstance(selected.get("activeVariables"), list)
+            or any(not isinstance(item, str) for item in selected["activeVariables"])
+        ):
+            raise ServiceNowMCPError(
+                "Studio returned incomplete catalog selection metadata."
+            )
+        return selected
+
+    async def studio_table_schema(self, table: str) -> dict[str, Any]:
+        """Read full native column metadata and choices without evaluating templates.
+
+        Studio bundle:226655-226662,226745-226768. Preserve columns[].definition
+        rather than the UI's filtered or relabelled projection.
+        """
+        validate_identifier(table)
+        if "." in table:
+            raise ValueError("The schema requires a single table name.")
+        response = await self._ensure_client().get(
+            f"{self._settings.servicenow_instance_url}/api/now/processflow/table/{table}/schema",
+            headers=await self._headers(),
+            params={"get_choices": "true"},
+            follow_redirects=False,
+        )
+        try:
+            self._raise_for_status(response)
+        except AuthError:
+            raise
+        except ServiceNowMCPError:
+            raise ServiceNowMCPError(
+                f"Table schema metadata read returned HTTP {response.status_code}.",
+                status_code=response.status_code,
+            ) from None
+        result = self._extract_json_result(response)
+        if (
+            response.status_code != 200
+            or not isinstance(result, dict)
+            or result.get("error")
+            or result.get("errorMessage")
+            or (
+                "errorCode" in result
+                and (type(result["errorCode"]) is not int or result["errorCode"] != 0)
+            )
+            or not isinstance(result.get("data"), dict)
+        ):
+            raise ServiceNowMCPError(
+                "Studio returned incomplete table schema metadata."
+            )
+        schema = result["data"]
+        if not isinstance(schema.get("columns"), list) or any(
+            not isinstance(column, dict)
+            or not isinstance(column.get("definition"), dict)
+            for column in schema["columns"]
+        ):
+            raise ServiceNowMCPError(
+                "Studio returned incomplete table schema metadata."
+            )
+        return schema
+
+    async def studio_field_types(self) -> list[dict[str, Any]]:
+        """Read native root field-type picker metadata (Studio bundle:232783-232795)."""
+        response = await self._ensure_client().get(
+            f"{self._settings.servicenow_instance_url}/api/now/processflow/field_types",
+            headers=await self._headers(),
+            follow_redirects=False,
+        )
+        try:
+            self._raise_for_status(response)
+        except AuthError:
+            raise
+        except ServiceNowMCPError:
+            raise ServiceNowMCPError(
+                f"Field type metadata read returned HTTP {response.status_code}.",
+                status_code=response.status_code,
+            ) from None
+        result = self._extract_json_result(response)
+        if (
+            response.status_code != 200
+            or not isinstance(result, dict)
+            or result.get("error")
+            or result.get("errorMessage")
+            or (
+                "errorCode" in result
+                and (type(result["errorCode"]) is not int or result["errorCode"] != 0)
+            )
+            or not isinstance(result.get("data"), list)
+            or any(
+                not isinstance(item, dict)
+                or not isinstance(item.get("value"), str)
+                or not isinstance(item.get("label"), str)
+                for item in result["data"]
+            )
+        ):
+            raise ServiceNowMCPError("Studio returned incomplete field type metadata.")
+        return result["data"]
 
     async def flow_record(
         self, table: str, sys_id: str, fields: list[str]
@@ -209,11 +705,19 @@ class FlowDesignerApiClient(ServiceNowRequestClient):
         return result["data"]
 
     async def studio_catalog_variables(
-        self, catalog_id: str, model_id: str | None = None
+        self,
+        catalog_id: str,
+        model_id: str | None = None,
+        *,
+        include_multirow: bool = True,
     ) -> list[dict[str, Any]]:
         """Read native catalog selection metadata (bundle:217777-217791)."""
         validate_sys_id(catalog_id)
-        params = {"includeMultiRowVariableSets": "true"}
+        if type(include_multirow) is not bool:
+            raise ValueError("include_multirow must be a native boolean.")
+        params = {
+            "includeMultiRowVariableSets": "true" if include_multirow else "false"
+        }
         if model_id:
             validate_sys_id(model_id)
             params["flow_catalog_model"] = model_id
@@ -352,6 +856,10 @@ class FlowDesignerApiClient(ServiceNowRequestClient):
         return await self._list_flow_rows(
             "sys_hub_flow_logic_instance_v2",
             f"flow={flow_sys_id}^ORDERBYorder",
+            fields=(
+                "sys_id,ui_id,ui_uuid,parent_ui_id,parent_ui_uuid,order,label,name,comment,values,"
+                "logic_definition,logic_definition.type,logic_definition.connected_to"
+            ),
             limit=limit,
         )
 

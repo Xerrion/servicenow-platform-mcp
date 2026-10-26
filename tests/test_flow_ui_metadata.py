@@ -10,6 +10,7 @@ They are synthetic and are not a captured target Studio response.
 """
 
 import copy
+from typing import Any
 
 import pytest
 
@@ -113,6 +114,10 @@ def test_nested_ancestors_are_outermost_but_first_child_and_then_are_local(kind)
     inner["parent"] = outer["uiUniqueIdentifier"]
     action = flow["actionInstances"][1]
     action["parent"] = inner["uiUniqueIdentifier"]
+    if kind == "PARALLELBLOCK":
+        # Studio labels a Parallel block's first child with its native arrow,
+        # not the ordinary numeric order this fixture inherited from Else.
+        action["order"] = "4->5"
     cached = with_ui_cache(flow)
     nested = cached["actionInstances"][-1]
     assert nested["ancestorType"] == "IF"
@@ -138,7 +143,10 @@ def test_hidden_catch_boundary_does_not_become_outer_ancestor_of_nested_steps():
         "ELSE",
         inner["uiUniqueIdentifier"],
     )
-    assert semantics.studio_semantics(cached) == semantics.studio_semantics(flow)
+    # A standalone hidden Catch still has derivable UI ancestry, but does not
+    # establish a complete native handler serialization contract.
+    with pytest.raises(CapabilityError, match="root Try/Catch pair"):
+        semantics.studio_semantics(cached)
 
 
 @pytest.mark.parametrize(
@@ -197,3 +205,64 @@ async def test_registered_validation_accepts_missing_ui_family_but_not_contradic
         assert result["valid"] is True
         assert result["complete"] is True
     assert all(call.request.method == "GET" for call in http_mock.calls)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"), [(0, 0), (12, 12), ("12", 12), ("12->13", 13)]
+)
+def test_native_order_sort_uses_parallel_arrow_tail(value, expected):
+    assert tree.order_key(value) == expected
+
+
+@pytest.mark.parametrize(
+    "value", [True, -1, 1.5, "1.2", "1->", "->2", "1->2->3", "9" * 5000]
+)
+def test_unknown_native_order_never_gets_repaired(value):
+    with pytest.raises(CapabilityError, match="native integer or Parallel"):
+        tree.order_key(value)
+
+
+def test_unresolved_nested_sandwich_closing_label_requires_native_evidence():
+    def loop(uid, order):
+        return tree.Step(
+            {
+                "uiUniqueIdentifier": uid,
+                "order": order,
+                "flowLogicDefinition": {
+                    "type": "FOREACH",
+                    "attributes": {"display_as_sandwich": "true"},
+                },
+            },
+            "flowlogic",
+        )
+
+    outer, inner = loop("outer", 1), loop("inner", 2)
+    inner.children = [tree.Step({"uiUniqueIdentifier": "work", "order": 3}, "action")]
+    outer.children = [inner]
+    tail = tree.Step({"uiUniqueIdentifier": "tail", "order": 5}, "action")
+    with pytest.raises(CapabilityError, match="no source-defined closing order"):
+        tree.validate_projection([outer, tail])
+    # The literal Studio branch carries an existing inner boundary unchanged.
+    inner.raw["orderBottom"] = 4
+    assert tree.project_orders([outer, tail])[inner.uid].order_bottom == 4
+
+
+@pytest.mark.parametrize(
+    "logic_type", [None, "TRY", "TOP_LEVEL_CATCH", "TOP_LEVEL_TRY"]
+)
+def test_table_order_zero_requires_verified_native_top_try_type(logic_type):
+    kwargs: dict[str, Any] = {
+        "kind": "flowlogic",
+        "identity": "1" * 32,
+        "ui_id": "native-main",
+        "order": "0",
+        "parent": "",
+        "definition": "2" * 32,
+        "inputs": [],
+        "settings": {"logic_type": logic_type},
+    }
+    if logic_type == "TOP_LEVEL_TRY":
+        assert semantics.table_step(**kwargs).order == 0
+    else:
+        with pytest.raises(CapabilityError):
+            semantics.table_step(**kwargs)

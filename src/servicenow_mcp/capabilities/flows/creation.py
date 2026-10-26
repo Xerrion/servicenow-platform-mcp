@@ -123,7 +123,7 @@ async def apply(
             edits=command.edits,
             expected_scope=properties["scope"],
             expected_revision=revision,
-        )
+        ).model_copy(update={"schema_evidence": command.schema_evidence}, deep=True)
         phase = "bind_created_revision"
         bound = await target.read_binding(edit_command, client)
         phase = "prepare_complete_definition"

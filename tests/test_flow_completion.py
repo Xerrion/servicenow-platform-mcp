@@ -381,23 +381,16 @@ async def test_lifecycle_binding_drift_never_dispatches_effect(
     )
 
 
-@pytest.mark.parametrize(
-    "action", ["activate", "publish", "deactivate", "test", "run", "validate_remote"]
-)
+@pytest.mark.parametrize("action", ["activate", "publish", "deactivate", "test"])
 async def test_lifecycle_requires_explicit_context_and_never_aliases_compile_or_run(
     settings, action
 ):
-    coordinator, tools, _, _, args = effect_routes(
+    coordinator, tools, _, _, _ = effect_routes(
         settings, "test" if action == "test" else "activate"
     )
     result = decode_response(await tools["flow_preview"](action=action, sys_id=FLOW))
     assert result["status"] == "error" and len(coordinator.store) == 0
     assert not http_mock.calls
-    if action in {"run", "validate_remote"}:
-        args["action"] = action
-        result = decode_response(await tools["flow_preview"](**args))
-        assert result["error"]["code"] == "UNAVAILABLE"
-        assert not http_mock.calls
 
 
 async def test_flow_publish_only_does_not_silently_activate(settings):
@@ -708,6 +701,7 @@ async def test_subflow_can_receive_published_action_after_declaration(settings):
     def save(request):
         body = json.loads(request.content)
         assert body["type"] == "subflow" and body["inputs"] == flow["inputs"]
+        body["actionInstances"][-1]["id"] = "f" * 32
         persist(body)
         return httpx2.Response(200, json={"result": {"data": body}})
 

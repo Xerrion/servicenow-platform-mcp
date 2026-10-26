@@ -16,11 +16,13 @@ from tests.test_flow_editing import BASE, DEFS, FLOW, fixtures, persist
 
 def validation_flow():
     flow = typed_flow()
-    definition = next(
-        t
-        for c in DEFS["trigger_categories"]
-        for t in c["triggers"].values()
-        if t["type"] == "service_catalog"
+    definition = copy.deepcopy(
+        next(
+            t
+            for c in DEFS["trigger_categories"]
+            for t in c["triggers"].values()
+            if t["type"] == "service_catalog"
+        )
     )
     flow["triggerInstances"] = [
         {
@@ -146,6 +148,7 @@ async def test_status_reads_exact_execution_context_without_starting_it(
 ):
     capture_routes()
     execution = "d" * 32
+    snapshot = "e" * 32
     http_mock.get(f"{BASE}/api/now/table/sys_hub_flow/{FLOW}").respond(
         200, json={"result": status_header()}
     )
@@ -155,8 +158,20 @@ async def test_status_reads_exact_execution_context_without_starting_it(
             "result": {
                 "sys_id": execution,
                 "flow": FLOW,
+                "snapshot": snapshot,
                 "state": state,
                 "sys_created_on": "2026-10-14 09:00:00",
+                "sys_updated_on": "2026-10-14 10:00:00",
+            },
+        },
+    )
+    http_mock.get(f"{BASE}/api/now/table/sys_hub_snapshot/{snapshot}").respond(
+        200,
+        json={
+            "result": {
+                "sys_id": snapshot,
+                "parent": FLOW,
+                "sys_mod_count": "1",
                 "sys_updated_on": "2026-10-14 10:00:00",
             },
         },
@@ -171,6 +186,10 @@ async def test_status_reads_exact_execution_context_without_starting_it(
     assert data["flow"]["draft"] is True
     assert data["flow"]["has_published_snapshot"] is True
     assert data["execution"]["state"] == state
+    assert data["execution"]["snapshot_sys_id"] == snapshot
+    assert data["execution"]["snapshot_owner_verified"] is True
+    assert data["execution"]["snapshot_content_verified"] is False
+    assert data["execution"]["version_verified"] is False
     assert data["complete"] is (state != "UNRECOGNIZED")
     assert all(call.request.method == "GET" for call in http_mock.calls)
 
@@ -471,8 +490,6 @@ async def test_effectful_lifecycle_not_accepted_as_draft_action(settings):
         "activate",
         "deactivate",
         "test",
-        "run",
-        "validate_remote",
     ):
         assert (await tools["flow_preview"](action=action, sys_id=FLOW)).is_error
     assert not http_mock.calls
@@ -579,15 +596,10 @@ async def test_lifecycle_ledger_does_not_alias_effects(settings):
     ledger = result["data"]["authoring"]["lifecycle"]
     assert ledger["validate_local"]["available"] is True
     assert ledger["status"]["available"] is True
-    for operation in (
-        "validate_remote",
-        "run",
-    ):
-        assert ledger[operation]["available"] is False
-        assert ledger[operation]["reason"]
     for operation in ("publish", "activate", "deactivate", "test"):
         assert ledger[operation]["available"] is True
-        assert ledger[operation]["live_verified"] is False
+        assert ledger[operation]["live_verified"] is True
+        assert "tv2dev" in ledger[operation]["live_scope"]
         assert ledger[operation]["reason"]
     assert ledger["test"]["effect"] == "execution"
     assert not http_mock.calls

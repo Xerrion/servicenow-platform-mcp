@@ -431,7 +431,7 @@ async def test_unsupported_or_contradictory_saved_assignment_fails_closed(
 
 
 @pytest.mark.parametrize("region", ["FOREACH", "PARALLELBLOCK"])
-async def test_output_assignment_cannot_be_moved_into_loop_or_parallel_region(
+async def test_output_assignment_can_be_created_inside_loop_or_parallel_region(
     settings, region
 ):
     flow = subflow()
@@ -474,12 +474,19 @@ async def test_output_assignment_cannot_be_moved_into_loop_or_parallel_region(
         for row in flow["flowLogicInstances"]
         if row["flowLogicDefinition"]["type"] == region
     )
-    with pytest.raises(CapabilityError, match="loops or parallel"):
-        await plan(
-            settings,
-            flow,
-            [{"op": "assign_outputs", "outputs": {"total": 4}, "parent": parent}],
-        )
+    result = await plan(
+        settings,
+        flow,
+        [{"op": "assign_outputs", "outputs": {"total": 4}, "parent": parent}],
+    )
+    assignment = next(
+        row
+        for row in result["payload"]["flowLogicInstances"]
+        if row["flowLogicDefinition"]["type"] == "ASSIGNSUBFLOWOUTPUTS"
+    )
+    assert assignment["parent"] == parent
+    assert assignment["outputsToAssign"][0]["name"] == "total"
+    assert assignment["outputsToAssign"][0]["value"] == 4
 
 
 @pytest.mark.parametrize("phase", ["preview", "apply"])

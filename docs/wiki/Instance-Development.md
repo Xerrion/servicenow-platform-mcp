@@ -66,10 +66,20 @@ For automation associated with a table:
 > Find flows with record triggers on incident. Show their names and available
 > trigger conditions. State any unresolved or incomplete results.
 
-Flow tools read stored configuration.
-They do not edit, publish, or run flows.
-Inspection does not prove that a flow executed successfully.
-Check execution behavior on your instance through your usual ServiceNow workflow.
+The `flow` tool reads stored configuration, performs local validation, and reads lifecycle or exact execution status.
+It does not change, compile, or execute a flow. Inspection does not prove successful execution.
+
+### Create or change a flow
+
+On a development or test instance, enable `flow_write` or `full` and set `SERVICENOW_ENV=dev`.
+ServiceNow permissions and local mutation policy must also permit the operation. Restart the server after changing settings.
+The experimental `flow_preview` tool prepares changes. Only `mutation_apply` applies a reviewed, single-use preview token.
+
+Create a complete inactive flow or triggerless subflow, then edit it with supported native block families. The [Flow authoring guide](../flow-authoring.md) describes supported operations and compatibility limits, including active/published working-draft boundaries. Configuring a trigger does not trigger the authored flow; create/edit never executes it.
+
+Dynamic schema providers require separate reviewed authoring-metadata execution through `flow_preview(action="resolve_schema", ...)` and `mutation_apply`. A provider may have arbitrary side effects; this is never implicit in create/edit and does not execute the authored flow.
+
+Native lifecycle actions remain separate from authoring: activation publishes a flow and enables its triggers, subflow publication makes it callable, deactivation stops new trigger starts, and testing executes actions with real side effects. Review the [Flow authoring guide](../flow-authoring.md) before applying lifecycle effects.
 
 ## Investigate an instance issue
 

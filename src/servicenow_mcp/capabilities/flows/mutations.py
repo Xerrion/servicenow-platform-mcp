@@ -1,23 +1,53 @@
 """Experimental draft authoring through the observed Workflow Studio contract."""
 
-import copy
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
+
+from pydantic import JsonValue, TypeAdapter, ValidationError
 
 from servicenow_mcp.capabilities.contracts import CapabilityError
 from servicenow_mcp.capabilities.flows import (
     creation,
+    dynamic_schemas,
     editing,
     effects,
-    payloads,
     semantics,
     target,
 )
 from servicenow_mcp.capabilities.mutations.models import FlowCommand, fingerprint
 from servicenow_mcp.policy import check_table_access, mask_sensitive_fields
-from servicenow_mcp.validation import sanitize_query_value, validate_sys_id
+from servicenow_mcp.validation import sanitize_query_value
 
 if TYPE_CHECKING:
     from servicenow_mcp.platform.client import ServiceNowClient
+
+_SCHEMA_EVIDENCE: TypeAdapter[dict[str, JsonValue]] = TypeAdapter(dict[str, JsonValue])
+
+
+@dataclass(frozen=True)
+class SchemaResolution:
+    """Internal apply result whose evidence must be retained before issuing a token."""
+
+    evidence: dict[str, JsonValue]
+    summary: dict[str, JsonValue]
+
+
+def validate_schema_evidence(evidence: dict[str, JsonValue]) -> dict[str, JsonValue]:
+    try:
+        return _SCHEMA_EVIDENCE.validate_python(
+            dynamic_schemas.validate_evidence(evidence)
+        )
+    except ValidationError:
+        raise CapabilityError(
+            "Schema evidence must contain native JSON values."
+        ) from None
+
+
+async def _verify_schema_evidence(
+    command: FlowCommand, client: ServiceNowClient
+) -> None:
+    for evidence in command.schema_evidence:
+        await dynamic_schemas.verify(validate_schema_evidence(evidence), client)
 
 
 async def create_properties(
@@ -54,266 +84,47 @@ async def create_properties(
     }
 
 
-def require_editable_draft(flow: dict[str, Any], sys_id: str) -> None:
-    payloads.validate_definition(flow)
-    required_arrays = (
-        "actionInstances",
-        "triggerInstances",
-        "flowLogicInstances",
-        "subFlowInstances",
-        "inputs",
-        "outputs",
-        "flowVariables",
-        "label_cache",
-    )
-    if any(not isinstance(flow.get(key), list) for key in required_arrays):
-        raise CapabilityError(
-            "Studio returned an incomplete flow definition. No draft write is allowed."
-        )
-    if (
-        flow.get("snapshot") is not False
-        or flow.get("masterSnapshot") is not False
-        or flow.get("remoteTriggerSysId")
-    ):
-        raise CapabilityError(
-            "Snapshots and remotely triggered flows cannot be edited by draft authoring."
-        )
-    if flow.get("flowEngineVersion") != 2:
-        raise CapabilityError(
-            "Only V2 draft definitions are supported by this adapter."
-        )
-    if any(
-        flow.get(key)
-        for key in (
-            "contentACLFilteredOrders",
-            "nonCriticalErrors",
-            "deletedFlowLogicInstances",
-        )
-    ):
-        raise CapabilityError(
-            "Studio returned a partial or unsupported flow definition."
-        )
-    if (
-        flow.get("id") != sys_id
-        or flow.get("type") not in {"flow", "subflow"}
-        or flow.get("active") is not False
-    ):
-        raise CapabilityError(
-            "Only inactive flows or subflows can be edited by draft authoring."
-        )
-    if (
-        flow.get("status") != "draft"
-        or flow.get("isPublished") is not False
-        or flow.get("masterSnapshotId")
-    ):
-        raise CapabilityError("Published flows are not supported by draft authoring.")
-    if flow.get("security", {}).get("can_write") is not True:
-        raise CapabilityError("Studio does not report write access to this flow.")
-    semantics.studio_semantics(flow)
-    # The initial adapter cannot safely round-trip data pills, complex logic, or partial ACL views.
-    if flow["type"] == "subflow" and flow["triggerInstances"]:
-        raise CapabilityError("Subflow drafts cannot contain triggers.")
-    if any(
-        flow.get(k)
-        for k in (
-            "triggerInstances",
-            "flowLogicInstances",
-            *(
-                []
-                if flow["type"] == "subflow"
-                else ["inputs", "outputs", "flowVariables"]
-            ),
-            "stages",
-            "label_cache",
-        )
-    ):
-        raise CapabilityError(
-            "This experimental adapter supports only linear drafts without data pills."
-        )
-    if flow.get("startingIndexOfErrorHandlingInstances", -1) != -1:
-        raise CapabilityError(
-            "Flows with error handlers are not supported by draft authoring."
-        )
-    for action in flow["actionInstances"] + flow["subFlowInstances"]:
-        definition = action.get("actionType", action.get("subFlow", {}))
-        if (
-            action.get("parent")
-            or action.get("deleted")
-            or definition.get("userCanRead") is not True
-        ):
-            raise CapabilityError(
-                "The flow contains an unsupported or unreadable action."
-            )
-        if (
-            "subflowSysId" in action
-            and action.get("waitForCompletion", {}).get("value") is not True
-        ):
-            raise CapabilityError(
-                "Only subflow steps that wait for completion are supported."
-            )
-        for item in action.get("inputs", []):
-            if (
-                item.get("scriptActive")
-                or item.get("children")
-                or isinstance(item.get("value"), dict | list)
-            ):
-                raise CapabilityError(
-                    "Existing action inputs must contain only static scalar values."
-                )
-            if isinstance(item.get("value"), str) and "{{" in item["value"]:
-                raise CapabilityError(
-                    "Existing data pills are not supported by draft authoring."
-                )
-
-
-def action_inputs(
-    command: FlowCommand, definition: dict[str, Any]
-) -> list[dict[str, Any]]:
-    if command.action == "add_subflow":
-        if (
-            definition.get("type") != "subflow"
-            or definition.get("parentFlow") != command.subflow_sys_id
-            or definition.get("snapshot") is not True
-            or definition.get("masterSnapshot") is not True
-        ):
-            raise CapabilityError(
-                "subflow_sys_id must resolve to a published subflow snapshot."
-            )
-    elif (
-        definition.get("id") != command.action_type_sys_id
-        or definition.get("state") != "published"
-        or definition.get("is_snapshot") is not True
-    ):
-        raise CapabilityError(
-            "action_type_sys_id must identify a published action snapshot."
-        )
-    entitled = (
-        definition.get("isFlowEntitled")
-        if command.action == "add_subflow"
-        else definition.get("entitled")
-    )
-    if (
-        definition.get("security", {}).get("can_read") is not True
-        or entitled is not True
-    ):
-        raise CapabilityError("The action must be readable and entitled.")
-    parameters = definition.get("inputs")
-    if not isinstance(parameters, list):
-        raise CapabilityError("The action response does not contain input metadata.")
-    provided = command.inputs or {}
-    if set(provided) - {p["name"] for p in parameters}:
-        raise CapabilityError("inputs contains an unknown action input name.")
-    result = []
-    for parameter in parameters:
-        name = parameter["name"]
-        value = provided.get(name, parameter.get("defaultValue", ""))
-        kind = parameter.get("type")
-        if parameter.get("children") or kind not in {
-            "string",
-            "choice",
-            "boolean",
-            "integer",
-        }:
-            raise CapabilityError(
-                "Only string, choice, boolean, and integer action inputs are supported."
-            )
-        if parameter.get("mandatory") and value in (None, ""):
-            raise CapabilityError("A mandatory action input is missing.")
-        display = value
-        if kind in {"string", "choice"}:
-            if not isinstance(value, str) or "{{" in value:
-                raise CapabilityError(
-                    "String and choice inputs require static strings."
-                )
-            maximum = parameter.get("maxsize", 0)
-            if maximum and len(value) > int(maximum):
-                raise CapabilityError("An action input exceeds its maximum length.")
-        if kind == "choice":
-            choices = {c["value"]: c["label"] for c in parameter.get("choices", [])}
-            if value not in choices:
-                raise CapabilityError("An action input is not an allowed choice value.")
-            display = choices[value]
-        elif kind == "boolean" and not isinstance(value, bool):
-            raise CapabilityError("Boolean action inputs require JSON booleans.")
-        elif kind == "integer" and (
-            not isinstance(value, int) or isinstance(value, bool)
-        ):
-            raise CapabilityError("Integer action inputs require JSON integers.")
-        result.append(
-            {
-                "id": parameter["id"],
-                "name": name,
-                "value": value,
-                "displayValue": display,
-                "children": [],
-                "parameter": parameter,
-                "scriptActive": False,
-            },
-        )
-    return result
-
-
-async def action_state(
+async def _append_plan(
     command: FlowCommand, client: ServiceNowClient
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    check_table_access(
-        "sys_hub_flow_snapshot"
-        if command.action == "add_subflow"
-        else "sys_hub_action_type_snapshot"
+) -> tuple[FlowCommand, dict[str, Any], dict[str, Any]]:
+    subflow = command.action == "add_subflow"
+    adapted = command.model_copy(
+        update={
+            "edits": [
+                {
+                    "op": "insert_subflow" if subflow else "insert_action",
+                    "subflow_sys_id" if subflow else "action_type_sys_id": (
+                        command.subflow_sys_id
+                        if subflow
+                        else command.action_type_sys_id
+                    ),
+                    "inputs": command.inputs or {},
+                    "ref": "appended_step",
+                }
+            ]
+        },
+        deep=True,
     )
-    flow = await client.studio_request(f"flow/{command.sys_id}")
-    require_editable_draft(flow, command.sys_id or "")
-    if (
-        command.expected_scope is not None
-        and flow.get("scope") != command.expected_scope
-    ):
-        raise CapabilityError(
-            "The Studio target scope differs from expected_scope.", "CONTEXT_MISMATCH"
-        )
-    if command.action == "add_subflow":
-        if command.subflow_sys_id == command.sys_id:
-            raise CapabilityError("A flow cannot call itself through draft authoring.")
-        parent = await client.get_record(
-            "sys_hub_flow",
-            command.subflow_sys_id or "",
-            fields=["sys_id", "type", "active", "master_snapshot", "sys_scope"],
-        )
-        snapshot_id = parent.get("master_snapshot")
-        if isinstance(snapshot_id, dict):
-            snapshot_id = snapshot_id.get("value")
-        if (
-            parent.get("type") != "subflow"
-            or parent.get("active") not in (True, "true")
-            or not snapshot_id
-        ):
-            raise CapabilityError(
-                "The requested subflow has no active published version."
-            )
-        validate_sys_id(snapshot_id)
-        definition = await client.studio_request(f"flow/{snapshot_id}", minimal=True)
-        if definition.get("id") != snapshot_id:
-            raise CapabilityError("Studio returned a different subflow snapshot.")
-        if (
-            definition.get("scope") != flow.get("scope")
-            and definition.get("access") != "public"
-        ):
-            raise CapabilityError(
-                "The published subflow is not accessible from the target scope."
-            )
-    else:
-        definition = await client.studio_request(
-            f"action/action_types/{command.action_type_sys_id}"
-        )
-    payloads.validate_definition(definition, field_name="action")
-    action_inputs(command, definition)
-    return flow, definition
+    # Keep the convenience action so shared loading cannot opt into active-draft edits.
+    state = await editing.load_state(adapted, client)
+    result = await editing.plan(adapted, state, client)
+    return adapted, state, result
 
 
 async def preview(
     command: FlowCommand, client: ServiceNowClient
 ) -> tuple[dict[str, Any], str | None]:
+    if command.action == "resolve_schema":
+        plan, summary = await dynamic_schemas.preview(command, client)
+        return summary, fingerprint(plan)
+    await _verify_schema_evidence(command, client)
     context = await target.read_binding(command, client)
     summary, revision = await _preview(command, client)
+    if command.schema_evidence:
+        summary["resolved_schemas"] = [
+            dynamic_schemas.evidence_summary(evidence)
+            for evidence in command.schema_evidence
+        ]
     summary["context"] = {
         "state": "bound" if context else "unverified",
         "expected_scope": command.expected_scope,
@@ -335,7 +146,16 @@ async def _preview(
         if command.edits:
             return await creation.preview(command, payload, client)
         return mask_sensitive_fields(payload), fingerprint(payload)
-    flow, definition = await action_state(command, client)
+    _, state, result = await _append_plan(command, client)
+    flow = state["flow"]
+    collection = (
+        "subFlowInstances" if command.action == "add_subflow" else "actionInstances"
+    )
+    instance = next(
+        row
+        for row in result["payload"][collection]
+        if row["uiUniqueIdentifier"] == result["refs"]["appended_step"]
+    )
     return {
         "sys_id": flow["id"],
         "name": flow["name"],
@@ -344,32 +164,50 @@ async def _preview(
         **(
             {
                 "subflow_sys_id": command.subflow_sys_id,
-                "snapshot_sys_id": definition["id"],
-                "wait_for_completion": True,
+                "snapshot_sys_id": instance["subflowSysId"],
+                "wait_for_completion": instance["waitForCompletion"]["value"],
             }
             if command.action == "add_subflow"
-            else {"action_type_sys_id": definition["id"]}
+            else {"action_type_sys_id": instance["actionTypeSysId"]}
         ),
-        "action_name": definition["name"],
+        "action_name": instance["name"],
         "inputs": mask_sensitive_fields(
-            {item["name"]: item["value"] for item in action_inputs(command, definition)}
+            {item["name"]: item["value"] for item in instance["inputs"]}
         ),
         "existing_action_count": len(flow["actionInstances"]),
         "existing_subflow_count": len(flow["subFlowInstances"]),
-        "proposed_order": max(
-            [
-                int(step["order"])
-                for step in flow["actionInstances"] + flow["subFlowInstances"]
-            ],
-            default=0,
-        )
-        + 1,
-    }, fingerprint([flow, definition])
+        "proposed_order": instance["order"],
+    }, editing.plan_revision(state, result)
 
 
 async def apply(
     command: FlowCommand, expected: str | None, client: ServiceNowClient
-) -> dict[str, Any]:
+) -> dict[str, Any] | SchemaResolution:
+    if command.action == "resolve_schema":
+        plan, summary = await dynamic_schemas.preview(command, client)
+        if fingerprint(plan) != expected:
+            raise CapabilityError(
+                "The schema provider or its dependencies changed. Create a new preview.",
+                "STALE_PREVIEW",
+            )
+        raw_evidence = await dynamic_schemas.apply(plan, client)
+        try:
+            evidence = validate_schema_evidence(raw_evidence)
+            return SchemaResolution(
+                evidence=evidence,
+                summary={
+                    **summary,
+                    "resolved_schemas": [dynamic_schemas.evidence_summary(evidence)],
+                },
+            )
+        except Exception:  # noqa: BLE001 - provider effect already occurred
+            raise CapabilityError(
+                "The provider executed, but its schema evidence could not be retained. "
+                "No schema token is available. Do not replay the action automatically.",
+                "SCHEMA_EVIDENCE_NOT_RETAINED",
+                outcome={"provider_executed": True, "schema_retained": False},
+            ) from None
+    await _verify_schema_evidence(command, client)
     context = await target.read_binding(command, client)
     _, revision = await _preview(command, client)
     if fingerprint({"operation": revision, "context": context}) != expected:
@@ -401,101 +239,48 @@ async def _apply(
         return await editing.apply(
             command, expected, client, binding_context=binding_context
         )
-    collection = (
-        "subFlowInstances" if command.action == "add_subflow" else "actionInstances"
-    )
-    if command.action == "create":
-        payload = await create_properties(command, client)
-        if command.edits:
-            return await creation.apply(
-                command, payload, expected, client, binding_context
-            )
-        if fingerprint(payload) != expected:
+    if command.action in {"add_action", "add_subflow"}:
+        adapted, state, result = await _append_plan(command, client)
+        if editing.plan_revision(state, result) != expected:
             raise CapabilityError(
-                "The creation properties changed. Create a new preview.",
+                "The flow or its definitions changed since preview. Create a new preview.",
                 "STALE_PREVIEW",
             )
-        await target.require_current(command, client, binding_context)
-        saved = await semantics.save_draft(client, payload, create=True)
-    else:
-        flow, definition = await action_state(command, client)
-        if fingerprint([flow, definition]) != expected:
-            raise CapabilityError(
-                "The flow or action changed since preview. Create a new preview.",
-                "STALE_PREVIEW",
-            )
-        payload = copy.deepcopy(flow)
-        orders = [
-            int(a["order"]) for a in flow["actionInstances"] + flow["subFlowInstances"]
-        ]
-        instance = {
-            "id": command.instance_id,
-            "flowSysId": flow["id"],
-            "order": str(max(orders, default=0) + 1),
-            "uiUniqueIdentifier": command.ui_id,
-            "deleted": False,
-            "parent": "",
-            "metadata": {},
-            "inputs": action_inputs(command, definition),
-            "type": "subflow" if command.action == "add_subflow" else "action",
-            "snapshot": False,
-            "name": definition["name"],
-            "internalName": definition.get(
-                "internalName", definition.get("internal_name", "")
-            ),
+        saved = await editing.save_plan(
+            adapted, result, client, binding_context=binding_context
+        )
+        return {
+            "action": command.action,
+            "table": saved["table"],
+            "sys_id": saved["sys_id"],
+            "name": saved["name"],
+            "active": saved["active"],
+            "status": saved["status"],
+            "subflow_instance_sys_id"
+            if command.action == "add_subflow"
+            else "action_sys_id": saved["refs"]["appended_step"]["sys_id"],
         }
-        if command.action == "add_subflow":
-            instance.update(
-                {
-                    "subflowSysId": definition["id"],
-                    "subFlow": definition,
-                    "waitForCompletion": {
-                        "name": "wait_for_completion",
-                        "type": "boolean",
-                        "value": True,
-                    },
-                },
-            )
-        else:
-            instance.update(
-                {
-                    "actionTypeSysId": definition["id"],
-                    "actionType": definition,
-                    "parentActionTypeId": definition.get("parent_action", ""),
-                },
-            )
-        payload[collection].append(instance)
-        payloads.validate_definition(payload)
-        semantics.studio_semantics(payload)
-        await target.require_current(command, client, binding_context)
-        saved = await semantics.save_draft(client, payload)
+    payload = await create_properties(command, client)
+    if command.edits:
+        return await creation.apply(command, payload, expected, client, binding_context)
+    if fingerprint(payload) != expected:
+        raise CapabilityError(
+            "The creation properties changed. Create a new preview.",
+            "STALE_PREVIEW",
+        )
+    await target.require_current(command, client, binding_context)
+    saved = await semantics.save_draft(client, payload, create=True)
     if (
         saved.get("active") is not False
         or saved.get("status") != "draft"
-        or (command.sys_id and saved["id"] != command.sys_id)
-        or (
-            command.action == "create"
-            and (
-                saved.get("scope") != command.scope or saved.get("name") != command.name
-            )
-        )
+        or saved.get("scope") != command.scope
+        or saved.get("name") != command.name
     ):
         raise CapabilityError(
             "The saved flow differs from the draft request. Check ServiceNow before retrying.",
             "UNKNOWN_OUTCOME",
         )
-    action_sys_id = None
-    if command.action == "create":
-        saved = await semantics.verify_created(client, payload, saved)
-    else:
-        saved = await semantics.verify_saved(
-            client, payload, saved, generated_ids={command.instance_id}
-        )
-        action_sys_id = next(
-            row["id"]
-            for row in saved[collection]
-            if row.get("uiUniqueIdentifier") == command.ui_id
-        )
+    saved = await semantics.verify_created(client, payload, saved)
     return {
         "action": command.action,
         "table": "sys_hub_flow",
@@ -503,13 +288,4 @@ async def _apply(
         "name": saved.get("name"),
         "active": False,
         "status": "draft",
-        **(
-            {
-                "subflow_instance_sys_id"
-                if command.action == "add_subflow"
-                else "action_sys_id": action_sys_id
-            }
-            if action_sys_id is not None
-            else {}
-        ),
     }

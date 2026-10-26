@@ -235,6 +235,75 @@ def _empty_inspect_kwargs(header_sys_id: str = SYS_ID_FLOW) -> dict[str, Any]:
     }
 
 
+def _native_handler_read_kwargs() -> dict[str, Any]:
+    """Synthetic table rows for Studio's hidden-root/sandwich/Parallel projection."""
+    kwargs = _empty_inspect_kwargs()
+    logic_rows = [
+        ("top-try", "", "0", "TOP_LEVEL_TRY"),
+        ("loop", "top-try", "1", "FOREACH"),
+        ("parallel", "top-try", "4", "PARALLEL"),
+        ("left", "parallel", "5", "PARALLELBLOCK"),
+        ("right", "parallel", "8", "PARALLELBLOCK"),
+        ("top-catch", "", "10", "TOP_LEVEL_CATCH"),
+    ]
+    definition_ids = {
+        "TOP_LEVEL_TRY": "a" * 32,
+        "FOREACH": "b" * 32,
+        "PARALLEL": "c" * 32,
+        "PARALLELBLOCK": "d" * 32,
+        "TOP_LEVEL_CATCH": "e" * 32,
+    }
+    kwargs["list_logic_instances_v2"] = [
+        {
+            "sys_id": _ref(f"{index:032x}"),
+            "ui_id": _ref(uid),
+            "parent_ui_id": _ref(parent),
+            "order": _ref(order),
+            "label": _ref(uid),
+            "logic_definition": _ref(definition_ids[logic_type], logic_type),
+            "logic_definition.type": _ref(logic_type),
+            "values": _ref(
+                _encode_values(
+                    {
+                        "inputs": [{"name": "enabled", "value": True}]
+                        if logic_type == "TOP_LEVEL_CATCH"
+                        else []
+                    }
+                )
+            ),
+        }
+        for index, (uid, parent, order, logic_type) in enumerate(logic_rows, 1)
+    ][::-1]
+    subflow_rows = [
+        ("loop-call", "loop", "2"),
+        ("left-first", "left", "5->6"),
+        ("left-second", "left", "7"),
+        ("right-first", "right", "8->9"),
+        ("handler-call", "top-catch", "11"),
+    ]
+    kwargs["list_subflow_instances_v2"] = [
+        {
+            "sys_id": _ref(f"{index:032x}"),
+            "subflow": _ref("b" * 32, "Provision"),
+            "ui_id": _ref(uid),
+            "parent_ui_id": _ref(parent),
+            "order": _ref(order),
+            "wait_for_completion": _ref("true"),
+            "subflow_inputs": _ref(_encode_values([])),
+        }
+        for index, (uid, parent, order) in enumerate(subflow_rows, 10)
+    ][::-1]
+    return kwargs
+
+
+def _flatten_canvas(canvas: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    nodes: list[dict[str, Any]] = []
+    for node in canvas:
+        nodes.append(node)
+        nodes.extend(_flatten_canvas(node["children"]))
+    return nodes
+
+
 @pytest.mark.parametrize("action", ["inspect", "contract"])
 async def test_v2_subflow_readback(
     settings: Settings, auth_provider: OAuthPKCEProvider, action: str
@@ -387,6 +456,182 @@ async def test_subflow_under_logic_uses_persisted_component_fields(
     assert result["data"]["steps"][1]["step"] == "1.1"
     assert result["data"]["steps"][1]["parent_ui_id"] == "branch"
     assert result["data"]["steps"][1]["wait_for_completion"] is False
+
+
+@pytest.mark.parametrize("action", ["inspect", "contract"])
+async def test_native_handler_readback_preserves_parallel_and_sandwich_order(
+    settings: Settings, auth_provider: OAuthPKCEProvider, action: str
+) -> None:
+    # Source labels reserve the loop's closing order3, but the hidden Try still
+    # owns a real row at order0. Parallel child arrows sort by their RHS labels.
+    tools = _register_and_get_tools(settings, auth_provider)
+    section = "steps" if action == "contract" else "canvas"
+    with _patch_client(_make_client_mock(**_native_handler_read_kwargs())):
+        result = decode_response(
+            await tools["flow"](
+                action=action,
+                sys_id=SYS_ID_FLOW,
+                sections=[section, "structural_summary"],
+            )
+        )
+    assert result["status"] == "success", result
+    assert "truncation" not in result, result
+    data = result["data"]
+    nodes = data[section] if action == "contract" else _flatten_canvas(data[section])
+    assert [node["order"] for node in nodes] == [
+        "0",
+        "1",
+        "2",
+        "4",
+        "5",
+        "5->6",
+        "7",
+        "8",
+        "8->9",
+        "10",
+        "11",
+    ]
+    assert not any(node.get("incomplete_semantics") for node in nodes)
+    if action == "contract":
+        assert [node["step"] for node in nodes] == [
+            "1",
+            "1.1",
+            "1.1.1",
+            "1.2",
+            "1.2.1",
+            "1.2.1.1",
+            "1.2.1.2",
+            "1.2.2",
+            "1.2.2.1",
+            "2",
+            "2.1",
+        ]
+        assert nodes[0]["logic"]["type"] == "TOP_LEVEL_TRY"
+        assert nodes[9]["logic"]["type"] == "TOP_LEVEL_CATCH"
+    else:
+        roots = data["canvas"]
+        assert [node["ui_uuid"] for node in roots] == ["top-try", "top-catch"]
+        assert [node["ui_uuid"] for node in roots[0]["children"]] == [
+            "loop",
+            "parallel",
+        ]
+        branches = roots[0]["children"][1]["children"]
+        assert [node["ui_uuid"] for node in branches] == ["left", "right"]
+        assert [node["ui_uuid"] for node in branches[0]["children"]] == [
+            "left-first",
+            "left-second",
+        ]
+        assert roots[0]["logic_type"] == "TOP_LEVEL_TRY"
+    summary = data["structural_summary"]
+    assert summary["counts"]["logic_v2"] == 6
+    assert summary["counts"]["subflows_v2"] == 5
+    assert summary["node_count"] == 11
+    assert summary["complete"] is True
+
+
+@pytest.mark.parametrize("action", ["inspect", "contract"])
+async def test_native_handler_readback_bounds_combined_native_order(
+    settings: Settings, auth_provider: OAuthPKCEProvider, action: str
+) -> None:
+    tools = _register_and_get_tools(settings, auth_provider)
+    section = "steps" if action == "contract" else "canvas"
+    with _patch_client(_make_client_mock(**_native_handler_read_kwargs())):
+        result = decode_response(
+            await tools["flow"](
+                action=action,
+                sys_id=SYS_ID_FLOW,
+                sections=[section, "structural_summary"],
+                section_limit=6,
+            )
+        )
+    assert result["status"] == "success", result
+    nodes = result["data"][section]
+    if action == "inspect":
+        nodes = _flatten_canvas(nodes)
+    assert [node["order"] for node in nodes] == ["0", "1", "2", "4", "5", "5->6"]
+    truncation = result["truncation"][section]
+    assert truncation["returned"] == 6
+    assert truncation["observed_at_least"] == 11
+    assert truncation["omitted_at_least"] == 5
+    assert truncation["continuation"]
+    assert result["data"]["structural_summary"]["node_count"] == 11
+    assert result["data"]["structural_summary"]["metadata_complete"] is False
+
+
+@pytest.mark.parametrize("action", ["inspect", "contract"])
+@pytest.mark.parametrize(
+    "defect",
+    [
+        "syntax",
+        "negative",
+        "ordinary_zero",
+        "unreadable_zero_type",
+        "unowned_wrapper",
+        "duplicate_order",
+        "duplicate_ui_syntax",
+        "arrow_parent",
+        "arrow_head",
+        "long_arrow_head",
+        "arrow_position",
+        "unreadable_branch_type",
+        "unowned_branch",
+    ],
+)
+async def test_native_handler_readback_keeps_invalid_orders_incomplete(
+    settings: Settings, auth_provider: OAuthPKCEProvider, action: str, defect: str
+) -> None:
+    kwargs = _native_handler_read_kwargs()
+    logic = {row["ui_id"]["value"]: row for row in kwargs["list_logic_instances_v2"]}
+    calls = {row["ui_id"]["value"]: row for row in kwargs["list_subflow_instances_v2"]}
+    if defect == "syntax":
+        calls["left-first"]["order"] = _ref("5->6->7")
+    elif defect == "negative":
+        calls["left-first"]["order"] = _ref("-1")
+    elif defect == "ordinary_zero":
+        logic["top-try"]["logic_definition.type"] = _ref("IF")
+    elif defect == "unreadable_zero_type":
+        logic["top-try"].pop("logic_definition.type")
+    elif defect == "unowned_wrapper":
+        kwargs["list_logic_instances_v2"].remove(logic["top-catch"])
+    elif defect == "duplicate_order":
+        calls["left-second"]["order"] = _ref("6")
+    elif defect == "duplicate_ui_syntax":
+        calls["left-first"]["ui_id"] = _ref("left-second")
+        calls["left-first"]["order"] = _ref("invalid->6")
+    elif defect == "arrow_parent":
+        calls["left-first"]["parent_ui_id"] = _ref("loop")
+    elif defect == "arrow_head":
+        calls["left-first"]["order"] = _ref("4->6")
+    elif defect == "long_arrow_head":
+        calls["left-first"]["order"] = _ref("5" * 4500 + "->6")
+    elif defect == "arrow_position":
+        calls["left-first"]["order"] = _ref("5->7")
+        calls["left-second"]["order"] = _ref("6")
+    elif defect == "unreadable_branch_type":
+        logic["left"].pop("logic_definition.type")
+    elif defect == "unowned_branch":
+        logic["left"]["parent_ui_id"] = _ref("top-try")
+    tools = _register_and_get_tools(settings, auth_provider)
+    section = "steps" if action == "contract" else "canvas"
+    with _patch_client(_make_client_mock(**kwargs)):
+        result = decode_response(
+            await tools["flow"](
+                action=action,
+                sys_id=SYS_ID_FLOW,
+                sections=[section, "structural_summary"],
+            )
+        )
+    assert result["status"] == "success", result
+    assert result["truncation"][section]["incomplete_semantics"]
+    nodes = result["data"][section]
+    if action == "inspect":
+        nodes = _flatten_canvas(nodes)
+    assert len(nodes) == (10 if defect == "unowned_wrapper" else 11)
+    if defect in {"syntax", "negative", "ordinary_zero", "unreadable_zero_type"}:
+        assert any(node.get("incomplete_semantics") for node in nodes)
+    summary = result["data"]["structural_summary"]
+    assert summary["complete"] is True
+    assert summary["metadata_complete"] is False
 
 
 @pytest.mark.asyncio()
@@ -733,10 +978,12 @@ async def test_inspect_explicit_sections_fetch_dependencies_once_and_only_when_n
     client.list_flow_variables.assert_not_awaited()
 
 
+@pytest.mark.parametrize("complete_inputs", [True, False])
 @pytest.mark.asyncio()
 async def test_inspect_section_limit_discloses_truncation_and_continuation(
     settings: Settings,
     auth_provider: OAuthPKCEProvider,
+    complete_inputs: bool,
 ) -> None:
     """A selected large section is bounded and reports how to request more."""
     tools = _register_and_get_tools(settings, auth_provider)
@@ -745,10 +992,10 @@ async def test_inspect_section_limit_discloses_truncation_and_continuation(
             "sys_id": _ref(f"a{index}"),
             "ui_uuid": _ref(f"ui_a{index}"),
             "parent_ui_uuid": _ref(""),
-            "order": _ref(str(index)),
+            "order": _ref(str(index + 1)),
             "label": _ref(f"Action {index}"),
             "action_type": _ref("atype", "Action"),
-            "values": _ref(""),
+            "values": _ref(_encode_values([]) if complete_inputs else ""),
         }
         for index in range(3)
     ]
@@ -763,22 +1010,29 @@ async def test_inspect_section_limit_discloses_truncation_and_continuation(
         raw = await tools["flow"](
             action="inspect",
             sys_id=SYS_ID_FLOW,
-            sections=["canvas"],
+            sections=["canvas", "structural_summary"],
             section_limit=2,
         )
     result = decode_response(raw)
 
-    assert len(result["data"]["canvas"]) == 2
-    assert result["truncation"]
-    assert result["truncation"]["canvas"] == {
-        "returned": 2,
-        "observed_at_least": 3,
-        "omitted_at_least": 1,
-        "continuation": "Re-run with section_limit greater than 2.",
-        "incomplete_semantics": [
-            "Some step fields or input bindings are unreadable or malformed."
-        ],
-    }
+    assert result["status"] == "success", result
+    nodes = result["data"]["canvas"]
+    assert len(nodes) == 2
+    truncation = result["truncation"]["canvas"]
+    assert truncation["returned"] == 2
+    assert truncation["observed_at_least"] == 3
+    assert truncation["omitted_at_least"] == 1
+    assert truncation["continuation"]
+    assert bool(truncation.get("incomplete_semantics")) is not complete_inputs
+    assert (
+        any(node.get("incomplete_semantics") for node in nodes) is not complete_inputs
+    )
+    summary = result["data"]["structural_summary"]
+    assert summary["counts"]["actions_v2"] == 2
+    assert summary["node_count"] == 2
+    assert summary["truncated"] is True
+    assert summary["complete"] is False
+    assert summary["metadata_complete"] is False
 
 
 @pytest.mark.parametrize(
@@ -2161,3 +2415,177 @@ async def test_inspect_rejects_invalid_sys_id_without_io(
     # Validation must happen BEFORE opening the client; no flow methods should be called.
     client.get_flow_by_sys_id.assert_not_called()
     client.find_flows_by_name.assert_not_called()
+
+
+def _legacy_handler_read_kwargs() -> dict[str, Any]:
+    kwargs = _native_handler_read_kwargs()
+    logic = {row["ui_id"]["value"]: row for row in kwargs["list_logic_instances_v2"]}
+    logic["top-try"]["logic_definition.type"] = _ref("TRY")
+    logic["top-catch"]["logic_definition.connected_to"] = _ref(
+        "a" * 32 + "," + "f" * 32
+    )
+    return kwargs
+
+
+@pytest.mark.parametrize("action", ["inspect", "contract"])
+async def test_legacy_handler_readback_preserves_source_types_and_complete_topology(
+    settings: Settings, auth_provider: OAuthPKCEProvider, action: str
+) -> None:
+    kwargs = _legacy_handler_read_kwargs()
+    tools = _register_and_get_tools(settings, auth_provider)
+    section = "steps" if action == "contract" else "canvas"
+    with _patch_client(_make_client_mock(**kwargs)):
+        result = decode_response(
+            await tools["flow"](
+                action=action,
+                sys_id=SYS_ID_FLOW,
+                sections=[section, "structural_summary"],
+            )
+        )
+    assert result["status"] == "success", result
+    assert not result.get("truncation", {}).get(section), result
+    nodes = result["data"][section]
+    if action == "inspect":
+        assert [node["ui_uuid"] for node in nodes] == ["top-try", "top-catch"]
+        assert nodes[0]["logic_type"] == "TRY"
+        assert nodes[0]["logic_definition"]["sys_id"] == "a" * 32
+        nodes = _flatten_canvas(nodes)
+    else:
+        assert nodes[0]["logic"]["type"] == "TRY"
+        assert nodes[9]["logic"]["type"] == "TOP_LEVEL_CATCH"
+    assert [node["order"] for node in nodes] == [
+        "0",
+        "1",
+        "2",
+        "4",
+        "5",
+        "5->6",
+        "7",
+        "8",
+        "8->9",
+        "10",
+        "11",
+    ]
+    assert not any(node.get("incomplete_semantics") for node in nodes)
+    summary = result["data"]["structural_summary"]
+    assert summary["complete"] is True
+    assert summary["node_count"] == 11
+    assert summary["completeness_scope"] == "structural_counts_only"
+    assert summary["metadata_sections"] == [section]
+    assert summary["metadata_complete"] is None
+
+
+@pytest.mark.parametrize("action", ["inspect", "contract"])
+@pytest.mark.parametrize(
+    "defect",
+    [
+        "missing_metadata",
+        "wrong_definition",
+        "ordinary_catch",
+        "missing_catch",
+        "duplicate_catch",
+        "instance_link",
+        "enabled",
+        "extra_input",
+        "main_input",
+    ],
+)
+async def test_legacy_table_handler_unknown_profiles_remain_incomplete(
+    settings: Settings, auth_provider: OAuthPKCEProvider, action: str, defect: str
+) -> None:
+    kwargs = _legacy_handler_read_kwargs()
+    rows = kwargs["list_logic_instances_v2"]
+    logic = {row["ui_id"]["value"]: row for row in rows}
+    catch = logic["top-catch"]
+    if defect == "missing_metadata":
+        catch.pop("logic_definition.connected_to")
+    elif defect == "wrong_definition":
+        catch["logic_definition.connected_to"] = _ref("f" * 32)
+    elif defect == "ordinary_catch":
+        catch["logic_definition.type"] = _ref("CATCH")
+    elif defect == "missing_catch":
+        rows.remove(catch)
+    elif defect == "duplicate_catch":
+        rows.append(
+            {
+                **catch,
+                "sys_id": _ref("1" * 32),
+                "ui_id": _ref("other-catch"),
+                "order": _ref("12"),
+            }
+        )
+    elif defect == "instance_link":
+        catch["values"] = _ref(
+            _encode_values(
+                {"inputs": [{"name": "enabled", "value": True}], "connectedTo": "loop"}
+            )
+        )
+    elif defect == "enabled":
+        catch["values"] = _ref(
+            _encode_values({"inputs": [{"name": "enabled", "value": 2}]})
+        )
+    elif defect == "extra_input":
+        catch["values"] = _ref(
+            _encode_values(
+                {
+                    "inputs": [
+                        {"name": "enabled", "value": True},
+                        {"name": "custom", "value": "x"},
+                    ]
+                }
+            )
+        )
+    else:
+        logic["top-try"]["values"] = _ref(
+            _encode_values({"inputs": [{"name": "custom", "value": "x"}]})
+        )
+    tools = _register_and_get_tools(settings, auth_provider)
+    section = "steps" if action == "contract" else "canvas"
+    with _patch_client(_make_client_mock(**kwargs)):
+        result = decode_response(
+            await tools["flow"](
+                action=action,
+                sys_id=SYS_ID_FLOW,
+                sections=[section, "structural_summary"],
+            )
+        )
+    assert result["status"] == "success", result
+    assert result["truncation"][section]["incomplete_semantics"]
+    nodes = result["data"][section]
+    if action == "inspect":
+        nodes = _flatten_canvas(nodes)
+        assert (
+            next(node for node in nodes if node["ui_uuid"] == "top-try")["logic_type"]
+            == "TRY"
+        )
+    assert nodes[0]["incomplete_semantics"] is True
+    assert result["data"]["structural_summary"]["metadata_complete"] is False
+
+
+@pytest.mark.parametrize("action", ["inspect", "contract"])
+async def test_legacy_handler_table_evidence_requires_untruncated_complete_dataset(
+    settings: Settings, auth_provider: OAuthPKCEProvider, action: str
+) -> None:
+    tools = _register_and_get_tools(settings, auth_provider)
+    section = "steps" if action == "contract" else "canvas"
+    with _patch_client(_make_client_mock(**_legacy_handler_read_kwargs())):
+        result = decode_response(
+            await tools["flow"](
+                action=action,
+                sys_id=SYS_ID_FLOW,
+                sections=[section, "structural_summary"],
+                section_limit=10,
+            )
+        )
+    assert result["status"] == "success", result
+    nodes = result["data"][section]
+    if action == "inspect":
+        nodes = _flatten_canvas(nodes)
+        assert any(node.get("logic_type") == "TOP_LEVEL_CATCH" for node in nodes)
+    else:
+        assert any(
+            node.get("logic", {}).get("type") == "TOP_LEVEL_CATCH" for node in nodes
+        )
+    assert nodes[0]["incomplete_semantics"] is True
+    assert result["truncation"][section]["omitted_at_least"] == 1
+    assert result["data"]["structural_summary"]["metadata_complete"] is False

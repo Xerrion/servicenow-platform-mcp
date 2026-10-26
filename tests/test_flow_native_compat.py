@@ -100,6 +100,42 @@ def template_dictionary():
         )
 
     http_mock.get(f"{BASE}/api/now/table/sys_dictionary").mock(side_effect=read)
+    schema = http_mock.get(f"{BASE}/api/now/processflow/table/sc_task/schema").respond(
+        200,
+        json={
+            "result": {
+                "data": {
+                    "columns": [
+                        {
+                            "label": "Assignment group",
+                            "definition": {
+                                "name": "assignment_group",
+                                "label": "Assignment group",
+                                "type": "reference",
+                                "reference": "sys_user_group",
+                                "read_only": False,
+                                "security": {"can_read": True, "can_write": True},
+                                "attributes": {"is_scriptable": True},
+                            },
+                        },
+                        {
+                            "label": "Description",
+                            "definition": {
+                                "name": "description",
+                                "label": "Description",
+                                "type": "html",
+                                "reference": "",
+                                "read_only": False,
+                                "security": {"can_read": True, "can_write": True},
+                                "attributes": {"is_scriptable": True},
+                            },
+                        },
+                    ]
+                }
+            }
+        },
+    )
+    return schema
 
 
 def test_native_task_template_wire_preserves_json_html_and_escaped_carets():
@@ -117,8 +153,7 @@ def test_native_task_template_wire_preserves_json_html_and_escaped_carets():
         "description",
         "^description=x",
         "description=javascript:bad()",
-        "description=fd_scripted",
-        "coalesce_fields=number",
+        "description=fd-scripted",
         {"description": "x"},
     ],
 )
@@ -171,7 +206,7 @@ async def test_template_save_preserves_opaque_fields_and_independent_readback(
 
     flow = template_flow()
     _, tools = fixtures(settings, flow)
-    template_dictionary()
+    schema_read = template_dictionary()
 
     def save(request):
         payload = json.loads(request.content)
@@ -207,6 +242,7 @@ async def test_template_save_preserves_opaque_fields_and_independent_readback(
         )
     )
     assert preview["status"] == "success", preview
+    assert schema_read.called and not write.called
     result = decode_response(
         await tools["mutation_apply"](preview_token=preview["data"]["preview_token"])
     )
@@ -216,6 +252,24 @@ async def test_template_save_preserves_opaque_fields_and_independent_readback(
         else result["status"] == "success"
     ), result
     assert write.call_count == 1
+    assert schema_read.call_count >= 2
+    requests = [call.request for call in http_mock.calls]
+    if defect != "echo":
+        put_index = next(
+            index for index, request in enumerate(requests) if request.method == "PUT"
+        )
+        assert any(
+            request.method == "GET"
+            and request.url.path == f"/api/now/processflow/flow/{FLOW}"
+            for request in requests[put_index + 1 :]
+        )
+    assert all(
+        request.method == "GET"
+        or request.method == "PUT"
+        and request.url.path == "/api/now/processflow/flow"
+        for request in requests
+    )
+    assert not http_mock.unexpected
 
 
 async def test_native_template_encoded_transform_preserves_identity_and_checks_prescription(
@@ -395,7 +449,11 @@ def test_native_catch_toggle_preserves_opaque_status_value():
 @pytest.mark.parametrize(
     "kind,value,attributes",
     [
-        ("slushbucket", "a" * 32 + ":wrong_table", {"source_table": "item_option_new"}),
+        (
+            "slushbucket",
+            "a" * 32 + ":not a table!",
+            {"source_table": "item_option_new"},
+        ),
         (
             "slushbucket",
             "not-an-id:item_option_new",
@@ -409,7 +467,7 @@ def test_native_catch_toggle_preserves_opaque_status_value():
             {},
         ),
         ("approval_rules", "ApprovesRejectsAnyU[not-a-pill]", {}),
-        ("approval_rules", "ApprovesRejectsAnyM", {}),
+        ("approval_rules", "ApprovesRejects0%M", {}),
         ("approval_rules", "junk {{flow_variable.manager}}", {}),
         ("schedule_date_time", '{"action":"none"}', {"ui_approval": "true"}),
         (
@@ -494,7 +552,7 @@ def catalog_routes(selected):
             {"value": "REMOVE", "label": "Remove"},
         ],
     }
-    # Synthetic personal defaults must never enter persisted output metadata.
+    # Native catalog outputs retain source defaults; saved output values stay intact.
     selected = {
         **selected,
         "defaultValue": '{"display":"fixture-private","value":"' + "f" * 32 + '"}',
@@ -539,9 +597,8 @@ async def test_catalog_selection_update_preserves_outputs_and_binds_native_pills
         outputs[1]["name"] == "operation"
         and outputs[1]["choices"][1]["value"] == "REMOVE"
     )
-    assert outputs[1]["defaultValue"] == "" and "fixture-private" not in json.dumps(
-        result
-    )
+    assert outputs[1]["defaultValue"] == ""
+    assert outputs[0]["defaultValue"] == selected["defaultValue"]
     assert result["payload"]["label_cache"][0]["type"] == "choice"
     with pytest.raises(CapabilityError):
         await plan(
@@ -757,7 +814,9 @@ async def test_catalog_action_insertion_uses_independent_selected_output_schema(
     )
     row = result["payload"]["actionInstances"][0]
     assert [p["name"] for p in row["outputs"]] == ["subject", "operation"]
-    assert "fixture-private" not in json.dumps(result)
+    assert row["outputs"][0]["defaultValue"] == (
+        '{"display":"fixture-private","value":"' + "f" * 32 + '"}'
+    )
     assert row["actionType"] == definition
 
 

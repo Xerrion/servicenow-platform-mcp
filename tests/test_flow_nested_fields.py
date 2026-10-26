@@ -13,6 +13,7 @@ from tests.helpers import decode_response
 from tests.test_flow_data_edits import typed_flow
 from tests.test_flow_editing import BASE, FLOW, fixtures, persist
 from tests.test_flow_fields import plan
+from tests.test_flow_output_assignments import routes
 
 
 def subflow():
@@ -124,11 +125,16 @@ async def test_recursive_object_crud_and_pills(settings, collection):
         ("array.integer", "integer"),
         ("array.boolean", "boolean"),
         ("array.object", "object"),
+        ("array.reference", "reference"),
     ],
 )
 async def test_array_item_metadata_packing_and_nested_facets(settings, kind, item_type):
     flow = subflow()
     fixtures(settings, flow)
+    if kind == "array.reference":
+        http_mock.get(f"{BASE}/api/now/table/sys_db_object").respond(
+            200, json={"result": [{"name": "sc_req_item"}]}
+        )
     result = await plan(
         settings,
         flow,
@@ -147,6 +153,7 @@ async def test_array_item_metadata_packing_and_nested_facets(settings, kind, ite
                 "name": "items",
                 "label": "Items",
                 "type": kind,
+                **({"reference": "sc_req_item"} if kind == "array.reference" else {}),
             },
             {
                 "op": "create_field",
@@ -154,6 +161,7 @@ async def test_array_item_metadata_packing_and_nested_facets(settings, kind, ite
                 "name": "values",
                 "label": "Values",
                 "type": kind,
+                **({"reference": "sc_req_item"} if kind == "array.reference" else {}),
             },
         ],
     )
@@ -164,6 +172,11 @@ async def test_array_item_metadata_packing_and_nested_facets(settings, kind, ite
         assert row[storage]["child_uiUniqueId"] != row["uiUniqueId"]
         assert row.get("children", []) == []
         assert data.children(row)[0]["type"] == item_type
+        if kind == "array.reference":
+            assert row["reference"] == "sc_req_item"
+            assert data.children(row)[0]["reference"] == "sc_req_item"
+            assert "child_reference" not in row[storage]
+            assert declarations.pack(declarations.unpack(row)) == row
     assert top["attributes"]["child_name"] == "values_child0"
 
 
@@ -577,9 +590,7 @@ async def test_deleted_nested_id_cannot_reappear_under_new_name(settings):
         )
 
 
-@pytest.mark.parametrize(
-    "kind", ["reference", "json", "array.reference", "array.array", "array.choice"]
-)
+@pytest.mark.parametrize("kind", ["reference", "json"])
 async def test_unsupported_child_types_do_not_guess_metadata(settings, kind):
     flow = subflow()
     coordinator, tools = fixtures(settings, flow)
@@ -1123,9 +1134,16 @@ async def test_nested_leaf_removal_checks_non_input_dependencies(settings, locat
     fixtures(settings, flow)
     flow = (await plan(settings, flow, object_edits()))["payload"]
     if location == "script":
-        flow["actionInstances"][0]["inputs"][0].update(
+        binding = flow["actionInstances"][0]["inputs"][0]
+        binding.update(
             scriptActive=True,
-            script="return fd_data.subflow_inputs.payload.details.message;",
+            script={
+                binding["name"]: {
+                    "script": "return fd_data.subflow_inputs.payload.details.message;",
+                    "scriptActive": True,
+                    "showScript": True,
+                }
+            },
         )
     elif location == "source":
         flow["actionInstances"][0]["inputs"][0]["sourceUiUniqueId"] = flow["inputs"][0][
@@ -1275,3 +1293,314 @@ async def test_object_removal_cannot_implicitly_delete_readonly_child(settings):
             flow,
             [{"op": "delete_field", "collection": "inputs", "name": "payload"}],
         )
+
+
+@pytest.mark.parametrize("collection", ["inputs", "outputs"])
+async def test_reference_array_table_update_preserves_packed_identity(
+    settings, collection
+):
+    flow = subflow()
+    fixtures(settings, flow)
+    http_mock.get(f"{BASE}/api/now/table/sys_db_object").respond(
+        200, json={"result": [{"name": "sc_req_item"}]}
+    )
+    saved = (
+        await plan(
+            settings,
+            flow,
+            [
+                {
+                    "op": "create_field",
+                    "collection": collection,
+                    "name": "records",
+                    "label": "Records",
+                    "type": "array.reference",
+                    "reference": "sc_req_item",
+                }
+            ],
+        )
+    )["payload"]
+    original = saved[collection][0]
+    original["attributes"]["vendor"] = {"retain": False}
+    fixtures(settings, saved)
+    http_mock.get(f"{BASE}/api/now/table/sys_db_object").respond(
+        200, json={"result": [{"name": "task"}]}
+    )
+    updated = await plan(
+        settings,
+        saved,
+        [
+            {
+                "op": "update_field",
+                "collection": collection,
+                "name": "records",
+                "reference": "task",
+            }
+        ],
+    )
+    actual = updated["payload"][collection][0]
+    assert actual["reference"] == actual["table"] == "task"
+    assert actual["attributes"] == original["attributes"]
+    assert actual["uiUniqueId"] == original["uiUniqueId"]
+    assert data.children(actual)[0]["reference"] == "task"
+    assert declarations.pack(declarations.unpack(actual)) == actual
+    fixtures(settings, updated["payload"])
+    removed = await plan(
+        settings,
+        updated["payload"],
+        [{"op": "delete_field", "collection": collection, "name": "records"}],
+    )
+    assert removed["payload"][collection] == []
+
+
+@pytest.mark.parametrize("reference", [None, "", "Task", "task.field", "bad^table", 1])
+async def test_reference_array_creation_requires_static_parent_table(
+    settings, reference
+):
+    flow = subflow()
+    fixtures(settings, flow)
+    edit = {
+        "op": "create_field",
+        "collection": "inputs",
+        "name": "records",
+        "label": "Records",
+        "type": "array.reference",
+    }
+    if reference is not None:
+        edit["reference"] = reference
+    with pytest.raises((CapabilityError, ValueError)):
+        await plan(settings, flow, [edit])
+    assert all(call.request.method == "GET" for call in http_mock.calls)
+
+
+async def test_reference_array_creation_rejects_unreadable_table(settings):
+    flow = subflow()
+    fixtures(settings, flow)
+    http_mock.get(f"{BASE}/api/now/table/sys_db_object").respond(
+        200, json={"result": []}
+    )
+    with pytest.raises(CapabilityError, match="absent, ambiguous, or unreadable"):
+        await plan(
+            settings,
+            flow,
+            [
+                {
+                    "op": "create_field",
+                    "collection": "inputs",
+                    "name": "records",
+                    "label": "Records",
+                    "type": "array.reference",
+                    "reference": "task",
+                },
+            ],
+        )
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"type": "array.string", "reference": ""},
+        {"name": "records.records_child0", "type": "string", "reference": ""},
+        {"name": "records.records_child0", "reference": "sys_user"},
+        {"op": "delete_field", "name": "records.records_child0"},
+    ],
+)
+async def test_reference_array_item_type_table_and_identity_are_fixed(settings, change):
+    flow = subflow()
+    fixtures(settings, flow)
+    with pytest.raises(CapabilityError):
+        await plan(
+            settings,
+            flow,
+            [
+                {
+                    "op": "create_field",
+                    "collection": "inputs",
+                    "name": "records",
+                    "label": "Records",
+                    "type": "array.reference",
+                    "reference": "task",
+                },
+                {
+                    "op": "update_field",
+                    "collection": "inputs",
+                    "name": "records",
+                    **change,
+                },
+            ],
+        )
+
+
+async def test_reference_array_nested_inside_array_object_keeps_parent_table(settings):
+    flow = subflow()
+    fixtures(settings, flow)
+    http_mock.get(f"{BASE}/api/now/table/sys_db_object").respond(
+        200, json={"result": [{"name": "task"}]}
+    )
+    planned = await plan(
+        settings,
+        flow,
+        [
+            {
+                "op": "create_field",
+                "collection": "inputs",
+                "name": "rows",
+                "label": "Rows",
+                "type": "array.object",
+            },
+            {
+                "op": "create_field",
+                "collection": "inputs",
+                "parent": "rows.rows_child0",
+                "name": "records",
+                "label": "Records",
+                "type": "array.reference",
+                "reference": "task",
+            },
+        ],
+    )
+    root = planned["payload"]["inputs"][0]
+    nested = root["children"][0]
+    assert nested["reference"] == "task"
+    assert nested["fieldFacetMap"]["child_type"] == "reference"
+    restored = declarations.unpack(root)
+    item = restored["children"][0]["children"][0]["children"][0]
+    assert item["reference"] == "task"
+    assert item["uiUniqueId"] == nested["fieldFacetMap"]["child_uiUniqueId"]
+    assert declarations.pack(restored) == root
+
+
+async def test_reference_array_used_whole_pill_blocks_table_change_and_removal(
+    settings,
+):
+    flow = subflow()
+    routes(settings, flow)
+    for operation in (
+        {"op": "update_field", "reference": "sys_user"},
+        {"op": "delete_field"},
+    ):
+        with pytest.raises(CapabilityError, match="in use|referenced or assigned"):
+            await plan(
+                settings,
+                flow,
+                [
+                    {
+                        "op": "create_field",
+                        "collection": "inputs",
+                        "name": "source",
+                        "label": "Source",
+                        "type": "array.reference",
+                        "reference": "task",
+                    },
+                    {
+                        "op": "create_field",
+                        "collection": "outputs",
+                        "name": "target",
+                        "label": "Target",
+                        "type": "array.reference",
+                        "reference": "task",
+                    },
+                    {
+                        "op": "assign_outputs",
+                        "outputs": {"target": "{{subflow.source}}"},
+                    },
+                    {"collection": "inputs", "name": "source", **operation},
+                ],
+            )
+
+
+@pytest.mark.parametrize(
+    "defect",
+    [
+        "missing_table",
+        "invalid_table",
+        "wrong_type",
+        "missing_identity",
+        "scalar_children",
+    ],
+)
+def test_packed_reference_array_rejects_ambiguous_item_schema(defect):
+    row = {
+        "name": "records",
+        "type": "array.reference",
+        "reference": "task",
+        "children": [],
+        "attributes": {
+            "child_name": "records_child0",
+            "child_type": "reference",
+            "child_uiUniqueId": "item-ui",
+            "vendor": {"retain": False},
+        },
+    }
+    if defect == "missing_table":
+        row.pop("reference")
+    elif defect == "invalid_table":
+        row["reference"] = "task.field"
+    elif defect == "wrong_type":
+        row["attributes"]["child_type"] = "string"
+    elif defect == "missing_identity":
+        row["attributes"].pop("child_uiUniqueId")
+    else:
+        row["children"] = [{"name": "undeclared", "type": "string"}]
+    with pytest.raises(CapabilityError):
+        declarations.unpack(row)
+
+
+def test_reference_array_pack_does_not_move_parent_table_into_item_facets():
+    row = {
+        "name": "records",
+        "type": "array.reference",
+        "reference": "task",
+        "children": [],
+        "attributes": {
+            "child_name": "records_child0",
+            "child_type": "reference",
+            "child_uiUniqueId": "item-ui",
+            "vendor": {"retain": False},
+        },
+    }
+    expanded = declarations.unpack(row)
+    assert expanded["children"][0]["reference"] == "task"
+    assert declarations.pack(expanded) == row
+    expanded["children"][0]["reference"] = "sys_user"
+    with pytest.raises(CapabilityError, match="contradicts"):
+        declarations.pack(expanded)
+
+
+@pytest.mark.parametrize("identity", ["item-ui", "wrong-ui", None])
+def test_reference_array_existing_input_keeps_declared_item_identity(identity):
+    parameter = {
+        "name": "records",
+        "type": "array.reference",
+        "reference": "task",
+        "children": [
+            {
+                "name": "item",
+                "type": "reference",
+                "uiUniqueId": "item-ui",
+                "children": [],
+            }
+        ],
+    }
+    existing = {
+        "name": "item",
+        "type": "reference",
+        "reference": "task",
+        "uiUniqueId": identity,
+        "value": "1" * 32,
+        "vendor": {"retain": False},
+    }
+    binding = {
+        "name": "records",
+        "value": "",
+        "parameter": parameter,
+        "children": [existing],
+    }
+    if identity != "item-ui":
+        with pytest.raises(CapabilityError, match="identity differs"):
+            data.set_value(binding, ["2" * 32])
+    else:
+        data.set_value(binding, ["2" * 32])
+        assert binding["children"][0]["uiUniqueId"] == "item-ui"
+        assert binding["children"][0]["vendor"] == {"retain": False}
+        assert binding["parameter"] == parameter

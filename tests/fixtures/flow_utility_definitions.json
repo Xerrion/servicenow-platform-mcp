@@ -1,0 +1,732 @@
+[
+  {
+    "id": "fdb2541473031300b61e66476bf6a70e",
+    "name": "Wait for a duration of time",
+    "description": "Use this flow logic to give your users time to act during automated processes or to wait for a specific date and time to complete actions.",
+    "connectedTo": "",
+    "quiescence": "always",
+    "compilationClass": "com.glide.flow.compiler.logic_block.TimerCompiler",
+    "order": 8,
+    "inputs": [
+      {
+        "id": "4973581473031300b61e66476bf6a785",
+        "label": "Duration Type",
+        "name": "duration_type",
+        "type": "choice",
+        "type_label": "Choice",
+        "hint": "",
+        "order": 100,
+        "extended": false,
+        "mandatory": false,
+        "readonly": false,
+        "maxsize": 40,
+        "children": [],
+        "data_structure": "",
+        "reference": "",
+        "reference_display": "",
+        "ref_qual": "",
+        "choices": [
+          {
+            "label": "Explicit duration",
+            "value": "explicit_duration",
+            "order": 0
+          },
+          {
+            "label": "Relative duration",
+            "value": "relative_duration",
+            "order": 1
+          },
+          {
+            "label": "Percentage duration",
+            "value": "percentage_duration",
+            "order": 2
+          }
+        ],
+        "defaultChoices": [
+          {
+            "label": "Explicit duration",
+            "value": "explicit_duration",
+            "order": 1
+          },
+          {
+            "label": "Relative duration",
+            "value": "relative_duration",
+            "order": 2
+          },
+          {
+            "label": "Percentage duration",
+            "value": "percentage_duration",
+            "order": 3
+          }
+        ],
+        "choiceOption": "3",
+        "table": "",
+        "columnName": "",
+        "defaultValue": "explicit_duration",
+        "defaultDisplayValue": "Explicit duration",
+        "use_dependent": false,
+        "dependent_on": "",
+        "show_ref_finder": false,
+        "local": false,
+        "attributes": {
+          "element_mapping_provider": "com.glide.flow_design.action.data.FlowDesignVariableMapper"
+        },
+        "sys_class_name": ""
+      },
+      {
+        "id": "bf1d6161b736230034c6ce69ee11a920",
+        "label": "Percentage timer input date time",
+        "name": "percentage_timer_input_datetime",
+        "type": "glide_date_time",
+        "type_label": "Date/Time",
+        "hint": "",
+        "order": 100,
+        "extended": false,
+        "mandatory": false,
+        "readonly": false,
+        "maxsize": 100,
+        "children": [],
+        "data_structure": "",
+        "reference": "",
+        "reference_display": "",
+        "ref_qual": "",
+        "choiceOption": "",
+        "table": "",
+        "columnName": "",
+        "defaultValue": "",
+        "use_dependent": false,
+        "dependent_on": "",
+        "show_ref_finder": false,
+        "local": false,
+        "attributes": {
+          "element_mapping_provider": "com.glide.flow_design.action.data.FlowDesignVariableMapper",
+          "is_scriptable": "false"
+        },
+        "sys_class_name": ""
+      },
+      {
+        "id": "8033309c5376230034c6ddeeff7b12e1",
+        "label": "Percentage",
+        "name": "timer_percentage",
+        "type": "integer",
+        "type_label": "Integer",
+        "hint": "",
+        "order": 100,
+        "extended": false,
+        "mandatory": false,
+        "readonly": false,
+        "maxsize": 100,
+        "children": [],
+        "data_structure": "",
+        "reference": "",
+        "reference_display": "",
+        "ref_qual": "",
+        "choiceOption": "",
+        "table": "",
+        "columnName": "",
+        "defaultValue": "",
+        "use_dependent": false,
+        "dependent_on": "",
+        "show_ref_finder": false,
+        "local": false,
+        "attributes": {
+          "element_mapping_provider": "com.glide.flow_design.action.data.FlowDesignVariableMapper",
+          "is_scriptable": "false"
+        },
+        "sys_class_name": ""
+      },
+      {
+        "id": "ef145c1473031300b61e66476bf6a7be",
+        "label": "Duration",
+        "name": "timer_duration",
+        "type": "glide_duration",
+        "type_label": "Duration",
+        "hint": "",
+        "order": 200,
+        "extended": false,
+        "mandatory": false,
+        "readonly": false,
+        "maxsize": 40,
+        "children": [],
+        "data_structure": "",
+        "reference": "",
+        "reference_display": "",
+        "ref_qual": "",
+        "choiceOption": "",
+        "table": "",
+        "columnName": "",
+        "defaultValue": "",
+        "use_dependent": false,
+        "dependent_on": "",
+        "show_ref_finder": false,
+        "local": false,
+        "attributes": {
+          "element_mapping_provider": "com.glide.flow_design.action.data.FlowDesignVariableMapper",
+          "is_scriptable": "false"
+        },
+        "sys_class_name": ""
+      },
+      {
+        "id": "dca4105473031300b61e66476bf6a726",
+        "label": "Timer relative duration operator",
+        "name": "timer_relative_duration_operator",
+        "type": "choice",
+        "type_label": "Choice",
+        "hint": "",
+        "order": 300,
+        "extended": false,
+        "mandatory": false,
+        "readonly": false,
+        "maxsize": 40,
+        "children": [],
+        "data_structure": "",
+        "reference": "",
+        "reference_display": "",
+        "ref_qual": "",
+        "choices": [
+          {
+            "label": "after",
+            "value": "after",
+            "order": 0
+          },
+          {
+            "label": "before",
+            "value": "before",
+            "order": 1
+          }
+        ],
+        "defaultChoices": [
+          {
+            "label": "after",
+            "value": "after",
+            "order": 1
+          },
+          {
+            "label": "before",
+            "value": "before",
+            "order": 2
+          }
+        ],
+        "choiceOption": "3",
+        "table": "",
+        "columnName": "",
+        "defaultValue": "after",
+        "defaultDisplayValue": "after",
+        "use_dependent": true,
+        "dependent_on": "duration_type",
+        "show_ref_finder": false,
+        "local": false,
+        "attributes": {
+          "element_mapping_provider": "com.glide.flow_design.action.data.FlowDesignVariableMapper",
+          "dependency_value": "relative_duration",
+          "dependency_type": "mandatory"
+        },
+        "sys_class_name": ""
+      },
+      {
+        "id": "1f25d05473031300b61e66476bf6a773",
+        "label": "Timer relative date time",
+        "name": "timer_relative_duration_datetime",
+        "type": "glide_date_time",
+        "type_label": "Date/Time",
+        "hint": "",
+        "order": 400,
+        "extended": false,
+        "mandatory": false,
+        "readonly": false,
+        "maxsize": 40,
+        "children": [],
+        "data_structure": "",
+        "reference": "",
+        "reference_display": "",
+        "ref_qual": "",
+        "choiceOption": "",
+        "table": "",
+        "columnName": "",
+        "defaultValue": "",
+        "use_dependent": true,
+        "dependent_on": "duration_type",
+        "show_ref_finder": false,
+        "local": false,
+        "attributes": {
+          "is_scriptable": "false",
+          "element_mapping_provider": "com.glide.flow_design.action.data.FlowDesignVariableMapper",
+          "dependency_value": "relative_duration",
+          "dependency_type": "mandatory"
+        },
+        "sys_class_name": ""
+      },
+      {
+        "id": "fb55145473031300b61e66476bf6a762",
+        "label": "During the following schedule",
+        "name": "timer_schedule",
+        "type": "reference",
+        "type_label": "Reference",
+        "hint": "",
+        "order": 500,
+        "extended": false,
+        "mandatory": false,
+        "readonly": false,
+        "maxsize": 32,
+        "children": [],
+        "data_structure": "",
+        "reference": "cmn_schedule",
+        "reference_display": "Schedule",
+        "ref_qual": "",
+        "choiceOption": "",
+        "table": "",
+        "columnName": "",
+        "defaultValue": "",
+        "use_dependent": false,
+        "dependent_on": "",
+        "show_ref_finder": false,
+        "local": false,
+        "searchField": "name",
+        "attributes": {
+          "element_mapping_provider": "com.glide.flow_design.action.data.FlowDesignVariableMapper"
+        },
+        "sys_class_name": ""
+      }
+    ],
+    "variables": [
+      {
+        "reference": "",
+        "internal_link": "",
+        "read_only": "false",
+        "name": "total_duration",
+        "attributes": {
+          "pills_draggable_inside_block": "false",
+          "pills_draggable_outside_block": "true"
+        },
+        "display_name": "Total Duration",
+        "type": "glide_duration",
+        "mandatory": "false",
+        "order": "100"
+      },
+      {
+        "reference": "",
+        "internal_link": "",
+        "read_only": "false",
+        "name": "scheduled_end_date_time",
+        "attributes": {
+          "pills_draggable_inside_block": "false",
+          "pills_draggable_outside_block": "true"
+        },
+        "display_name": "Scheduled End date/time",
+        "type": "glide_date_time",
+        "mandatory": "false",
+        "order": "200"
+      }
+    ],
+    "type": "TIMER",
+    "visible": true,
+    "attributes": {
+      "allow_children": "false",
+      "allow_siblings": "true",
+      "has_static_outputs": "true",
+      "pills_draggable_inside_block": "true",
+      "pills_draggable_outside_block": "true"
+    },
+    "userCanRead": true,
+    "category": ""
+  },
+  {
+    "id": "e6edace2733203006715b45a4cf6a7b2",
+    "name": "Call a Workflow",
+    "description": "Run a published and active workflow from your flow. You can use the flow data as a workflow input. For example, you can specify the current record as a workflow input.",
+    "connectedTo": "",
+    "quiescence": "depends_on_step_configuration",
+    "compilationClass": "com.glide.flow.compiler.logic_block.RunWorkflowCompiler",
+    "order": 9,
+    "inputs": [
+      {
+        "id": "4aa624e8734303006715b45a4cf6a785",
+        "label": "Wait",
+        "name": "wait",
+        "type": "boolean",
+        "type_label": "True/False",
+        "hint": "",
+        "order": 100,
+        "extended": false,
+        "mandatory": false,
+        "readonly": false,
+        "maxsize": 40,
+        "children": [],
+        "data_structure": "",
+        "reference": "",
+        "reference_display": "",
+        "ref_qual": "",
+        "choiceOption": "",
+        "table": "",
+        "columnName": "",
+        "defaultValue": "",
+        "use_dependent": false,
+        "dependent_on": "",
+        "show_ref_finder": false,
+        "local": false,
+        "attributes": {
+          "element_mapping_provider": "com.glide.flow_design.action.data.FlowDesignVariableMapper"
+        },
+        "sys_class_name": ""
+      },
+      {
+        "id": "ca8e542f73201300612c273ffff6a7a3",
+        "label": "Current",
+        "name": "current",
+        "type": "document_id",
+        "type_label": "Document ID",
+        "hint": "",
+        "order": 200,
+        "extended": false,
+        "mandatory": false,
+        "readonly": false,
+        "maxsize": 32,
+        "children": [],
+        "data_structure": "",
+        "reference": "",
+        "reference_display": "",
+        "ref_qual": "",
+        "choiceOption": "",
+        "table": "",
+        "columnName": "",
+        "defaultValue": "",
+        "use_dependent": false,
+        "dependent_on": "",
+        "show_ref_finder": false,
+        "local": false,
+        "attributes": {
+          "element_mapping_provider": "com.glide.flow_design.action.data.FlowDesignVariableMapper"
+        },
+        "sys_class_name": ""
+      }
+    ],
+    "variables": [
+      {
+        "reference": "",
+        "internal_link": "",
+        "read_only": "false",
+        "name": "state",
+        "attributes": {
+          "pills_draggable_inside_block": "false",
+          "pills_draggable_outside_block": "true"
+        },
+        "display_name": "State",
+        "type": "string",
+        "mandatory": "false",
+        "order": "100"
+      },
+      {
+        "reference": "wf_context",
+        "internal_link": "",
+        "read_only": "false",
+        "name": "context",
+        "attributes": {
+          "pills_draggable_inside_block": "false",
+          "pills_draggable_outside_block": "true"
+        },
+        "display_name": "Context",
+        "type": "reference",
+        "mandatory": "false",
+        "order": "100"
+      },
+      {
+        "reference": "",
+        "internal_link": "",
+        "read_only": "false",
+        "name": "result",
+        "attributes": {
+          "pills_draggable_inside_block": "false",
+          "pills_draggable_outside_block": "true"
+        },
+        "display_name": "Result",
+        "type": "string",
+        "mandatory": "false",
+        "order": "100"
+      },
+      {
+        "reference": "",
+        "internal_link": "",
+        "read_only": "false",
+        "name": "returnval",
+        "attributes": {
+          "pills_draggable_inside_block": "false",
+          "pills_draggable_outside_block": "true"
+        },
+        "display_name": "Return Value",
+        "type": "string",
+        "mandatory": "false",
+        "order": "100"
+      }
+    ],
+    "type": "RUNWORKFLOW",
+    "visible": true,
+    "attributes": {
+      "allow_children": "false",
+      "has_static_outputs": "true",
+      "pills_draggable_inside_block": "true",
+      "pills_draggable_outside_block": "true"
+    },
+    "userCanRead": true,
+    "category": ""
+  },
+  {
+    "id": "5ede711653223300414eddeeff7b1256",
+    "name": "Dynamic Flow",
+    "description": "Identify and run a flow or subflow dynamically by using runtime data. Build templates to provide expected inputs for dynamically called flows or subflows.",
+    "connectedTo": "",
+    "quiescence": "",
+    "compilationClass": "com.glide.flow.compiler.logic_block.DynamicSubFlowCompiler",
+    "order": 12,
+    "inputs": [
+      {
+        "id": "6320ce1653223300414eddeeff7b1292",
+        "label": "Flow Template",
+        "name": "flow_template",
+        "type": "reference",
+        "type_label": "Reference",
+        "hint": "",
+        "order": 100,
+        "extended": false,
+        "mandatory": true,
+        "readonly": false,
+        "maxsize": 32,
+        "children": [],
+        "data_structure": "",
+        "reference": "sys_hub_flow",
+        "reference_display": "Flow",
+        "ref_qual": "",
+        "choiceOption": "1",
+        "table": "",
+        "columnName": "",
+        "defaultValue": "",
+        "use_dependent": false,
+        "dependent_on": "",
+        "show_ref_finder": false,
+        "local": false,
+        "searchField": "name",
+        "attributes": {
+          "element_mapping_provider": "com.glide.flow_design.action.data.FlowDesignVariableMapper"
+        },
+        "sys_class_name": ""
+      },
+      {
+        "id": "5c16523a733233008dcbedcc5ef6a778",
+        "label": "Wait for completion",
+        "name": "wait_for_completion",
+        "type": "boolean",
+        "type_label": "True/False",
+        "hint": "",
+        "order": 200,
+        "extended": false,
+        "mandatory": false,
+        "readonly": false,
+        "maxsize": 40,
+        "children": [],
+        "data_structure": "",
+        "reference": "",
+        "reference_display": "",
+        "ref_qual": "",
+        "choiceOption": "",
+        "table": "",
+        "columnName": "",
+        "defaultValue": "",
+        "use_dependent": false,
+        "dependent_on": "",
+        "show_ref_finder": false,
+        "local": false,
+        "attributes": {
+          "element_mapping_provider": "com.glide.flow_design.action.data.FlowDesignVariableMapper"
+        },
+        "sys_class_name": ""
+      },
+      {
+        "id": "0a68167f733233008dcbedcc5ef6a7b9",
+        "label": "Flow",
+        "name": "flow",
+        "type": "string",
+        "type_label": "String",
+        "hint": "",
+        "order": 200,
+        "extended": false,
+        "mandatory": true,
+        "readonly": false,
+        "maxsize": 2000,
+        "children": [],
+        "data_structure": "",
+        "reference": "",
+        "reference_display": "",
+        "ref_qual": "",
+        "choiceOption": "",
+        "table": "",
+        "columnName": "",
+        "defaultValue": "",
+        "use_dependent": false,
+        "dependent_on": "",
+        "show_ref_finder": false,
+        "local": false,
+        "attributes": {
+          "element_mapping_provider": "com.glide.flow_design.action.data.FlowDesignVariableMapper"
+        },
+        "sys_class_name": ""
+      }
+    ],
+    "variables": [
+      {
+        "reference": "sys_flow_context",
+        "internal_link": "",
+        "read_only": "false",
+        "name": "context",
+        "attributes": {},
+        "display_name": "Context",
+        "type": "reference",
+        "mandatory": "false",
+        "order": "100"
+      }
+    ],
+    "type": "RUNDYNAMICFLOW",
+    "visible": true,
+    "attributes": {
+      "allow_children": "false",
+      "has_static_outputs": "true",
+      "pills_draggable_inside_block": "true",
+      "pills_draggable_outside_block": "true"
+    },
+    "userCanRead": true,
+    "category": ""
+  },
+  {
+    "id": "167796d8731f33008dcbedcc5ef6a7ce",
+    "name": "Get Flow Outputs",
+    "description": "Use this flow logic to access flow contexts and derive the runtime values for dynamic flow outputs.",
+    "connectedTo": "",
+    "quiescence": "",
+    "compilationClass": "com.glide.flow.compiler.logic_block.GetFlowOutputsCompiler",
+    "order": 13,
+    "inputs": [
+      {
+        "id": "4ab9da1c731f33008dcbedcc5ef6a77c",
+        "label": "Flow Template",
+        "name": "flow_template",
+        "type": "reference",
+        "type_label": "Reference",
+        "hint": "",
+        "order": 100,
+        "extended": false,
+        "mandatory": false,
+        "readonly": false,
+        "maxsize": 32,
+        "children": [],
+        "data_structure": "",
+        "reference": "sys_hub_flow",
+        "reference_display": "Flow",
+        "ref_qual": "",
+        "choiceOption": "",
+        "table": "",
+        "columnName": "",
+        "defaultValue": "",
+        "use_dependent": false,
+        "dependent_on": "",
+        "show_ref_finder": false,
+        "local": false,
+        "searchField": "name",
+        "attributes": {
+          "element_mapping_provider": "com.glide.flow_design.action.data.FlowDesignVariableMapper"
+        },
+        "sys_class_name": ""
+      },
+      {
+        "id": "a939161c731f33008dcbedcc5ef6a7a0",
+        "label": "Context",
+        "name": "context",
+        "type": "document_id",
+        "type_label": "Document ID",
+        "hint": "",
+        "order": 200,
+        "extended": false,
+        "mandatory": true,
+        "readonly": false,
+        "maxsize": 2000,
+        "children": [],
+        "data_structure": "",
+        "reference": "",
+        "reference_display": "",
+        "ref_qual": "",
+        "choiceOption": "",
+        "table": "",
+        "columnName": "",
+        "defaultValue": "",
+        "use_dependent": false,
+        "dependent_on": "",
+        "show_ref_finder": false,
+        "local": false,
+        "attributes": {
+          "element_mapping_provider": "com.glide.flow_design.action.data.FlowDesignVariableMapper"
+        },
+        "sys_class_name": ""
+      }
+    ],
+    "variables": [],
+    "type": "GETFLOWOUTPUTS",
+    "visible": true,
+    "attributes": {
+      "allow_children": "false",
+      "has_static_outputs": "true",
+      "pills_draggable_inside_block": "true",
+      "pills_draggable_outside_block": "true"
+    },
+    "userCanRead": true,
+    "category": ""
+  },
+  {
+    "id": "2f6feee173f03010e46b4a2214f6a776",
+    "name": "Update Flow Template",
+    "description": "Updates flow template with user inputs.",
+    "connectedTo": "",
+    "quiescence": "never",
+    "compilationClass": "com.snc.templates.flow_logic.UpdateFlowTemplateCompiler",
+    "order": 18,
+    "inputs": [
+      {
+        "id": "ec127e6573f03010e46b4a2214f6a7c7",
+        "label": "Flow",
+        "name": "flow",
+        "type": "reference",
+        "type_label": "Reference",
+        "hint": "",
+        "order": 100,
+        "extended": false,
+        "mandatory": true,
+        "readonly": false,
+        "maxsize": 32,
+        "children": [],
+        "data_structure": "",
+        "reference": "sys_hub_flow",
+        "reference_display": "Flow",
+        "ref_qual": "",
+        "choiceOption": "",
+        "table": "",
+        "columnName": "",
+        "defaultValue": "",
+        "use_dependent": false,
+        "dependent_on": "",
+        "show_ref_finder": false,
+        "local": false,
+        "searchField": "name",
+        "attributes": {
+          "element_mapping_provider": "com.glide.flow_design.action.data.FlowDesignVariableMapper"
+        },
+        "sys_class_name": ""
+      }
+    ],
+    "variables": [],
+    "type": "UPDATEFLOWTEMPLATE",
+    "visible": true,
+    "attributes": {
+      "allow_children": "false",
+      "allow_siblings": "true",
+      "visible_in_picker": "false"
+    },
+    "userCanRead": true,
+    "category": ""
+  }
+]

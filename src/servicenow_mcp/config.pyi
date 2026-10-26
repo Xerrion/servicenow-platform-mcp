@@ -1,4 +1,5 @@
 from os import PathLike
+from typing import Literal
 
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings
@@ -17,6 +18,7 @@ class Settings(BaseSettings):
     servicenow_oauth_scope: str
     servicenow_oauth_redirect_uri: str
     servicenow_oauth_timeout_seconds: int
+    servicenow_oauth_cache: Literal["memory", "os"]
     mcp_tool_package: str
     servicenow_env: str
     max_row_limit: int
@@ -36,6 +38,7 @@ class Settings(BaseSettings):
         servicenow_oauth_scope: str = ...,
         servicenow_oauth_redirect_uri: str = ...,
         servicenow_oauth_timeout_seconds: int = ...,
+        servicenow_oauth_cache: Literal["memory", "os"] = ...,
         mcp_tool_package: str = ...,
         servicenow_env: str = ...,
         max_row_limit: int = ...,

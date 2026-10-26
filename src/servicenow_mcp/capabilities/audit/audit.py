@@ -19,9 +19,8 @@ API for every call.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import Any, Final, NoReturn
+from typing import TYPE_CHECKING, Any, Final, NoReturn
 
-from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.capabilities.audit._audit_counts import fetch_field_counts
 from servicenow_mcp.capabilities.audit._audit_models import (
     AuditHistory,
@@ -37,18 +36,23 @@ from servicenow_mcp.capabilities.audit._audit_models import (
 )
 from servicenow_mcp.capabilities.contracts import CapabilityError, CapabilityResult
 from servicenow_mcp.capabilities.contracts import result as operation_result
-from servicenow_mcp.config import Settings
 from servicenow_mcp.errors import ServiceNowMCPError
 from servicenow_mcp.platform.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.platform.metadata._dictionary import DictionaryRegistry
 from servicenow_mcp.platform.metadata.audit import AuditRegistry, FieldAudit
 from servicenow_mcp.policy import check_table_access, mask_audit_entry
 from servicenow_mcp.query_builder import ServiceNowQuery
-from servicenow_mcp.telemetry import HttpTelemetry
 from servicenow_mcp.validation import validate_identifier, validate_sys_id
 
+if TYPE_CHECKING:
+    from servicenow_mcp.auth import OAuthPKCEProvider
+    from servicenow_mcp.config import Settings
+    from servicenow_mcp.telemetry import HttpTelemetry
 
-_VALID_ACTIONS: Final[frozenset[str]] = frozenset({"check_field", "check_fields", "check_table", "history", "describe"})
+
+_VALID_ACTIONS: Final[frozenset[str]] = frozenset(
+    {"check_field", "check_fields", "check_table", "history", "describe"}
+)
 
 _DEFAULT_WINDOW_DAYS: Final[int] = 90
 _MAX_FIELDS_PER_BATCH: Final[int] = 50
@@ -134,16 +138,20 @@ async def _stats_count(
     builder = builder.greater_or_equal("sys_created_on", since)
     query = builder.build()
     result = await client.aggregate("sys_audit", query)
-    if not isinstance(result, dict) or "stats" not in result or not isinstance(result["stats"], dict):
+    if (
+        not isinstance(result, dict)
+        or "stats" not in result
+        or not isinstance(result["stats"], dict)
+    ):
         raise ServiceNowMCPError(
             f"sys_audit Stats API returned a malformed response (missing 'stats' object) "
-            f"for table={table!r} field={field!r}; cannot determine positive-control count."
+            f"for table={table!r} field={field!r}; cannot determine positive-control count.",
         )
     stats = result["stats"]
     if "count" not in stats:
         raise ServiceNowMCPError(
             f"sys_audit Stats API response is missing 'stats.count' for table={table!r} field={field!r}; "
-            f"cannot determine positive-control count."
+            f"cannot determine positive-control count.",
         )
     raw = stats["count"]
     try:
@@ -151,7 +159,7 @@ async def _stats_count(
     except (TypeError, ValueError) as exc:
         raise ServiceNowMCPError(
             f"sys_audit Stats API returned non-integer 'stats.count'={raw!r} for "
-            f"table={table!r} field={field!r}; cannot determine positive-control count."
+            f"table={table!r} field={field!r}; cannot determine positive-control count.",
         ) from exc
 
 
@@ -275,9 +283,13 @@ async def _action_check_field(
     table_count = 0
     if table_audit is not False:
         async with client_factory() as client:
-            table_count = await _stats_count(client, table=table, field=None, since=since)
+            table_count = await _stats_count(
+                client, table=table, field=None, since=since
+            )
             if fa.has_row:
-                field_count = await _stats_count(client, table=table, field=field, since=since)
+                field_count = await _stats_count(
+                    client, table=table, field=field, since=since
+                )
 
     payload = _check_field_payload(
         table=table,
@@ -330,14 +342,16 @@ async def _action_check_fields(
     field_counts: dict[str, int] = dict.fromkeys(fields, 0)
     if table_audit is not False:
         async with client_factory() as client:
-            table_count = await _stats_count(client, table=table, field=None, since=since)
+            table_count = await _stats_count(
+                client, table=table, field=None, since=since
+            )
             field_counts.update(
                 await fetch_field_counts(
                     client,
                     table=table,
                     fields=[name for name, fa in field_audits.items() if fa.has_row],
                     since=since,
-                )
+                ),
             )
 
     results: list[BatchFieldVerdict] = []
@@ -360,7 +374,7 @@ async def _action_check_fields(
                 field_change_count=field_counts[name],
                 explanation=explanation,
                 reason=reason,
-            )
+            ),
         )
 
     payload = BatchVerdicts(
@@ -413,10 +427,15 @@ async def _action_check_table(
                 inherited_from=fa.inherited_from,
                 reason=reason,
                 field_attributes=_build_field_attributes(fa),
-            )
+            ),
         )
 
-    payload = TableAudit(table=table, super_class_chain=chain, table_audit=table_audit, field_overrides=overrides)
+    payload = TableAudit(
+        table=table,
+        super_class_chain=chain,
+        table_audit=table_audit,
+        field_overrides=overrides,
+    )
     return operation_result(data=payload.to_payload())
 
 
@@ -472,7 +491,11 @@ async def _action_history(
     payload = AuditHistory(
         table=table,
         sys_id=sys_id,
-        window=HistoryWindow(since=cutoff, window_days=effective_window, explicit_since=bool(explicit_since)),
+        window=HistoryWindow(
+            since=cutoff,
+            window_days=effective_window,
+            explicit_since=bool(explicit_since),
+        ),
         window_note=note,
         entry_count=len(masked),
         entries=masked,
@@ -503,8 +526,12 @@ class AuditCapability:
     ) -> None:
         """Bind the operation's platform and metadata dependencies."""
 
-        client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
-        dictionary_registry = dictionary or DictionaryRegistry(settings, auth_provider, client_factory)
+        client_factory = client_factory or (
+            lambda: ServiceNowClient(settings, auth_provider)
+        )
+        dictionary_registry = dictionary or DictionaryRegistry(
+            settings, auth_provider, client_factory
+        )
         audit_registry = AuditRegistry(
             settings,
             auth_provider,

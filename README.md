@@ -50,13 +50,13 @@ Use the MCP to inspect how your instance works, investigate issues, and prepare
 changes to ServiceNow configuration. You can start with a record name or a
 question. You do not need to write API requests or know the MCP tool names.
 
-| Work | What you can inspect |
-| --- | --- |
-| Tables and fields | Field types, choice labels, references, and inherited fields. |
-| Scripts | Business Rules, Script Includes, Client Scripts, and code-search matches. |
-| Flow Designer | Flow and subflow triggers, inputs, outputs, and configured steps. |
-| Troubleshooting | Recent errors, slow transactions, table health, and audit history. |
-| Configuration management database (CMDB) | Configuration items, their relationships, and class metadata. |
+| Work                                     | What you can inspect                                                      |
+| ---------------------------------------- | ------------------------------------------------------------------------- |
+| Tables and fields                        | Field types, choice labels, references, and inherited fields.             |
+| Scripts                                  | Business Rules, Script Includes, Client Scripts, and code-search matches. |
+| Flow Designer                            | Flow and subflow triggers, inputs, outputs, and configured steps.         |
+| Troubleshooting                          | Recent errors, slow transactions, table health, and audit history.        |
+| Configuration management database (CMDB) | Configuration items, their relationships, and class metadata.             |
 
 For example:
 
@@ -68,8 +68,8 @@ For example:
 Replace example rule and flow names with records from your instance.
 
 Diagnostic findings help you investigate a cause. They do not establish a root
-cause or automatically repair the instance. Flow Designer tools inspect stored
-configuration. They do not edit, publish, or run flows.
+cause or automatically repair the instance. The `flow` tool reads stored
+configuration, checks saved V2 structure locally, and reads status. It never changes or executes a flow.
 
 With write tools enabled, you can create or update configuration records,
 including script fields. Follow the [change workflow](#making-changes) before
@@ -94,13 +94,13 @@ Open **System OAuth > Application Registry**. Select **New**, then
 **Create an OAuth API endpoint for external clients**, or select an existing inbound application.
 Configure the application to meet these requirements:
 
-| Requirement | Value |
-| --- | --- |
-| Client type | Public, with no client secret |
-| Authorization flow | Authorization code with PKCE |
-| PKCE method | `S256` |
-| Scope | `useraccount` |
-| Redirect URL | `http://127.0.0.1:8765/oauth/callback` |
+| Requirement        | Value                                  |
+| ------------------ | -------------------------------------- |
+| Client type        | Public, with no client secret          |
+| Authorization flow | Authorization code with PKCE           |
+| PKCE method        | `S256`                                 |
+| Scope              | `useraccount`                          |
+| Redirect URL       | `http://127.0.0.1:8765/oauth/callback` |
 
 Save the application. Copy its public client ID for the next step.
 If you cannot configure OAuth, ask your ServiceNow administrator to provide
@@ -131,9 +131,7 @@ Save this configuration as `.mcp.json` in the top-level folder you open in your 
   "mcpServers": {
     "servicenow-platform": {
       "command": "uvx",
-      "args": [
-        "servicenow-platform-mcp"
-      ],
+      "args": ["servicenow-platform-mcp"],
       "env": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
         "SERVICENOW_OAUTH_CLIENT_ID": "your-public-client-id",
@@ -162,10 +160,7 @@ Add this to `opencode.json` in your project:
   "mcp": {
     "servicenow-platform": {
       "type": "local",
-      "command": [
-        "uvx",
-        "servicenow-platform-mcp"
-      ],
+      "command": ["uvx", "servicenow-platform-mcp"],
       "enabled": true,
       "environment": {
         "SERVICENOW_INSTANCE_URL": "https://your-instance.service-now.com",
@@ -199,8 +194,9 @@ A returned record confirms that the connection can read that table.
 If you cannot read incidents, use a table your account can access.
 Tool discovery alone does not confirm a working ServiceNow connection.
 
-Tokens stay in server memory. The server renews an expired access token when
-it can. Restarting the server requires browser authorization again.
+Tokens stay in server memory by default. The server renews expired access tokens when possible.
+Optional `SERVICENOW_OAUTH_CACHE=os` stores only refresh tokens in the native OS credential store,
+so a new local process can reuse a previous login. See [OAuth cache configuration](docs/wiki/Configuration.md#optional-os-oauth-cache).
 
 ## Making changes
 
@@ -235,7 +231,7 @@ For a script update:
 `record_preview`, `attachment_preview`, and `service_catalog_preview` return single-use tokens.
 `mutation_apply` consumes a reviewed token and checks policy, authorization, and detectable state changes.
 Tokens expire after 300 seconds and disappear on restart.
-If a remote outcome is unknown, check ServiceNow before creating another preview.
+If a remote outcome is `UNKNOWN_OUTCOME`, read the target state before another preview. Never automatically replay the operation.
 
 Catalog browsing is available in `readonly` through `service_catalog`.
 Catalog mutation previews require the `service_catalog_write` group.
@@ -252,12 +248,12 @@ record access. Tool selection and environment settings are additional local cont
 
 `MCP_TOOL_PACKAGE` controls which tools your AI app can call:
 
-| Package | Use |
-| --- | --- |
-| `readonly` | ITSM reads, metadata, attachments, investigations, audits, flows, code search, and CMDB inspection. |
-| `core_readonly` | Only queries, table descriptions, and attachment reads. |
-| `full` | All tools, including record writes, attachment writes, and catalog actions. |
-| `none` | Only `list_tool_packages`, for checking that the server starts. |
+| Package         | Use                                                                                                 |
+| --------------- | --------------------------------------------------------------------------------------------------- |
+| `readonly`      | ITSM reads, metadata, attachments, investigations, audits, flows, code search, and CMDB inspection. |
+| `core_readonly` | Only queries, table descriptions, and attachment reads.                                             |
+| `full`          | All tools, including reviewed record, attachment, and catalog changes.                              |
+| `none`          | Only `list_tool_packages`, for checking that the server starts.                                     |
 
 The package defaults to `readonly` and the environment defaults to `prod`.
 A package enables tools. It does not grant ServiceNow permissions.
@@ -266,13 +262,13 @@ For the full inventory and tool inputs, see the [tool reference](docs/wiki/Tool-
 
 ## If something does not work
 
-| Problem | Next action |
-| --- | --- |
-| The AI app cannot start the server | Check Python, `uv`, the launch command, and the two required ServiceNow settings. |
-| No browser opens, or authorization times out | Use a browser on the server's computer. Check the exact registered redirect URL. |
-| ServiceNow rejects OAuth | Ask the administrator to check public-client mode, PKCE S256, client ID, scope, and redirect URL. |
-| Sign-in works, but a record request returns 401 or 403 | Ask the administrator to check API policies, roles, and record or field access rules. |
-| Tools are missing or settings did not change | Check `MCP_TOOL_PACKAGE` and restart the MCP server. |
+| Problem                                                | Next action                                                                                       |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| The AI app cannot start the server                     | Check Python, `uv`, the launch command, and the two required ServiceNow settings.                 |
+| No browser opens, or authorization times out           | Use a browser on the server's computer. Check the exact registered redirect URL.                  |
+| ServiceNow rejects OAuth                               | Ask the administrator to check public-client mode, PKCE S256, client ID, scope, and redirect URL. |
+| Sign-in works, but a record request returns 401 or 403 | Ask the administrator to check API policies, roles, and record or field access rules.             |
+| Tools are missing or settings did not change           | Check `MCP_TOOL_PACKAGE` and restart the MCP server.                                              |
 
 For a failed request, include the action, record or table, and sanitized error
 in your report. Exclude passwords, tokens, raw headers, and browser callback URLs.

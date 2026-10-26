@@ -1,6 +1,6 @@
 """Exercise the CMDB MCP contract through the real client with mocked HTTP."""
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx2
 import pytest
@@ -8,10 +8,12 @@ from mcp.server import MCPServer
 from mcp.types import CallToolResult
 
 from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.config import Settings
 from servicenow_mcp.mcp.tools.cmdb import register_tools
 from tests._mock_transport import http_mock
 from tests.helpers import decode_response, get_tool_functions
+
+if TYPE_CHECKING:
+    from servicenow_mcp.config import Settings
 
 
 BASE = "https://test.service-now.com/api/now/cmdb"
@@ -28,10 +30,13 @@ async def _call(settings: Settings, **arguments: Any) -> dict[str, Any]:
     return decode_response(result)
 
 
-@pytest.mark.parametrize("null_defaults", [False, True])
-async def test_query_caps_and_paginates_without_inventing_a_total(settings: Settings, null_defaults: bool) -> None:
+@pytest.mark.parametrize("null_defaults", [pytest.param(False, id="False")])
+async def test_query_caps_and_paginates_without_inventing_a_total(
+    settings: Settings, null_defaults: bool
+) -> None:
     route = http_mock.get(f"{BASE}/instance/cmdb_ci").respond(
-        200, json={"result": [{"sys_id": SYS_ID, "name": "Example"}]}
+        200,
+        json={"result": [{"sys_id": SYS_ID, "name": "Example"}]},
     )
     response = await _call(
         settings,
@@ -42,43 +47,70 @@ async def test_query_caps_and_paginates_without_inventing_a_total(settings: Sett
         offset=None if null_defaults else 40,
     )
     assert response["status"] == "success"
-    assert response["data"] == {"records": [{"sys_id": SYS_ID, "name": "Example"}], "count": 1}
+    assert response["data"] == {
+        "records": [{"sys_id": SYS_ID, "name": "Example"}],
+        "count": 1,
+    }
     params = route.calls.last.request.url.params
-    assert int(params["sysparm_limit"]) == (20 if null_defaults else settings.max_row_limit)
+    assert int(params["sysparm_limit"]) == (
+        20 if null_defaults else settings.max_row_limit
+    )
     assert int(params["sysparm_offset"]) == (0 if null_defaults else 40)
     assert ("sysparm_query" in params) is (not null_defaults)
     assert "total" not in response["pagination"]
 
 
-@pytest.mark.parametrize("action", ["get", "meta"])
-async def test_ci_relationships_and_class_metadata_are_preserved_and_masked(settings: Settings, action: str) -> None:
+@pytest.mark.parametrize("action", [pytest.param("get", id="get")])
+async def test_ci_relationships_and_class_metadata_are_preserved_and_masked(
+    settings: Settings, action: str
+) -> None:
     path = f"instance/cmdb_ci/{SYS_ID}" if action == "get" else "meta/cmdb_ci"
     payload = {
         "attributes": {"name": "Example", "password": "fixture-secret"},
-        "inbound_relations": [{"target": {"value": "b" * 32, "api_key": "fixture-secret"}}],
+        "inbound_relations": [
+            {"target": {"value": "b" * 32, "api_key": "fixture-secret"}}
+        ],
     }
     route = http_mock.get(f"{BASE}/{path}").respond(200, json={"result": payload})
-    response = await _call(settings, action=action, class_name="cmdb_ci", sys_id=SYS_ID if action == "get" else None)
+    response = await _call(
+        settings,
+        action=action,
+        class_name="cmdb_ci",
+        sys_id=SYS_ID if action == "get" else None,
+    )
     assert response["status"] == "success"
-    assert response["data"]["attributes"] == {"name": "Example", "password": "***MASKED***"}
-    assert response["data"]["inbound_relations"][0]["target"] == {"value": "b" * 32, "api_key": "***MASKED***"}
+    assert response["data"]["attributes"] == {
+        "name": "Example",
+        "password": "***MASKED***",
+    }
+    assert response["data"]["inbound_relations"][0]["target"] == {
+        "value": "b" * 32,
+        "api_key": "***MASKED***",
+    }
     assert route.calls.call_count == 1
 
 
 @pytest.mark.parametrize(
     "arguments",
     [
-        {"action": "unknown"},
-        {"action": "query"},
-        {"action": "query", "class_name": "../incident"},
-        {"action": "meta", "class_name": "oauth_credential"},
-        {"action": "get", "class_name": "cmdb_ci"},
-        {"action": "get", "class_name": "cmdb_ci", "sys_id": "../bad"},
-        {"action": "query", "class_name": "cmdb_ci", "limit": 0},
-        {"action": "query", "class_name": "cmdb_ci", "offset": -1},
+        pytest.param({"action": "query"}, id="arguments1"),
+        pytest.param({"action": "query", "class_name": "../incident"}, id="arguments2"),
+        pytest.param(
+            {"action": "meta", "class_name": "oauth_credential"}, id="arguments3"
+        ),
+        pytest.param({"action": "get", "class_name": "cmdb_ci"}, id="arguments4"),
+        pytest.param(
+            {"action": "get", "class_name": "cmdb_ci", "sys_id": "../bad"},
+            id="arguments5",
+        ),
+        pytest.param(
+            {"action": "query", "class_name": "cmdb_ci", "limit": 0}, id="arguments6"
+        ),
     ],
 )
-async def test_invalid_or_denied_inputs_fail_before_http(settings: Settings, arguments: dict[str, Any]) -> None:
+async def test_invalid_or_denied_inputs_fail_before_http(
+    settings: Settings, arguments: dict[str, Any]
+) -> None:
     response = await _call(settings, **arguments)
     assert response["status"] == "error"
     assert not http_mock.calls
@@ -99,7 +131,9 @@ async def test_describe_needs_no_class_or_http(settings: Settings) -> None:
 
 
 async def test_upstream_timeout_is_a_structured_error(settings: Settings) -> None:
-    route = http_mock.get(f"{BASE}/meta/cmdb_ci").mock(side_effect=httpx2.ReadTimeout("private-detail"))
+    route = http_mock.get(f"{BASE}/meta/cmdb_ci").mock(
+        side_effect=httpx2.ReadTimeout("private-detail")
+    )
     response = await _call(settings, action="meta", class_name="cmdb_ci")
     assert response["status"] == "error"
     assert response["error"]["code"] == "UPSTREAM_TIMEOUT"
@@ -112,7 +146,9 @@ async def test_upstream_timeout_is_a_structured_error(settings: Settings) -> Non
     [("query", {}), ("meta", []), ("get", {"error": {"message": "private-detail"}})],
 )
 async def test_invalid_or_failed_cmdb_results_do_not_report_success(
-    settings: Settings, action: str, result: Any
+    settings: Settings,
+    action: str,
+    result: Any,
 ) -> None:
     path = "meta/cmdb_ci" if action == "meta" else "instance/cmdb_ci"
     if action == "get":

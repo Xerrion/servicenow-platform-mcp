@@ -1,9 +1,7 @@
 """Tests for shared ServiceNow HTTP transport and telemetry."""
 
 import logging
-from collections.abc import Callable
-from contextlib import AbstractAsyncContextManager
-from typing import Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast, override
 from unittest.mock import AsyncMock, patch
 
 import httpx2
@@ -11,10 +9,18 @@ import pytest
 from mcp.server import MCPServer
 
 from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.config import Settings
 from servicenow_mcp.platform.client import ServiceNowClient, ServiceNowClientFactory
-from servicenow_mcp.telemetry import HttpTelemetry, TelemetryAsyncClient
+from servicenow_mcp.telemetry import (
+    HttpTelemetry,
+    TelemetryAsyncClient,
+)
 from tests.helpers import decode_response, get_tool_functions
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from contextlib import AbstractAsyncContextManager
+
+    from servicenow_mcp.config import Settings
 
 
 class _CloseTrackingAsyncClient(httpx2.AsyncClient):
@@ -24,6 +30,7 @@ class _CloseTrackingAsyncClient(httpx2.AsyncClient):
         super().__init__(**kwargs)
         self.close_count = 0
 
+    @override
     async def aclose(self) -> None:
         """Count and perform one close call."""
         self.close_count += 1
@@ -49,11 +56,16 @@ def auth_provider(settings: Settings) -> OAuthPKCEProvider:
 
 
 @pytest.mark.asyncio()
-async def test_owned_client_closes_transport(settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+async def test_owned_client_closes_transport(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> None:
     """A directly constructed client closes the transport it creates."""
     transport = AsyncMock(spec=httpx2.AsyncClient)
 
-    with patch("servicenow_mcp.platform._client_transport.httpx2.AsyncClient", return_value=transport):
+    with patch(
+        "servicenow_mcp.platform._client_transport.httpx2.AsyncClient",
+        return_value=transport,
+    ):
         async with ServiceNowClient(settings, auth_provider):
             pass
 
@@ -66,7 +78,9 @@ async def test_shared_client_reuses_transport_without_closing_it(
     auth_provider: OAuthPKCEProvider,
 ) -> None:
     """Separate ServiceNow client contexts reuse and do not close shared transport."""
-    transport = _CloseTrackingAsyncClient(transport=httpx2.MockTransport(lambda request: httpx2.Response(200)))
+    transport = _CloseTrackingAsyncClient(
+        transport=httpx2.MockTransport(lambda request: httpx2.Response(200))
+    )
     factory = ServiceNowClientFactory(settings, auth_provider, transport)
 
     async with factory() as first:
@@ -116,7 +130,10 @@ async def test_shared_transport_isolates_request_headers_and_records_telemetry(
         async with factory() as second:
             await second.get_record("incident", "abc123")
 
-    assert [request.headers["Authorization"] for request in requests] == ["Bearer first", "Bearer second"]
+    assert [request.headers["Authorization"] for request in requests] == [
+        "Bearer first",
+        "Bearer second",
+    ]
     correlation_ids = [request.headers["X-Correlation-ID"] for request in requests]
     assert len(set(correlation_ids)) == 2
     assert "Authorization" not in transport.headers
@@ -156,7 +173,7 @@ async def test_repeated_tool_calls_share_one_transport(
                 200,
                 headers={"X-Total-Count": "1"},
                 json={"result": [{"sys_id": "abc123"}]},
-            )
+            ),
         ),
     )
     factory = ServiceNowClientFactory(settings, auth_provider, transport)
@@ -164,8 +181,12 @@ async def test_repeated_tool_calls_share_one_transport(
     register_tools(mcp, settings, auth_provider, client_factory=factory)
     query = get_tool_functions(mcp)["query"]
 
-    first = decode_response(await query(table="incident", encoded_query="active=true", fields=["number"]))
-    second = decode_response(await query(table="incident", encoded_query="active=true", fields=["number"]))
+    first = decode_response(
+        await query(table="incident", encoded_query="active=true", fields=["number"])
+    )
+    second = decode_response(
+        await query(table="incident", encoded_query="active=true", fields=["number"])
+    )
 
     assert first["status"] == "success"
     assert second["status"] == "success"
@@ -217,14 +238,19 @@ async def test_mcp_server_lifespan_closes_shared_transport_once_on_exception() -
     transport = TelemetryAsyncClient(telemetry=HttpTelemetry(), is_shared_pool=True)
     with (
         patch.dict("os.environ", env, clear=True),
-        patch("servicenow_mcp.bootstrap.stdio.TelemetryAsyncClient", return_value=transport),
+        patch(
+            "servicenow_mcp.bootstrap.stdio.TelemetryAsyncClient",
+            return_value=transport,
+        ),
     ):
         mcp = create_mcp_server()
 
     runtime = cast("_McpServerWithRuntime", cast("object", mcp))
 
     with (
-        patch.object(transport, "aclose", new=AsyncMock(wraps=transport.aclose)) as close,
+        patch.object(
+            transport, "aclose", new=AsyncMock(wraps=transport.aclose)
+        ) as close,
         pytest.raises(RuntimeError, match="shutdown"),
     ):
         async with runtime._lowlevel_server.lifespan(runtime._lowlevel_server):

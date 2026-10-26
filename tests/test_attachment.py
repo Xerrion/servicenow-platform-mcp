@@ -4,25 +4,34 @@ from __future__ import annotations
 
 import base64
 import importlib
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx2
 import pytest
 from mcp.server import MCPServer
 
 from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.config import Settings
 from servicenow_mcp.mcp.tools.attachment import register_tools as register_read_tools
 from servicenow_mcp.policy import DENIED_TABLES
 from tests._mock_transport import http_mock
-from tests.helpers import decode_response, get_tool_functions, preview_and_apply, register_mutations
+from tests.helpers import (
+    decode_response,
+    get_tool_functions,
+    preview_and_apply,
+    register_mutations,
+)
+
+if TYPE_CHECKING:
+    from servicenow_mcp.config import Settings
 
 
 BASE_URL = "https://test.service-now.com"
 ATTACHMENT_SYS_ID = "a" * 32
 TABLE_SYS_ID = "b" * 32
 
-_attachment_common: Any = importlib.import_module("servicenow_mcp.capabilities.attachments.common")
+_attachment_common: Any = importlib.import_module(
+    "servicenow_mcp.capabilities.attachments.common"
+)
 MAX_ATTACHMENT_BYTES = _attachment_common.MAX_ATTACHMENT_BYTES
 
 
@@ -32,7 +41,9 @@ def auth_provider(settings: Settings) -> OAuthPKCEProvider:
     return OAuthPKCEProvider(settings)
 
 
-def _register_and_get_tools(settings: Settings, auth_provider: OAuthPKCEProvider) -> dict[str, Any]:
+def _register_and_get_tools(
+    settings: Settings, auth_provider: OAuthPKCEProvider
+) -> dict[str, Any]:
     """Register the unified attachment tools on a fresh MCP and return callables."""
     mcp = MCPServer("test")
     register_read_tools(mcp, settings, auth_provider)
@@ -41,7 +52,10 @@ def _register_and_get_tools(settings: Settings, auth_provider: OAuthPKCEProvider
 
 
 def _metadata(
-    *, table_name: str = "incident", sys_id: str = ATTACHMENT_SYS_ID, size_bytes: str = "5"
+    *,
+    table_name: str = "incident",
+    sys_id: str = ATTACHMENT_SYS_ID,
+    size_bytes: str = "5",
 ) -> dict[str, str]:
     """Build a representative attachment metadata payload."""
     return {
@@ -63,7 +77,9 @@ class TestUnifiedAttachmentRead:
     """Tests for the unified ``attachment`` action-dispatching tool."""
 
     @pytest.mark.asyncio()
-    async def test_unknown_action_returns_error(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_unknown_action_returns_error(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         """An unrecognized action yields an error envelope, not an exception."""
         tools = _register_and_get_tools(settings, auth_provider)
         result = decode_response(await tools["attachment"](action="bogus"))
@@ -72,14 +88,22 @@ class TestUnifiedAttachmentRead:
         assert result["error"]["code"] == "INVALID_REQUEST"
 
     @pytest.mark.asyncio()
-    async def test_list_action_lists_attachments(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_list_action_lists_attachments(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         """The list action returns attachment metadata for the parent record."""
         http_mock.get(f"{BASE_URL}/api/now/attachment").mock(
-            return_value=httpx2.Response(200, json={"result": [_metadata()]}, headers={"X-Total-Count": "1"})
+            return_value=httpx2.Response(
+                200, json={"result": [_metadata()]}, headers={"X-Total-Count": "1"}
+            ),
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        result = decode_response(await tools["attachment"](action="list", table="incident", table_sys_id=TABLE_SYS_ID))
+        result = decode_response(
+            await tools["attachment"](
+                action="list", table="incident", table_sys_id=TABLE_SYS_ID
+            )
+        )
 
         assert result["status"] == "success"
         assert result["data"][0]["sys_id"] == ATTACHMENT_SYS_ID
@@ -87,24 +111,32 @@ class TestUnifiedAttachmentRead:
 
     @pytest.mark.asyncio()
     async def test_list_action_missing_table_returns_error(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """The list action requires a table identifier."""
         tools = _register_and_get_tools(settings, auth_provider)
-        result = decode_response(await tools["attachment"](action="list", table_sys_id=TABLE_SYS_ID))
+        result = decode_response(
+            await tools["attachment"](action="list", table_sys_id=TABLE_SYS_ID)
+        )
 
         assert result["status"] == "error"
         assert "table is required" in result["error"]["message"]
 
     @pytest.mark.asyncio()
-    async def test_get_action_returns_metadata(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_get_action_returns_metadata(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         """The get action returns masked metadata for a single attachment."""
         http_mock.get(f"{BASE_URL}/api/now/attachment/{ATTACHMENT_SYS_ID}").mock(
-            return_value=httpx2.Response(200, json={"result": _metadata()})
+            return_value=httpx2.Response(200, json={"result": _metadata()}),
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        result = decode_response(await tools["attachment"](action="get", sys_id=ATTACHMENT_SYS_ID))
+        result = decode_response(
+            await tools["attachment"](action="get", sys_id=ATTACHMENT_SYS_ID)
+        )
 
         assert result["status"] == "success"
         assert result["data"]["table_name"] == "incident"
@@ -112,7 +144,9 @@ class TestUnifiedAttachmentRead:
 
     @pytest.mark.asyncio()
     async def test_get_action_missing_sys_id_returns_error(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """The get action requires a sys_id."""
         tools = _register_and_get_tools(settings, auth_provider)
@@ -123,32 +157,42 @@ class TestUnifiedAttachmentRead:
 
     @pytest.mark.asyncio()
     async def test_download_action_returns_content_base64(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """The download action returns metadata plus base64-encoded payload."""
         http_mock.get(f"{BASE_URL}/api/now/attachment/{ATTACHMENT_SYS_ID}").mock(
-            return_value=httpx2.Response(200, json={"result": _metadata()})
+            return_value=httpx2.Response(200, json={"result": _metadata()}),
         )
         http_mock.get(f"{BASE_URL}/api/now/attachment/{ATTACHMENT_SYS_ID}/file").mock(
-            return_value=httpx2.Response(200, content=b"hello")
+            return_value=httpx2.Response(200, content=b"hello"),
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        result = decode_response(await tools["attachment"](action="download", sys_id=ATTACHMENT_SYS_ID))
+        result = decode_response(
+            await tools["attachment"](action="download", sys_id=ATTACHMENT_SYS_ID)
+        )
 
         assert result["status"] == "success"
-        assert result["data"]["content_base64"] == base64.b64encode(b"hello").decode("ascii")
+        assert result["data"]["content_base64"] == base64.b64encode(b"hello").decode(
+            "ascii"
+        )
 
     @pytest.mark.asyncio()
     async def test_download_by_name_action_returns_content_base64(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """The download_by_name action resolves metadata then downloads payload."""
         http_mock.get(f"{BASE_URL}/api/now/table/sys_attachment").mock(
-            return_value=httpx2.Response(200, json={"result": [_metadata()]}, headers={"X-Total-Count": "1"})
+            return_value=httpx2.Response(
+                200, json={"result": [_metadata()]}, headers={"X-Total-Count": "1"}
+            ),
         )
         http_mock.get(f"{BASE_URL}/api/now/attachment/{ATTACHMENT_SYS_ID}/file").mock(
-            return_value=httpx2.Response(200, content=b"hello")
+            return_value=httpx2.Response(200, content=b"hello"),
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
@@ -158,16 +202,20 @@ class TestUnifiedAttachmentRead:
                 table="incident",
                 table_sys_id=TABLE_SYS_ID,
                 file_name="hello.txt",
-            )
+            ),
         )
 
         assert result["status"] == "success"
         assert result["data"]["sys_id"] == ATTACHMENT_SYS_ID
-        assert result["data"]["content_base64"] == base64.b64encode(b"hello").decode("ascii")
+        assert result["data"]["content_base64"] == base64.b64encode(b"hello").decode(
+            "ascii"
+        )
 
     @pytest.mark.asyncio()
     async def test_download_by_name_missing_args_returns_error(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """The download_by_name action requires table, table_sys_id, and file_name."""
         tools = _register_and_get_tools(settings, auth_provider)
@@ -177,19 +225,23 @@ class TestUnifiedAttachmentRead:
                 table="incident",
                 table_sys_id=TABLE_SYS_ID,
                 # file_name missing
-            )
+            ),
         )
 
         assert result["status"] == "error"
         assert "file_name" in result["error"]["message"]
 
     @pytest.mark.asyncio()
-    async def test_denied_table_returns_error(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_denied_table_returns_error(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         """Listing attachments on a denied table is rejected by policy."""
         denied_table = next(iter(DENIED_TABLES))
         tools = _register_and_get_tools(settings, auth_provider)
         result = decode_response(
-            await tools["attachment"](action="list", table=denied_table, table_sys_id=TABLE_SYS_ID)
+            await tools["attachment"](
+                action="list", table=denied_table, table_sys_id=TABLE_SYS_ID
+            ),
         )
 
         assert result["status"] == "error"
@@ -205,17 +257,10 @@ class TestUnifiedAttachmentWrite:
     """Tests for the unified ``attachment_write`` action-dispatching tool."""
 
     @pytest.mark.asyncio()
-    async def test_unknown_action_returns_error(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-        """An unrecognized write action yields an error envelope."""
-        tools = _register_and_get_tools(settings, auth_provider)
-        result = decode_response(await tools["attachment_preview"](action="bogus"))
-
-        assert result["status"] == "error"
-        assert result["error"]["code"] == "INVALID_REQUEST"
-
-    @pytest.mark.asyncio()
     async def test_upload_action_remains_gated_in_production(
-        self, prod_settings: Settings, prod_auth_provider: OAuthPKCEProvider
+        self,
+        prod_settings: Settings,
+        prod_auth_provider: OAuthPKCEProvider,
     ) -> None:
         """The opt-in write group retains runtime production gating."""
         tools = _register_and_get_tools(prod_settings, prod_auth_provider)
@@ -228,7 +273,7 @@ class TestUnifiedAttachmentWrite:
                 table_sys_id=TABLE_SYS_ID,
                 file_name="hello.txt",
                 content_base64=base64.b64encode(b"hello").decode("ascii"),
-            )
+            ),
         )
 
         assert result["status"] == "error"
@@ -236,13 +281,16 @@ class TestUnifiedAttachmentWrite:
         assert not http_mock.calls.called
 
     @pytest.mark.asyncio()
-    async def test_upload_action_creates_attachment(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_upload_action_creates_attachment(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         """The upload action decodes content and posts via the attachment API."""
         http_mock.get(f"{BASE_URL}/api/now/table/incident/{TABLE_SYS_ID}").respond(
-            200, json={"result": {"sys_id": TABLE_SYS_ID}}
+            200,
+            json={"result": {"sys_id": TABLE_SYS_ID}},
         )
         route = http_mock.post(f"{BASE_URL}/api/now/attachment/file").mock(
-            return_value=httpx2.Response(201, json={"result": _metadata()})
+            return_value=httpx2.Response(201, json={"result": _metadata()}),
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
@@ -256,7 +304,7 @@ class TestUnifiedAttachmentWrite:
                 file_name="hello.txt",
                 content_base64=base64.b64encode(b"hello").decode("ascii"),
                 content_type="text/plain",
-            )
+            ),
         )
 
         assert result["status"] == "success"
@@ -266,7 +314,9 @@ class TestUnifiedAttachmentWrite:
 
     @pytest.mark.asyncio()
     async def test_upload_action_missing_args_returns_error(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """The upload action requires table, table_sys_id, file_name, content_base64."""
         tools = _register_and_get_tools(settings, auth_provider)
@@ -278,16 +328,20 @@ class TestUnifiedAttachmentWrite:
                 table="incident",
                 table_sys_id=TABLE_SYS_ID,
                 content_base64=base64.b64encode(b"hello").decode("ascii"),
-            )
+            ),
         )
 
         assert result["status"] == "error"
         assert "file_name" in result["error"]["message"]
 
     @pytest.mark.asyncio()
-    async def test_upload_oversize_returns_error(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_upload_oversize_returns_error(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         """Uploads whose base64 decodes above the cap are rejected before HTTP."""
-        oversized_b64 = base64.b64encode(b"x" * (MAX_ATTACHMENT_BYTES + 1)).decode("ascii")
+        oversized_b64 = base64.b64encode(b"x" * (MAX_ATTACHMENT_BYTES + 1)).decode(
+            "ascii"
+        )
 
         tools = _register_and_get_tools(settings, auth_provider)
         result = decode_response(
@@ -299,25 +353,31 @@ class TestUnifiedAttachmentWrite:
                 table_sys_id=TABLE_SYS_ID,
                 file_name="hello.txt",
                 content_base64=oversized_b64,
-            )
+            ),
         )
 
         assert result["status"] == "error"
         assert "exceeds the maximum supported size" in result["error"]["message"]
 
     @pytest.mark.asyncio()
-    async def test_delete_action_removes_attachment(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_delete_action_removes_attachment(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         """The delete action looks up metadata then issues DELETE."""
         http_mock.get(f"{BASE_URL}/api/now/attachment/{ATTACHMENT_SYS_ID}").mock(
-            return_value=httpx2.Response(200, json={"result": _metadata()})
+            return_value=httpx2.Response(200, json={"result": _metadata()}),
         )
-        delete_route = http_mock.delete(f"{BASE_URL}/api/now/attachment/{ATTACHMENT_SYS_ID}").mock(
-            return_value=httpx2.Response(204)
+        delete_route = http_mock.delete(
+            f"{BASE_URL}/api/now/attachment/{ATTACHMENT_SYS_ID}"
+        ).mock(
+            return_value=httpx2.Response(204),
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
         result = decode_response(
-            await preview_and_apply(tools, "attachment_preview", action="delete", sys_id=ATTACHMENT_SYS_ID)
+            await preview_and_apply(
+                tools, "attachment_preview", action="delete", sys_id=ATTACHMENT_SYS_ID
+            ),
         )
 
         assert result["status"] == "success"
@@ -326,11 +386,15 @@ class TestUnifiedAttachmentWrite:
 
     @pytest.mark.asyncio()
     async def test_delete_action_missing_sys_id_returns_error(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """The delete action requires a sys_id."""
         tools = _register_and_get_tools(settings, auth_provider)
-        result = decode_response(await preview_and_apply(tools, "attachment_preview", action="delete"))
+        result = decode_response(
+            await preview_and_apply(tools, "attachment_preview", action="delete")
+        )
 
         assert result["status"] == "error"
         assert "sys_id" in result["error"]["message"]

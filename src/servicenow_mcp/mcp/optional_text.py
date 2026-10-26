@@ -1,17 +1,21 @@
 """Keep nullable text intact during MCP argument validation."""
 
 import inspect
-from collections.abc import Callable
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any, cast
 
 from pydantic import ValidatorFunctionWrapHandler, WrapValidator
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
-def _validate_nullable_string(value: Any, handler: ValidatorFunctionWrapHandler) -> str | None:
+
+def _validate_nullable_string(
+    value: Any, handler: ValidatorFunctionWrapHandler
+) -> str | None:
     """Accept explicit null; let Pydantic validate every non-null value as text."""
     if value is None:
         return None
-    return handler(value)
+    return cast("str", handler(value))
 
 
 _NullableString = Annotated[
@@ -32,9 +36,14 @@ def nullable_string_signature(fn: Callable[..., Any]) -> inspect.Signature | Non
     """
     signature = inspect.signature(fn, eval_str=True)
     parameters = [
-        parameter.replace(annotation=_NullableString) if parameter.annotation == str | None else parameter
+        parameter.replace(annotation=_NullableString)
+        if parameter.annotation == str | None
+        else parameter
         for parameter in signature.parameters.values()
     ]
-    if all(before is after for before, after in zip(signature.parameters.values(), parameters, strict=True)):
+    if all(
+        before is after
+        for before, after in zip(signature.parameters.values(), parameters, strict=True)
+    ):
         return None
     return signature.replace(parameters=parameters)

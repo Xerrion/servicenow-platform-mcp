@@ -1,6 +1,6 @@
 """Orchestrate metadata retrieval and describe response assembly."""
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from servicenow_mcp.capabilities.metadata._describe_enrichment import (
     fetch_inherited_choice_counts,
@@ -14,9 +14,11 @@ from servicenow_mcp.capabilities.metadata._describe_projection import (
 from servicenow_mcp.capabilities.metadata._describe_projection import (
     parse_fields_filter as _parse_fields_filter,
 )
-from servicenow_mcp.platform.client import ServiceNowClientProvider
-from servicenow_mcp.platform.metadata._dictionary import DictionaryRegistry
 from servicenow_mcp.query_builder import ServiceNowQuery
+
+if TYPE_CHECKING:
+    from servicenow_mcp.platform.client import ServiceNowClientProvider
+    from servicenow_mcp.platform.metadata._dictionary import DictionaryRegistry
 
 
 DEFAULT_DESCRIBE_FIELD_LIMIT = 25
@@ -53,15 +55,23 @@ async def _describe_impl(
             fields=["label", "super_class", "is_extendable", "number_ref", "sys_id"],
             limit=1,
         )
-        table_info = table_meta.get("records", [{}])[0] if table_meta.get("records") else {}
-        choice_counts = await fetch_inherited_choice_counts(client, selected_fields, table, warnings)
+        table_info = (
+            table_meta.get("records", [{}])[0] if table_meta.get("records") else {}
+        )
+        choice_counts = await fetch_inherited_choice_counts(
+            client, selected_fields, table, warnings
+        )
         documentation: dict[str, dict[str, Any]] = {}
         if include_docs:
-            documentation = await fetch_inherited_documentation(client, selected_fields, table, warnings)
+            documentation = await fetch_inherited_documentation(
+                client, selected_fields, table, warnings
+            )
 
     projected_fields = project_fields(selected_fields, choice_counts, verbose=verbose)
     if requested_fields:
-        projected_fields, unknown = filter_projected_fields(projected_fields, requested_fields)
+        projected_fields, unknown = filter_projected_fields(
+            projected_fields, requested_fields
+        )
         if unknown:
             warnings.append(f"Unknown field(s): {','.join(unknown)}")
     data: dict[str, Any] = {

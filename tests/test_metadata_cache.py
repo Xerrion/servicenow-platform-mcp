@@ -1,16 +1,21 @@
 """Tests for freshness-aware metadata caches."""
 
 import asyncio
-from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING
 
 import pytest
 
 from servicenow_mcp.platform.metadata.cache import AsyncMetadataCache
 from servicenow_mcp.telemetry import CacheName, HttpTelemetry
 
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
 
 def _counter(snapshot: HttpTelemetry, name: CacheName, field: str) -> int:
-    return getattr(snapshot.snapshot().metadata_caches[name.value], field)
+    value = getattr(snapshot.snapshot().metadata_caches[name.value], field)
+    assert isinstance(value, int)
+    return value
 
 
 @pytest.mark.asyncio()
@@ -46,7 +51,9 @@ async def test_hit_miss_expiration_reload_and_invalidation_counters() -> None:
 @pytest.mark.asyncio()
 async def test_same_key_is_single_flight_and_independent_keys_load_together() -> None:
     """Same-key callers share a load while separate keys do not block each other."""
-    cache = AsyncMetadataCache[str, str](name=CacheName.DICTIONARY_FIELDS, ttl_seconds=30)
+    cache = AsyncMetadataCache[str, str](
+        name=CacheName.DICTIONARY_FIELDS, ttl_seconds=30
+    )
     entered: set[str] = set()
     release = asyncio.Event()
 
@@ -59,8 +66,12 @@ async def test_same_key_is_single_flight_and_independent_keys_load_together() ->
         return load
 
     first = asyncio.create_task(cache.get_or_load("incident", make_loader("incident")))
-    duplicate = asyncio.create_task(cache.get_or_load("incident", make_loader("duplicate")))
-    independent = asyncio.create_task(cache.get_or_load("problem", make_loader("problem")))
+    duplicate = asyncio.create_task(
+        cache.get_or_load("incident", make_loader("duplicate"))
+    )
+    independent = asyncio.create_task(
+        cache.get_or_load("problem", make_loader("problem"))
+    )
     for _ in range(3):
         await asyncio.sleep(0)
         if entered == {"incident", "problem"}:
@@ -68,7 +79,11 @@ async def test_same_key_is_single_flight_and_independent_keys_load_together() ->
 
     assert entered == {"incident", "problem"}
     release.set()
-    assert await asyncio.gather(first, duplicate, independent) == ["incident", "incident", "problem"]
+    assert await asyncio.gather(first, duplicate, independent) == [
+        "incident",
+        "incident",
+        "problem",
+    ]
 
 
 @pytest.mark.asyncio()
@@ -133,9 +148,13 @@ async def test_invalidation_during_load_prevents_stale_value_storage() -> None:
 
 
 @pytest.mark.asyncio()
-async def test_replacement_load_stays_valid_when_invalidated_load_finishes_last() -> None:
+async def test_replacement_load_stays_valid_when_invalidated_load_finishes_last() -> (
+    None
+):
     """An older invalidated load cannot clear the replacement load's version guard."""
-    cache = AsyncMetadataCache[str, str](name=CacheName.AUDIT_TABLE_CONFIG, ttl_seconds=30)
+    cache = AsyncMetadataCache[str, str](
+        name=CacheName.AUDIT_TABLE_CONFIG, ttl_seconds=30
+    )
     release_old = asyncio.Event()
     release_new = asyncio.Event()
 
@@ -163,9 +182,13 @@ async def test_replacement_load_stays_valid_when_invalidated_load_finishes_last(
 
 
 @pytest.mark.asyncio()
-async def test_replacement_load_remains_cached_when_it_finishes_before_invalidated_load() -> None:
+async def test_replacement_load_remains_cached_when_it_finishes_before_invalidated_load() -> (
+    None
+):
     """A replacement that finishes first remains protected from its superseded load."""
-    cache = AsyncMetadataCache[str, str](name=CacheName.AUDIT_TABLE_CONFIG, ttl_seconds=30)
+    cache = AsyncMetadataCache[str, str](
+        name=CacheName.AUDIT_TABLE_CONFIG, ttl_seconds=30
+    )
     release_old = asyncio.Event()
     release_new = asyncio.Event()
 
@@ -193,9 +216,13 @@ async def test_replacement_load_remains_cached_when_it_finishes_before_invalidat
 
 
 @pytest.mark.asyncio()
-async def test_second_invalidation_keeps_completed_replacement_and_superseded_load_invalid() -> None:
+async def test_second_invalidation_keeps_completed_replacement_and_superseded_load_invalid() -> (
+    None
+):
     """Invalidation advances the generation while only a superseded load remains active."""
-    cache = AsyncMetadataCache[str, str](name=CacheName.AUDIT_TABLE_CONFIG, ttl_seconds=30)
+    cache = AsyncMetadataCache[str, str](
+        name=CacheName.AUDIT_TABLE_CONFIG, ttl_seconds=30
+    )
     release_old = asyncio.Event()
 
     async def load_old() -> str:
@@ -236,7 +263,9 @@ async def test_cache_can_cross_event_loops_without_lock_affinity() -> None:
 @pytest.mark.asyncio()
 async def test_entry_count_stays_bounded() -> None:
     """Dynamic table keys cannot grow a metadata cache without a fixed bound."""
-    cache = AsyncMetadataCache[int, int](name=CacheName.DICTIONARY_FIELDS, ttl_seconds=30)
+    cache = AsyncMetadataCache[int, int](
+        name=CacheName.DICTIONARY_FIELDS, ttl_seconds=30
+    )
 
     for key in range(1001):
         await cache.get_or_load(key, lambda value=key: _return(value))

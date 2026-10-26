@@ -2,32 +2,31 @@
 
 ## Unreleased
 
-### Internal changes
+### Removed
 
-- Application HTTP now uses `httpx2` (pinned `>=2.12.0,<3`, locked 2.12.0). `httpx`
-  and `respx` are no longer dependencies. Tests use a local `httpx2.MockTransport`
-  fixture and a fail-closed network guard.
-- Internal models and JSON boundaries use Pydantic (`BaseModel`, `TypeAdapter`).
-  Tool names, input schemas, and response envelopes are unchanged except for the
-  approved differences recorded in the release notes. Malformed ServiceNow
-  responses return a curated server error without raw payload text.
-- Unchanged: Sentry configuration and transport, `HTTPX_TIMEOUT_SECONDS`, and
-  timeout diagnostics. After upgrade, restart the server; authorize again in the
-  browser and create new write previews, because both are held in memory only.
+- Remove all Flow authoring commands, planners, serializers, mutation adapters,
+  lifecycle effects, schema-provider execution, and temporary preview tracing.
+  Flow inspection, contract reads, trigger discovery, decoding, and existing
+  execution status remain available. `flow describe` lists only read actions.
+- Remove tests, fixtures, and guides for the deleted authoring feature. The
+  remaining test suite removes duplicate client wrappers, repeated parameter
+  combinations, and local checks mislabeled as live integration tests.
 
-### Breaking changes
+### Changed
 
-- Removed the entire `selection` object from tool response envelopes, including
-  field/section echoes, modes, probe limits, and investigation dispatch metadata.
-  Paged reads use `pagination`; compact `describe` pages now include it as well.
-  Flow continuation details appear in top-level `truncation` only when non-empty.
-  ServiceNow record fields named `selection` are preserved.
-- Investigation results identify their source once in `data.investigation`;
-  removed duplicate response-level and per-finding `provenance` objects.
-  Investigation warnings now appear only in top-level `warnings` when non-empty.
-- Catalog variable answers retain `raw_value` and omit `display_value`, which
-  previously repeated the same value or was null for unresolved references.
-  Masking, raw reference IDs, pagination, and completeness indicators are preserved.
+- Consolidate endpoint and input-validation contracts while retaining OAuth,
+  credential-cache, mutation-token, privacy, and read-only Flow regressions.
+- Keep `flow validate` as a bounded local check of saved V2 structure. Its result
+  explicitly excludes input-type compatibility, full semantic validation, and
+  runtime behavior. Unreadable, truncated, V1, or changing definitions remain
+  incomplete.
+
+### Features
+
+- Flow canvas and contract reads preserve native arrow orders and verified
+  top-level or metadata-associated legacy handler wrappers.
+- Execution status verifies ownership of the exact compiled snapshot while
+  keeping snapshot-content and authored-version verification separate.
 
 ## [3.0.0](https://github.com/Xerrion/servicenow-platform-mcp/compare/v2.1.2...v3.0.0) (2026-10-13)
 

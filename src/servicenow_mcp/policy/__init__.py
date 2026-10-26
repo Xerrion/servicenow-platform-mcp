@@ -1,16 +1,21 @@
 """Policy engine for query safety, deny lists, field masking and write gating."""
 
 import re
-from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from servicenow_mcp.config import Settings
 from servicenow_mcp.errors import PolicyError, QuerySafetyError
 
+if TYPE_CHECKING:
+    from collections.abc import Callable, Generator
 
-_mutation_policy: ContextVar[Callable[[], None] | None] = ContextVar("mutation_policy", default=None)
+    from servicenow_mcp.config import Settings
+
+
+_mutation_policy: ContextVar[Callable[[], None] | None] = ContextVar(
+    "mutation_policy", default=None
+)
 
 
 @contextmanager
@@ -68,7 +73,9 @@ _DATE_FIELD_PATTERNS: list[str] = [
 # Regex to match: a date field name following a condition separator, with a comparison operator
 _DATE_CONSTRAINT_RE: re.Pattern[str] = re.compile(
     r"(?:^|\^(?:OR)?)"  # start of string or ^ or ^OR separator
-    r"(" + "|".join(re.escape(f) for f in _DATE_FIELD_PATTERNS) + r")"  # date field name
+    r"("
+    + "|".join(re.escape(f) for f in _DATE_FIELD_PATTERNS)
+    + r")"  # date field name
     r"(>=?|<=?|BETWEEN|javascript:gs\.\w+Ago)",  # comparison operator
 )
 
@@ -160,7 +167,11 @@ def enforce_query_safety(
     check_table_access(table)
 
     # Cap limit at max_row_limit
-    effective_limit = settings.max_row_limit if limit is None or limit > settings.max_row_limit else limit
+    effective_limit = (
+        settings.max_row_limit
+        if limit is None or limit > settings.max_row_limit
+        else limit
+    )
 
     # Floor limit at 1 to prevent zero or negative values
     effective_limit = max(1, effective_limit)
@@ -170,7 +181,7 @@ def enforce_query_safety(
         raise QuerySafetyError(
             f"Table '{table}' is large and requires a date-bounded filter "
             f"(e.g., sys_created_on>=YYYY-MM-DD). "
-            f"Add a date field constraint to your query."
+            f"Add a date field constraint to your query.",
         )
 
     return {"limit": effective_limit}
@@ -181,7 +192,6 @@ def write_gate(table: str, settings: Settings) -> None:
     reason = write_blocked_reason(table, settings)
     if reason:
         raise PolicyError(reason)
-    return
 
 
 def production_write_blocked(settings: Settings) -> None:

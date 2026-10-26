@@ -4,11 +4,12 @@ import asyncio
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Hashable
 from time import monotonic
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from pydantic import BaseModel, ConfigDict
 
-from servicenow_mcp.telemetry import CacheEvent, CacheName, HttpTelemetry
+if TYPE_CHECKING:
+    from servicenow_mcp.telemetry import CacheEvent, CacheName, HttpTelemetry
 
 
 _MAX_ENTRIES = 1000
@@ -17,7 +18,9 @@ _MAX_ENTRIES = 1000
 class _CacheEntry[V](BaseModel):
     # Cached values are trusted loader output; revalidation would copy them and break identity.
     model_config: ClassVar[ConfigDict] = ConfigDict(
-        frozen=True, arbitrary_types_allowed=True, revalidate_instances="never"
+        frozen=True,
+        arbitrary_types_allowed=True,
+        revalidate_instances="never",
     )
 
     value: V
@@ -61,7 +64,9 @@ class AsyncMetadataCache[K: Hashable, V]:
         if task is None:
             key_version = self._key_versions.get(key, 0)
             global_version = self._global_version
-            task = asyncio.create_task(self._load(key, loader, key_version, global_version))
+            task = asyncio.create_task(
+                self._load(key, loader, key_version, global_version)
+            )
             self._loads[key] = task
             self._active_load_counts[key] = self._active_load_counts.get(key, 0) + 1
             task.add_done_callback(self._load_finished_callback(key))
@@ -69,7 +74,9 @@ class AsyncMetadataCache[K: Hashable, V]:
 
     def seed(self, key: K, value: V) -> None:
         """Store a value with the configured TTL without running a loader."""
-        self._entries[key] = _CacheEntry[V].model_construct(value=value, expires_at=self._clock() + self._ttl_seconds)
+        self._entries[key] = _CacheEntry[V].model_construct(
+            value=value, expires_at=self._clock() + self._ttl_seconds
+        )
         self._entries.move_to_end(key)
         if len(self._entries) > _MAX_ENTRIES:
             self._entries.popitem(last=False)
@@ -109,7 +116,10 @@ class AsyncMetadataCache[K: Hashable, V]:
         global_version: int,
     ) -> V:
         value = await loader()
-        if self._global_version == global_version and self._key_versions.get(key, 0) == key_version:
+        if (
+            self._global_version == global_version
+            and self._key_versions.get(key, 0) == key_version
+        ):
             self.seed(key, value)
             self._record("reload")
         return value

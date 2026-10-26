@@ -1,18 +1,23 @@
 """Bounded REST 401 evidence; unknown text is omitted, never partially echoed."""
 
 import re
+from typing import TYPE_CHECKING
 
-import httpx2
 from pydantic import ValidationError
 
 from servicenow_mcp._json import JSON
+
+if TYPE_CHECKING:
+    import httpx2
 
 
 _MAX_BODY_BYTES = 8192
 _MAX_HEADER_CHARS = 4096
 _MAX_CHALLENGES = 4
 _TRACE_HEADERS = ("x-transaction-id", "x-request-id", "x-correlation-id")
-_TRACE_ID = re.compile(r"(?:[0-9a-fA-F]{8,64}|[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})")
+_TRACE_ID = re.compile(
+    r"(?:[0-9a-fA-F]{8,64}|[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})"
+)
 
 # ponytail: exact phrases only; add reviewed static phrases, never free-text redaction.
 # Character filters cannot distinguish customer names or opaque secrets from prose.
@@ -33,7 +38,10 @@ _SAFE_TEXT = {
         "Insufficient scope",
     )
 }
-_SCHEMES = {scheme.lower(): scheme for scheme in ("Bearer", "Basic", "Digest", "Negotiate", "NTLM")}
+_SCHEMES = {
+    scheme.lower(): scheme
+    for scheme in ("Bearer", "Basic", "Digest", "Negotiate", "NTLM")
+}
 _ERRORS = {"invalid_request", "invalid_token", "insufficient_scope"}
 _OMITTED = "[omitted: unrecognized or unsafe]"
 
@@ -43,12 +51,16 @@ _PARAM = rf"{_TOKEN}[ \t]*=[ \t]*(?:{_TOKEN}|{_QUOTED})"
 _TOKEN68 = r"[A-Za-z0-9._~+/-]+=*"
 _AUTH_ITEM = re.compile(
     rf"[ \t]*(?:(?P<parameter>{_PARAM})|(?P<scheme>{_TOKEN})(?: +(?P<credentials>{_TOKEN68}|{_PARAM}))?)"
-    r"[ \t]*(?:,|$)"
+    r"[ \t]*(?:,|$)",
 )
 
 
 def _safe_text(value: object) -> str:
-    if not isinstance(value, str) or len(value) > 160 or any(not " " <= char <= "~" for char in value):
+    if (
+        not isinstance(value, str)
+        or len(value) > 160
+        or any(not " " <= char <= "~" for char in value)
+    ):
         return _OMITTED
     return _SAFE_TEXT.get(value.strip(" ").removesuffix(".").casefold(), _OMITTED)
 
@@ -67,7 +79,9 @@ def _message(response: httpx2.Response) -> str:
 
 def _challenges(header: str) -> list[dict[str, str]] | None:
     """Parse bounded ASCII challenges, rejecting malformed or duplicate parameters."""
-    if len(header) > _MAX_HEADER_CHARS or any(char != "\t" and not " " <= char <= "~" for char in header):
+    if len(header) > _MAX_HEADER_CHARS or any(
+        char != "\t" and not " " <= char <= "~" for char in header
+    ):
         return None
     challenges: list[dict[str, str]] = []
     position = 0
@@ -104,7 +118,9 @@ def _challenges(header: str) -> list[dict[str, str]] | None:
     return challenges
 
 
-def safe_trace_header(response: httpx2.Response, sensitive_values: tuple[str, ...]) -> dict[str, str]:
+def safe_trace_header(
+    response: httpx2.Response, sensitive_values: tuple[str, ...]
+) -> dict[str, str]:
     """Select one hex/UUID trace ID that does not reflect credentials or request data."""
     reflection_sources = (
         response.request.headers.get_list("cookie")
@@ -123,10 +139,17 @@ def safe_trace_header(response: httpx2.Response, sensitive_values: tuple[str, ..
 
     for name in _TRACE_HEADERS:
         values = response.headers.get_list(name)
-        if len(values) != 1 or len(values[0]) > 64 or not _TRACE_ID.fullmatch(values[0]):
+        if (
+            len(values) != 1
+            or len(values[0]) > 64
+            or not _TRACE_ID.fullmatch(values[0])
+        ):
             continue
         value = values[0]
-        if any(secret and secret.casefold() in value.casefold() for secret in sensitive_values):
+        if any(
+            secret and secret.casefold() in value.casefold()
+            for secret in sensitive_values
+        ):
             continue
         if any(value.casefold() in source.casefold() for source in reflection_sources):
             continue
@@ -136,7 +159,9 @@ def safe_trace_header(response: httpx2.Response, sensitive_values: tuple[str, ..
     return {}
 
 
-def rest_auth_evidence(response: httpx2.Response, sensitive_values: tuple[str, ...]) -> str:
+def rest_auth_evidence(
+    response: httpx2.Response, sensitive_values: tuple[str, ...]
+) -> str:
     """Return safe 401 diagnostics, not raw bodies, headers, URLs or credentials.
 
     JSON error.message and challenge descriptions must match static phrases.
@@ -164,12 +189,16 @@ def rest_auth_evidence(response: httpx2.Response, sensitive_values: tuple[str, .
                     error = challenge["error"]
                     fields["error"] = error if error in _ERRORS else _OMITTED
                 if "error_description" in challenge:
-                    fields["error_description"] = _safe_text(challenge["error_description"])
+                    fields["error_description"] = _safe_text(
+                        challenge["error_description"]
+                    )
                 selected.append(fields)
             evidence["www-authenticate"] = selected
     evidence.update(safe_trace_header(response, sensitive_values))
     # Allowlisted values are printable ASCII, so compact UTF-8 output equals ASCII output.
     result = JSON.dump_json(evidence).decode("ascii")
-    if any(secret and secret.casefold() in result.casefold() for secret in sensitive_values):
+    if any(
+        secret and secret.casefold() in result.casefold() for secret in sensitive_values
+    ):
         return "[omitted: credential overlap]"
     return result

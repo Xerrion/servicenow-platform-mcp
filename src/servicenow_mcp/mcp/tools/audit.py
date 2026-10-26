@@ -1,18 +1,22 @@
 """Native audit adapter."""
 
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
-from mcp.server import MCPServer
 from mcp.types import ToolAnnotations
 
-from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.capabilities.audit.audit import AuditCapability
 from servicenow_mcp.capabilities.contracts import CapabilityResult
-from servicenow_mcp.config import Settings
 from servicenow_mcp.mcp.handlers import tool_handler
-from servicenow_mcp.platform.client import ServiceNowClientProvider
-from servicenow_mcp.platform.metadata._dictionary import DictionaryRegistry
-from servicenow_mcp.telemetry import HttpTelemetry
+from servicenow_mcp.mcp.inputs import describe_tool_parameters
+
+if TYPE_CHECKING:
+    from mcp.server import MCPServer
+
+    from servicenow_mcp.auth import OAuthPKCEProvider
+    from servicenow_mcp.config import Settings
+    from servicenow_mcp.platform.client import ServiceNowClientProvider
+    from servicenow_mcp.platform.metadata._dictionary import DictionaryRegistry
+    from servicenow_mcp.telemetry import HttpTelemetry
 
 
 def register_tools(
@@ -33,12 +37,33 @@ def register_tools(
 
     @mcp.tool(
         annotations=ToolAnnotations(
-            read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=True
-        )
+            read_only_hint=True,
+            destructive_hint=False,
+            idempotent_hint=True,
+            open_world_hint=True,
+        ),
+    )
+    @describe_tool_parameters(
+        {
+            "action": "Choose check_field, check_fields, check_table, history, or describe.",
+            "table": "Target ServiceNow table; required except for describe.",
+            "field": "Field to inspect for check_field.",
+            "fields": "1-50 field names for check_fields.",
+            "sys_id": "Record sys_id for history.",
+            "since": {
+                "description": "History cutoff date; overrides window_days.",
+                "format": "date",
+                "pattern": r"^\d{4}-\d{2}-\d{2}$",
+            },
+            "window_days": "Recent history window in days; default is 90.",
+            "limit": "Maximum audit rows returned.",
+        }
     )
     @tool_handler
     async def audit(
-        action: Literal["check_field", "check_fields", "check_table", "history", "describe"],
+        action: Literal[
+            "check_field", "check_fields", "check_table", "history", "describe"
+        ],
         table: str | None = None,
         field: str | None = None,
         fields: list[str] | None = None,
@@ -47,24 +72,7 @@ def register_tools(
         window_days: int | None = None,
         limit: int | None = None,
     ) -> CapabilityResult:
-        """Inspect ServiceNow audit posture (table/field config) and audit trail.
-
-        IMPORTANT: ``sys_audit`` is one of the largest tables on the platform.
-        Every action keeps a default 90-day window for that reason. Override
-        ``window_days`` (or ``since`` on ``history``) only when you genuinely
-        need older rows - wider windows cause slow queries and can time out.
-
-        Omit unused optional arguments; null uses their defaults.
-
-        Args:
-            action: 'check_field' | 'check_fields' | 'check_table' | 'history' | 'describe'.
-            table: ServiceNow table name (required for all actions except 'describe').
-            field: Field name (required for 'check_field').
-            fields: Native array of field names (required for 'check_fields', 1..50).
-            sys_id: 32-char record sys_id (required for 'history').
-            since: YYYY-MM-DD cutoff (history only; overrides window_days).
-            window_days: Audit-trail/positive-control window (defaults to 90).
-            limit: Row cap for 'history' (defaults to settings.max_row_limit)."""
+        """Inspect audit settings for a table or field, or read a record's change history. History defaults to 90 days because sys_audit is very large."""
         return await capability.audit(
             action=action,
             table=table,

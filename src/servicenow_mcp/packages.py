@@ -17,9 +17,11 @@ TOOL_GROUPS = frozenset(
         "flow",
         "code_search",
         "cmdb",
-    }
+    },
 )
-MUTATION_GROUPS = frozenset({"record_write", "attachment_write", "service_catalog_write"})
+MUTATION_GROUPS = frozenset(
+    {"record_write", "attachment_write", "service_catalog_write"}
+)
 PACKAGE_REGISTRY: dict[str, list[str]] = {
     "full": [
         "query",
@@ -69,10 +71,13 @@ def get_package(name: str) -> list[str]:
     errors = []
     if presets:
         errors.append(
-            f"Cannot use preset package names as group names: {', '.join(presets)}. Use them as a package name directly instead."
+            f"Cannot use preset package names as group names: {', '.join(presets)}. "
+            "Use them as a package name directly instead.",
         )
     if unknown:
-        errors.append(f"Unknown group names: {', '.join(unknown)}. Valid groups: {', '.join(sorted(TOOL_GROUPS))}")
+        errors.append(
+            f"Unknown group names: {', '.join(unknown)}. Valid groups: {', '.join(sorted(TOOL_GROUPS))}"
+        )
     if errors:
         raise ValueError(" ".join(errors))
     return list(dict.fromkeys(groups))

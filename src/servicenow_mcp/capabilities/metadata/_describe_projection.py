@@ -1,8 +1,9 @@
 """Project normalized dictionary metadata into describe response fields."""
 
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
-from servicenow_mcp.platform.metadata._dictionary import DictionaryField
+if TYPE_CHECKING:
+    from servicenow_mcp.platform.metadata._dictionary import DictionaryField
 
 
 DESCRIBE_NOISE_FIELDS: frozenset[str] = frozenset(
@@ -39,7 +40,7 @@ DESCRIBE_NOISE_FIELDS: frozenset[str] = frozenset(
         "primary",
         "spell_check",
         "sizeclass",
-    }
+    },
 )
 _SLIM_METADATA_FIELDS: tuple[str, ...] = (
     "element",
@@ -105,10 +106,14 @@ def _metadata_row(field: DictionaryField, *, verbose: bool) -> dict[str, Any]:
     row["inherited_from"] = field.inherited_from
     if verbose:
         return row
-    return {key: row.get(key) for key in _SLIM_METADATA_FIELDS} | {"inherited_from": field.inherited_from}
+    return {key: row.get(key) for key in _SLIM_METADATA_FIELDS} | {
+        "inherited_from": field.inherited_from
+    }
 
 
-def _slim_field(column: dict[str, Any], choice_counts: dict[str, int]) -> dict[str, Any]:
+def _slim_field(
+    column: dict[str, Any], choice_counts: dict[str, int]
+) -> dict[str, Any]:
     name = str(column.get("element", "") or "")
     return {
         "name": name,
@@ -123,9 +128,15 @@ def _slim_field(column: dict[str, Any], choice_counts: dict[str, int]) -> dict[s
     }
 
 
-def _verbose_field(column: dict[str, Any], choice_counts: dict[str, int]) -> dict[str, Any]:
-    cleaned = {key: value for key, value in column.items() if key not in DESCRIBE_NOISE_FIELDS}
-    cleaned["choice_count"] = int(choice_counts.get(str(column.get("element", "") or ""), 0))
+def _verbose_field(
+    column: dict[str, Any], choice_counts: dict[str, int]
+) -> dict[str, Any]:
+    cleaned = {
+        key: value for key, value in column.items() if key not in DESCRIBE_NOISE_FIELDS
+    }
+    cleaned["choice_count"] = int(
+        choice_counts.get(str(column.get("element", "") or ""), 0)
+    )
     cleaned["inherited_from"] = column.get("inherited_from")
     return cleaned
 

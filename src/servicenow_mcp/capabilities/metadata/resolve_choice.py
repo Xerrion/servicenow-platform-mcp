@@ -8,13 +8,15 @@ Two modes, dispatched on whether ``label`` is set:
 
 from __future__ import annotations
 
-from typing import NoReturn
+from typing import TYPE_CHECKING, NoReturn
 
 from servicenow_mcp.capabilities.contracts import CapabilityError, CapabilityResult
 from servicenow_mcp.capabilities.contracts import result as operation_result
-from servicenow_mcp.platform.metadata.choices import ChoiceRegistry
 from servicenow_mcp.policy import check_table_access
 from servicenow_mcp.validation import validate_identifier
+
+if TYPE_CHECKING:
+    from servicenow_mcp.platform.metadata.choices import ChoiceRegistry
 
 
 def _error(message: str) -> NoReturn:

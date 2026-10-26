@@ -17,7 +17,12 @@ class _Entry:
 
 
 class PreviewTokenStore:
-    def __init__(self, ttl_seconds: int = 300, max_size: int = 1000, max_bytes: int = 64 * 1024 * 1024) -> None:
+    def __init__(
+        self,
+        ttl_seconds: int = 300,
+        max_size: int = 1000,
+        max_bytes: int = 64 * 1024 * 1024,
+    ) -> None:
         if ttl_seconds <= 0 or max_size <= 0 or max_bytes <= 0:
             raise ValueError("Preview store limits must be positive.")
         self.ttl_seconds = ttl_seconds
@@ -51,9 +56,13 @@ class PreviewTokenStore:
         size = retained_bytes(owned)
         async with self._lock:
             self._sweep()
-            if len(self._entries) >= self.max_size or self._bytes + size > self.max_bytes:
+            if (
+                len(self._entries) >= self.max_size
+                or self._bytes + size > self.max_bytes
+            ):
                 raise CapabilityError(
-                    "Preview capacity reached. Apply existing previews or wait for expiry.", "PREVIEW_CAPACITY"
+                    "Preview capacity reached. Apply existing previews or wait for expiry.",
+                    "PREVIEW_CAPACITY",
                 )
             token = str(uuid.uuid4())
             self._entries[token] = _Entry(owned, time.monotonic(), size)
@@ -65,7 +74,10 @@ class PreviewTokenStore:
             self._sweep()
             entry = self._remove(token)
             if entry is None:
-                raise CapabilityError("Invalid or expired preview token. Create a new preview.", "PREVIEW_EXPIRED")
+                raise CapabilityError(
+                    "Invalid or expired preview token. Create a new preview.",
+                    "PREVIEW_EXPIRED",
+                )
             return entry.mutation
 
     async def clear(self) -> None:

@@ -1,17 +1,23 @@
 """Investigation: find slow transactions via ServiceNow performance pattern tables."""
 
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
 
-from servicenow_mcp.capabilities.investigations.checks._models import ParamSpec, SlowPatternFinding, param_specs
+from servicenow_mcp.capabilities.investigations.checks._models import (
+    ParamSpec,
+    SlowPatternFinding,
+    param_specs,
+)
 from servicenow_mcp.capabilities.investigations.helpers import (
     build_investigation_result,
     fetch_and_explain,
     parse_int_param,
 )
 from servicenow_mcp.errors import ForbiddenError, NotFoundError
-from servicenow_mcp.platform.client import ServiceNowClient
 from servicenow_mcp.policy import check_table_access, mask_sensitive_fields
 from servicenow_mcp.query_builder import ServiceNowQuery
+
+if TYPE_CHECKING:
+    from servicenow_mcp.platform.client import ServiceNowClient
 
 
 # ServiceNow performance pattern tables and their finding categories
@@ -29,9 +35,13 @@ _ALLOWED_TABLES = {t[0] for t in PERFORMANCE_TABLES}
 
 
 PARAMS: Final[dict[str, dict[str, Any]]] = param_specs(
-    hours=ParamSpec(type="int", default=24, description="Lookback window for syslog_cancellation."),
+    hours=ParamSpec(
+        type="int", default=24, description="Lookback window for syslog_cancellation."
+    ),
     limit=ParamSpec(type="int", default=20, description="Max findings per table."),
-    categories=ParamSpec(type="list[str]", default=None, description="Native array of category names."),
+    categories=ParamSpec(
+        type="list[str]", default=None, description="Native array of category names."
+    ),
 )
 
 
@@ -92,10 +102,12 @@ async def run(client: ServiceNowClient, params: dict[str, Any]) -> dict[str, Any
                         count=masked_rec.get("count", ""),
                         detail=f"Performance pattern from {table_name}",
                         sys_created_on=masked_rec.get("sys_created_on", ""),
-                    ).to_payload()
+                    ).to_payload(),
                 )
         except NotFoundError, ForbiddenError:
-            warnings.append(f"Table {table_name} is unavailable or inaccessible; findings are incomplete.")
+            warnings.append(
+                f"Table {table_name} is unavailable or inaccessible; findings are incomplete."
+            )
 
     return build_investigation_result(
         "slow_transactions",
@@ -122,10 +134,10 @@ def _build_explanation(table: str, _sys_id: str, record: dict[str, Any]) -> list
         explanation_parts.append(f"Hit count: {record['count']}.")
 
     explanation_parts.append(
-        (  # noqa: UP034
+        (
             "Review this pattern to determine if query optimization, "
             "script optimization, or architecture changes are needed."
-        )
+        ),
     )
 
     return explanation_parts
@@ -137,6 +149,8 @@ async def explain(client: ServiceNowClient, element_id: str) -> dict[str, Any]:
     element_id format: "table:sys_id".
     """
     try:
-        return await fetch_and_explain(client, element_id, _ALLOWED_TABLES, _build_explanation)
+        return await fetch_and_explain(
+            client, element_id, _ALLOWED_TABLES, _build_explanation
+        )
     except ValueError as e:
         return {"error": str(e)}

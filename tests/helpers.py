@@ -1,21 +1,25 @@
 """Shared test helper utilities."""
 
 import inspect
-from collections.abc import Callable
-from typing import Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from jsonschema import Draft202012Validator
-from mcp.server import MCPServer
 from mcp.types import CallToolResult
-from pydantic import BaseModel
 
-from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.capabilities.mutations.coordinator import MutationCoordinator
-from servicenow_mcp.config import Settings
 from servicenow_mcp.mcp.outputs import error_result
 from servicenow_mcp.mcp.tools.mutations import register_tools
 from servicenow_mcp.platform.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.platform.metadata._dictionary import DictionaryRegistry
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from mcp.server import MCPServer
+    from pydantic import BaseModel
+
+    from servicenow_mcp.auth import OAuthPKCEProvider
+    from servicenow_mcp.config import Settings
 
 
 class RegisteredToolLike(Protocol):
@@ -28,7 +32,11 @@ class RegisteredToolLike(Protocol):
 
 def decode_response(raw: BaseModel) -> dict[str, Any]:
     """Inspect a native capability or MCP result."""
-    result = raw.structured_content if isinstance(raw, CallToolResult) else raw.model_dump(mode="json")
+    result = (
+        raw.structured_content
+        if isinstance(raw, CallToolResult)
+        else raw.model_dump(mode="json")
+    )
     assert isinstance(result, dict)
     assert "correlation_id" not in result
     assert "selection" not in result
@@ -37,7 +45,9 @@ def decode_response(raw: BaseModel) -> dict[str, Any]:
 
 def _get_registered_tools(mcp: MCPServer) -> dict[str, RegisteredToolLike]:
     """Return the registered tool mapping from an MCPServer instance."""
-    return cast("dict[str, RegisteredToolLike]", cast("object", mcp._tool_manager._tools))
+    return cast(
+        "dict[str, RegisteredToolLike]", cast("object", mcp._tool_manager._tools)
+    )
 
 
 def get_tool_functions(mcp: MCPServer) -> dict[str, Callable[..., Any]]:
@@ -50,7 +60,15 @@ def get_tool_functions(mcp: MCPServer) -> dict[str, Callable[..., Any]]:
             except TypeError:
                 return error_result("Arguments do not match the tool schema.")
             schema = {**tool.parameters, "additionalProperties": False}
-            if next(iter(Draft202012Validator(schema).iter_errors(dict(bound.arguments))), None) is not None:
+            if (
+                next(
+                    iter(
+                        Draft202012Validator(schema).iter_errors(dict(bound.arguments))
+                    ),
+                    None,
+                )
+                is not None
+            ):
                 return error_result("Arguments do not match the tool schema.")
             return await mcp.call_tool(tool.name, dict(bound.arguments))
 
@@ -84,7 +102,9 @@ def register_mutations(
     return coordinator
 
 
-async def preview_and_apply(tools: dict[str, Callable[..., Any]], tool: str, **arguments: Any) -> Any:
+async def preview_and_apply(
+    tools: dict[str, Callable[..., Any]], tool: str, **arguments: Any
+) -> Any:
     preview = await tools[tool](**arguments)
     value = decode_response(preview)
     if value["status"] == "error":

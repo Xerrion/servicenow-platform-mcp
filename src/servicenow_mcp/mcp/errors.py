@@ -1,18 +1,26 @@
 """MCP tool exception translation."""
 
 import logging
-from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING
 
 import httpx2
-from mcp.types import CallToolResult
 from pydantic import ValidationError
 
 from servicenow_mcp.capabilities.contracts import CapabilityError, CapabilityResult
 from servicenow_mcp.errors import ACLError, ForbiddenError, ServiceNowMCPError
 from servicenow_mcp.mcp.outputs import error_result
 from servicenow_mcp.sentry import capture_exception as sentry_capture
-from servicenow_mcp.telemetry import current_tool_trace, request_operation, timeout_phase
+from servicenow_mcp.telemetry import (
+    current_tool_trace,
+    request_operation,
+    timeout_phase,
+)
 from servicenow_mcp.validation_errors import safe_validation_error
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
+    from mcp.types import CallToolResult
 
 
 logger = logging.getLogger(__name__)
@@ -39,13 +47,20 @@ def _timeout_error(error: httpx2.TimeoutException) -> dict[str, str]:
 
     guidance = {
         "connect": "Check connectivity to ServiceNow; this is not evidence of a slow query or an ACL denial.",
-        "pool": "The HTTP connection pool timed out while waiting for a connection. Check in-flight requests before issuing more calls.",
+        "pool": (
+            "The HTTP connection pool timed out while waiting for a connection. Check in-flight requests before "
+            "issuing more calls."
+        ),
         "write": "Sending the request timed out. Check connectivity and the remote outcome before retrying.",
     }.get(
         phase,
         "Inspect the matching local trace to identify the operation that exceeded its HTTP timeout.",
     )
-    if phase == "read" and operation in {"records", "aggregate", "unknown"} and (is_read or operation == "unknown"):
+    if (
+        phase == "read"
+        and operation in {"records", "aggregate", "unknown"}
+        and (is_read or operation == "unknown")
+    ):
         guidance += (
             " If this was a query, narrow it with indexed predicates or a smaller date window."
             " For sys_audit, prefer documentkey. Lowering limit only reduces returned rows and might not reduce "
@@ -74,7 +89,9 @@ def _timeout_error(error: httpx2.TimeoutException) -> dict[str, str]:
     return result
 
 
-async def safe_tool_call(fn: Callable[[], Awaitable[CapabilityResult]]) -> CapabilityResult | CallToolResult:
+async def safe_tool_call(
+    fn: Callable[[], Awaitable[CapabilityResult]],
+) -> CapabilityResult | CallToolResult:
     """Translate anticipated failures to native errors without disclosing inputs."""
     try:
         return await fn()
@@ -83,7 +100,13 @@ async def safe_tool_call(fn: Callable[[], Awaitable[CapabilityResult]]) -> Capab
         detail = _timeout_error(e)
         return error_result(**detail)
     except CapabilityError as e:
-        return error_result(str(e), e.code, missing_fields=e.missing_fields)
+        return error_result(
+            str(e),
+            e.code,
+            missing_fields=e.missing_fields,
+            missing_arguments=e.missing_arguments,
+            outcome=e.outcome,
+        )
     except ACLError as e:
         sentry_capture(e)
         return error_result(f"Access denied by ServiceNow ACL: {e}", "ACL_DENIED")
@@ -103,7 +126,7 @@ async def safe_tool_call(fn: Callable[[], Awaitable[CapabilityResult]]) -> Capab
         # Validators use ValueError for curated user-input errors.
         sentry_capture(e)
         return error_result(str(e))
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — top-level handler must contain unclassified failures
         # Keep unclassified internal details out of the wire response.
         logger.error("Unhandled exception in tool: %s", type(e).__name__)
         sentry_capture(e)

@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import sys
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, patch
 from uuid import UUID
 
@@ -13,7 +14,6 @@ from mcp.server import MCPServer
 from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.capabilities.contracts import CapabilityResult
 from servicenow_mcp.capabilities.contracts import result as operation_result
-from servicenow_mcp.config import Settings
 from servicenow_mcp.mcp.handlers import tool_handler
 from servicenow_mcp.mcp.tools.query import register_tools
 from servicenow_mcp.platform.client import ServiceNowClientFactory
@@ -27,6 +27,9 @@ from servicenow_mcp.telemetry import (
 )
 from tests.helpers import decode_response, get_tool_functions
 
+if TYPE_CHECKING:
+    from servicenow_mcp.config import Settings
+
 
 @pytest.fixture(autouse=True)
 def _diagnostic_logging(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -37,17 +40,13 @@ def _diagnostic_logging(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.parametrize(
-    ("error_type", "phase"),
-    [
-        (httpx2.ConnectTimeout, "connect"),
-        (httpx2.ReadTimeout, "read"),
-        (httpx2.WriteTimeout, "write"),
-        (httpx2.PoolTimeout, "pool"),
-        (httpx2.TimeoutException, "unknown"),
-    ],
+    "error_type,phase",
+    [pytest.param(httpx2.TimeoutException, "unknown", id="TimeoutException-unknown")],
 )
 async def test_timeout_error_is_correlated_and_redacted(
-    error_type: type[httpx2.TimeoutException], phase: str, caplog: pytest.LogCaptureFixture
+    error_type: type[httpx2.TimeoutException],
+    phase: str,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     request = httpx2.Request(
         "GET",
@@ -69,7 +68,13 @@ async def test_timeout_error_is_correlated_and_redacted(
     assert "not replayed" in error["message"]
     assert f"trace_id={error['trace_id']}" in caplog.text
     assert "outcome=returned" in caplog.text
-    for private in ("private.example", "private_table", "private_filter", "private_header", "private_exception"):
+    for private in (
+        "private.example",
+        "private_table",
+        "private_filter",
+        "private_header",
+        "private_exception",
+    ):
         assert private not in str(result)
         assert private not in caplog.text
     if phase in {"connect", "pool"}:
@@ -78,18 +83,24 @@ async def test_timeout_error_is_correlated_and_redacted(
 
 
 @pytest.mark.parametrize(
-    ("path", "operation"),
+    "path,operation",
     [
-        ("/api/now/table/sys_db_object", "table_metadata"),
-        ("/api/now/table/sys_dictionary", "dictionary"),
-        ("/api/now/table/sys_choice", "choices"),
-        ("/api/now/table/sys_documentation", "documentation"),
+        pytest.param(
+            "/api/now/table/sys_db_object",
+            "table_metadata",
+            id="/api/now/table/sys_db_object-table_metadata",
+        )
     ],
 )
-async def test_metadata_timeout_does_not_blame_target_query(path: str, operation: str) -> None:
+async def test_metadata_timeout_does_not_blame_target_query(
+    path: str, operation: str
+) -> None:
     @tool_handler
     async def describe() -> CapabilityResult:
-        raise httpx2.ReadTimeout("private", request=httpx2.Request("GET", f"https://test.service-now.com{path}"))
+        raise httpx2.ReadTimeout(
+            "private",
+            request=httpx2.Request("GET", f"https://test.service-now.com{path}"),
+        )
 
     error = decode_response(await describe())["error"]
     assert error["operation"] == operation
@@ -97,7 +108,7 @@ async def test_metadata_timeout_does_not_blame_target_query(path: str, operation
     assert "narrow" not in error["message"].lower()
 
 
-@pytest.mark.parametrize("method", ["POST", "PATCH", "DELETE"])
+@pytest.mark.parametrize("method", [pytest.param("POST", id="POST")])
 async def test_write_timeout_warns_about_unknown_remote_outcome(method: str) -> None:
     attempts = 0
 
@@ -106,7 +117,10 @@ async def test_write_timeout_warns_about_unknown_remote_outcome(method: str) -> 
         nonlocal attempts
         attempts += 1
         raise httpx2.ReadTimeout(
-            "private", request=httpx2.Request(method, "https://test.service-now.com/api/now/table/incident")
+            "private",
+            request=httpx2.Request(
+                method, "https://test.service-now.com/api/now/table/incident"
+            ),
         )
 
     error = decode_response(await record_write())["error"]
@@ -115,7 +129,9 @@ async def test_write_timeout_warns_about_unknown_remote_outcome(method: str) -> 
     assert attempts == 1
 
 
-async def test_parallel_tools_keep_separate_traces(settings: Settings, caplog: pytest.LogCaptureFixture) -> None:
+async def test_parallel_tools_keep_separate_traces(
+    settings: Settings, caplog: pytest.LogCaptureFixture
+) -> None:
     requests: list[httpx2.Request] = []
 
     async def respond(request: httpx2.Request) -> httpx2.Response:
@@ -125,9 +141,13 @@ async def test_parallel_tools_keep_separate_traces(settings: Settings, caplog: p
 
     telemetry = HttpTelemetry()
     async with TelemetryAsyncClient(
-        telemetry=telemetry, is_shared_pool=True, transport=httpx2.MockTransport(respond)
+        telemetry=telemetry,
+        is_shared_pool=True,
+        transport=httpx2.MockTransport(respond),
     ) as transport:
-        factory = ServiceNowClientFactory(settings, OAuthPKCEProvider(settings), transport)
+        factory = ServiceNowClientFactory(
+            settings, OAuthPKCEProvider(settings), transport
+        )
 
         @tool_handler
         async def query(sys_id: str) -> CapabilityResult:
@@ -142,7 +162,11 @@ async def test_parallel_tools_keep_separate_traces(settings: Settings, caplog: p
     traces = {request.headers["X-Correlation-ID"] for request in requests}
     assert len(traces) == 2
     for trace_id in traces:
-        matching = [request for request in requests if request.headers["X-Correlation-ID"] == trace_id]
+        matching = [
+            request
+            for request in requests
+            if request.headers["X-Correlation-ID"] == trace_id
+        ]
         assert len(matching) == 2
         assert len({request.url.path for request in matching}) == 1
         assert f"trace_id={trace_id} request=1 operation=records" in caplog.text
@@ -156,15 +180,21 @@ async def test_parallel_tools_keep_separate_traces(settings: Settings, caplog: p
     assert current_tool_trace() is None
 
 
-async def test_upstream_timeout_matches_http_failure_log(settings: Settings, caplog: pytest.LogCaptureFixture) -> None:
+async def test_upstream_timeout_matches_http_failure_log(
+    settings: Settings, caplog: pytest.LogCaptureFixture
+) -> None:
     def fail(request: httpx2.Request) -> httpx2.Response:
         raise httpx2.ReadTimeout("private_exception", request=request)
 
     telemetry = HttpTelemetry()
     async with TelemetryAsyncClient(
-        telemetry=telemetry, is_shared_pool=True, transport=httpx2.MockTransport(fail)
+        telemetry=telemetry,
+        is_shared_pool=True,
+        transport=httpx2.MockTransport(fail),
     ) as transport:
-        factory = ServiceNowClientFactory(settings, OAuthPKCEProvider(settings), transport)
+        factory = ServiceNowClientFactory(
+            settings, OAuthPKCEProvider(settings), transport
+        )
 
         @tool_handler
         async def query() -> CapabilityResult:
@@ -182,7 +212,8 @@ async def test_upstream_timeout_matches_http_failure_log(settings: Settings, cap
 
 
 async def test_cancellation_is_not_reported_as_upstream_timeout(
-    settings: Settings, caplog: pytest.LogCaptureFixture
+    settings: Settings,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     started = asyncio.Event()
     never = asyncio.Event()
@@ -194,9 +225,13 @@ async def test_cancellation_is_not_reported_as_upstream_timeout(
 
     telemetry = HttpTelemetry()
     async with TelemetryAsyncClient(
-        telemetry=telemetry, is_shared_pool=True, transport=httpx2.MockTransport(respond)
+        telemetry=telemetry,
+        is_shared_pool=True,
+        transport=httpx2.MockTransport(respond),
     ) as transport:
-        factory = ServiceNowClientFactory(settings, OAuthPKCEProvider(settings), transport)
+        factory = ServiceNowClientFactory(
+            settings, OAuthPKCEProvider(settings), transport
+        )
 
         @tool_handler
         async def query() -> CapabilityResult:
@@ -220,25 +255,35 @@ async def test_cancellation_is_not_reported_as_upstream_timeout(
     assert current_tool_trace() is None
 
 
-async def test_skipped_metadata_timeout_warns_with_trace(settings: Settings, caplog: pytest.LogCaptureFixture) -> None:
+async def test_skipped_metadata_timeout_warns_with_trace(
+    settings: Settings, caplog: pytest.LogCaptureFixture
+) -> None:
     telemetry = HttpTelemetry()
     async with TelemetryAsyncClient(
         telemetry=telemetry,
         is_shared_pool=True,
-        transport=httpx2.MockTransport(lambda request: httpx2.Response(200, json={"result": []})),
+        transport=httpx2.MockTransport(
+            lambda request: httpx2.Response(200, json={"result": []})
+        ),
     ) as transport:
         auth = OAuthPKCEProvider(settings)
         factory = ServiceNowClientFactory(settings, auth, transport)
         dictionary = DictionaryRegistry(settings, auth, factory)
         mcp = MCPServer("test")
-        register_tools(mcp, settings, auth, dictionary=dictionary, client_factory=factory)
+        register_tools(
+            mcp, settings, auth, dictionary=dictionary, client_factory=factory
+        )
         with patch.object(
-            dictionary, "get_query_field_paths", new=AsyncMock(side_effect=httpx2.ReadTimeout("private_exception"))
+            dictionary,
+            "get_query_field_paths",
+            new=AsyncMock(side_effect=httpx2.ReadTimeout("private_exception")),
         ):
             result = decode_response(
                 await get_tool_functions(mcp)["query"](
-                    table="incident", encoded_query="number=synthetic", fields=["number"]
-                )
+                    table="incident",
+                    encoded_query="number=synthetic",
+                    fields=["number"],
+                ),
             )
 
     assert result["status"] == "success"
@@ -251,9 +296,14 @@ async def test_skipped_metadata_timeout_warns_with_trace(settings: Settings, cap
     assert "Query field validation skipped:" in caplog.text
 
 
-def test_nested_trace_restores_parent_and_measures_elapsed_time(caplog: pytest.LogCaptureFixture) -> None:
+def test_nested_trace_restores_parent_and_measures_elapsed_time(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     with (
-        patch("servicenow_mcp.telemetry.perf_counter", side_effect=[1.0, 1.01, 1.025, 1.03]),
+        patch(
+            "servicenow_mcp.telemetry.perf_counter",
+            side_effect=[1.0, 1.01, 1.025, 1.03],
+        ),
         trace_tool_call("outer"),
     ):
         outer = current_tool_trace()

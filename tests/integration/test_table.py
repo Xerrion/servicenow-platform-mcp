@@ -1,10 +1,14 @@
 """Integration tests for table tools against a live ServiceNow instance."""
 
+from typing import TYPE_CHECKING
+
 import pytest
 
-from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.config import Settings
 from servicenow_mcp.platform.client import ServiceNowClient
+
+if TYPE_CHECKING:
+    from servicenow_mcp.auth import OAuthPKCEProvider
+    from servicenow_mcp.config import Settings
 
 
 pytestmark = pytest.mark.integration
@@ -13,11 +17,16 @@ pytestmark = pytest.mark.integration
 class TestTableIntegration:
     """Test table operations on a live instance."""
 
-    async def test_table_describe_returns_fields(self, live_settings: Settings, live_auth: OAuthPKCEProvider) -> None:
+    async def test_table_describe_returns_fields(
+        self, live_settings: Settings, live_auth: OAuthPKCEProvider
+    ) -> None:
         """table_describe: fetch field metadata for the incident table."""
         async with ServiceNowClient(live_settings, live_auth) as client:
             metadata = await client.query_records(
-                "sys_dictionary", "name=incident", fields=["element", "internal_type"], limit=1000
+                "sys_dictionary",
+                "name=incident",
+                fields=["element", "internal_type"],
+                limit=1000,
             )
 
         fields = [
@@ -29,7 +38,9 @@ class TestTableIntegration:
         ]
         assert len(fields) > 0, "No fields returned for incident table"
 
-    async def test_table_query_returns_records(self, live_settings: Settings, live_auth: OAuthPKCEProvider) -> None:
+    async def test_table_query_returns_records(
+        self, live_settings: Settings, live_auth: OAuthPKCEProvider
+    ) -> None:
         """table_query: query active incidents."""
         async with ServiceNowClient(live_settings, live_auth) as client:
             result = await client.query_records(
@@ -61,7 +72,9 @@ class TestTableIntegration:
 
         assert record["sys_id"] == incident_sys_id
 
-    async def test_table_aggregate_returns_stats(self, live_settings: Settings, live_auth: OAuthPKCEProvider) -> None:
+    async def test_table_aggregate_returns_stats(
+        self, live_settings: Settings, live_auth: OAuthPKCEProvider
+    ) -> None:
         """table_aggregate: get count of incidents."""
         async with ServiceNowClient(live_settings, live_auth) as client:
             result = await client.aggregate("incident", "")

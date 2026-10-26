@@ -18,7 +18,9 @@ from servicenow_mcp.validation import validate_identifier, validate_sys_id
 
 
 class Command(BaseModel):
-    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True, extra="forbid", hide_input_in_errors=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(
+        frozen=True, extra="forbid", hide_input_in_errors=True
+    )
 
 
 class RecordCommand(Command):
@@ -33,14 +35,18 @@ class RecordCommand(Command):
         validate_identifier(self.table)
         if self.action == "create":
             if self.sys_id is not None or self.data is None:
-                raise CapabilityError("create requires data and does not accept sys_id.")
+                raise CapabilityError(
+                    "create requires data and does not accept sys_id."
+                )
         elif self.sys_id is None:
             raise CapabilityError("update and delete require sys_id.")
         else:
             try:
                 validate_sys_id(self.sys_id)
             except ValueError:
-                raise CapabilityError("sys_id must contain 32 hexadecimal characters.") from None
+                raise CapabilityError(
+                    "sys_id must contain 32 hexadecimal characters."
+                ) from None
         if self.action == "update" and self.data is None:
             raise CapabilityError("update requires data.")
         if self.action == "delete" and self.data is not None:
@@ -63,8 +69,15 @@ class AttachmentCommand(Command):
     @model_validator(mode="after")
     def check_action(self) -> Self:
         if self.action == "upload":
-            if not self.table or not self.table_sys_id or not self.file_name or self.content is None:
-                raise CapabilityError("upload requires table, table_sys_id, file_name, and content.")
+            if (
+                not self.table
+                or not self.table_sys_id
+                or not self.file_name
+                or self.content is None
+            ):
+                raise CapabilityError(
+                    "upload requires table, table_sys_id, file_name, and content."
+                )
             if self.sys_id is not None:
                 raise CapabilityError("upload does not accept sys_id.")
             validate_identifier(self.table)
@@ -73,7 +86,15 @@ class AttachmentCommand(Command):
             if not self.sys_id:
                 raise CapabilityError("delete requires sys_id.")
             validate_sys_id(self.sys_id)
-            if any(value is not None for value in (self.table, self.table_sys_id, self.file_name, self.content)):
+            if any(
+                value is not None
+                for value in (
+                    self.table,
+                    self.table_sys_id,
+                    self.file_name,
+                    self.content,
+                )
+            ):
                 raise CapabilityError("delete accepts only sys_id.")
         return self
 
@@ -135,30 +156,52 @@ class CatalogCommand(Command):
         for name, value in self.model_dump(exclude={"family", "action"}).items():
             if value is not None and name not in allowed:
                 raise CapabilityError(f"{name} is not accepted by this catalog action.")
-        for value in (self.item_sys_id, self.cart_item_id, self.cart_sys_id, self.requested_for):
+        for value in (
+            self.item_sys_id,
+            self.cart_item_id,
+            self.cart_sys_id,
+            self.requested_for,
+        ):
             if value is not None:
                 validate_sys_id(value)
         validate_users(self.also_request_for, max_users=50)
         if self.variables is not None:
-            validate_payload(self.variables, field_name="variables", validate_keys=False)
+            validate_payload(
+                self.variables, field_name="variables", validate_keys=False
+            )
         if self.items is not None:
-            validate_payload({"items": self.items}, field_name="items", validate_keys=False)
+            validate_payload(
+                {"items": self.items}, field_name="items", validate_keys=False
+            )
             for item in self.items:
                 item_id = item.get("sys_id")
-                if set(item) - {"sys_id", "sysparm_quantity", "variables"} or not isinstance(item_id, str):
+                if set(item) - {
+                    "sys_id",
+                    "sysparm_quantity",
+                    "variables",
+                } or not isinstance(item_id, str):
                     raise CapabilityError(
-                        "Each guide item requires sys_id and accepts only sysparm_quantity and variables."
+                        "Each guide item requires sys_id and accepts only sysparm_quantity and variables.",
                     )
                 validate_sys_id(item_id)
                 quantity = item.get("sysparm_quantity", "1")
-                if not isinstance(quantity, str) or not re.fullmatch(r"[0-9]+", quantity) or int(quantity) <= 0:
-                    raise CapabilityError("Guide item sysparm_quantity must be a positive integer string.")
+                if (
+                    not isinstance(quantity, str)
+                    or not re.fullmatch(r"[0-9]+", quantity)
+                    or int(quantity) <= 0
+                ):
+                    raise CapabilityError(
+                        "Guide item sysparm_quantity must be a positive integer string."
+                    )
                 if "variables" in item and not isinstance(item["variables"], dict):
                     raise CapabilityError("Guide item variables must be an object.")
         return self
 
 
-MutationCommand = Annotated[RecordCommand | AttachmentCommand | CatalogCommand, Field(discriminator="family")]
+MutationCommand = Annotated[
+    RecordCommand | AttachmentCommand | CatalogCommand,
+    Field(discriminator="family"),
+]
 
 
 class StagedMutation(Command):
@@ -180,9 +223,17 @@ class MutationPreview(BaseModel):
 
 def fingerprint(value: JsonValue) -> str:
     try:
-        encoded = json.dumps(value, sort_keys=True, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode()
+        encoded = json.dumps(
+            value,
+            sort_keys=True,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+        ).encode()
     except TypeError, ValueError, UnicodeError:
-        raise CapabilityError("Cannot establish the current state for this mutation.") from None
+        raise CapabilityError(
+            "Cannot establish the current state for this mutation."
+        ) from None
     return hashlib.sha256(encoded).hexdigest()
 
 
@@ -190,6 +241,8 @@ def retained_bytes(staged: StagedMutation) -> int:
     command = staged.command
     payload = staged.model_dump(mode="python", exclude={"command"})
     payload["command"] = command.model_dump(mode="python", exclude={"content"})
-    return len(json.dumps(payload, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode()) + (
-        len(command.content or b"") if isinstance(command, AttachmentCommand) else 0
-    )
+    return len(
+        json.dumps(
+            payload, ensure_ascii=False, allow_nan=False, separators=(",", ":")
+        ).encode()
+    ) + (len(command.content or b"") if isinstance(command, AttachmentCommand) else 0)

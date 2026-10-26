@@ -1,20 +1,17 @@
 """Tests for policy engine."""
 
+from typing import TYPE_CHECKING
+
 import pytest
 
-from servicenow_mcp.config import Settings
 from servicenow_mcp.errors import PolicyError, QuerySafetyError
+
+if TYPE_CHECKING:
+    from servicenow_mcp.config import Settings
 
 
 class TestDenyList:
     """Test table deny list enforcement."""
-
-    def test_denied_table_raises_policy_error(self) -> None:
-        """Accessing a denied table raises PolicyError."""
-        from servicenow_mcp.policy import check_table_access
-
-        with pytest.raises(PolicyError, match="denied"):
-            check_table_access("sys_user_has_password")
 
     def test_credential_table_denied(self) -> None:
         """Credential tables are denied."""
@@ -48,56 +45,28 @@ class TestDenyList:
 class TestSensitiveFieldMasking:
     """Test sensitive field masking."""
 
-    def test_password_field_masked(self) -> None:
-        """Password fields are masked."""
-        from servicenow_mcp.policy import mask_sensitive_fields
-
-        record = {"sys_id": "123", "password": "secret123", "name": "admin"}
-        masked = mask_sensitive_fields(record)
-
-        assert masked["password"] == "***MASKED***"
-        assert masked["name"] == "admin"
-        assert masked["sys_id"] == "123"
-
-    def test_token_field_masked(self) -> None:
-        """Token fields are masked."""
-        from servicenow_mcp.policy import mask_sensitive_fields
-
-        record = {"token": "abc123", "name": "test"}
-        masked = mask_sensitive_fields(record)
-
-        assert masked["token"] == "***MASKED***"
-
-    def test_secret_field_masked(self) -> None:
-        """Fields containing 'secret' are masked."""
-        from servicenow_mcp.policy import mask_sensitive_fields
-
-        record = {"client_secret": "xyz", "name": "test"}
-        masked = mask_sensitive_fields(record)
-
-        assert masked["client_secret"] == "***MASKED***"
-
-    def test_non_sensitive_fields_unchanged(self) -> None:
-        """Non-sensitive fields are not modified."""
+    def test_sensitive_fields_are_masked_without_mutating_the_record(self) -> None:
+        """Mask each supported secret name and preserve ordinary fields and the source."""
         from servicenow_mcp.policy import mask_sensitive_fields
 
         record = {
             "sys_id": "123",
+            "password": "secret123",
+            "token": "abc123",
+            "client_secret": "xyz",
+            "name": "admin",
             "short_description": "Test",
-            "number": "INC001",
         }
+        original = record.copy()
         masked = mask_sensitive_fields(record)
 
-        assert masked == record
-
-    def test_original_record_not_mutated(self) -> None:
-        """Original record dict is not modified."""
-        from servicenow_mcp.policy import mask_sensitive_fields
-
-        record = {"password": "secret123"}
-        mask_sensitive_fields(record)
-
-        assert record["password"] == "secret123"
+        assert masked["password"] == "***MASKED***"
+        assert masked["token"] == "***MASKED***"
+        assert masked["client_secret"] == "***MASKED***"
+        assert masked["name"] == "admin"
+        assert masked["sys_id"] == "123"
+        assert masked["short_description"] == "Test"
+        assert record == original
 
 
 class TestAuditEntryMasking:
@@ -120,19 +89,8 @@ class TestAuditEntryMasking:
         assert masked["newvalue"] == MASK_VALUE
         assert masked["user"] == "admin"
         assert masked["fieldname"] == "password"
-
-    def test_masks_token_fieldname(self) -> None:
-        """Masks values when fieldname contains 'token'."""
-        from servicenow_mcp.policy import MASK_VALUE, mask_audit_entry
-
-        entry = {
-            "fieldname": "api_token",
-            "oldvalue": "",
-            "newvalue": "tok_abc123",
-        }
-        masked = mask_audit_entry(entry)
-
-        assert masked["newvalue"] == MASK_VALUE
+        assert entry["oldvalue"] == "old_secret"
+        assert entry["newvalue"] == "new_secret"
 
     def test_masks_using_field_key(self) -> None:
         """Supports 'field' as an alternative key to 'fieldname'."""
@@ -162,20 +120,6 @@ class TestAuditEntryMasking:
         assert masked["oldvalue"] == "1"
         assert masked["newvalue"] == "2"
 
-    def test_original_entry_not_mutated(self) -> None:
-        """Original entry dict is not modified."""
-        from servicenow_mcp.policy import mask_audit_entry
-
-        entry = {
-            "fieldname": "password",
-            "oldvalue": "secret",
-            "newvalue": "new_secret",
-        }
-        mask_audit_entry(entry)
-
-        assert entry["oldvalue"] == "secret"
-        assert entry["newvalue"] == "new_secret"
-
     def test_no_fieldname_key_leaves_values_unchanged(self) -> None:
         """Entry without fieldname or field key leaves values unchanged."""
         from servicenow_mcp.policy import mask_audit_entry
@@ -197,14 +141,18 @@ class TestQuerySafety:
         """Limit is capped at max_row_limit."""
         from servicenow_mcp.policy import enforce_query_safety
 
-        result = enforce_query_safety("incident", "active=true", limit=500, settings=settings)
+        result = enforce_query_safety(
+            "incident", "active=true", limit=500, settings=settings
+        )
         assert result["limit"] <= settings.max_row_limit
 
     def test_default_limit_applied(self, settings: Settings) -> None:
         """Default limit is applied when none specified."""
         from servicenow_mcp.policy import enforce_query_safety
 
-        result = enforce_query_safety("incident", "active=true", limit=None, settings=settings)
+        result = enforce_query_safety(
+            "incident", "active=true", limit=None, settings=settings
+        )
         assert result["limit"] == settings.max_row_limit
 
     def test_large_table_requires_date_filter(self, settings: Settings) -> None:
@@ -232,7 +180,9 @@ class TestQuerySafety:
         from servicenow_mcp.policy import enforce_query_safety
 
         # Should not raise
-        result = enforce_query_safety("incident", "active=true", limit=50, settings=settings)
+        result = enforce_query_safety(
+            "incident", "active=true", limit=50, settings=settings
+        )
         assert result["limit"] == 50
 
     def test_date_filter_bypass_substring_in_value(self, settings: Settings) -> None:
@@ -275,14 +225,18 @@ class TestQuerySafety:
         """Limit of 0 is floored to 1."""
         from servicenow_mcp.policy import enforce_query_safety
 
-        result = enforce_query_safety("incident", "active=true", limit=0, settings=settings)
+        result = enforce_query_safety(
+            "incident", "active=true", limit=0, settings=settings
+        )
         assert result["limit"] == 1
 
     def test_limit_negative_floored_to_one(self, settings: Settings) -> None:
         """Negative limit is floored to 1."""
         from servicenow_mcp.policy import enforce_query_safety
 
-        result = enforce_query_safety("incident", "active=true", limit=-5, settings=settings)
+        result = enforce_query_safety(
+            "incident", "active=true", limit=-5, settings=settings
+        )
         assert result["limit"] == 1
 
 
@@ -353,7 +307,9 @@ class TestNestedSensitiveFieldMasking:
         """A sensitive key inside a nested dict is masked."""
         from servicenow_mcp.policy import MASK_VALUE, mask_sensitive_fields
 
-        record = {"outer": {"password": "x", "name": "alice"}}  # NOSONAR S2068 - test fixture, not a real credential
+        record = {
+            "outer": {"password": "x", "name": "alice"}
+        }  # NOSONAR S2068 - test fixture, not a real credential
         masked = mask_sensitive_fields(record)
 
         assert masked["outer"]["password"] == MASK_VALUE
@@ -381,7 +337,9 @@ class TestNestedSensitiveFieldMasking:
         """Nested dict in the input is not mutated."""
         from servicenow_mcp.policy import mask_sensitive_fields
 
-        nested = {"password": "secret"}  # NOSONAR S2068 - test fixture, not a real credential
+        nested = {
+            "password": "secret"
+        }  # NOSONAR S2068 - test fixture, not a real credential
         record = {"outer": nested}
         mask_sensitive_fields(record)
 
@@ -391,7 +349,9 @@ class TestNestedSensitiveFieldMasking:
         """Sensitive keys inside list[dict] structures are masked."""
         from servicenow_mcp.policy import MASK_VALUE, mask_sensitive_fields
 
-        record = {"items": [{"password": "x"}, {"safe": "y"}]}  # NOSONAR S2068 - test fixture, not a real credential
+        record = {
+            "items": [{"password": "x"}, {"safe": "y"}]
+        }  # NOSONAR S2068 - test fixture, not a real credential
         masked = mask_sensitive_fields(record)
 
         assert masked["items"][0]["password"] == MASK_VALUE

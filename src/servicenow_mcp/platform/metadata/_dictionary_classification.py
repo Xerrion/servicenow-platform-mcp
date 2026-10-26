@@ -2,8 +2,10 @@
 
 from typing import Final
 
-from servicenow_mcp.platform.metadata._dictionary_models import DictionaryField, ScriptField
-
+from servicenow_mcp.platform.metadata._dictionary_models import (
+    DictionaryField,
+    ScriptField,
+)
 
 UNAMBIGUOUS_SCRIPT_TYPES: Final[frozenset[str]] = frozenset(
     {
@@ -15,7 +17,7 @@ UNAMBIGUOUS_SCRIPT_TYPES: Final[frozenset[str]] = frozenset(
         "html_script",
         "html_template",
         "css",
-    }
+    },
 )
 EXCLUDED_ELEMENTS: Final[frozenset[str]] = frozenset(
     {
@@ -29,7 +31,7 @@ EXCLUDED_ELEMENTS: Final[frozenset[str]] = frozenset(
         "variable_conditions",
         "snapshot_template_value",
         "variable_template_value",
-    }
+    },
 )
 _HEURISTIC_TYPES: Final[frozenset[str]] = frozenset({"html", "xml"})
 _HEURISTIC_ATTR_FLAGS: Final[tuple[tuple[str, str], ...]] = (
@@ -44,11 +46,19 @@ def classify_script_field(field: DictionaryField) -> ScriptField | None:
         return None
     if field.internal_type in UNAMBIGUOUS_SCRIPT_TYPES:
         return ScriptField(
-            name=field.name, internal_type=field.internal_type, inherited_from=field.inherited_from, via_heuristic=False
+            name=field.name,
+            internal_type=field.internal_type,
+            inherited_from=field.inherited_from,
+            via_heuristic=False,
         )
-    if field.internal_type in _HEURISTIC_TYPES and attributes_admit_heuristic(field.attributes):
+    if field.internal_type in _HEURISTIC_TYPES and attributes_admit_heuristic(
+        field.attributes
+    ):
         return ScriptField(
-            name=field.name, internal_type=field.internal_type, inherited_from=field.inherited_from, via_heuristic=True
+            name=field.name,
+            internal_type=field.internal_type,
+            inherited_from=field.inherited_from,
+            via_heuristic=True,
         )
     return None
 

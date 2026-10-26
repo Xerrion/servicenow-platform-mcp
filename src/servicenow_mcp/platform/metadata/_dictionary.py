@@ -1,14 +1,14 @@
 """Retrieve and cache normalized ServiceNow dictionary metadata."""
 
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
 
 import httpx2
 
-from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.config import Settings
 from servicenow_mcp.errors import ServiceNowMCPError
 from servicenow_mcp.platform.client import ServiceNowClient, ServiceNowClientProvider
-from servicenow_mcp.platform.metadata._dictionary_classification import classify_script_field
+from servicenow_mcp.platform.metadata._dictionary_classification import (
+    classify_script_field,
+)
 from servicenow_mcp.platform.metadata._dictionary_inheritance import resolve_chain
 from servicenow_mcp.platform.metadata._dictionary_models import (
     DictionaryField,
@@ -23,6 +23,10 @@ from servicenow_mcp.query_builder import ServiceNowQuery
 from servicenow_mcp.telemetry import CacheName, HttpTelemetry, timeout_phase
 from servicenow_mcp.validation import validate_identifier
 
+if TYPE_CHECKING:
+    from servicenow_mcp.auth import OAuthPKCEProvider
+    from servicenow_mcp.config import Settings
+
 
 _QUERY_FIELD_BATCH_SIZE: Final[int] = 100
 _QUERY_METADATA_ROW_LIMIT: Final[int] = 1000
@@ -35,7 +39,9 @@ class DictionaryRegistry:
     _client_factory: ServiceNowClientProvider
     _script_cache: AsyncMetadataCache[str, list[ScriptField]]
     _all_cache: AsyncMetadataCache[str, list[DictionaryField]]
-    _selected_cache: AsyncMetadataCache[tuple[str, tuple[str, ...]], list[DictionaryField]]
+    _selected_cache: AsyncMetadataCache[
+        tuple[str, tuple[str, ...]], list[DictionaryField]
+    ]
     _chain_cache: AsyncMetadataCache[str, TableInheritance]
     _query_fields_cache: AsyncMetadataCache[tuple[str, tuple[str, ...]], FieldLookup]
 
@@ -46,18 +52,30 @@ class DictionaryRegistry:
         client_factory: ServiceNowClientProvider | None = None,
         telemetry: HttpTelemetry | None = None,
     ) -> None:
-        self._client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
+        self._client_factory = client_factory or (
+            lambda: ServiceNowClient(settings, auth_provider)
+        )
         ttl = settings.metadata_cache_ttl_seconds
         self._script_cache = AsyncMetadataCache(
-            name=CacheName.DICTIONARY_SCRIPT_FIELDS, ttl_seconds=ttl, telemetry=telemetry
+            name=CacheName.DICTIONARY_SCRIPT_FIELDS,
+            ttl_seconds=ttl,
+            telemetry=telemetry,
         )
-        self._all_cache = AsyncMetadataCache(name=CacheName.DICTIONARY_FIELDS, ttl_seconds=ttl, telemetry=telemetry)
+        self._all_cache = AsyncMetadataCache(
+            name=CacheName.DICTIONARY_FIELDS, ttl_seconds=ttl, telemetry=telemetry
+        )
         self._selected_cache = AsyncMetadataCache(
-            name=CacheName.DICTIONARY_FIELDS, ttl_seconds=ttl, telemetry=telemetry
+            name=CacheName.DICTIONARY_FIELDS,
+            ttl_seconds=ttl,
+            telemetry=telemetry,
         )
-        self._chain_cache = AsyncMetadataCache(name=CacheName.DICTIONARY_CHAINS, ttl_seconds=ttl, telemetry=telemetry)
+        self._chain_cache = AsyncMetadataCache(
+            name=CacheName.DICTIONARY_CHAINS, ttl_seconds=ttl, telemetry=telemetry
+        )
         self._query_fields_cache = AsyncMetadataCache(
-            name=CacheName.DICTIONARY_FIELDS, ttl_seconds=ttl, telemetry=telemetry
+            name=CacheName.DICTIONARY_FIELDS,
+            ttl_seconds=ttl,
+            telemetry=telemetry,
         )
 
     async def get_script_fields(self, table: str) -> list[ScriptField]:
@@ -85,7 +103,9 @@ class DictionaryRegistry:
                         element = str(row.get("element") or "").strip()
                         if not element or element in collected:
                             continue
-                        collected[element] = _dictionary_field(row, None if level == 0 else current)
+                        collected[element] = _dictionary_field(
+                            row, None if level == 0 else current
+                        )
             return list(collected.values())
 
         return list(await self._all_cache.get_or_load(table, load))
@@ -123,7 +143,9 @@ class DictionaryRegistry:
                             name = str(row.get("element") or "").strip()
                             if name not in remaining or name not in batch:
                                 continue
-                            fields.append(_dictionary_field(row, None if level == 0 else current))
+                            fields.append(
+                                _dictionary_field(row, None if level == 0 else current)
+                            )
                             remaining.remove(name)
                     if not remaining:
                         break
@@ -154,7 +176,9 @@ class DictionaryRegistry:
             if "." in name:
                 raise ValueError("Query field lookup requires direct column names.")
         if not names:
-            return FieldLookup(fields=[], inheritance=TableInheritance(tables=[], complete=False))
+            return FieldLookup(
+                fields=[], inheritance=TableInheritance(tables=[], complete=False)
+            )
         key = (table, tuple(sorted(set(names))))
 
         async def load() -> FieldLookup:
@@ -167,24 +191,34 @@ class DictionaryRegistry:
                     pending = sorted(remaining)
                     for start in range(0, len(pending), _QUERY_FIELD_BATCH_SIZE):
                         batch = pending[start : start + _QUERY_FIELD_BATCH_SIZE]
-                        rows, incomplete = await _fetch_query_dictionary_rows(client, current, batch)
+                        rows, incomplete = await _fetch_query_dictionary_rows(
+                            client, current, batch
+                        )
                         if incomplete:
                             limitations.append(
-                                f"Dictionary rows for '{current}' were incomplete or reached the read bound."
+                                f"Dictionary rows for '{current}' were incomplete or reached the read bound.",
                             )
                         for row in rows:
                             name = row.get("element")
                             if name not in remaining or name not in batch:
                                 continue
-                            fields.append(_dictionary_field(row, None if level == 0 else current))
+                            fields.append(
+                                _dictionary_field(row, None if level == 0 else current)
+                            )
                             remaining.remove(name)
                     if not remaining:
                         break
-            return FieldLookup(fields=fields, inheritance=inheritance, limitations=limitations)
+            return FieldLookup(
+                fields=fields, inheritance=inheritance, limitations=limitations
+            )
 
-        return (await self._query_fields_cache.get_or_load(key, load)).model_copy(deep=True)
+        return (await self._query_fields_cache.get_or_load(key, load)).model_copy(
+            deep=True
+        )
 
-    async def get_query_field_paths(self, table: str, paths: list[str]) -> list[FieldPathResolution]:
+    async def get_query_field_paths(
+        self, table: str, paths: list[str]
+    ) -> list[FieldPathResolution]:
         """Resolve bounded reference paths with positive evidence or explicit uncertainty."""
         validate_identifier(table)
         for path in paths:
@@ -201,7 +235,9 @@ class DictionaryRegistry:
             pending = []
             for current, entries in groups.items():
                 try:
-                    lookup = await self.get_query_fields(current, [parts[index] for _, parts, index in entries])
+                    lookup = await self.get_query_fields(
+                        current, [parts[index] for _, parts, index in entries]
+                    )
                 except (httpx2.HTTPError, ServiceNowMCPError) as exc:
                     reason = (
                         f"HTTP timeout ({timeout_phase(exc)}) during metadata lookup"
@@ -209,7 +245,9 @@ class DictionaryRegistry:
                         else "metadata was unavailable or inaccessible"
                     )
                     for path, _, _ in entries:
-                        resolved[path] = FieldPathResolution(path=path, status="unverified", reason=reason)
+                        resolved[path] = FieldPathResolution(
+                            path=path, status="unverified", reason=reason
+                        )
                     continue
                 by_name = {field.name: field for field in lookup.fields}
                 for path, parts, index in entries:
@@ -222,7 +260,9 @@ class DictionaryRegistry:
                         if not lookup.inheritance.complete:
                             reason += f". Inheritance was incomplete ({lookup.inheritance.reason})"
                     elif index == len(parts) - 1:
-                        resolved[path] = FieldPathResolution(path=path, status="valid", field=field)
+                        resolved[path] = FieldPathResolution(
+                            path=path, status="valid", field=field
+                        )
                         continue
                     else:
                         reference = field.metadata.get("reference")
@@ -240,10 +280,14 @@ class DictionaryRegistry:
                             else:
                                 pending.append((path, reference, parts, index + 1))
                                 continue
-                    resolved[path] = FieldPathResolution(path=path, status="unverified", field=field, reason=reason)
+                    resolved[path] = FieldPathResolution(
+                        path=path, status="unverified", field=field, reason=reason
+                    )
         for path, _, _, _ in pending:
             resolved[path] = FieldPathResolution(
-                path=path, status="unverified", reason="reference traversal reached its depth bound"
+                path=path,
+                status="unverified",
+                reason="reference traversal reached its depth bound",
             )
         return [resolved[path] for path in ordered_paths]
 
@@ -261,10 +305,14 @@ class DictionaryRegistry:
         self._chain_cache.invalidate()
 
 
-def _dictionary_field(row: dict[str, Any], inherited_from: str | None) -> DictionaryField:
+def _dictionary_field(
+    row: dict[str, Any], inherited_from: str | None
+) -> DictionaryField:
     return DictionaryField(
         name=str(row.get("element") or "").strip(),
-        internal_type=_dictionary_value(row.get("internal_type.name") or row.get("internal_type")),
+        internal_type=_dictionary_value(
+            row.get("internal_type.name") or row.get("internal_type")
+        ),
         attributes=str(row.get("attributes") or ""),
         inherited_from=inherited_from,
         metadata=dict(row),
@@ -272,7 +320,9 @@ def _dictionary_field(row: dict[str, Any], inherited_from: str | None) -> Dictio
 
 
 async def _fetch_query_dictionary_rows(
-    client: ServiceNowClient, table: str, names: list[str]
+    client: ServiceNowClient,
+    table: str,
+    names: list[str],
 ) -> tuple[list[dict[str, Any]], bool]:
     """Read selected definitions with stable pagination and a bounded probe."""
     query = ServiceNowQuery().equals("name", table).in_list("element", names).build()
@@ -291,7 +341,9 @@ async def _fetch_query_dictionary_rows(
         )
         page = result["records"]
         if not isinstance(page, list) or any(
-            not isinstance(row, dict) or not isinstance(row.get("element"), str) or row["element"] not in names
+            not isinstance(row, dict)
+            or not isinstance(row.get("element"), str)
+            or row["element"] not in names
             for row in page
         ):
             return rows, True
@@ -305,12 +357,25 @@ async def _fetch_query_dictionary_rows(
     return rows, True
 
 
-async def _fetch_dictionary_rows(client: ServiceNowClient, table: str) -> list[dict[str, Any]]:
-    query = ServiceNowQuery().equals("name", table).is_not_empty("element").equals("active", "true").build()
-    result = await client.query_records(table="sys_dictionary", query=query, fields=None, limit=1000)
+async def _fetch_dictionary_rows(
+    client: ServiceNowClient, table: str
+) -> list[dict[str, Any]]:
+    query = (
+        ServiceNowQuery()
+        .equals("name", table)
+        .is_not_empty("element")
+        .equals("active", "true")
+        .build()
+    )
+    result = await client.query_records(
+        table="sys_dictionary", query=query, fields=None, limit=1000
+    )
     records: Any = result.get("records") or []
     rows = list(records) if isinstance(records, list) else []
-    if any(isinstance(row.get("internal_type"), dict) and not row.get("internal_type.name") for row in rows):
+    if any(
+        isinstance(row.get("internal_type"), dict) and not row.get("internal_type.name")
+        for row in rows
+    ):
         type_result = await client.query_records(
             table="sys_dictionary",
             query=query,
@@ -323,7 +388,9 @@ async def _fetch_dictionary_rows(client: ServiceNowClient, table: str) -> list[d
             if isinstance(row, dict) and row.get("element")
         }
         for row in rows:
-            row["internal_type.name"] = type_by_element.get(str(row.get("element") or ""), "")
+            row["internal_type.name"] = type_by_element.get(
+                str(row.get("element") or ""), ""
+            )
     return rows
 
 

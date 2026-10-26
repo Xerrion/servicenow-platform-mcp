@@ -1,6 +1,7 @@
 """Read-only Service Catalog operations."""
 
-from servicenow_mcp.auth import OAuthPKCEProvider
+from typing import TYPE_CHECKING
+
 from servicenow_mcp.capabilities.catalog.contracts import (
     CatalogReadAction,
     CatalogView,
@@ -8,11 +9,18 @@ from servicenow_mcp.capabilities.catalog.contracts import (
     validate_users,
 )
 from servicenow_mcp.capabilities.catalog.masking import mask_catalog
-from servicenow_mcp.capabilities.contracts import CapabilityError, CapabilityResult, validate_payload
-from servicenow_mcp.config import Settings
+from servicenow_mcp.capabilities.contracts import (
+    CapabilityError,
+    CapabilityResult,
+    validate_payload,
+)
 from servicenow_mcp.platform.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.policy import MASK_VALUE
 from servicenow_mcp.validation import validate_sys_id
+
+if TYPE_CHECKING:
+    from servicenow_mcp.auth import OAuthPKCEProvider
+    from servicenow_mcp.config import Settings
 
 
 class ServiceCatalogCapability:
@@ -22,7 +30,9 @@ class ServiceCatalogCapability:
         auth_provider: OAuthPKCEProvider,
         client_factory: ServiceNowClientProvider | None = None,
     ) -> None:
-        self.clients = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
+        self.clients = client_factory or (
+            lambda: ServiceNowClient(settings, auth_provider)
+        )
 
     async def service_catalog(
         self,
@@ -47,7 +57,9 @@ class ServiceCatalogCapability:
         limit = 20 if limit is None else limit
         offset = 0 if offset is None else offset
         if limit <= 0 or offset < 0:
-            raise CapabilityError("limit must be positive and offset must be non-negative.")
+            raise CapabilityError(
+                "limit must be positive and offset must be non-negative."
+            )
         validate_api_version(api_version)
         if view is not None and action not in {
             "catalogs_list",
@@ -69,7 +81,13 @@ class ServiceCatalogCapability:
         ):
             if argument is not None and action not in actions:
                 raise CapabilityError(f"{name} is not accepted by this catalog action.")
-        if action in {"catalog_get", "category_get", "item_get", "item_variables", "variable_display_value"}:
+        if action in {
+            "catalog_get",
+            "category_get",
+            "item_get",
+            "item_variables",
+            "variable_display_value",
+        }:
             if not sys_id:
                 raise CapabilityError("This action requires sys_id.")
             validate_sys_id(sys_id)
@@ -81,7 +99,10 @@ class ServiceCatalogCapability:
             "delivery_address": {"user_sys_id": user_sys_id},
             "delegation": {"item_sys_id": item_sys_id, "user_sys_id": user_sys_id},
             "wishlist_item_get": {"cart_item_id": cart_item_id},
-            "get_invalid_delegated_users": {"item_sys_id": item_sys_id, "also_request_for": also_request_for},
+            "get_invalid_delegated_users": {
+                "item_sys_id": item_sys_id,
+                "also_request_for": also_request_for,
+            },
             "variable_display_value": {"value": value},
         }
         for name, argument in required.get(action, {}).items():
@@ -98,43 +119,77 @@ class ServiceCatalogCapability:
         async with self.clients() as client:
             match action:
                 case "catalogs_list":
-                    data = await client.sc_get_catalogs(limit=limit, text=text, view=view, api_version=api_version)
+                    data = await client.sc_get_catalogs(
+                        limit=limit, text=text, view=view, api_version=api_version
+                    )
                 case "catalog_get":
-                    data = await client.sc_get_catalog(sys_id or "", view=view, api_version=api_version)
+                    data = await client.sc_get_catalog(
+                        sys_id or "", view=view, api_version=api_version
+                    )
                 case "categories_list":
                     data = await client.sc_get_catalog_categories(
-                        catalog_sys_id or "", limit, offset, top_level_only or False, view=view, api_version=api_version
+                        catalog_sys_id or "",
+                        limit,
+                        offset,
+                        top_level_only or False,
+                        view=view,
+                        api_version=api_version,
                     )
                 case "category_get":
-                    data = await client.sc_get_category(sys_id or "", view=view, api_version=api_version)
+                    data = await client.sc_get_category(
+                        sys_id or "", view=view, api_version=api_version
+                    )
                 case "items_list":
                     data = await client.sc_get_items(
-                        limit, offset, text, catalog, category, item_type=item_type, view=view, api_version=api_version
+                        limit,
+                        offset,
+                        text,
+                        catalog,
+                        category,
+                        item_type=item_type,
+                        view=view,
+                        api_version=api_version,
                     )
                 case "item_get":
-                    data = await client.sc_get_item(sys_id or "", view=view, api_version=api_version)
+                    data = await client.sc_get_item(
+                        sys_id or "", view=view, api_version=api_version
+                    )
                 case "item_variables":
-                    data = await client.sc_get_item_variables(sys_id or "", view=view, api_version=api_version)
+                    data = await client.sc_get_item_variables(
+                        sys_id or "", view=view, api_version=api_version
+                    )
                 case "cart_get":
                     data = await client.sc_get_cart(api_version=api_version)
                 case "delivery_address":
-                    data = await client.sc_get_delivery_address(user_sys_id or "", api_version=api_version)
+                    data = await client.sc_get_delivery_address(
+                        user_sys_id or "", api_version=api_version
+                    )
                 case "delegation":
-                    data = await client.sc_get_delegation(item_sys_id or "", user_sys_id or "", api_version=api_version)
+                    data = await client.sc_get_delegation(
+                        item_sys_id or "", user_sys_id or "", api_version=api_version
+                    )
                 case "wishlist_get" | "wishlist_item_get":
                     data = await client.sc_get_wishlist(
-                        cart_item_id if action == "wishlist_item_get" else None, api_version=api_version
+                        cart_item_id if action == "wishlist_item_get" else None,
+                        api_version=api_version,
                     )
                 case "get_invalid_delegated_users":
                     data = await client.sc_get_invalid_delegated_users(
-                        item_sys_id or "", also_request_for or [], api_version=api_version
+                        item_sys_id or "",
+                        also_request_for or [],
+                        api_version=api_version,
                     )
                 case "variable_display_value":
-                    data = await client.sc_variable_display_value(sys_id or "", value or "", api_version=api_version)
+                    data = await client.sc_variable_display_value(
+                        sys_id or "", value or "", api_version=api_version
+                    )
                 case _:
                     raise CapabilityError("Unsupported catalog read action.")
         if isinstance(data, dict) and ("errCode" in data or "error" in data):
-            raise CapabilityError("Service Catalog rejected the request. Check access and inputs.", "CATALOG_REJECTED")
+            raise CapabilityError(
+                "Service Catalog rejected the request. Check access and inputs.",
+                "CATALOG_REJECTED",
+            )
         if action in {"delivery_address", "variable_display_value"}:
             # These endpoints return personal data as unlabelled strings.
             data = MASK_VALUE

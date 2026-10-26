@@ -8,17 +8,26 @@ Actions:
 
 from __future__ import annotations
 
-from typing import Any, Final, NoReturn
+from typing import TYPE_CHECKING, Any, Final, NoReturn
 
-from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.capabilities.contracts import CapabilityError, CapabilityResult, validate_payload
+from servicenow_mcp.capabilities.contracts import (
+    CapabilityError,
+    CapabilityResult,
+    validate_payload,
+)
 from servicenow_mcp.capabilities.contracts import result as operation_result
 from servicenow_mcp.capabilities.investigations.checks import INVESTIGATION_REGISTRY
-from servicenow_mcp.capabilities.investigations.helpers import parse_element_id, validate_params
-from servicenow_mcp.config import Settings
+from servicenow_mcp.capabilities.investigations.helpers import (
+    parse_element_id,
+    validate_params,
+)
 from servicenow_mcp.platform.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.policy import check_table_access
 from servicenow_mcp.validation import validate_identifier
+
+if TYPE_CHECKING:
+    from servicenow_mcp.auth import OAuthPKCEProvider
+    from servicenow_mcp.config import Settings
 
 
 _VALID_ACTIONS: Final[frozenset[str]] = frozenset({"run", "explain", "describe"})
@@ -26,12 +35,18 @@ _VALID_ACTIONS: Final[frozenset[str]] = frozenset({"run", "explain", "describe"}
 _ACTION_REGISTRY: Final[dict[str, dict[str, Any]]] = {
     "run": {
         "description": "Run one registered investigation.",
-        "params": {"name": "registered investigation name (required)", "params": "native JSON object"},
+        "params": {
+            "name": "registered investigation name (required)",
+            "params": "native JSON object",
+        },
     },
     "explain": {
         "description": "Explain a finding directly when name is supplied, or use trial dispatch otherwise.",
         "params": {
-            "element_id": "table:sys_id; with name, table_health and heavy automation accept a table name, acl_conflicts also accepts an ACL sys_id",
+            "element_id": (
+                "table:sys_id; with name, table_health and heavy automation accept a table name, acl_conflicts "
+                "also accepts an ACL sys_id"
+            ),
             "name": "registered investigation name (optional direct-dispatch selector)",
         },
     },
@@ -89,7 +104,10 @@ async def _run_action(
 def _describe_action(name: str) -> CapabilityResult:
     if not name:
         return operation_result(
-            data={"investigations": sorted(INVESTIGATION_REGISTRY.keys()), "actions": _ACTION_REGISTRY},
+            data={
+                "investigations": sorted(INVESTIGATION_REGISTRY.keys()),
+                "actions": _ACTION_REGISTRY,
+            },
         )
 
     module = INVESTIGATION_REGISTRY.get(name)
@@ -100,7 +118,12 @@ def _describe_action(name: str) -> CapabilityResult:
     doc = (module.__doc__ or "").strip()
     description = doc.splitlines()[0] if doc else name
     return operation_result(
-        data={"name": name, "description": description, "params": params, "actions": _ACTION_REGISTRY},
+        data={
+            "name": name,
+            "description": description,
+            "params": params,
+            "actions": _ACTION_REGISTRY,
+        },
     )
 
 
@@ -162,7 +185,9 @@ class InvestigateCapability:
         client_factory: ServiceNowClientProvider | None = None,
     ) -> None:
         """Bind the operation's platform and metadata dependencies."""
-        client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
+        client_factory = client_factory or (
+            lambda: ServiceNowClient(settings, auth_provider)
+        )
 
         self.auth_provider = auth_provider
         self.client_factory = client_factory

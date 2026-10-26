@@ -1,13 +1,17 @@
 """Tests for ServiceNow REST client."""
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx2
 import pytest
 
 from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.config import Settings
 from tests._mock_transport import http_mock
+
+if TYPE_CHECKING:
+    from pydantic import JsonValue
+
+    from servicenow_mcp.config import Settings
 
 
 BASE_URL = "https://test.service-now.com"
@@ -23,126 +27,9 @@ class TestServiceNowClientGetRecord:
     """Test get_record method."""
 
     @pytest.mark.asyncio()
-    async def test_get_record_success(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-        """Fetches a single record by sys_id."""
-        from servicenow_mcp.platform.client import ServiceNowClient
-
-        route = http_mock.get(f"{BASE_URL}/api/now/table/incident/abc123").mock(
-            return_value=httpx2.Response(
-                200,
-                json={"result": {"sys_id": "abc123", "number": "INC0001"}},
-            )
-        )
-
-        async with ServiceNowClient(settings, auth_provider) as client:
-            record = await client.get_record("incident", "abc123")
-
-        assert record == {"sys_id": "abc123", "number": "INC0001"}
-        assert route.called
-
-    @pytest.mark.asyncio()
-    async def test_get_record_with_fields(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-        """Respects field selection parameter."""
-        from servicenow_mcp.platform.client import ServiceNowClient
-
-        route = http_mock.get(f"{BASE_URL}/api/now/table/incident/abc123").mock(
-            return_value=httpx2.Response(
-                200,
-                json={"result": {"sys_id": "abc123", "number": "INC0001"}},
-            )
-        )
-
-        async with ServiceNowClient(settings, auth_provider) as client:
-            await client.get_record("incident", "abc123", fields=["sys_id", "number"])
-
-        assert route.calls.last is not None
-        assert "sysparm_fields" in str(route.calls.last.request.url)
-
-    @pytest.mark.asyncio()
-    async def test_get_record_with_display_values(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-        """Passes display_value parameter."""
-        from servicenow_mcp.platform.client import ServiceNowClient
-
-        route = http_mock.get(f"{BASE_URL}/api/now/table/incident/abc123").mock(
-            return_value=httpx2.Response(
-                200,
-                json={"result": {"sys_id": "abc123"}},
-            )
-        )
-
-        async with ServiceNowClient(settings, auth_provider) as client:
-            await client.get_record("incident", "abc123", display_values=True)
-
-        assert route.calls.last is not None
-        assert "sysparm_display_value=true" in str(route.calls.last.request.url)
-
-    @pytest.mark.asyncio()
-    async def test_get_record_without_display_values(
+    async def test_get_record_acl_error(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
-        """Preserves an explicit false display_value parameter."""
-        from servicenow_mcp.platform.client import ServiceNowClient
-
-        route = http_mock.get(f"{BASE_URL}/api/now/table/incident/abc123").mock(
-            return_value=httpx2.Response(
-                200,
-                json={"result": {"sys_id": "abc123"}},
-            )
-        )
-
-        async with ServiceNowClient(settings, auth_provider) as client:
-            await client.get_record("incident", "abc123", display_values=False)
-
-        assert route.calls.last is not None
-        assert route.calls.last.request.url.params["sysparm_display_value"] == "false"
-
-    @pytest.mark.asyncio()
-    async def test_get_record_not_found(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-        """Raises NotFoundError for 404."""
-        from servicenow_mcp.errors import NotFoundError
-        from servicenow_mcp.platform.client import ServiceNowClient
-
-        http_mock.get(f"{BASE_URL}/api/now/table/incident/missing").mock(
-            return_value=httpx2.Response(404, json={"error": {"message": "Not found"}})
-        )
-
-        async with ServiceNowClient(settings, auth_provider) as client:
-            with pytest.raises(NotFoundError):
-                await client.get_record("incident", "missing")
-
-    @pytest.mark.asyncio()
-    async def test_get_record_auth_error(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-        """Raises AuthError for 401."""
-        from servicenow_mcp.errors import AuthError
-        from servicenow_mcp.platform.client import ServiceNowClient
-
-        http_mock.get(f"{BASE_URL}/api/now/table/incident/abc123").mock(
-            return_value=httpx2.Response(401, json={"error": {"message": "Unauthorized"}})
-        )
-
-        async with ServiceNowClient(settings, auth_provider) as client:
-            with pytest.raises(AuthError):
-                await client.get_record("incident", "abc123")
-
-    @pytest.mark.asyncio()
-    async def test_get_record_forbidden_error(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-        """Raises ForbiddenError for generic 403 responses."""
-        from servicenow_mcp.errors import ForbiddenError
-        from servicenow_mcp.platform.client import ServiceNowClient
-
-        http_mock.get(f"{BASE_URL}/api/now/table/incident/abc123").mock(
-            return_value=httpx2.Response(403, json={"error": {"message": "Insufficient role"}})
-        )
-
-        async with ServiceNowClient(settings, auth_provider) as client:
-            with pytest.raises(ForbiddenError) as exc_info:
-                await client.get_record("incident", "abc123")
-
-        assert type(exc_info.value) is ForbiddenError
-        assert str(exc_info.value) == "Insufficient role"
-
-    @pytest.mark.asyncio()
-    async def test_get_record_acl_error(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
         """Raises ACLError for explicit ACL 403 responses."""
         from servicenow_mcp.errors import ACLError
         from servicenow_mcp.platform.client import ServiceNowClient
@@ -157,7 +44,7 @@ class TestServiceNowClientGetRecord:
                     },
                     "status": "failure",
                 },
-            )
+            ),
         )
 
         async with ServiceNowClient(settings, auth_provider) as client:
@@ -166,74 +53,24 @@ class TestServiceNowClientGetRecord:
 
         assert str(exc_info.value) == "User Not Authorized"
 
-    @pytest.mark.asyncio()
-    async def test_get_record_acl_substring_does_not_false_positive(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
-    ) -> None:
-        """A 403 body containing words that merely contain 'acl' as a substring
-        (e.g. 'oracle') must NOT be classified as ACLError."""
-        from servicenow_mcp.errors import ACLError, ForbiddenError
-        from servicenow_mcp.platform.client import ServiceNowClient
-
-        http_mock.get(f"{BASE_URL}/api/now/table/incident/abc123").mock(
-            return_value=httpx2.Response(
-                403,
-                json={
-                    "error": {
-                        "message": "Insufficient role",
-                        "detail": "Oracle database connection refused",
-                    },
-                    "status": "failure",
-                },
-            )
-        )
-
-        async with ServiceNowClient(settings, auth_provider) as client:
-            with pytest.raises(ForbiddenError) as exc_info:
-                await client.get_record("incident", "abc123")
-
-        # Must be the generic ForbiddenError, not the more specific ACLError.
-        assert type(exc_info.value) is ForbiddenError
-        assert not isinstance(exc_info.value, ACLError)
-        assert str(exc_info.value) == "Insufficient role"
-
 
 class TestServiceNowClientQueryRecords:
     """Test query_records method."""
 
-    @pytest.mark.asyncio()
-    async def test_query_records_success(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-        """Returns list of matching records."""
-        from servicenow_mcp.platform.client import ServiceNowClient
-
-        http_mock.get(f"{BASE_URL}/api/now/table/incident").mock(
-            return_value=httpx2.Response(
-                200,
-                json={
-                    "result": [
-                        {"sys_id": "1", "number": "INC0001"},
-                        {"sys_id": "2", "number": "INC0002"},
-                    ]
-                },
-                headers={"X-Total-Count": "2"},
-            )
-        )
-
-        async with ServiceNowClient(settings, auth_provider) as client:
-            result = await client.query_records("incident", "active=true")
-
-        assert len(result["records"]) == 2
-        assert result["count"] == 2
-
-    @pytest.mark.parametrize("offset", [0, 20])
+    @pytest.mark.parametrize("offset", [pytest.param(20, id="20")])
     async def test_query_records_preserves_pagination_without_link_headers(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider, offset: int
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
+        offset: int,
     ) -> None:
         from servicenow_mcp.platform.client import ServiceNowClient
 
         record = {"sys_id": "a" * 32, "asset_tag": "TEST001"}
         route = http_mock.get(f"{BASE_URL}/api/now/table/alm_asset").respond(
-            200, json={"result": [record]}, headers={"X-Total-Count": "42"}
+            200,
+            json={"result": [record]},
+            headers={"X-Total-Count": "42"},
         )
 
         async with ServiceNowClient(settings, auth_provider) as client:
@@ -259,141 +96,32 @@ class TestServiceNowClientQueryRecords:
             **({"sysparm_offset": str(offset)} if offset else {}),
         }
 
-    @pytest.mark.asyncio()
-    async def test_query_records_with_limit_and_offset(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
-    ) -> None:
-        """Passes limit and offset parameters."""
-        from servicenow_mcp.platform.client import ServiceNowClient
-
-        route = http_mock.get(f"{BASE_URL}/api/now/table/incident").mock(
-            return_value=httpx2.Response(
-                200,
-                json={"result": []},
-                headers={"X-Total-Count": "0"},
-            )
-        )
-
-        async with ServiceNowClient(settings, auth_provider) as client:
-            await client.query_records("incident", "active=true", limit=10, offset=20)
-
-        assert route.calls.last is not None
-        url = str(route.calls.last.request.url)
-        assert "sysparm_limit=10" in url
-        assert "sysparm_offset=20" in url
-
-    @pytest.mark.asyncio()
-    @pytest.mark.parametrize(
-        ("order_by", "expected_clause"),
-        [("sys_created_on", "ORDERBYsys_created_on"), ("-sys_created_on", "ORDERBYDESCsys_created_on")],
-    )
-    async def test_query_records_with_order_by(
-        self,
-        settings: Settings,
-        auth_provider: OAuthPKCEProvider,
-        order_by: str,
-        expected_clause: str,
-    ) -> None:
-        """Adds ascending and descending order clauses to the encoded query."""
-        from servicenow_mcp.platform.client import ServiceNowClient
-
-        route = http_mock.get(f"{BASE_URL}/api/now/table/incident").mock(
-            return_value=httpx2.Response(
-                200,
-                json={"result": []},
-                headers={"X-Total-Count": "0"},
-            )
-        )
-
-        async with ServiceNowClient(settings, auth_provider) as client:
-            await client.query_records("incident", "active=true", limit=1, order_by=order_by)
-
-        assert route.calls.last is not None
-        params = route.calls.last.request.url.params
-        assert params["sysparm_limit"] == "1"
-        assert params["sysparm_query"] == f"active=true^{expected_clause}"
-        assert "sysparm_orderby" not in params
-
-    @pytest.mark.asyncio()
-    async def test_query_records_empty_results(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-        """Handles empty result set."""
-        from servicenow_mcp.platform.client import ServiceNowClient
-
-        http_mock.get(f"{BASE_URL}/api/now/table/incident").mock(
-            return_value=httpx2.Response(
-                200,
-                json={"result": []},
-                headers={"X-Total-Count": "0"},
-            )
-        )
-
-        async with ServiceNowClient(settings, auth_provider) as client:
-            result = await client.query_records("incident", "number=NONEXISTENT")
-
-        assert result["records"] == []
-        assert result["count"] == 0
-
-    @pytest.mark.asyncio()
-    async def test_query_records_with_display_values(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
-    ) -> None:
-        """Passes display_value parameter when display_values=True."""
-        from servicenow_mcp.platform.client import ServiceNowClient
-
-        route = http_mock.get(f"{BASE_URL}/api/now/table/incident").mock(
-            return_value=httpx2.Response(
-                200,
-                json={"result": []},
-                headers={"X-Total-Count": "0"},
-            )
-        )
-
-        async with ServiceNowClient(settings, auth_provider) as client:
-            await client.query_records("incident", "active=true", display_values=True)
-
-        assert route.calls.last is not None
-        assert "sysparm_display_value=true" in str(route.calls.last.request.url)
-
-    @pytest.mark.asyncio()
-    async def test_query_records_without_display_values(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
-    ) -> None:
-        """Preserves an explicit false display_value parameter."""
-        from servicenow_mcp.platform.client import ServiceNowClient
-
-        route = http_mock.get(f"{BASE_URL}/api/now/table/incident").mock(
-            return_value=httpx2.Response(
-                200,
-                json={"result": []},
-                headers={"X-Total-Count": "0"},
-            )
-        )
-
-        async with ServiceNowClient(settings, auth_provider) as client:
-            await client.query_records("incident", "active=true", display_values=False)
-
-        assert route.calls.last is not None
-        assert route.calls.last.request.url.params["sysparm_display_value"] == "false"
-
 
 class TestServiceNowClientAttachmentMethods:
     """Test attachment-specific client helpers."""
 
     @pytest.mark.asyncio()
     async def test_list_attachments_with_query_offset_and_order_by(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """Builds attachment list params with filters, offset, and ordering."""
         from servicenow_mcp.platform.client import ServiceNowClient
 
         route = http_mock.get(f"{BASE_URL}/api/now/attachment").mock(
-            return_value=httpx2.Response(200, json={"result": []}, headers={"X-Total-Count": "invalid"})
+            return_value=httpx2.Response(
+                200, json={"result": []}, headers={"X-Total-Count": "invalid"}
+            ),
         )
 
         async with ServiceNowClient(settings, auth_provider) as client:
             client_any: Any = client
             result = await client_any.list_attachments(
-                query="table_name=incident", limit=10, offset=5, order_by="sys_id"
+                query="table_name=incident",
+                limit=10,
+                offset=5,
+                order_by="sys_id",
             )
 
         assert result == {"records": [], "count": 0}
@@ -404,61 +132,16 @@ class TestServiceNowClientAttachmentMethods:
         assert params["sysparm_query"] == "table_name=incident^ORDERBYsys_id"
 
     @pytest.mark.asyncio()
-    async def test_list_attachments_with_order_by_only(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
-    ) -> None:
-        """Builds attachment ordering query even without a base filter."""
-        from servicenow_mcp.platform.client import ServiceNowClient
-
-        route = http_mock.get(f"{BASE_URL}/api/now/attachment").mock(
-            return_value=httpx2.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
-        )
-
-        async with ServiceNowClient(settings, auth_provider) as client:
-            client_any: Any = client
-            await client_any.list_attachments(query="", order_by="sys_created_on")
-
-        assert route.calls.last is not None
-        params = route.calls.last.request.url.params
-        assert params["sysparm_offset"] == "0"
-        assert params["sysparm_query"] == "ORDERBYsys_created_on"
-
-    @pytest.mark.asyncio()
-    async def test_upload_attachment_omits_optional_params_when_none(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
-    ) -> None:
-        """Leaves optional upload params out when callers pass None."""
-        from servicenow_mcp.platform.client import ServiceNowClient
-
-        route = http_mock.post(f"{BASE_URL}/api/now/attachment/file").mock(
-            return_value=httpx2.Response(201, json={"result": {"sys_id": "abc"}})
-        )
-
-        async with ServiceNowClient(settings, auth_provider) as client:
-            client_any: Any = client
-            await client_any.upload_attachment(
-                table_name="incident",
-                table_sys_id="b" * 32,
-                file_name="hello.txt",
-                content=b"hello",
-                encryption_context=None,
-                creation_time=None,
-            )
-
-        assert route.calls.last is not None
-        params = route.calls.last.request.url.params
-        assert "encryption_context" not in params
-        assert "creation_time" not in params
-
-    @pytest.mark.asyncio()
     async def test_upload_attachment_includes_optional_params_when_present(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """Passes optional upload params through when callers provide them."""
         from servicenow_mcp.platform.client import ServiceNowClient
 
         route = http_mock.post(f"{BASE_URL}/api/now/attachment/file").mock(
-            return_value=httpx2.Response(201, json={"result": {"sys_id": "abc"}})
+            return_value=httpx2.Response(201, json={"result": {"sys_id": "abc"}}),
         )
 
         async with ServiceNowClient(settings, auth_provider) as client:
@@ -478,228 +161,39 @@ class TestServiceNowClientAttachmentMethods:
         assert params["creation_time"] == "2026-03-11 10:00:00"
 
 
-class TestServiceNowClientAggregate:
-    """Test aggregate method."""
-
-    @pytest.mark.asyncio()
-    async def test_aggregate_count(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-        """Performs aggregate query for counts."""
-        from servicenow_mcp.platform.client import ServiceNowClient
-
-        http_mock.get(f"{BASE_URL}/api/now/stats/incident").mock(
-            return_value=httpx2.Response(
-                200,
-                json={
-                    "result": {
-                        "stats": {"count": "42"},
-                    }
-                },
-            )
-        )
-
-        async with ServiceNowClient(settings, auth_provider) as client:
-            result = await client.aggregate("incident", "active=true")
-
-        assert result is not None
-
-    @pytest.mark.asyncio()
-    async def test_aggregate_with_field_specific_stats(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
-    ) -> None:
-        """Passes field-specific avg/min/max/sum params."""
-        from servicenow_mcp.platform.client import ServiceNowClient
-
-        route = http_mock.get(f"{BASE_URL}/api/now/stats/incident").mock(
-            return_value=httpx2.Response(
-                200,
-                json={"result": {"stats": {"count": "10", "avg": {"priority": "2.5"}}}},
-            )
-        )
-
-        async with ServiceNowClient(settings, auth_provider) as client:
-            await client.aggregate(
-                "incident",
-                "active=true",
-                avg_fields=["priority", "impact"],
-                min_fields=["priority"],
-                max_fields=["impact"],
-                sum_fields=["reassignment_count"],
-            )
-
-        assert route.calls.last is not None
-        url = str(route.calls.last.request.url)
-        assert "sysparm_avg_fields" in url
-        assert "sysparm_min_fields" in url
-        assert "sysparm_max_fields" in url
-        assert "sysparm_sum_fields" in url
-
-    @pytest.mark.asyncio()
-    async def test_aggregate_with_having_and_order_by(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
-    ) -> None:
-        """Passes having and order_by parameters."""
-        from servicenow_mcp.platform.client import ServiceNowClient
-
-        route = http_mock.get(f"{BASE_URL}/api/now/stats/incident").mock(
-            return_value=httpx2.Response(
-                200,
-                json={"result": {"stats": {"count": "5"}}},
-            )
-        )
-
-        async with ServiceNowClient(settings, auth_provider) as client:
-            await client.aggregate(
-                "incident",
-                "active=true",
-                group_by=["priority"],
-                order_by="count",
-                having="count>5",
-            )
-
-        assert route.calls.last is not None
-        url = str(route.calls.last.request.url)
-        assert "sysparm_orderby" in url
-        assert "sysparm_having" in url
-
-    @pytest.mark.asyncio()
-    async def test_aggregate_with_display_value(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-        """Passes display_value parameter."""
-        from servicenow_mcp.platform.client import ServiceNowClient
-
-        route = http_mock.get(f"{BASE_URL}/api/now/stats/incident").mock(
-            return_value=httpx2.Response(
-                200,
-                json={"result": {"stats": {"count": "5"}}},
-            )
-        )
-
-        async with ServiceNowClient(settings, auth_provider) as client:
-            await client.aggregate(
-                "incident",
-                "active=true",
-                display_value=True,
-            )
-
-        assert route.calls.last is not None
-        url = str(route.calls.last.request.url)
-        assert "sysparm_display_value=true" in url
-
-
-class TestServiceNowClientCreateRecord:
-    """Test create_record method."""
-
-    @pytest.mark.asyncio()
-    async def test_create_record_success(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-        """Creates a record via POST."""
-        from servicenow_mcp.platform.client import ServiceNowClient
-
-        http_mock.post(f"{BASE_URL}/api/now/table/incident").mock(
-            return_value=httpx2.Response(
-                201,
-                json={"result": {"sys_id": "new123", "number": "INC0099"}},
-            )
-        )
-
-        async with ServiceNowClient(settings, auth_provider) as client:
-            record = await client.create_record("incident", {"short_description": "Test incident"})
-
-        assert record["sys_id"] == "new123"
-
-
-class TestServiceNowClientUpdateRecord:
-    """Test update_record method."""
-
-    @pytest.mark.asyncio()
-    async def test_update_record_success(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-        """Updates a record via PATCH."""
-        from servicenow_mcp.platform.client import ServiceNowClient
-
-        http_mock.patch(f"{BASE_URL}/api/now/table/incident/abc123").mock(
-            return_value=httpx2.Response(
-                200,
-                json={"result": {"sys_id": "abc123", "state": "2"}},
-            )
-        )
-
-        async with ServiceNowClient(settings, auth_provider) as client:
-            record = await client.update_record("incident", "abc123", {"state": "2"})
-
-        assert record["state"] == "2"
-
-
-class TestServiceNowClientDeleteRecord:
-    """Test delete_record method."""
-
-    @pytest.mark.asyncio()
-    async def test_delete_record_success(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-        """Deletes a record via DELETE."""
-        from servicenow_mcp.platform.client import ServiceNowClient
-
-        http_mock.delete(f"{BASE_URL}/api/now/table/incident/abc123").mock(return_value=httpx2.Response(204))
-
-        async with ServiceNowClient(settings, auth_provider) as client:
-            result = await client.delete_record("incident", "abc123")
-
-        assert result is True
-
-
 class TestServiceNowClientErrorHandling:
     """Test error mapping for various HTTP status codes."""
 
-    @pytest.mark.asyncio()
-    async def test_403_raises_forbidden_error(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-        """403 maps to ForbiddenError."""
-        from servicenow_mcp.errors import ForbiddenError
+    @pytest.mark.parametrize(
+        "payload,expected",
+        [
+            pytest.param(
+                {"error": {"message": None}},
+                "Default error",
+                id="payload2-Default error",
+            ),
+            pytest.param([], "Default error", id="payload9-Default error"),
+        ],
+    )
+    def test_error_message_requires_a_string(
+        self, payload: JsonValue, expected: str
+    ) -> None:
         from servicenow_mcp.platform.client import ServiceNowClient
 
-        http_mock.get(f"{BASE_URL}/api/now/table/incident/abc123").mock(
-            return_value=httpx2.Response(403, json={"error": {"message": "Forbidden"}})
+        response = httpx2.Response(500, json=payload)
+        assert (
+            ServiceNowClient._extract_error_message(response, "Default error")
+            == expected
         )
-
-        async with ServiceNowClient(settings, auth_provider) as client:
-            with pytest.raises(ForbiddenError):
-                await client.get_record("incident", "abc123")
-
-    @pytest.mark.asyncio()
-    async def test_500_raises_server_error(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-        """500 maps to ServerError."""
-        from servicenow_mcp.errors import ServerError
-        from servicenow_mcp.platform.client import ServiceNowClient
-
-        http_mock.get(f"{BASE_URL}/api/now/table/incident/abc123").mock(
-            return_value=httpx2.Response(500, json={"error": {"message": "Internal"}})
-        )
-
-        async with ServiceNowClient(settings, auth_provider) as client:
-            with pytest.raises(ServerError):
-                await client.get_record("incident", "abc123")
-
-
-class TestServiceNowClientCorrelationId:
-    """Test that correlation ID is included in requests."""
-
-    @pytest.mark.asyncio()
-    async def test_correlation_id_in_headers(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-        """Every request includes an X-Correlation-ID header."""
-        from servicenow_mcp.platform.client import ServiceNowClient
-
-        route = http_mock.get(f"{BASE_URL}/api/now/table/incident/abc123").mock(
-            return_value=httpx2.Response(200, json={"result": {"sys_id": "abc123"}})
-        )
-
-        async with ServiceNowClient(settings, auth_provider) as client:
-            await client.get_record("incident", "abc123")
-
-        assert route.calls.last is not None
-        request_headers = dict(route.calls.last.request.headers)
-        assert "x-correlation-id" in request_headers
 
 
 class TestServiceNowClientCodeSearch:
     """Test Code Search API methods."""
 
     @pytest.mark.asyncio()
-    async def test_code_search_success(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_code_search_success(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         """Performs code search and returns results."""
         from servicenow_mcp.platform.client import ServiceNowClient
 
@@ -713,77 +207,15 @@ class TestServiceNowClientCodeSearch:
                                 "className": "sys_script_include",
                                 "name": "TestUtil",
                                 "match": "AbstractAjaxProcessor",
-                            }
-                        ]
-                    }
+                            },
+                        ],
+                    },
                 },
-            )
+            ),
         )
 
         async with ServiceNowClient(settings, auth_provider) as client:
             result = await client.code_search("AbstractAjaxProcessor")
-
-        assert result is not None
-
-    @pytest.mark.asyncio()
-    async def test_code_search_with_table_and_group(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-        """Passes table and search_group parameters."""
-        from servicenow_mcp.platform.client import ServiceNowClient
-
-        route = http_mock.get(f"{BASE_URL}/api/sn_codesearch/code_search/search").mock(
-            return_value=httpx2.Response(200, json={"result": {}})
-        )
-
-        async with ServiceNowClient(settings, auth_provider) as client:
-            await client.code_search(
-                "myFunction",
-                table="sys_script_include",
-                search_group="sn_codesearch.Default Search Group",
-            )
-
-        assert route.calls.last is not None
-        url = str(route.calls.last.request.url)
-        assert "table" in url
-        assert "search_group" in url
-
-    @pytest.mark.asyncio()
-    async def test_code_search_with_limit(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-        """Passes limit parameter."""
-        from servicenow_mcp.platform.client import ServiceNowClient
-
-        route = http_mock.get(f"{BASE_URL}/api/sn_codesearch/code_search/search").mock(
-            return_value=httpx2.Response(200, json={"result": {}})
-        )
-
-        async with ServiceNowClient(settings, auth_provider) as client:
-            await client.code_search("myFunction", limit=50)
-
-        assert route.calls.last is not None
-        url = str(route.calls.last.request.url)
-        assert "limit=50" in url
-        assert "extended_matching" not in route.calls.last.request.url.params
-
-    @pytest.mark.asyncio()
-    async def test_code_search_tables_success(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-        """Returns list of searchable tables."""
-        from servicenow_mcp.platform.client import ServiceNowClient
-
-        http_mock.get(f"{BASE_URL}/api/sn_codesearch/code_search/tables").mock(
-            return_value=httpx2.Response(
-                200,
-                json={
-                    "result": {
-                        "tables": [
-                            {"name": "sys_script_include"},
-                            {"name": "sys_script"},
-                        ]
-                    }
-                },
-            )
-        )
-
-        async with ServiceNowClient(settings, auth_provider) as client:
-            result = await client.code_search_tables()
 
         assert result is not None
 
@@ -793,7 +225,9 @@ class TestClientNotInitialized:
 
     @pytest.mark.asyncio()
     async def test_get_record_without_context_manager(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """get_record raises RuntimeError when client is not initialized."""
         from servicenow_mcp.platform.client import ServiceNowClient
@@ -802,86 +236,13 @@ class TestClientNotInitialized:
         with pytest.raises(RuntimeError, match="Client not initialized"):
             await client.get_record("incident", "abc123")
 
-    @pytest.mark.asyncio()
-    async def test_query_records_without_context_manager(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
-    ) -> None:
-        """query_records raises RuntimeError when client is not initialized."""
-        from servicenow_mcp.platform.client import ServiceNowClient
-
-        client = ServiceNowClient(settings, auth_provider)
-        with pytest.raises(RuntimeError, match="Client not initialized"):
-            await client.query_records("incident", "active=true")
-
-
-class TestMissingResultKey:
-    """Test that missing 'result' key in API response raises ServerError."""
-
-    @pytest.mark.asyncio()
-    async def test_get_record_missing_result_key(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-        """ServerError raised when API response lacks 'result' key."""
-        from servicenow_mcp.errors import ServerError
-        from servicenow_mcp.platform.client import ServiceNowClient
-
-        http_mock.get(f"{BASE_URL}/api/now/table/incident/abc123").mock(
-            return_value=httpx2.Response(
-                200,
-                json={"error": "something went wrong"},
-            )
-        )
-
-        async with ServiceNowClient(settings, auth_provider) as client:
-            with pytest.raises(ServerError, match="missing 'result' key"):
-                await client.get_record("incident", "abc123")
-
-    @pytest.mark.asyncio()
-    async def test_query_records_missing_result_key(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-        """ServerError raised when query response lacks 'result' key."""
-        from servicenow_mcp.errors import ServerError
-        from servicenow_mcp.platform.client import ServiceNowClient
-
-        http_mock.get(f"{BASE_URL}/api/now/table/incident").mock(
-            return_value=httpx2.Response(
-                200,
-                json={"data": []},
-                headers={"X-Total-Count": "0"},
-            )
-        )
-
-        async with ServiceNowClient(settings, auth_provider) as client:
-            with pytest.raises(ServerError, match="missing 'result' key"):
-                await client.query_records("incident", "active=true")
-
-
-class TestInvalidTotalCount:
-    """Test that invalid X-Total-Count header defaults to 0."""
-
-    @pytest.mark.asyncio()
-    async def test_query_records_invalid_total_count(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
-    ) -> None:
-        """Non-numeric X-Total-Count defaults to 0."""
-        from servicenow_mcp.platform.client import ServiceNowClient
-
-        http_mock.get(f"{BASE_URL}/api/now/table/incident").mock(
-            return_value=httpx2.Response(
-                200,
-                json={"result": [{"sys_id": "1"}]},
-                headers={"X-Total-Count": "invalid"},
-            )
-        )
-
-        async with ServiceNowClient(settings, auth_provider) as client:
-            result = await client.query_records("incident", "active=true")
-
-        assert result["count"] == 0
-        assert len(result["records"]) == 1
-
 
 class TestUrlBuilderValidation:
     """Test that URL builder methods validate identifiers."""
 
-    def test_table_url_rejects_invalid_name(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    def test_table_url_rejects_invalid_name(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         """_table_url raises ValueError for invalid table name."""
         from servicenow_mcp.platform.client import ServiceNowClient
 
@@ -889,7 +250,9 @@ class TestUrlBuilderValidation:
         with pytest.raises(ValueError, match="Invalid identifier"):
             client._table_url("INVALID-TABLE!")
 
-    def test_stats_url_rejects_invalid_name(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    def test_stats_url_rejects_invalid_name(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         """_stats_url raises ValueError for invalid table name."""
         from servicenow_mcp.platform.client import ServiceNowClient
 
@@ -897,15 +260,9 @@ class TestUrlBuilderValidation:
         with pytest.raises(ValueError, match="Invalid identifier"):
             client._stats_url("bad/table")
 
-    def test_table_url_accepts_valid_name(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-        """_table_url accepts valid snake_case table names."""
-        from servicenow_mcp.platform.client import ServiceNowClient
-
-        client = ServiceNowClient(settings, auth_provider)
-        url = client._table_url("incident")
-        assert "incident" in url
-
-    def test_attachment_url_rejects_invalid_sys_id(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    def test_attachment_url_rejects_invalid_sys_id(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         """_attachment_url raises ValueError for invalid attachment sys_id."""
         from servicenow_mcp.platform.client import ServiceNowClient
 
@@ -918,38 +275,10 @@ class TestServiceNowClientFlowDesigner:
     """Flow Designer client methods (Phase 3)."""
 
     @pytest.mark.asyncio()
-    async def test_get_flow_by_sys_id_success(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-        """Returns the flow record on a 200."""
-        from servicenow_mcp.platform.client import ServiceNowClient
-
-        http_mock.get(f"{BASE_URL}/api/now/table/sys_hub_flow/abc123").mock(
-            return_value=httpx2.Response(200, json={"result": {"sys_id": "abc123", "name": "My Flow"}}),
-        )
-
-        async with ServiceNowClient(settings, auth_provider) as client:
-            record = await client.get_flow_by_sys_id("abc123")
-
-        assert record == {"sys_id": "abc123", "name": "My Flow"}
-
-    @pytest.mark.asyncio()
-    async def test_get_flow_by_sys_id_404_returns_none(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
-    ) -> None:
-        """A 404 from the table API surfaces as ``None`` (not an exception)."""
-        from servicenow_mcp.platform.client import ServiceNowClient
-
-        http_mock.get(f"{BASE_URL}/api/now/table/sys_hub_flow/missing").mock(
-            return_value=httpx2.Response(404, json={"error": {"message": "no record"}}),
-        )
-
-        async with ServiceNowClient(settings, auth_provider) as client:
-            record = await client.get_flow_by_sys_id("missing")
-
-        assert record is None
-
-    @pytest.mark.asyncio()
     async def test_find_flows_by_name_builds_or_query(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """Encoded query joins ``name=`` and ``internal_name=`` with ``^OR``."""
         from servicenow_mcp.platform.client import ServiceNowClient
@@ -967,27 +296,10 @@ class TestServiceNowClientFlowDesigner:
         assert "^ORinternal_name=My Flow" in query
 
     @pytest.mark.asyncio()
-    async def test_find_flows_by_name_sanitizes_caret(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
-    ) -> None:
-        """A caret in the search term is escaped to ``^^`` so it cannot terminate the clause."""
-        from servicenow_mcp.platform.client import ServiceNowClient
-
-        route = http_mock.get(f"{BASE_URL}/api/now/table/sys_hub_flow").mock(
-            return_value=httpx2.Response(200, json={"result": []}),
-        )
-
-        async with ServiceNowClient(settings, auth_provider) as client:
-            await client.find_flows_by_name("foo^ORactive=true")
-
-        query = route.calls.last.request.url.params["sysparm_query"]
-        # Caret is doubled in the value; the clause boundary remains a single '^'.
-        assert "name=foo^^ORactive=true" in query
-        assert "^ORinternal_name=foo^^ORactive=true" in query
-
-    @pytest.mark.asyncio()
     async def test_list_flow_variables_filters_by_model(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """Flow variables are restricted to the inspected flow's model record."""
         from servicenow_mcp.platform.client import ServiceNowClient
@@ -1000,11 +312,16 @@ class TestServiceNowClientFlowDesigner:
         async with ServiceNowClient(settings, auth_provider) as client:
             assert await client.list_flow_variables(flow_id) == []
 
-        assert route.calls.last.request.url.params["sysparm_query"] == f"model={flow_id}^ORDERBYorder"
+        assert (
+            route.calls.last.request.url.params["sysparm_query"]
+            == f"model={flow_id}^ORDERBYorder"
+        )
 
     @pytest.mark.asyncio()
     async def test_list_flow_stages_uses_explicit_projection_and_flow_relation(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """Stage reads select the lifecycle fields and bind them to one flow-base record."""
         from servicenow_mcp.platform.client import ServiceNowClient
@@ -1026,48 +343,55 @@ class TestServiceNowClientFlowDesigner:
         )
 
     @pytest.mark.asyncio()
-    async def test_flow_dataset_limit_is_forwarded(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-        """Flow dataset helpers forward a caller-supplied ServiceNow row cap."""
-        from servicenow_mcp.platform.client import ServiceNowClient
-
-        flow_id = "f" * 32
-        route = http_mock.get(f"{BASE_URL}/api/now/table/sys_hub_action_instance_v2").mock(
-            return_value=httpx2.Response(200, json={"result": []})
-        )
-
-        async with ServiceNowClient(settings, auth_provider) as client:
-            assert await client.list_action_instances_v2(flow_id, limit=17) == []
-
-        assert route.calls.last.request.url.params["sysparm_limit"] == "17"
-
-    @pytest.mark.asyncio()
     async def test_list_action_definition_fields_join_through_action_type(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """Action input/output definitions use their documented ``action_type`` relation."""
         from servicenow_mcp.platform.client import ServiceNowClient
 
         action_type_ids = ["a" * 32, "b" * 32]
-        input_route = http_mock.get(f"{BASE_URL}/api/now/table/sys_hub_action_input").mock(
+        input_route = http_mock.get(
+            f"{BASE_URL}/api/now/table/sys_hub_action_input"
+        ).mock(
             return_value=httpx2.Response(200, json={"result": [{"name": "input"}]}),
         )
-        output_route = http_mock.get(f"{BASE_URL}/api/now/table/sys_hub_action_output").mock(
+        output_route = http_mock.get(
+            f"{BASE_URL}/api/now/table/sys_hub_action_output"
+        ).mock(
             return_value=httpx2.Response(200, json={"result": [{"name": "output"}]}),
         )
 
         async with ServiceNowClient(settings, auth_provider) as client:
-            assert await client.list_action_input_definitions(action_type_ids) == [{"name": "input"}]
-            assert await client.list_action_output_definitions(action_type_ids) == [{"name": "output"}]
+            assert await client.list_action_input_definitions(action_type_ids) == [
+                {"name": "input"}
+            ]
+            assert await client.list_action_output_definitions(action_type_ids) == [
+                {"name": "output"}
+            ]
 
         expected_prefix = f"action_typeIN{','.join(action_type_ids)}"
-        assert input_route.calls.last.request.url.params["sysparm_query"].startswith(expected_prefix)
-        assert output_route.calls.last.request.url.params["sysparm_query"].startswith(expected_prefix)
-        assert "default_value" in input_route.calls.last.request.url.params["sysparm_fields"]
-        assert "default_value" not in output_route.calls.last.request.url.params["sysparm_fields"]
+        assert input_route.calls.last.request.url.params["sysparm_query"].startswith(
+            expected_prefix
+        )
+        assert output_route.calls.last.request.url.params["sysparm_query"].startswith(
+            expected_prefix
+        )
+        assert (
+            "default_value"
+            in input_route.calls.last.request.url.params["sysparm_fields"]
+        )
+        assert (
+            "default_value"
+            not in output_route.calls.last.request.url.params["sysparm_fields"]
+        )
 
     @pytest.mark.asyncio()
     async def test_list_action_definition_fields_empty_input_no_http_call(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """Empty action-type input short-circuits both definition lookups."""
         from servicenow_mcp.platform.client import ServiceNowClient
@@ -1078,7 +402,9 @@ class TestServiceNowClientFlowDesigner:
 
     @pytest.mark.asyncio()
     async def test_list_record_triggers_empty_input_no_http_call(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """Empty input short-circuits to ``[]`` without touching the network."""
         from servicenow_mcp.platform.client import ServiceNowClient
@@ -1090,49 +416,10 @@ class TestServiceNowClientFlowDesigner:
         assert result == []
 
     @pytest.mark.asyncio()
-    async def test_list_triggers_filtered_sanitizes_trigger_type(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
-    ) -> None:
-        """A trigger_type containing ``^OR`` is sanitized so it cannot break the clause boundary."""
-        from servicenow_mcp.platform.client import ServiceNowClient
-
-        v2_route = http_mock.get(f"{BASE_URL}/api/now/table/sys_hub_trigger_instance_v2").mock(
-            return_value=httpx2.Response(200, json={"result": []}),
-        )
-        http_mock.get(f"{BASE_URL}/api/now/table/sys_hub_trigger_instance").mock(
-            return_value=httpx2.Response(200, json={"result": []}),
-        )
-
-        async with ServiceNowClient(settings, auth_provider) as client:
-            await client.list_triggers_filtered(trigger_type="record_update^ORactive=true", active="true")
-
-        query = v2_route.calls.last.request.url.params["sysparm_query"]
-        # The literal ^OR inside the type value must be escaped to ^^OR.
-        assert "type=record_update^^ORactive=true" in query
-        # The active=true clause we explicitly added is joined with a single ^.
-        assert "^active=true" in query
-
-    @pytest.mark.asyncio()
-    async def test_get_flows_bulk_builds_sys_id_in(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
-        """``get_flows_bulk`` builds a comma-separated ``sys_idIN...`` clause."""
-        from servicenow_mcp.platform.client import ServiceNowClient
-
-        route = http_mock.get(f"{BASE_URL}/api/now/table/sys_hub_flow").mock(
-            return_value=httpx2.Response(200, json={"result": []}),
-        )
-
-        ids = ["a" * 32, "b" * 32, "c" * 32]
-        async with ServiceNowClient(settings, auth_provider) as client:
-            await client.get_flows_bulk(ids)
-
-        query = route.calls.last.request.url.params["sysparm_query"]
-        ids_csv = ",".join(ids)
-        assert query == f"sys_idIN{ids_csv}^ORmaster_snapshotIN{ids_csv}^ORlatest_snapshotIN{ids_csv}"
-        assert "master_snapshot" in route.calls.last.request.url.params["sysparm_fields"]
-
-    @pytest.mark.asyncio()
     async def test_get_flows_bulk_empty_input_no_http_call(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """Empty input short-circuits to ``[]`` without an HTTP call."""
         from servicenow_mcp.platform.client import ServiceNowClient

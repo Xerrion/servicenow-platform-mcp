@@ -9,15 +9,17 @@ Three actions:
 
 from __future__ import annotations
 
-from typing import Any, Final, NoReturn
+from typing import TYPE_CHECKING, Any, Final, NoReturn
 
-from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.capabilities.contracts import CapabilityError, CapabilityResult
 from servicenow_mcp.capabilities.contracts import result as operation_result
-from servicenow_mcp.config import Settings
 from servicenow_mcp.platform.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.policy import check_table_access
 from servicenow_mcp.validation import validate_identifier
+
+if TYPE_CHECKING:
+    from servicenow_mcp.auth import OAuthPKCEProvider
+    from servicenow_mcp.config import Settings
 
 
 _VALID_ACTIONS: Final[frozenset[str]] = frozenset({"search", "list_tables", "describe"})
@@ -73,7 +75,9 @@ class CodeSearchCapability:
         client_factory: ServiceNowClientProvider | None = None,
     ) -> None:
         """Bind the operation's platform and metadata dependencies."""
-        client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
+        client_factory = client_factory or (
+            lambda: ServiceNowClient(settings, auth_provider)
+        )
 
         self.auth_provider = auth_provider
         self.client_factory = client_factory
@@ -108,7 +112,9 @@ class CodeSearchCapability:
 
         async with self.client_factory() as client:
             if normalized_action == "list_tables":
-                result = await client.code_search_tables(search_group=search_group or None)
+                result = await client.code_search_tables(
+                    search_group=search_group or None
+                )
                 return operation_result(data=result)
 
             stripped_term = term.strip()

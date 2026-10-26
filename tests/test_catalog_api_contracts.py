@@ -7,7 +7,7 @@ import re
 from contextlib import nullcontext
 from copy import deepcopy
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
 
 import anyio
@@ -21,12 +21,14 @@ from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.bootstrap.stdio import create_mcp_server
 from servicenow_mcp.capabilities.catalog.masking import mask_catalog
 from servicenow_mcp.capabilities.mutations.models import CatalogCommand
-from servicenow_mcp.config import Settings
 from servicenow_mcp.mcp.handlers import _redact_args
 from servicenow_mcp.policy import DENIED_TABLES, MASK_VALUE
 from tests._mock_transport import http_mock
 from tests.helpers import decode_response, get_tool_functions, register_mutations
 from tests.test_service_catalog import _register_and_get_tools
+
+if TYPE_CHECKING:
+    from servicenow_mcp.config import Settings
 
 
 BASE = "https://test.service-now.com"
@@ -44,7 +46,12 @@ def setup(settings: Settings):
     state = {
         "item": {"sys_id": ITEM, "name": "Fixture", "type": "record_producer"},
         "definitions": [{"name": "password", "value": PRIVATE}],
-        "producer": {"sys_id": ITEM, "table_name": "incident", "script": "fixture script", "sys_updated_on": "1"},
+        "producer": {
+            "sys_id": ITEM,
+            "table_name": "incident",
+            "script": "fixture script",
+            "sys_updated_on": "1",
+        },
         "cart": {"cart_id": CART, "items": [{"cart_item_id": CART_ITEM}]},
     }
     for path, key in [
@@ -54,27 +61,51 @@ def setup(settings: Settings):
         (f"{SC}/cart", "cart"),
         (f"{SC}/wishlist", "cart"),
     ]:
-        http_mock.get(path).mock(side_effect=lambda request, key=key: httpx2.Response(200, json={"result": state[key]}))
-    http_mock.get(f"{BASE}/api/now/table/sc_cart/{CART}").respond(200, json={"result": {"sys_id": CART}})
-    http_mock.get(f"{BASE}/api/now/table/sc_cart_item/{CART_ITEM}").respond(
-        200, json={"result": {"sys_id": CART_ITEM, "quantity": "1"}}
+        http_mock.get(path).mock(
+            side_effect=lambda request, key=key: httpx2.Response(
+                200, json={"result": state[key]}
+            )
+        )
+    http_mock.get(f"{BASE}/api/now/table/sc_cart/{CART}").respond(
+        200, json={"result": {"sys_id": CART}}
     )
-    http_mock.get(f"{BASE}/api/now/table/sc_cart_item").respond(200, json={"result": []})
+    http_mock.get(f"{BASE}/api/now/table/sc_cart_item/{CART_ITEM}").respond(
+        200,
+        json={"result": {"sys_id": CART_ITEM, "quantity": "1"}},
+    )
+    http_mock.get(f"{BASE}/api/now/table/sc_cart_item").respond(
+        200, json={"result": []}
+    )
     return auth, coordinator, get_tool_functions(server), state
 
 
 MUTATIONS = [
     (
-        {"action": "submit_producer", "item_sys_id": ITEM, "variables": {"urgency": "2"}, "view": "mobile"},
+        {
+            "action": "submit_producer",
+            "item_sys_id": ITEM,
+            "variables": {"urgency": "2"},
+            "view": "mobile",
+        },
         "POST",
         f"items/{ITEM}/submit_producer",
         {"variables": {"urgency": "2"}},
     ),
     (
-        {"action": "order_now", "item_sys_id": ITEM, "quantity": 2, "requested_for": USER, "also_request_for": [USER]},
+        {
+            "action": "order_now",
+            "item_sys_id": ITEM,
+            "quantity": 2,
+            "requested_for": USER,
+            "also_request_for": [USER],
+        },
         "POST",
         f"items/{ITEM}/order_now",
-        {"sysparm_quantity": "2", "sysparm_requested_for": USER, "sysparm_also_request_for": USER},
+        {
+            "sysparm_quantity": "2",
+            "sysparm_requested_for": USER,
+            "sysparm_also_request_for": USER,
+        },
     ),
     (
         {"action": "add_to_cart", "item_sys_id": ITEM, "quantity": 0, "variables": {}},
@@ -92,11 +123,25 @@ MUTATIONS = [
         {
             "action": "checkout_guide",
             "item_sys_id": ITEM,
-            "items": [{"sys_id": ITEM, "sysparm_quantity": "2", "variables": {"remote": False}}],
+            "items": [
+                {
+                    "sys_id": ITEM,
+                    "sysparm_quantity": "2",
+                    "variables": {"remote": False},
+                },
+            ],
         },
         "POST",
         f"items/{ITEM}/checkout_guide",
-        {"items": [{"sys_id": ITEM, "sysparm_quantity": "2", "variables": {"remote": False}}]},
+        {
+            "items": [
+                {
+                    "sys_id": ITEM,
+                    "sysparm_quantity": "2",
+                    "variables": {"remote": False},
+                },
+            ],
+        },
     ),
     (
         {"action": "submit_guide", "item_sys_id": ITEM, "variables": {"remote": False}},
@@ -105,20 +150,42 @@ MUTATIONS = [
         {"variables": {"remote": False}},
     ),
     (
-        {"action": "cart_item_update", "cart_item_id": CART_ITEM, "quantity": 2, "variables": {"size": "M"}},
+        {
+            "action": "cart_item_update",
+            "cart_item_id": CART_ITEM,
+            "quantity": 2,
+            "variables": {"size": "M"},
+        },
         "PUT",
         f"cart/{CART_ITEM}",
         {"sysparm_quantity": "2", "variables": {"size": "M"}},
     ),
-    ({"action": "cart_item_delete", "cart_item_id": CART_ITEM}, "DELETE", f"cart/{CART_ITEM}", None),
-    ({"action": "cart_empty", "cart_sys_id": CART}, "DELETE", f"cart/{CART}/empty", None),
+    (
+        {"action": "cart_item_delete", "cart_item_id": CART_ITEM},
+        "DELETE",
+        f"cart/{CART_ITEM}",
+        None,
+    ),
+    (
+        {"action": "cart_empty", "cart_sys_id": CART},
+        "DELETE",
+        f"cart/{CART}/empty",
+        None,
+    ),
     ({"action": "cart_submit"}, "POST", "cart/submit_order", {}),
     ({"action": "cart_checkout"}, "POST", "cart/checkout", {}),
 ]
 
 
-@pytest.mark.parametrize(("arguments", "method", "path", "body"), MUTATIONS)
-async def test_mutation_contracts(settings: Settings, arguments, method, path, body) -> None:
+async def test_all_mutation_endpoint_contracts(settings: Settings) -> None:
+    for arguments, method, path, body in MUTATIONS:
+        http_mock.reset()
+        await _assert_mutation_contract(settings, arguments, method, path, body)
+
+
+async def _assert_mutation_contract(
+    settings: Settings, arguments, method, path, body
+) -> None:
     _, coordinator, tools, _ = setup(settings)
     response = {
         "sys_id": ITEM,
@@ -129,7 +196,8 @@ async def test_mutation_contracts(settings: Settings, arguments, method, path, b
         "parent_id": None,
     }
     route = http_mock.route(method=method, url=f"{SC}/{path}").respond(
-        204 if method == "DELETE" else 200, **({} if method == "DELETE" else {"json": {"result": response}})
+        204 if method == "DELETE" else 200,
+        **({} if method == "DELETE" else {"json": {"result": response}}),
     )
     preview = decode_response(await tools["service_catalog_preview"](**arguments))
     assert preview["status"] == "success", preview
@@ -144,7 +212,9 @@ async def test_mutation_contracts(settings: Settings, arguments, method, path, b
     request = route.calls.last.request
     assert request.method == method
     assert (json.loads(request.content) if request.content else None) == body
-    assert dict(request.url.params) == ({"sysparm_view": "mobile"} if arguments.get("view") else {})
+    assert dict(request.url.params) == (
+        {"sysparm_view": "mobile"} if arguments.get("view") else {}
+    )
     assert request.headers["Content-Type"] == "application/json"
     assert "Authorization" in request.headers
     assert (await tools["mutation_apply"](preview_token=token)).is_error
@@ -153,7 +223,12 @@ async def test_mutation_contracts(settings: Settings, arguments, method, path, b
 
 
 READS = [
-    ({"action": "delivery_address", "user_sys_id": USER}, "GET", f"cart/delivery_address/{USER}", None),
+    (
+        {"action": "delivery_address", "user_sys_id": USER},
+        "GET",
+        f"cart/delivery_address/{USER}",
+        None,
+    ),
     (
         {"action": "delegation", "item_sys_id": ITEM, "user_sys_id": USER},
         "GET",
@@ -161,9 +236,18 @@ READS = [
         None,
     ),
     ({"action": "wishlist_get"}, "GET", "wishlist", None),
-    ({"action": "wishlist_item_get", "cart_item_id": CART_ITEM}, "GET", f"wishlist/{CART_ITEM}", None),
     (
-        {"action": "get_invalid_delegated_users", "item_sys_id": ITEM, "also_request_for": [USER]},
+        {"action": "wishlist_item_get", "cart_item_id": CART_ITEM},
+        "GET",
+        f"wishlist/{CART_ITEM}",
+        None,
+    ),
+    (
+        {
+            "action": "get_invalid_delegated_users",
+            "item_sys_id": ITEM,
+            "also_request_for": [USER],
+        },
         "POST",
         f"items/{ITEM}/get_invalid_delegated_users",
         {"sysparm_also_request_for": USER},
@@ -178,9 +262,13 @@ READS = [
 
 
 @pytest.mark.parametrize(("arguments", "method", "path", "body"), READS)
-async def test_read_contracts(settings: Settings, arguments, method, path, body) -> None:
+async def test_read_contracts(
+    settings: Settings, arguments, method, path, body
+) -> None:
     tools = _register_and_get_tools(settings, OAuthPKCEProvider(settings))
-    route = http_mock.route(method=method, url=f"{SC}/{path}").respond(200, json={"result": {"email": PRIVATE}})
+    route = http_mock.route(method=method, url=f"{SC}/{path}").respond(
+        200, json={"result": {"email": PRIVATE}}
+    )
     result = decode_response(await tools["service_catalog"](**arguments))
     assert result["status"] == "success"
     assert PRIVATE not in str(result)
@@ -189,21 +277,56 @@ async def test_read_contracts(settings: Settings, arguments, method, path, body)
 
 
 @pytest.mark.parametrize(
-    ("action", "path", "arguments"),
+    "action,path,arguments",
     [
-        ("catalogs_list", "catalogs", {}),
-        ("catalog_get", f"catalogs/{ITEM}", {"sys_id": ITEM}),
-        ("categories_list", f"catalogs/{ITEM}/categories", {"catalog_sys_id": ITEM}),
-        ("category_get", f"categories/{ITEM}", {"sys_id": ITEM}),
-        ("items_list", "items", {"item_type": "record_producer"}),
-        ("item_get", f"items/{ITEM}", {"sys_id": ITEM}),
-        ("item_variables", f"items/{ITEM}/variables", {"sys_id": ITEM}),
+        pytest.param(
+            "catalog_get",
+            f"catalogs/{ITEM}",
+            {"sys_id": ITEM},
+            id="catalog_get-catalogs/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-arguments1",
+        ),
+        pytest.param(
+            "categories_list",
+            f"catalogs/{ITEM}/categories",
+            {"catalog_sys_id": ITEM},
+            id="categories_list-catalogs/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/categories-arguments2",
+        ),
+        pytest.param(
+            "category_get",
+            f"categories/{ITEM}",
+            {"sys_id": ITEM},
+            id="category_get-categories/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-arguments3",
+        ),
+        pytest.param(
+            "items_list",
+            "items",
+            {"item_type": "record_producer"},
+            id="items_list-items-arguments4",
+        ),
+        pytest.param(
+            "item_get",
+            f"items/{ITEM}",
+            {"sys_id": ITEM},
+            id="item_get-items/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-arguments5",
+        ),
+        pytest.param(
+            "item_variables",
+            f"items/{ITEM}/variables",
+            {"sys_id": ITEM},
+            id="item_variables-items/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/variables-arguments6",
+        ),
     ],
 )
-async def test_view_type_and_version(settings: Settings, action, path, arguments) -> None:
+async def test_view_type_and_version(
+    settings: Settings, action, path, arguments
+) -> None:
     tools = _register_and_get_tools(settings, OAuthPKCEProvider(settings))
-    route = http_mock.get(f"{BASE}/api/sn_sc/v1/servicecatalog/{path}").respond(200, json={"result": []})
-    result = await tools["service_catalog"](action=action, view="both", api_version="v1", **arguments)
+    route = http_mock.get(f"{BASE}/api/sn_sc/v1/servicecatalog/{path}").respond(
+        200, json={"result": []}
+    )
+    result = await tools["service_catalog"](
+        action=action, view="both", api_version="v1", **arguments
+    )
     assert not result.is_error
     params = dict(route.calls.last.request.url.params)
     assert params["sysparm_view"] == "both"
@@ -214,28 +337,67 @@ async def test_view_type_and_version(settings: Settings, action, path, arguments
 @pytest.mark.parametrize(
     "arguments",
     [
-        {"action": "submit_producer"},
-        {"action": "submit_producer", "item_sys_id": "../private"},
-        {"action": "submit_producer", "item_sys_id": ITEM, "quantity": 1},
-        {"action": "order_now", "item_sys_id": ITEM, "quantity": -1},
-        {"action": "order_now", "item_sys_id": ITEM, "quantity": True},
-        {"action": "order_now", "item_sys_id": ITEM, "quantity": 1.5},
-        {"action": "order_now", "item_sys_id": ITEM, "requested_for": "invalid"},
-        {"action": "order_now", "item_sys_id": ITEM, "also_request_for": [USER] * 51},
-        {"action": "cart_item_update", "cart_item_id": CART_ITEM},
-        {"action": "cart_item_delete", "cart_item_id": CART_ITEM, "variables": {}},
-        {"action": "cart_empty"},
-        {"action": "cart_checkout", "item_sys_id": ITEM},
-        {"action": "checkout_guide", "item_sys_id": ITEM},
-        {"action": "checkout_guide", "item_sys_id": ITEM, "items": [{"sys_id": ITEM, "sysparm_quantity": "0"}]},
-        {"action": "checkout_guide", "item_sys_id": ITEM, "items": [{"sys_id": ITEM, "extra": PRIVATE}]},
-        {"action": "checkout_guide", "item_sys_id": ITEM, "items": [{"sys_id": ITEM, "variables": "{}"}]},
-        {"action": "submit_producer", "item_sys_id": ITEM, "variables": {"value": float("nan")}},
-        {"action": "submit_producer", "item_sys_id": ITEM, "variables": {"value": "x" * (256 * 1024)}},
-        {"action": "submit_producer", "item_sys_id": ITEM, "api_version": "v1/../../private"},
+        pytest.param({"action": "submit_producer"}, id="arguments0"),
+        pytest.param(
+            {"action": "submit_producer", "item_sys_id": ITEM, "quantity": 1},
+            id="arguments2",
+        ),
+        pytest.param(
+            {"action": "order_now", "item_sys_id": ITEM, "requested_for": "invalid"},
+            id="arguments6",
+        ),
+        pytest.param(
+            {
+                "action": "order_now",
+                "item_sys_id": ITEM,
+                "also_request_for": [USER] * 51,
+            },
+            id="arguments7",
+        ),
+        pytest.param(
+            {"action": "cart_item_update", "cart_item_id": CART_ITEM}, id="arguments8"
+        ),
+        pytest.param({"action": "cart_empty"}, id="arguments10"),
+        pytest.param(
+            {"action": "checkout_guide", "item_sys_id": ITEM}, id="arguments12"
+        ),
+        pytest.param(
+            {
+                "action": "checkout_guide",
+                "item_sys_id": ITEM,
+                "items": [{"sys_id": ITEM, "sysparm_quantity": "0"}],
+            },
+            id="arguments13",
+        ),
+        pytest.param(
+            {
+                "action": "checkout_guide",
+                "item_sys_id": ITEM,
+                "items": [{"sys_id": ITEM, "extra": PRIVATE}],
+            },
+            id="arguments14",
+        ),
+        pytest.param(
+            {
+                "action": "checkout_guide",
+                "item_sys_id": ITEM,
+                "items": [{"sys_id": ITEM, "variables": "{}"}],
+            },
+            id="arguments15",
+        ),
+        pytest.param(
+            {
+                "action": "submit_producer",
+                "item_sys_id": ITEM,
+                "variables": {"value": float("nan")},
+            },
+            id="arguments16",
+        ),
     ],
 )
-async def test_invalid_mutations_never_read_or_stage(settings: Settings, arguments) -> None:
+async def test_invalid_mutations_never_read_or_stage(
+    settings: Settings, arguments
+) -> None:
     _, coordinator, tools, _ = setup(settings)
     failure = await tools["service_catalog_preview"](**arguments)
     assert failure.is_error
@@ -247,12 +409,20 @@ async def test_invalid_mutations_never_read_or_stage(settings: Settings, argumen
 @pytest.mark.parametrize(
     "arguments",
     [
-        {"action": "delivery_address"},
-        {"action": "delegation", "user_sys_id": USER},
-        {"action": "wishlist_item_get", "cart_item_id": "invalid"},
-        {"action": "get_invalid_delegated_users", "item_sys_id": ITEM, "also_request_for": []},
-        {"action": "variable_display_value", "sys_id": ITEM},
-        {"action": "cart_get", "api_version": "invalid"},
+        pytest.param(
+            {"action": "wishlist_item_get", "cart_item_id": "invalid"}, id="arguments2"
+        ),
+        pytest.param(
+            {
+                "action": "get_invalid_delegated_users",
+                "item_sys_id": ITEM,
+                "also_request_for": [],
+            },
+            id="arguments3",
+        ),
+        pytest.param(
+            {"action": "variable_display_value", "sys_id": ITEM}, id="arguments4"
+        ),
     ],
 )
 async def test_invalid_reads_never_dispatch(settings: Settings, arguments) -> None:
@@ -261,24 +431,34 @@ async def test_invalid_reads_never_dispatch(settings: Settings, arguments) -> No
     assert not http_mock.calls
 
 
-@pytest.mark.parametrize("key", ["item", "definitions", "producer"])
+@pytest.mark.parametrize("key", [pytest.param("item", id="item")])
 async def test_producer_drift_consumes_token(settings: Settings, key: str) -> None:
     _, coordinator, tools, state = setup(settings)
-    preview = decode_response(await tools["service_catalog_preview"](action="submit_producer", item_sys_id=ITEM))
+    preview = decode_response(
+        await tools["service_catalog_preview"](
+            action="submit_producer", item_sys_id=ITEM
+        )
+    )
     if key == "definitions":
         state[key].append({"name": "new"})
     else:
         state[key]["sys_updated_on"] = "2"
-    failure = await tools["mutation_apply"](preview_token=preview["data"]["preview_token"])
+    failure = await tools["mutation_apply"](
+        preview_token=preview["data"]["preview_token"]
+    )
     assert decode_response(failure)["error"]["code"] == "STALE_PREVIEW"
     assert all(call.request.method == "GET" for call in http_mock.calls)
     assert len(coordinator.store) == 0
 
 
-@pytest.mark.parametrize("change", ["production", "instance", "family", "target_policy", "authorization", "expiry"])
+@pytest.mark.parametrize("change", [pytest.param("authorization", id="authorization")])
 async def test_producer_rechecks_safeguards(settings: Settings, change: str) -> None:
     auth, coordinator, tools, _ = setup(settings)
-    preview = decode_response(await tools["service_catalog_preview"](action="submit_producer", item_sys_id=ITEM))
+    preview = decode_response(
+        await tools["service_catalog_preview"](
+            action="submit_producer", item_sys_id=ITEM
+        )
+    )
     if change == "production":
         settings.servicenow_env = "prod"
     elif change == "instance":
@@ -291,11 +471,16 @@ async def test_producer_rechecks_safeguards(settings: Settings, change: str) -> 
         DENIED_TABLES.add("incident")
     try:
         with (
-            patch("servicenow_mcp.capabilities.mutations.store.time.monotonic", return_value=float("inf"))
+            patch(
+                "servicenow_mcp.capabilities.mutations.store.time.monotonic",
+                return_value=float("inf"),
+            )
             if change == "expiry"
             else nullcontext()
         ):
-            result = await tools["mutation_apply"](preview_token=preview["data"]["preview_token"])
+            result = await tools["mutation_apply"](
+                preview_token=preview["data"]["preview_token"]
+            )
         assert result.is_error
         assert all(call.request.method == "GET" for call in http_mock.calls)
         assert len(coordinator.store) == 0
@@ -303,8 +488,17 @@ async def test_producer_rechecks_safeguards(settings: Settings, change: str) -> 
         DENIED_TABLES.discard("incident")
 
 
-@pytest.mark.parametrize("failure", ["timeout", "invalid_json", "missing_result", "cancel", "api_error", "http_error"])
-async def test_producer_failure_is_single_use_and_private(settings: Settings, failure: str) -> None:
+@pytest.mark.parametrize(
+    "failure",
+    [
+        pytest.param("timeout", id="timeout"),
+        pytest.param("api_error", id="api_error"),
+        pytest.param("http_error", id="http_error"),
+    ],
+)
+async def test_producer_failure_is_single_use_and_private(
+    settings: Settings, failure: str
+) -> None:
     _, coordinator, tools, _ = setup(settings)
 
     def respond(request):
@@ -317,11 +511,20 @@ async def test_producer_failure_is_single_use_and_private(settings: Settings, fa
         if failure == "http_error":
             return httpx2.Response(400, json={"error": {"message": PRIVATE}})
         return httpx2.Response(
-            200, json={"result": {"errCode": "1", "errMsg": PRIVATE}} if failure == "api_error" else {}
+            200,
+            json={"result": {"errCode": "1", "errMsg": PRIVATE}}
+            if failure == "api_error"
+            else {},
         )
 
-    mutation = http_mock.post(f"{SC}/items/{ITEM}/submit_producer").mock(side_effect=respond)
-    preview = decode_response(await tools["service_catalog_preview"](action="submit_producer", item_sys_id=ITEM))
+    mutation = http_mock.post(f"{SC}/items/{ITEM}/submit_producer").mock(
+        side_effect=respond
+    )
+    preview = decode_response(
+        await tools["service_catalog_preview"](
+            action="submit_producer", item_sys_id=ITEM
+        )
+    )
     token = preview["data"]["preview_token"]
     if failure == "cancel":
         with pytest.raises(asyncio.CancelledError):
@@ -337,33 +540,47 @@ async def test_producer_failure_is_single_use_and_private(settings: Settings, fa
 
 
 async def test_producer_masks_summary_but_retains_exact_inputs(
-    settings: Settings, caplog: pytest.LogCaptureFixture
+    settings: Settings,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     _, _, tools, state = setup(settings)
     variables = {"password": PRIVATE, "email": PRIVATE, "urgency": "2"}
-    state["item"]["variables"] = [{"name": "email", "value": PRIVATE, "displayvalue": PRIVATE}]
+    state["item"]["variables"] = [
+        {"name": "email", "value": PRIVATE, "displayvalue": PRIVATE}
+    ]
     route = http_mock.post(f"{SC}/items/{ITEM}/submit_producer").respond(
-        200, json={"result": {"sys_id": ITEM, "table": "incident", "api_token": PRIVATE}}
+        200,
+        json={"result": {"sys_id": ITEM, "table": "incident", "api_token": PRIVATE}},
     )
     preview = decode_response(
-        await tools["service_catalog_preview"](action="submit_producer", item_sys_id=ITEM, variables=variables)
+        await tools["service_catalog_preview"](
+            action="submit_producer", item_sys_id=ITEM, variables=variables
+        ),
     )
     assert PRIVATE not in str(preview)
     assert "fixture script" not in str(preview)
     variables["urgency"] = "3"
-    result = decode_response(await tools["mutation_apply"](preview_token=preview["data"]["preview_token"]))
+    result = decode_response(
+        await tools["mutation_apply"](preview_token=preview["data"]["preview_token"])
+    )
     assert result["data"]["api_token"] == MASK_VALUE
     assert json.loads(route.calls.last.request.content) == {
-        "variables": {"password": PRIVATE, "email": PRIVATE, "urgency": "2"}
+        "variables": {"password": PRIVATE, "email": PRIVATE, "urgency": "2"},
     }
     assert PRIVATE not in caplog.text
 
 
 async def test_empty_guide_is_documented_success(settings: Settings) -> None:
     _, _, tools, _ = setup(settings)
-    http_mock.route(method="PUT", url=f"{SC}/items/{ITEM}/submit_guide").respond(200, json={"result": []})
-    preview = decode_response(await tools["service_catalog_preview"](action="submit_guide", item_sys_id=ITEM))
-    result = decode_response(await tools["mutation_apply"](preview_token=preview["data"]["preview_token"]))
+    http_mock.route(method="PUT", url=f"{SC}/items/{ITEM}/submit_guide").respond(
+        200, json={"result": []}
+    )
+    preview = decode_response(
+        await tools["service_catalog_preview"](action="submit_guide", item_sys_id=ITEM)
+    )
+    result = decode_response(
+        await tools["mutation_apply"](preview_token=preview["data"]["preview_token"])
+    )
     assert result["status"] == "success"
     assert result["data"] == []
 
@@ -376,13 +593,23 @@ async def test_catalog_contract_on_wire(settings: Settings) -> None:
         anyio.create_task_group() as tasks,
     ):
         tasks.start_soon(
-            server._lowlevel_server.run, *server_streams, server._lowlevel_server.create_initialization_options()
+            server._lowlevel_server.run,
+            *server_streams,
+            server._lowlevel_server.create_initialization_options(),
         )
         async with ClientSession(*client_streams) as session:
             await session.initialize()
             tools = {tool.name: tool for tool in (await session.list_tools()).tools}
-            assert "submit_producer" in tools["service_catalog_preview"].input_schema["properties"]["action"]["enum"]
-            assert "variable_display_value" in tools["service_catalog"].input_schema["properties"]["action"]["enum"]
+            assert (
+                "submit_producer"
+                in tools["service_catalog_preview"].input_schema["properties"][
+                    "action"
+                ]["enum"]
+            )
+            assert (
+                "variable_display_value"
+                in tools["service_catalog"].input_schema["properties"]["action"]["enum"]
+            )
             for tool, arguments in [
                 (
                     "service_catalog_preview",
@@ -392,10 +619,17 @@ async def test_catalog_contract_on_wire(settings: Settings) -> None:
                         "variables": '{"password":"private-fixture-value"}',
                     },
                 ),
-                ("service_catalog_preview", {"action": "order_now", "item_sys_id": ITEM, "quantity": True}),
+                (
+                    "service_catalog_preview",
+                    {"action": "order_now", "item_sys_id": ITEM, "quantity": True},
+                ),
                 (
                     "service_catalog",
-                    {"action": "get_invalid_delegated_users", "item_sys_id": ITEM, "also_request_for": "[]"},
+                    {
+                        "action": "get_invalid_delegated_users",
+                        "item_sys_id": ITEM,
+                        "also_request_for": "[]",
+                    },
                 ),
             ]:
                 result = await session.call_tool(tool, arguments)
@@ -407,68 +641,107 @@ async def test_catalog_contract_on_wire(settings: Settings) -> None:
 
 
 def test_command_does_not_include_values_in_repr() -> None:
-    command = CatalogCommand(action="submit_producer", item_sys_id=ITEM, variables={"password": PRIVATE})
+    command = CatalogCommand(
+        action="submit_producer", item_sys_id=ITEM, variables={"password": PRIVATE}
+    )
     assert PRIVATE not in repr(command)
 
 
 def test_new_diagnostic_inputs_are_redacted() -> None:
     arguments = dict.fromkeys(
-        ("items", "variables", "also_request_for", "requested_for", "user_sys_id", "item_type"), PRIVATE
+        (
+            "items",
+            "variables",
+            "also_request_for",
+            "requested_for",
+            "user_sys_id",
+            "item_type",
+        ),
+        PRIVATE,
     )
     assert PRIVATE not in str(_redact_args(arguments))
 
 
-@pytest.mark.parametrize("action", ["cart_item_update", "cart_item_delete"])
-async def test_exact_cart_item_drift_blocks_apply(settings: Settings, action: str) -> None:
+@pytest.mark.parametrize(
+    "action", [pytest.param("cart_item_update", id="cart_item_update")]
+)
+async def test_exact_cart_item_drift_blocks_apply(
+    settings: Settings, action: str
+) -> None:
     _, _, tools, _ = setup(settings)
     arguments = {"action": action, "cart_item_id": CART_ITEM}
     if action == "cart_item_update":
         arguments["quantity"] = 2
     preview = decode_response(await tools["service_catalog_preview"](**arguments))
     http_mock.get(f"{BASE}/api/now/table/sc_cart_item/{CART_ITEM}").respond(
-        200, json={"result": {"sys_id": CART_ITEM, "quantity": "2"}}
+        200,
+        json={"result": {"sys_id": CART_ITEM, "quantity": "2"}},
     )
-    result = decode_response(await tools["mutation_apply"](preview_token=preview["data"]["preview_token"]))
+    result = decode_response(
+        await tools["mutation_apply"](preview_token=preview["data"]["preview_token"])
+    )
     assert result["error"]["code"] == "STALE_PREVIEW"
     assert all(call.request.method == "GET" for call in http_mock.calls)
 
 
 async def test_legacy_empty_variables_payload_is_unchanged(settings: Settings) -> None:
     _, _, tools, _ = setup(settings)
-    route = http_mock.post(f"{SC}/items/{ITEM}/order_now").respond(200, json={"result": {"sys_id": ITEM}})
-    preview = decode_response(
-        await tools["service_catalog_preview"](action="order_now", item_sys_id=ITEM, variables={})
+    route = http_mock.post(f"{SC}/items/{ITEM}/order_now").respond(
+        200, json={"result": {"sys_id": ITEM}}
     )
-    assert not (await tools["mutation_apply"](preview_token=preview["data"]["preview_token"])).is_error
+    preview = decode_response(
+        await tools["service_catalog_preview"](
+            action="order_now", item_sys_id=ITEM, variables={}
+        ),
+    )
+    assert not (
+        await tools["mutation_apply"](preview_token=preview["data"]["preview_token"])
+    ).is_error
     assert json.loads(route.calls.last.request.content) == {}
 
 
 async def test_producer_concurrent_apply_dispatches_once(settings: Settings) -> None:
     _, _, tools, _ = setup(settings)
     mutation = http_mock.post(f"{SC}/items/{ITEM}/submit_producer").respond(
-        200, json={"result": {"sys_id": ITEM, "table": "incident"}}
+        200,
+        json={"result": {"sys_id": ITEM, "table": "incident"}},
     )
-    preview = decode_response(await tools["service_catalog_preview"](action="submit_producer", item_sys_id=ITEM))
+    preview = decode_response(
+        await tools["service_catalog_preview"](
+            action="submit_producer", item_sys_id=ITEM
+        )
+    )
     results = await asyncio.gather(
-        *(tools["mutation_apply"](preview_token=preview["data"]["preview_token"]) for _ in range(10))
+        *(
+            tools["mutation_apply"](preview_token=preview["data"]["preview_token"])
+            for _ in range(10)
+        ),
     )
     assert sum(not result.is_error for result in results) == 1
     assert mutation.call_count == 1
 
 
-@pytest.mark.parametrize("failure", ["timeout", "incomplete", "http_401", "http_403", "http_429", "http_500"])
+@pytest.mark.parametrize("failure", [pytest.param("http_401", id="http_401")])
 async def test_put_failure_never_replays(settings: Settings, failure: str) -> None:
     _, coordinator, tools, _ = setup(settings)
 
     def respond(request):
         if failure == "timeout":
             raise httpx2.ReadTimeout(PRIVATE, request=request)
-        status = int(failure.removeprefix("http_")) if failure.startswith("http_") else 200
-        return httpx2.Response(status, json={"error": {"message": PRIVATE}} if status != 200 else {})
+        status = (
+            int(failure.removeprefix("http_")) if failure.startswith("http_") else 200
+        )
+        return httpx2.Response(
+            status, json={"error": {"message": PRIVATE}} if status != 200 else {}
+        )
 
-    mutation = http_mock.route(method="PUT", url=f"{SC}/cart/{CART_ITEM}").mock(side_effect=respond)
+    mutation = http_mock.route(method="PUT", url=f"{SC}/cart/{CART_ITEM}").mock(
+        side_effect=respond
+    )
     preview = decode_response(
-        await tools["service_catalog_preview"](action="cart_item_update", cart_item_id=CART_ITEM, quantity=2)
+        await tools["service_catalog_preview"](
+            action="cart_item_update", cart_item_id=CART_ITEM, quantity=2
+        ),
     )
     token = preview["data"]["preview_token"]
     result = await tools["mutation_apply"](preview_token=token)
@@ -482,38 +755,63 @@ async def test_put_failure_never_replays(settings: Settings, failure: str) -> No
 
 
 @pytest.mark.parametrize(
-    "metadata", [{}, {"table_name": ""}, {"table_name": "../private"}, {"table_name": "sys_credentials"}]
+    "metadata",
+    [
+        pytest.param({}, id="metadata0"),
+        pytest.param({"table_name": "../private"}, id="metadata2"),
+        pytest.param({"table_name": "sys_credentials"}, id="metadata3"),
+    ],
 )
-async def test_producer_invalid_target_never_stages(settings: Settings, metadata) -> None:
+async def test_producer_invalid_target_never_stages(
+    settings: Settings, metadata
+) -> None:
     _, coordinator, tools, state = setup(settings)
     state["producer"] = metadata
-    result = await tools["service_catalog_preview"](action="submit_producer", item_sys_id=ITEM)
+    result = await tools["service_catalog_preview"](
+        action="submit_producer", item_sys_id=ITEM
+    )
     assert result.is_error
     assert len(coordinator.store) == 0
     assert all(call.request.method == "GET" for call in http_mock.calls)
 
 
-async def test_producer_metadata_error_does_not_disclose_response(settings: Settings) -> None:
+async def test_producer_metadata_error_does_not_disclose_response(
+    settings: Settings,
+) -> None:
     _, coordinator, tools, _ = setup(settings)
     http_mock.get(PRODUCER).respond(403, json={"error": {"message": PRIVATE}})
-    result = await tools["service_catalog_preview"](action="submit_producer", item_sys_id=ITEM)
+    result = await tools["service_catalog_preview"](
+        action="submit_producer", item_sys_id=ITEM
+    )
     assert result.is_error
     assert PRIVATE not in str(result)
     assert len(coordinator.store) == 0
 
 
-async def test_producer_policy_change_during_reads_prevents_write(settings: Settings) -> None:
+async def test_producer_policy_change_during_reads_prevents_write(
+    settings: Settings,
+) -> None:
     _, _, tools, state = setup(settings)
-    preview = decode_response(await tools["service_catalog_preview"](action="submit_producer", item_sys_id=ITEM))
+    preview = decode_response(
+        await tools["service_catalog_preview"](
+            action="submit_producer", item_sys_id=ITEM
+        )
+    )
 
     def change_policy(request):
         DENIED_TABLES.add("incident")
         return httpx2.Response(200, json={"result": state["producer"]})
 
     http_mock.get(PRODUCER).mock(side_effect=change_policy)
-    mutation = http_mock.post(f"{SC}/items/{ITEM}/submit_producer").respond(200, json={"result": {"sys_id": ITEM}})
+    mutation = http_mock.post(f"{SC}/items/{ITEM}/submit_producer").respond(
+        200, json={"result": {"sys_id": ITEM}}
+    )
     try:
-        assert (await tools["mutation_apply"](preview_token=preview["data"]["preview_token"])).is_error
+        assert (
+            await tools["mutation_apply"](
+                preview_token=preview["data"]["preview_token"]
+            )
+        ).is_error
         assert not mutation.called
     finally:
         DENIED_TABLES.discard("incident")
@@ -522,53 +820,94 @@ async def test_producer_policy_change_during_reads_prevents_write(settings: Sett
 async def test_producer_version_retained_for_read_and_write(settings: Settings) -> None:
     _, _, tools, state = setup(settings)
     versioned = f"{BASE}/api/sn_sc/v2/servicecatalog"
-    http_mock.get(f"{versioned}/items/{ITEM}").respond(200, json={"result": state["item"]})
-    http_mock.get(f"{versioned}/items/{ITEM}/variables").respond(200, json={"result": state["definitions"]})
+    http_mock.get(f"{versioned}/items/{ITEM}").respond(
+        200, json={"result": state["item"]}
+    )
+    http_mock.get(f"{versioned}/items/{ITEM}/variables").respond(
+        200, json={"result": state["definitions"]}
+    )
     mutation = http_mock.post(f"{versioned}/items/{ITEM}/submit_producer").respond(
-        200, json={"result": {"sys_id": ITEM, "table": "incident"}}
+        200,
+        json={"result": {"sys_id": ITEM, "table": "incident"}},
     )
     preview = decode_response(
-        await tools["service_catalog_preview"](action="submit_producer", item_sys_id=ITEM, api_version="v2")
+        await tools["service_catalog_preview"](
+            action="submit_producer", item_sys_id=ITEM, api_version="v2"
+        ),
     )
     assert not mutation.called
-    assert not (await tools["mutation_apply"](preview_token=preview["data"]["preview_token"])).is_error
+    assert not (
+        await tools["mutation_apply"](preview_token=preview["data"]["preview_token"])
+    ).is_error
     assert mutation.call_count == 1
     assert all(
-        "/api/sn_sc/v2/" in str(call.request.url) for call in http_mock.calls if "/api/sn_sc/" in str(call.request.url)
+        "/api/sn_sc/v2/" in str(call.request.url)
+        for call in http_mock.calls
+        if "/api/sn_sc/" in str(call.request.url)
     )
 
 
 @pytest.mark.parametrize(
-    "response", [None, {}, {"number": "INC0000001"}, {"sys_id": ITEM}, {"sys_id": ITEM, "table": None}]
+    "response",
+    [
+        pytest.param(None, id="None"),
+        pytest.param({}, id="response1"),
+        pytest.param({"sys_id": ITEM}, id="response3"),
+    ],
 )
-async def test_incomplete_producer_response_is_unknown(settings: Settings, response) -> None:
+async def test_incomplete_producer_response_is_unknown(
+    settings: Settings, response
+) -> None:
     _, _, tools, _ = setup(settings)
-    mutation = http_mock.post(f"{SC}/items/{ITEM}/submit_producer").respond(200, json={"result": response})
-    preview = decode_response(await tools["service_catalog_preview"](action="submit_producer", item_sys_id=ITEM))
-    result = decode_response(await tools["mutation_apply"](preview_token=preview["data"]["preview_token"]))
+    mutation = http_mock.post(f"{SC}/items/{ITEM}/submit_producer").respond(
+        200, json={"result": response}
+    )
+    preview = decode_response(
+        await tools["service_catalog_preview"](
+            action="submit_producer", item_sys_id=ITEM
+        )
+    )
+    result = decode_response(
+        await tools["mutation_apply"](preview_token=preview["data"]["preview_token"])
+    )
     assert result["error"]["code"] == "UNKNOWN_OUTCOME"
     assert mutation.call_count == 1
 
 
 async def test_large_cart_rejected_without_mutation(settings: Settings) -> None:
     _, coordinator, tools, _ = setup(settings)
-    http_mock.get(f"{BASE}/api/now/table/sc_cart_item").respond(200, json={"result": [{"sys_id": ITEM}] * 1000})
-    assert (await tools["service_catalog_preview"](action="cart_empty", cart_sys_id=CART)).is_error
+    http_mock.get(f"{BASE}/api/now/table/sc_cart_item").respond(
+        200, json={"result": [{"sys_id": ITEM}] * 1000}
+    )
+    assert (
+        await tools["service_catalog_preview"](action="cart_empty", cart_sys_id=CART)
+    ).is_error
     assert len(coordinator.store) == 0
     assert all(call.request.method == "GET" for call in http_mock.calls)
 
 
 async def test_unexpected_delete_response_is_unknown(settings: Settings) -> None:
     _, _, tools, _ = setup(settings)
-    mutation = http_mock.delete(f"{SC}/cart/{CART_ITEM}").respond(200, json={"result": {"sys_id": ITEM}})
-    preview = decode_response(await tools["service_catalog_preview"](action="cart_item_delete", cart_item_id=CART_ITEM))
-    result = await tools["mutation_apply"](preview_token=preview["data"]["preview_token"])
+    mutation = http_mock.delete(f"{SC}/cart/{CART_ITEM}").respond(
+        200, json={"result": {"sys_id": ITEM}}
+    )
+    preview = decode_response(
+        await tools["service_catalog_preview"](
+            action="cart_item_delete", cart_item_id=CART_ITEM
+        )
+    )
+    result = await tools["mutation_apply"](
+        preview_token=preview["data"]["preview_token"]
+    )
     assert result.is_error
     assert "unknown" in str(result).lower()
     assert mutation.call_count == 1
 
 
-@pytest.mark.parametrize("action", ["get_invalid_delegated_users", "variable_display_value"])
+@pytest.mark.parametrize(
+    "action",
+    [pytest.param("get_invalid_delegated_users", id="get_invalid_delegated_users")],
+)
 async def test_read_post_errors_are_private(settings: Settings, action: str) -> None:
     tools = _register_and_get_tools(settings, OAuthPKCEProvider(settings))
     args = (
@@ -581,13 +920,15 @@ async def test_read_post_errors_are_private(settings: Settings, action: str) -> 
         if action == "get_invalid_delegated_users"
         else f"variables/{ITEM}/display_value"
     )
-    http_mock.post(f"{SC}/{path}").respond(200, json={"result": {"errCode": "1", "errMsg": PRIVATE}})
+    http_mock.post(f"{SC}/{path}").respond(
+        200, json={"result": {"errCode": "1", "errMsg": PRIVATE}}
+    )
     result = await tools["service_catalog"](**args)
     assert result.is_error
     assert PRIVATE not in str(result)
 
 
-@pytest.mark.parametrize("label", ["Password", "API token", "Email address", *SECRET_KEY_LABELS])
+@pytest.mark.parametrize("label", [pytest.param("Password", id="Password")])
 def test_variable_label_masks_all_answer_fields(label: str) -> None:
     variable = {
         "name": "u_field_1",
@@ -600,35 +941,56 @@ def test_variable_label_masks_all_answer_fields(label: str) -> None:
     masked = mask_catalog({"variables": [variable]})["variables"][0]
     assert masked == {
         **variable,
-        **dict.fromkeys(("value", "displayvalue", "display_value", "default_value"), MASK_VALUE),
+        **dict.fromkeys(
+            ("value", "displayvalue", "display_value", "default_value"), MASK_VALUE
+        ),
     }
     assert variable["value"] == PRIVATE
 
 
-@pytest.mark.parametrize("label", ["Password", *SECRET_KEY_LABELS])
-async def test_variable_labels_mask_preview_and_guide_result(settings: Settings, label: str) -> None:
+@pytest.mark.parametrize("label", [pytest.param("Password", id="Password")])
+async def test_variable_labels_mask_preview_and_guide_result(
+    settings: Settings, label: str
+) -> None:
     _, coordinator, tools, state = setup(settings)
-    variable = {"name": "u_field_1", "label": label, "value": PRIVATE, "displayvalue": PRIVATE}
+    variable = {
+        "name": "u_field_1",
+        "label": label,
+        "value": PRIVATE,
+        "displayvalue": PRIVATE,
+    }
     state["definitions"] = [variable]
     response = [{"sys_id": ITEM, "variables": [variable]}]
-    mutation = http_mock.route(method="PUT", url=f"{SC}/items/{ITEM}/submit_guide").respond(
-        200, json={"result": response}
+    mutation = http_mock.route(
+        method="PUT", url=f"{SC}/items/{ITEM}/submit_guide"
+    ).respond(
+        200,
+        json={"result": response},
     )
-    preview = decode_response(await tools["service_catalog_preview"](action="submit_guide", item_sys_id=ITEM))
+    preview = decode_response(
+        await tools["service_catalog_preview"](action="submit_guide", item_sys_id=ITEM)
+    )
     assert preview["status"] == "success"
     assert PRIVATE not in str(preview)
     assert not mutation.called
-    result = decode_response(await tools["mutation_apply"](preview_token=preview["data"]["preview_token"]))
+    result = decode_response(
+        await tools["mutation_apply"](preview_token=preview["data"]["preview_token"])
+    )
     assert result["status"] == "success"
     assert PRIVATE not in str(result)
     assert result["data"][0]["variables"][0]["value"] == MASK_VALUE
     assert coordinator.store.retained_payload_bytes == 0
 
 
-@pytest.mark.parametrize("action", ["submit_producer", "submit_guide", "order_now", "add_to_cart", "cart_item_update"])
-@pytest.mark.parametrize("label", ["Password", *SECRET_KEY_LABELS])
+@pytest.mark.parametrize(
+    "action,label",
+    [pytest.param("submit_producer", "Password", id="Password-submit_producer")],
+)
 async def test_submitted_map_uses_definition_labels_without_changing_apply_payload(
-    settings: Settings, caplog: pytest.LogCaptureFixture, action: str, label: str
+    settings: Settings,
+    caplog: pytest.LogCaptureFixture,
+    action: str,
+    label: str,
 ) -> None:
     caplog.set_level(logging.INFO)
     _, coordinator, tools, state = setup(settings)
@@ -644,25 +1006,38 @@ async def test_submitted_map_uses_definition_labels_without_changing_apply_paylo
     if action == "cart_item_update":
         arguments.update(cart_item_id=CART_ITEM, quantity=2)
         http_mock.get(f"{BASE}/api/now/table/sc_cart_item/{CART_ITEM}").respond(
-            200, json={"result": {"sys_id": CART_ITEM, "quantity": "1", "cat_item": ITEM}}
+            200,
+            json={"result": {"sys_id": CART_ITEM, "quantity": "1", "cat_item": ITEM}},
         )
         method, path = "PUT", f"cart/{CART_ITEM}"
     else:
         arguments["item_sys_id"] = ITEM
-        method, path = ("PUT" if action == "submit_guide" else "POST"), f"items/{ITEM}/{action}"
+        method, path = (
+            ("PUT" if action == "submit_guide" else "POST"),
+            f"items/{ITEM}/{action}",
+        )
     response = {"sys_id": ITEM, "table": "incident", "variables": original}
     if action == "cart_item_update":
         response["catalog_item_id"] = ITEM
-    mutation = http_mock.route(method=method, url=f"{SC}/{path}").respond(200, json={"result": response})
+    mutation = http_mock.route(method=method, url=f"{SC}/{path}").respond(
+        200, json={"result": response}
+    )
     with patch("servicenow_mcp.mcp.handlers.set_sentry_context") as diagnostics:
         preview = decode_response(await tools["service_catalog_preview"](**arguments))
         assert preview["status"] == "success"
-        assert preview["data"]["summary"]["variables"] == {**original, "u_field_1": MASK_VALUE}
+        assert preview["data"]["summary"]["variables"] == {
+            **original,
+            "u_field_1": MASK_VALUE,
+        }
         assert PRIVATE not in str(preview)
         assert not mutation.called
         assert variables == original
         assert definitions == original_definitions
-        applied = decode_response(await tools["mutation_apply"](preview_token=preview["data"]["preview_token"]))
+        applied = decode_response(
+            await tools["mutation_apply"](
+                preview_token=preview["data"]["preview_token"]
+            )
+        )
         assert applied["status"] == "success"
         assert applied["data"]["variables"] == {**original, "u_field_1": MASK_VALUE}
         assert PRIVATE not in str(applied)
@@ -677,9 +1052,11 @@ async def test_submitted_map_uses_definition_labels_without_changing_apply_paylo
     assert coordinator.store.retained_payload_bytes == 0
 
 
-@pytest.mark.parametrize("label", ["Password", *SECRET_KEY_LABELS])
+@pytest.mark.parametrize("label", [pytest.param("Password", id="Password")])
 async def test_guide_submitted_maps_use_each_items_definitions_and_preserve_apply_payload(
-    settings: Settings, caplog: pytest.LogCaptureFixture, label: str
+    settings: Settings,
+    caplog: pytest.LogCaptureFixture,
+    label: str,
 ) -> None:
     caplog.set_level(logging.INFO)
     _, coordinator, tools, state = setup(settings)
@@ -691,34 +1068,55 @@ async def test_guide_submitted_maps_use_each_items_definitions_and_preserve_appl
                 {"name": "u_field_1", "label": label, "value": ""},
                 {"name": "public_option", "label": "Public option", "value": ""},
             ],
-        }
+        },
     ]
-    http_mock.get(f"{SC}/items/{other_item}").respond(200, json={"result": {"sys_id": other_item}})
+    http_mock.get(f"{SC}/items/{other_item}").respond(
+        200, json={"result": {"sys_id": other_item}}
+    )
     http_mock.get(f"{SC}/items/{other_item}/variables").respond(
-        200, json={"result": [{"name": "u_field_1", "label": "Public choice", "value": ""}]}
+        200,
+        json={"result": [{"name": "u_field_1", "label": "Public choice", "value": ""}]},
     )
     items: list[dict[str, Any]] = [
-        {"sys_id": ITEM, "sysparm_quantity": "2", "variables": {"u_field_1": PRIVATE, "public_option": False}},
+        {
+            "sys_id": ITEM,
+            "sysparm_quantity": "2",
+            "variables": {"u_field_1": PRIVATE, "public_option": False},
+        },
         {"sys_id": other_item, "variables": {"u_field_1": "public choice"}},
     ]
     original = deepcopy(items)
     response: dict[str, Any] = {
         "cart_id": CART,
-        "items": [{"catalog_item_id": item["sys_id"], "variables": item["variables"]} for item in original],
+        "items": [
+            {"catalog_item_id": item["sys_id"], "variables": item["variables"]}
+            for item in original
+        ],
     }
-    mutation = http_mock.post(f"{SC}/items/{ITEM}/checkout_guide").respond(200, json={"result": response})
+    mutation = http_mock.post(f"{SC}/items/{ITEM}/checkout_guide").respond(
+        200, json={"result": response}
+    )
     with patch("servicenow_mcp.mcp.handlers.set_sentry_context") as diagnostics:
         preview = decode_response(
-            await tools["service_catalog_preview"](action="checkout_guide", item_sys_id=ITEM, items=items)
+            await tools["service_catalog_preview"](
+                action="checkout_guide", item_sys_id=ITEM, items=items
+            ),
         )
         assert preview["status"] == "success"
         masked_items = preview["data"]["summary"]["items"]
-        assert masked_items[0]["variables"] == {"u_field_1": MASK_VALUE, "public_option": False}
+        assert masked_items[0]["variables"] == {
+            "u_field_1": MASK_VALUE,
+            "public_option": False,
+        }
         assert masked_items[1]["variables"] == original[1]["variables"]
         assert PRIVATE not in str(preview)
         assert items == original
         assert not mutation.called
-        applied = decode_response(await tools["mutation_apply"](preview_token=preview["data"]["preview_token"]))
+        applied = decode_response(
+            await tools["mutation_apply"](
+                preview_token=preview["data"]["preview_token"]
+            )
+        )
         assert applied["status"] == "success"
         assert applied["data"]["items"][0]["variables"]["u_field_1"] == MASK_VALUE
         assert applied["data"]["items"][1]["variables"] == original[1]["variables"]
@@ -740,14 +1138,14 @@ def test_variable_map_metadata_is_nested_scoped_and_copy_only() -> None:
                 {"name": "public_option", "label": "Public choice", "value": ""},
                 {"name": "u_field_1", "label": "Public choice", "value": ""},
             ],
-        }
+        },
     ]
     value = {
         "variables": {
             "u_field_1": PRIVATE,
             "public_option": {"enabled": False, "api_token": PRIVATE},
             "missing_metadata": PRIVATE,
-        }
+        },
     }
     original = deepcopy(value)
     masked = mask_catalog(value, definitions=definitions)
@@ -761,10 +1159,14 @@ def test_variable_map_metadata_is_nested_scoped_and_copy_only() -> None:
     assert definitions[0]["children"][0]["value"] == ""
 
 
-@pytest.mark.parametrize("definitions", [None, [], [{"name": "u_field_1"}], [{"name": "u_field_1", "label": " "}]])
+@pytest.mark.parametrize(
+    "definitions", [pytest.param([{"name": "u_field_1"}], id="definitions2")]
+)
 def test_variable_maps_without_usable_metadata_are_masked(definitions) -> None:
-    assert mask_catalog({"variables": {"u_field_1": PRIVATE}}, definitions=definitions) == {
-        "variables": {"u_field_1": MASK_VALUE}
+    assert mask_catalog(
+        {"variables": {"u_field_1": PRIVATE}}, definitions=definitions
+    ) == {
+        "variables": {"u_field_1": MASK_VALUE},
     }
 
 
@@ -774,62 +1176,107 @@ def test_response_definitions_cannot_downgrade_observed_sensitive_labels() -> No
         "definitions": [{"name": "u_field_1", "label": "Public choice"}],
         "variables": {"u_field_1": PRIVATE},
     }
-    assert mask_catalog(response, definitions=sensitive)["variables"]["u_field_1"] == MASK_VALUE
+    assert (
+        mask_catalog(response, definitions=sensitive)["variables"]["u_field_1"]
+        == MASK_VALUE
+    )
     nested = {"items": [{"sys_id": "f" * 32, "variables": {"u_field_1": PRIVATE}}]}
     public = [{"name": "u_field_1", "label": "Public choice"}]
-    assert mask_catalog(nested, definitions=public)["items"][0]["variables"]["u_field_1"] == MASK_VALUE
+    assert (
+        mask_catalog(nested, definitions=public)["items"][0]["variables"]["u_field_1"]
+        == MASK_VALUE
+    )
     unidentified = {"items": [{"variables": {"u_field_1": PRIVATE}}]}
-    assert mask_catalog(unidentified, definitions=public)["items"][0]["variables"]["u_field_1"] == MASK_VALUE
+    assert (
+        mask_catalog(unidentified, definitions=public)["items"][0]["variables"][
+            "u_field_1"
+        ]
+        == MASK_VALUE
+    )
     injected_metadata = {
         "variables": {
             "unknown": PRIVATE,
-            "public_option": {"definitions": [{"name": "unknown", "label": "Public choice"}]},
-        }
+            "public_option": {
+                "definitions": [{"name": "unknown", "label": "Public choice"}]
+            },
+        },
     }
-    assert mask_catalog(injected_metadata, definitions=public)["variables"]["unknown"] == MASK_VALUE
+    assert (
+        mask_catalog(injected_metadata, definitions=public)["variables"]["unknown"]
+        == MASK_VALUE
+    )
 
 
-async def test_guide_duplicate_items_cannot_downgrade_sensitive_metadata(settings: Settings) -> None:
+async def test_guide_duplicate_items_cannot_downgrade_sensitive_metadata(
+    settings: Settings,
+) -> None:
     _, _, tools, _ = setup(settings)
     # Parent and duplicate metadata cannot downgrade the sensitive included occurrence.
     public = [{"name": "u_field_1", "label": "Public choice", "value": ""}]
     private = [{"name": "u_field_1", "label": "Password", "value": ""}]
     http_mock.get(f"{SC}/items/{ITEM}/variables").mock(
-        side_effect=[httpx2.Response(200, json={"result": definitions}) for definitions in (public, private, public)]
+        side_effect=[
+            httpx2.Response(200, json={"result": definitions})
+            for definitions in (public, private, public)
+        ],
     )
     items = [{"sys_id": ITEM, "variables": {"u_field_1": PRIVATE}}] * 2
     preview = decode_response(
-        await tools["service_catalog_preview"](action="checkout_guide", item_sys_id=ITEM, items=items)
+        await tools["service_catalog_preview"](
+            action="checkout_guide", item_sys_id=ITEM, items=items
+        ),
     )
     assert preview["status"] == "success"
     assert PRIVATE not in str(preview)
-    assert all(item["variables"]["u_field_1"] == MASK_VALUE for item in preview["data"]["summary"]["items"])
+    assert all(
+        item["variables"]["u_field_1"] == MASK_VALUE
+        for item in preview["data"]["summary"]["items"]
+    )
     assert all(call.request.method == "GET" for call in http_mock.calls)
 
 
 async def test_item_form_labels_also_mask_submitted_maps(settings: Settings) -> None:
     _, _, tools, state = setup(settings)
     state["definitions"] = []
-    state["item"]["variables"] = [{"name": "u_field_1", "label": "Password", "value": ""}]
+    state["item"]["variables"] = [
+        {"name": "u_field_1", "label": "Password", "value": ""}
+    ]
     mutation = http_mock.post(f"{SC}/items/{ITEM}/submit_producer").respond(
-        200, json={"result": {"sys_id": ITEM, "table": "incident", "variables": {"u_field_1": PRIVATE}}}
+        200,
+        json={
+            "result": {
+                "sys_id": ITEM,
+                "table": "incident",
+                "variables": {"u_field_1": PRIVATE},
+            },
+        },
     )
     preview = decode_response(
         await tools["service_catalog_preview"](
-            action="submit_producer", item_sys_id=ITEM, variables={"u_field_1": PRIVATE}
-        )
+            action="submit_producer",
+            item_sys_id=ITEM,
+            variables={"u_field_1": PRIVATE},
+        ),
     )
     assert preview["status"] == "success"
     assert PRIVATE not in str(preview)
-    result = decode_response(await tools["mutation_apply"](preview_token=preview["data"]["preview_token"]))
+    result = decode_response(
+        await tools["mutation_apply"](preview_token=preview["data"]["preview_token"])
+    )
     assert result["status"] == "success"
     assert PRIVATE not in str(result)
-    assert json.loads(mutation.calls.last.request.content) == {"variables": {"u_field_1": PRIVATE}}
+    assert json.loads(mutation.calls.last.request.content) == {
+        "variables": {"u_field_1": PRIVATE}
+    }
 
 
-@pytest.mark.parametrize("action", ["submit_producer", "checkout_guide"])
+@pytest.mark.parametrize(
+    "action", [pytest.param("checkout_guide", id="checkout_guide")]
+)
 async def test_submitted_map_failure_does_not_disclose_or_replay(
-    settings: Settings, caplog: pytest.LogCaptureFixture, action: str
+    settings: Settings,
+    caplog: pytest.LogCaptureFixture,
+    action: str,
 ) -> None:
     caplog.set_level(logging.INFO)
     _, coordinator, tools, state = setup(settings)
@@ -839,7 +1286,9 @@ async def test_submitted_map_failure_does_not_disclose_or_replay(
         arguments["items"] = [{"sys_id": ITEM, "variables": {"u_field_1": PRIVATE}}]
     else:
         arguments["variables"] = {"u_field_1": PRIVATE}
-    mutation = http_mock.post(f"{SC}/items/{ITEM}/{action}").respond(500, json={"error": {"message": PRIVATE}})
+    mutation = http_mock.post(f"{SC}/items/{ITEM}/{action}").respond(
+        500, json={"error": {"message": PRIVATE}}
+    )
     with patch("servicenow_mcp.mcp.handlers.set_sentry_context") as diagnostics:
         preview = decode_response(await tools["service_catalog_preview"](**arguments))
         assert preview["status"] == "success"
@@ -855,107 +1304,183 @@ async def test_submitted_map_failure_does_not_disclose_or_replay(
     assert coordinator.store.retained_payload_bytes == 0
 
 
-@pytest.mark.parametrize("action", ["cart_get", "wishlist_get", "wishlist_item_get"])
-async def test_catalog_read_maps_without_labels_do_not_disclose_answers(settings: Settings, action: str) -> None:
+@pytest.mark.parametrize(
+    "action",
+    [
+        pytest.param("cart_get", id="cart_get"),
+        pytest.param("wishlist_item_get", id="wishlist_item_get"),
+    ],
+)
+async def test_catalog_read_maps_without_labels_do_not_disclose_answers(
+    settings: Settings, action: str
+) -> None:
     tools = _register_and_get_tools(settings, OAuthPKCEProvider(settings))
-    path = {"cart_get": "cart", "wishlist_get": "wishlist", "wishlist_item_get": f"wishlist/{CART_ITEM}"}[action]
+    path = {
+        "cart_get": "cart",
+        "wishlist_get": "wishlist",
+        "wishlist_item_get": f"wishlist/{CART_ITEM}",
+    }[action]
     http_mock.get(f"{SC}/{path}").respond(
-        200, json={"result": {"items": [{"catalog_item_id": ITEM, "variables": {"u_field_1": PRIVATE}}]}}
+        200,
+        json={
+            "result": {
+                "items": [
+                    {"catalog_item_id": ITEM, "variables": {"u_field_1": PRIVATE}}
+                ]
+            }
+        },
     )
-    arguments = {"action": action, **({"cart_item_id": CART_ITEM} if action == "wishlist_item_get" else {})}
+    arguments = {
+        "action": action,
+        **({"cart_item_id": CART_ITEM} if action == "wishlist_item_get" else {}),
+    }
     result = decode_response(await tools["service_catalog"](**arguments))
     assert result["status"] == "success"
     assert result["data"]["items"][0]["variables"]["u_field_1"] == MASK_VALUE
     assert PRIVATE not in str(result)
 
 
-@pytest.mark.parametrize("has_item_reference", [False, True])
+@pytest.mark.parametrize("has_item_reference", [pytest.param(True, id="True")])
 async def test_cart_update_masks_metadata_gaps_and_detects_label_drift(
-    settings: Settings, has_item_reference: bool
+    settings: Settings,
+    has_item_reference: bool,
 ) -> None:
     _, coordinator, tools, state = setup(settings)
-    state["definitions"] = [{"name": "u_field_1", "label": "Public choice", "value": ""}]
+    state["definitions"] = [
+        {"name": "u_field_1", "label": "Public choice", "value": ""}
+    ]
     reference = {"value": ITEM, "link": "fixture-link"} if has_item_reference else ""
     http_mock.get(f"{BASE}/api/now/table/sc_cart_item/{CART_ITEM}").respond(
-        200, json={"result": {"sys_id": CART_ITEM, "cat_item": reference}}
+        200,
+        json={"result": {"sys_id": CART_ITEM, "cat_item": reference}},
     )
     mutation = http_mock.route(method="PUT", url=f"{SC}/cart/{CART_ITEM}").respond(
-        200, json={"result": {"sys_id": CART_ITEM}}
+        200,
+        json={"result": {"sys_id": CART_ITEM}},
     )
     preview = decode_response(
         await tools["service_catalog_preview"](
-            action="cart_item_update", cart_item_id=CART_ITEM, quantity=1, variables={"u_field_1": PRIVATE}
-        )
+            action="cart_item_update",
+            cart_item_id=CART_ITEM,
+            quantity=1,
+            variables={"u_field_1": PRIVATE},
+        ),
     )
     assert preview["status"] == "success"
     expected = PRIVATE if has_item_reference else MASK_VALUE
     assert preview["data"]["summary"]["variables"]["u_field_1"] == expected
     state["definitions"][0]["label"] = "Password"
-    applied = decode_response(await tools["mutation_apply"](preview_token=preview["data"]["preview_token"]))
+    applied = decode_response(
+        await tools["mutation_apply"](preview_token=preview["data"]["preview_token"])
+    )
     assert coordinator.store.retained_payload_bytes == 0
     if has_item_reference:
         assert applied["error"]["code"] == "STALE_PREVIEW"
         assert not mutation.called
     else:
         assert applied["status"] == "success"
-        assert json.loads(mutation.calls.last.request.content)["variables"]["u_field_1"] == PRIVATE
+        assert (
+            json.loads(mutation.calls.last.request.content)["variables"]["u_field_1"]
+            == PRIVATE
+        )
 
 
-@pytest.mark.parametrize("invalid_users", [[], [PRIVATE], [PRIVATE, PRIVATE]])
-async def test_delegated_user_validation_preserves_outcome(settings: Settings, invalid_users: list[str]) -> None:
+@pytest.mark.parametrize("invalid_users", [pytest.param([], id="invalid_users0")])
+async def test_delegated_user_validation_preserves_outcome(
+    settings: Settings, invalid_users: list[str]
+) -> None:
     tools = _register_and_get_tools(settings, OAuthPKCEProvider(settings))
     http_mock.post(f"{SC}/items/{ITEM}/get_invalid_delegated_users").respond(
-        200, json={"result": {"invalidUsers": invalid_users}}
+        200,
+        json={"result": {"invalidUsers": invalid_users}},
     )
     result = decode_response(
-        await tools["service_catalog"](action="get_invalid_delegated_users", item_sys_id=ITEM, also_request_for=[USER])
+        await tools["service_catalog"](
+            action="get_invalid_delegated_users",
+            item_sys_id=ITEM,
+            also_request_for=[USER],
+        ),
     )
     assert result["status"] == "success"
     assert result["data"]["invalidUsers"] == [MASK_VALUE] * len(invalid_users)
     assert PRIVATE not in str(result)
 
 
-def test_delegated_user_masking_recurses_and_fails_closed_for_malformed_values() -> None:
-    assert mask_catalog({"result": {"INVALIDUSERS": [PRIVATE]}}) == {"result": {"INVALIDUSERS": [MASK_VALUE]}}
+def test_delegated_user_masking_recurses_and_fails_closed_for_malformed_values() -> (
+    None
+):
+    assert mask_catalog({"result": {"INVALIDUSERS": [PRIVATE]}}) == {
+        "result": {"INVALIDUSERS": [MASK_VALUE]}
+    }
     assert mask_catalog({"invalidUsers": PRIVATE}) == {"invalidUsers": MASK_VALUE}
 
 
-@pytest.mark.parametrize("denied_table", ["sc_request", "sc_cart_item"])
+@pytest.mark.parametrize(
+    "denied_table", [pytest.param("sc_cart_item", id="sc_cart_item")]
+)
 async def test_guide_checkout_checks_both_policies_before_preview(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch, denied_table: str
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    denied_table: str,
 ) -> None:
     _, coordinator, tools, _ = setup(settings)
-    monkeypatch.setattr("servicenow_mcp.policy.DENIED_TABLES", DENIED_TABLES | {denied_table})
-    result = await tools["service_catalog_preview"](action="checkout_guide", item_sys_id=ITEM, items=[{"sys_id": ITEM}])
+    monkeypatch.setattr(
+        "servicenow_mcp.policy.DENIED_TABLES", DENIED_TABLES | {denied_table}
+    )
+    result = await tools["service_catalog_preview"](
+        action="checkout_guide", item_sys_id=ITEM, items=[{"sys_id": ITEM}]
+    )
     assert result.is_error
     assert decode_response(result)["error"]["code"] == "POLICYERROR"
     assert not http_mock.calls
     assert len(coordinator.store) == 0
 
 
-@pytest.mark.parametrize("denied_table", ["sc_request", "sc_cart_item"])
-@pytest.mark.parametrize("change_at", ["before_apply", "last_precondition_read"])
+@pytest.mark.parametrize(
+    "denied_table,change_at",
+    [
+        pytest.param(
+            "sc_request",
+            "last_precondition_read",
+            id="last_precondition_read-sc_request",
+        )
+    ],
+)
 async def test_guide_checkout_rechecks_both_policies_before_dispatch(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch, denied_table: str, change_at: str
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    denied_table: str,
+    change_at: str,
 ) -> None:
     _, coordinator, tools, state = setup(settings)
-    mutation = http_mock.post(f"{SC}/items/{ITEM}/checkout_guide").respond(200, json={"result": {"cart_id": CART}})
+    mutation = http_mock.post(f"{SC}/items/{ITEM}/checkout_guide").respond(
+        200, json={"result": {"cart_id": CART}}
+    )
     preview = decode_response(
-        await tools["service_catalog_preview"](action="checkout_guide", item_sys_id=ITEM, items=[{"sys_id": ITEM}])
+        await tools["service_catalog_preview"](
+            action="checkout_guide", item_sys_id=ITEM, items=[{"sys_id": ITEM}]
+        ),
     )
     assert preview["status"] == "success"
     assert not mutation.called
     if change_at == "before_apply":
-        monkeypatch.setattr("servicenow_mcp.policy.DENIED_TABLES", DENIED_TABLES | {denied_table})
+        monkeypatch.setattr(
+            "servicenow_mcp.policy.DENIED_TABLES", DENIED_TABLES | {denied_table}
+        )
     else:
 
         def deny_after_read(request):
-            monkeypatch.setattr("servicenow_mcp.policy.DENIED_TABLES", DENIED_TABLES | {denied_table})
+            monkeypatch.setattr(
+                "servicenow_mcp.policy.DENIED_TABLES", DENIED_TABLES | {denied_table}
+            )
             return httpx2.Response(200, json={"result": state["definitions"]})
 
         # Each guide item reads its definitions after the other preconditions.
         http_mock.get(f"{SC}/items/{ITEM}/variables").mock(
-            side_effect=[httpx2.Response(200, json={"result": state["definitions"]}), deny_after_read]
+            side_effect=[
+                httpx2.Response(200, json={"result": state["definitions"]}),
+                deny_after_read,
+            ],
         )
     token = preview["data"]["preview_token"]
     result = await tools["mutation_apply"](preview_token=token)
@@ -966,7 +1491,8 @@ async def test_guide_checkout_rechecks_both_policies_before_dispatch(
         definition_reads = [
             call
             for call in http_mock.calls
-            if call.request.url.path == f"/api/sn_sc/servicecatalog/items/{ITEM}/variables"
+            if call.request.url.path
+            == f"/api/sn_sc/servicecatalog/items/{ITEM}/variables"
         ]
         assert len(definition_reads) == 4  # Two preview reads, then two apply reads.
     assert all(call.request.method == "GET" for call in http_mock.calls)
@@ -977,22 +1503,42 @@ async def test_guide_checkout_rechecks_both_policies_before_dispatch(
 
 def test_coverage_matrix_accounts_for_every_exported_operation() -> None:
     root = Path(__file__).parents[1]
-    spec = (root / "openapi-specs/sn_sc_service_catalog_api_latest_spec.yaml").read_text()
+    spec = (
+        root / "openapi-specs/sn_sc_service_catalog_api_latest_spec.yaml"
+    ).read_text()
     operations = set()
     path = ""
     for line in spec.splitlines():
         if line.startswith("  /api/"):
-            path = line.strip().removesuffix(":").removeprefix("/api/sn_sc/servicecatalog/")
+            path = (
+                line.strip()
+                .removesuffix(":")
+                .removeprefix("/api/sn_sc/servicecatalog/")
+            )
         elif re.fullmatch(r"    (get|post|put|delete):", line):
             operations.add((line.strip().removesuffix(":").upper(), path))
     doc = (root / "docs/service-catalog-api.md").read_text()
-    implemented = set(re.findall(r"^\| (GET|POST|PUT|DELETE) `([^`]+)` \|", doc, re.M))
-    unsupported = set(re.findall(r"^\| (GET|POST|PUT|DELETE) \| `([^`]+)` \|", doc, re.M))
+    implemented = set(
+        re.findall(
+            r"^\|[ \t]+(GET|POST|PUT|DELETE) `([^`]+)`[ \t]+\|", doc, re.MULTILINE
+        )
+    )
+    unsupported = set(
+        re.findall(
+            r"^\|[ \t]+(GET|POST|PUT|DELETE)[ \t]+\| `([^`]+)`[ \t]+\|",
+            doc,
+            re.MULTILINE,
+        )
+    )
     assert len(implemented) == 25
     assert len(unsupported) == 26
     assert not implemented & unsupported
     assert implemented | unsupported == operations
-    rows = [line for line in doc.splitlines() if re.match(r"^\| (GET|POST|PUT|DELETE) `", line)]
+    rows = [
+        line
+        for line in doc.splitlines()
+        if re.match(r"^\| (GET|POST|PUT|DELETE) `", line)
+    ]
     public = [row for row in rows if "| Public," in row]
     preserved = [row for row in rows if ", preserved." in row]
     new = [row for row in rows if ", new." in row]

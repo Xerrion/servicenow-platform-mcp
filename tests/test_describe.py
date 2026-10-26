@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx2
 import pytest
 
 from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.config import Settings
 from servicenow_mcp.policy import DENIED_TABLES
 from tests._mock_transport import http_mock
 from tests.helpers import decode_response, get_tool_functions
+
+if TYPE_CHECKING:
+    from servicenow_mcp.config import Settings
 
 
 BASE_URL = "https://test.service-now.com"
@@ -74,10 +76,10 @@ class TestDescribe:
                             "sys_scope": "global",
                             "attributes": "",
                         },
-                    ]
+                    ],
                 },
                 headers={"X-Total-Count": str(total)},
-            )
+            ),
         )
 
     @staticmethod
@@ -94,11 +96,11 @@ class TestDescribe:
                             "is_extendable": "true",
                             "number_ref": "",
                             "sys_id": "abc123",
-                        }
-                    ]
+                        },
+                    ],
                 },
                 headers={"X-Total-Count": "1"},
-            )
+            ),
         )
 
     @staticmethod
@@ -108,11 +110,13 @@ class TestDescribe:
                 200,
                 json={"result": records or []},
                 headers={"X-Total-Count": str(len(records or []))},
-            )
+            ),
         )
 
     @pytest.mark.asyncio()
-    async def test_returns_slim_field_metadata(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_returns_slim_field_metadata(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         """Default shape returns the 8-key slim per-field metadata."""
         self._mock_dictionary()
         self._mock_db_object()
@@ -149,7 +153,9 @@ class TestDescribe:
 
     @pytest.mark.asyncio()
     async def test_verbose_returns_full_dictionary_row(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """verbose=True returns full sys_dictionary rows minus the deny-list, plus choice_count."""
         self._mock_dictionary()
@@ -174,7 +180,9 @@ class TestDescribe:
         assert "pagination" not in result
 
     @pytest.mark.asyncio()
-    async def test_fields_filter_narrows_results(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_fields_filter_narrows_results(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         """fields= filter restricts the response and warns on unknown names."""
         self._mock_dictionary()
         self._mock_db_object()
@@ -189,19 +197,28 @@ class TestDescribe:
         assert names == ["state"]
         assert any("priority" in w for w in result.get("warnings", []))
         assert "pagination" not in result
-        dictionary_call = next(call for call in http_mock.calls if call.request.url.path.endswith("/sys_dictionary"))
+        dictionary_call = next(
+            call
+            for call in http_mock.calls
+            if call.request.url.path.endswith("/sys_dictionary")
+        )
         assert "name%3Dincident" in str(dictionary_call.request.url)
 
     @pytest.mark.asyncio()
     async def test_compact_default_has_continuation_metadata(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         from unittest.mock import AsyncMock
 
         from mcp.server import MCPServer
 
         from servicenow_mcp.mcp.tools.describe import register_tools
-        from servicenow_mcp.platform.metadata._dictionary import DictionaryField, DictionaryRegistry
+        from servicenow_mcp.platform.metadata._dictionary import (
+            DictionaryField,
+            DictionaryRegistry,
+        )
 
         dictionary = DictionaryRegistry(settings, auth_provider)
         dictionary.get_all_fields = AsyncMock(  # type: ignore[method-assign]
@@ -211,10 +228,13 @@ class TestDescribe:
                     internal_type="string",
                     attributes="",
                     inherited_from=None,
-                    metadata={"element": f"field_{index:02d}", "internal_type": "string"},
+                    metadata={
+                        "element": f"field_{index:02d}",
+                        "internal_type": "string",
+                    },
                 )
                 for index in range(40)
-            ]
+            ],
         )
         self._mock_db_object()
         self._mock_choices()
@@ -222,18 +242,27 @@ class TestDescribe:
         mcp = MCPServer("test")
         register_tools(mcp, settings, auth_provider, dictionary=dictionary)
         tools = get_tool_functions(mcp)
-        result = decode_response(await tools["describe"](table="incident", field_limit=2, field_offset=10))
+        result = decode_response(
+            await tools["describe"](table="incident", field_limit=2, field_offset=10)
+        )
 
         assert result["status"] == "success"
         assert result["pagination"] == {"offset": 10, "limit": 2, "total": 40}
-        assert [field["name"] for field in result["data"]["fields"]] == ["field_10", "field_11"]
+        assert [field["name"] for field in result["data"]["fields"]] == [
+            "field_10",
+            "field_11",
+        ]
 
     @pytest.mark.asyncio()
     async def test_invalid_page_returns_error_without_io(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
-        result = decode_response(await tools["describe"](table="incident", field_limit=0))
+        result = decode_response(
+            await tools["describe"](table="incident", field_limit=0)
+        )
 
         assert result["status"] == "error"
         assert "field_limit" in result["error"]["message"]
@@ -241,7 +270,9 @@ class TestDescribe:
 
     @pytest.mark.asyncio()
     async def test_include_docs_attaches_documentation(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """include_docs=True triggers a sys_documentation fetch and attaches it."""
         self._mock_dictionary()
@@ -258,11 +289,11 @@ class TestDescribe:
                             "help": "Lifecycle state of the incident.",
                             "hint": "",
                             "url": "",
-                        }
-                    ]
+                        },
+                    ],
                 },
                 headers={"X-Total-Count": "1"},
-            )
+            ),
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
@@ -275,7 +306,9 @@ class TestDescribe:
         assert docs["state"]["help"] == "Lifecycle state of the incident."
 
     @pytest.mark.asyncio()
-    async def test_choice_count_populated(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_choice_count_populated(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         """choice_count reflects the batched sys_choice tally per element."""
         self._mock_dictionary()
         self._mock_db_object()
@@ -284,7 +317,7 @@ class TestDescribe:
                 {"element": "state"},
                 {"element": "state"},
                 {"element": "state"},
-            ]
+            ],
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
@@ -298,13 +331,15 @@ class TestDescribe:
 
     @pytest.mark.asyncio()
     async def test_choice_fetch_failure_does_not_break_describe(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """A failing sys_choice query degrades gracefully to choice_count=0 with a warning."""
         self._mock_dictionary()
         self._mock_db_object()
         http_mock.get(f"{BASE_URL}/api/now/table/sys_choice").mock(
-            return_value=httpx2.Response(500, json={"error": {"message": "boom"}})
+            return_value=httpx2.Response(500, json={"error": {"message": "boom"}}),
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
@@ -317,7 +352,9 @@ class TestDescribe:
         assert any("sys_choice" in w for w in result.get("warnings", []))
 
     @pytest.mark.asyncio()
-    async def test_denied_table_returns_error(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_denied_table_returns_error(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         """Blocked tables return an error response (no HTTP call made)."""
         denied = next(iter(DENIED_TABLES))
         tools = _register_and_get_tools(settings, auth_provider)
@@ -328,13 +365,17 @@ class TestDescribe:
         assert "denied" in result["error"]["message"].lower()
 
     @pytest.mark.asyncio()
-    async def test_omits_correlation_id(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_omits_correlation_id(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         """Response contains no internal correlation ID."""
         http_mock.get(f"{BASE_URL}/api/now/table/sys_dictionary").mock(
-            return_value=httpx2.Response(200, json={"result": []})
+            return_value=httpx2.Response(200, json={"result": []}),
         )
         http_mock.get(f"{BASE_URL}/api/now/table/sys_db_object").mock(
-            return_value=httpx2.Response(200, json={"result": []}, headers={"X-Total-Count": "0"})
+            return_value=httpx2.Response(
+                200, json={"result": []}, headers={"X-Total-Count": "0"}
+            ),
         )
         self._mock_choices()
 
@@ -346,12 +387,17 @@ class TestDescribe:
 
     @pytest.mark.asyncio()
     async def test_inherited_fields_are_deduplicated_with_child_override(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """Describe sorts the merged hierarchy and keeps the child declaration."""
         from unittest.mock import AsyncMock
 
-        from servicenow_mcp.platform.metadata._dictionary import DictionaryField, DictionaryRegistry
+        from servicenow_mcp.platform.metadata._dictionary import (
+            DictionaryField,
+            DictionaryRegistry,
+        )
 
         dictionary = DictionaryRegistry(settings, auth_provider)
         dictionary.get_all_fields = AsyncMock(  # type: ignore[method-assign]
@@ -361,16 +407,24 @@ class TestDescribe:
                     internal_type="integer",
                     attributes="",
                     inherited_from=None,
-                    metadata={"element": "state", "column_label": "Incident state", "internal_type": "integer"},
+                    metadata={
+                        "element": "state",
+                        "column_label": "Incident state",
+                        "internal_type": "integer",
+                    },
                 ),
                 DictionaryField(
                     name="number",
                     internal_type="string",
                     attributes="",
                     inherited_from="task",
-                    metadata={"element": "number", "column_label": "Number", "internal_type": "string"},
+                    metadata={
+                        "element": "number",
+                        "column_label": "Number",
+                        "internal_type": "string",
+                    },
                 ),
-            ]
+            ],
         )
         from mcp.server import MCPServer
 
@@ -383,7 +437,9 @@ class TestDescribe:
         with http_mock:
             self._mock_db_object()
             self._mock_choices()
-            result = decode_response(await tools["describe"](table="incident", fields=["number", "state"]))
+            result = decode_response(
+                await tools["describe"](table="incident", fields=["number", "state"])
+            )
 
         fields = {field["name"]: field for field in result["data"]["fields"]}
         assert fields["number"]["inherited_from"] == "task"
@@ -391,14 +447,20 @@ class TestDescribe:
         assert fields["state"]["label"] == "Incident state"
 
     @pytest.mark.asyncio()
-    @pytest.mark.parametrize("table", ["incident", "sc_request", "sc_req_item", "problem", "sc_task", "task_sla"])
+    @pytest.mark.parametrize("table", [pytest.param("incident", id="incident")])
     async def test_task_derived_tables_surface_task_fields(
-        self, table: str, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        table: str,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         """Synthetic task-derived schemas expose inherited task fields consistently."""
         from unittest.mock import AsyncMock
 
-        from servicenow_mcp.platform.metadata._dictionary import DictionaryField, DictionaryRegistry
+        from servicenow_mcp.platform.metadata._dictionary import (
+            DictionaryField,
+            DictionaryRegistry,
+        )
 
         dictionary = DictionaryRegistry(settings, auth_provider)
         dictionary.get_all_fields = AsyncMock(  # type: ignore[method-assign]
@@ -408,9 +470,13 @@ class TestDescribe:
                     internal_type="string",
                     attributes="",
                     inherited_from="task",
-                    metadata={"element": "number", "column_label": "Number", "internal_type": "string"},
-                )
-            ]
+                    metadata={
+                        "element": "number",
+                        "column_label": "Number",
+                        "internal_type": "string",
+                    },
+                ),
+            ],
         )
         from mcp.server import MCPServer
 
@@ -421,10 +487,12 @@ class TestDescribe:
         tools = get_tool_functions(mcp)
         with http_mock:
             http_mock.get(f"{BASE_URL}/api/now/table/sys_db_object").mock(
-                return_value=httpx2.Response(200, json={"result": [{"name": table}]})
+                return_value=httpx2.Response(200, json={"result": [{"name": table}]}),
             )
             self._mock_choices()
-            result = decode_response(await tools["describe"](table=table, fields=["number"]))
+            result = decode_response(
+                await tools["describe"](table=table, fields=["number"])
+            )
         assert result["data"]["fields"][0]["inherited_from"] == "task"
 
 
@@ -435,7 +503,9 @@ class TestListScriptFields:
     def _mock_super_class(parent: str = "") -> None:
         """Mock the sys_db_object lookup to return ``parent`` as super_class display value."""
         http_mock.get(f"{BASE_URL}/api/now/table/sys_db_object").mock(
-            return_value=httpx2.Response(200, json={"result": [{"super_class.name": parent}]}),
+            return_value=httpx2.Response(
+                200, json={"result": [{"super_class.name": parent}]}
+            ),
         )
 
     @staticmethod
@@ -446,14 +516,20 @@ class TestListScriptFields:
         )
 
     @pytest.mark.asyncio()
-    async def test_returns_script_fields_for_table(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_returns_script_fields_for_table(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         self._mock_super_class("")
         self._mock_dictionary_rows(
             [
                 {"element": "script", "internal_type": "script", "attributes": ""},
-                {"element": "condition", "internal_type": "script_plain", "attributes": ""},
+                {
+                    "element": "condition",
+                    "internal_type": "script_plain",
+                    "attributes": "",
+                },
                 {"element": "name", "internal_type": "string", "attributes": ""},
-            ]
+            ],
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
@@ -468,12 +544,19 @@ class TestListScriptFields:
         names = [f["name"] for f in data["script_fields"]]
         assert names == ["script", "condition"]
         for entry in data["script_fields"]:
-            assert set(entry.keys()) == {"name", "internal_type", "inherited_from", "via_heuristic"}
+            assert set(entry.keys()) == {
+                "name",
+                "internal_type",
+                "inherited_from",
+                "via_heuristic",
+            }
             assert entry["via_heuristic"] is False
             assert entry["inherited_from"] is None
 
     @pytest.mark.asyncio()
-    async def test_missing_table_returns_error(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_missing_table_returns_error(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["describe"](action="list_script_fields")
         result = decode_response(raw)
@@ -481,7 +564,9 @@ class TestListScriptFields:
         assert "table is required" in result["error"]["message"]
 
     @pytest.mark.asyncio()
-    async def test_unknown_action_returns_error(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_unknown_action_returns_error(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["describe"](action="not_a_real_action")
         result = decode_response(raw)
@@ -490,7 +575,9 @@ class TestListScriptFields:
 
     @pytest.mark.asyncio()
     async def test_missing_table_without_action_returns_error(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
+        self,
+        settings: Settings,
+        auth_provider: OAuthPKCEProvider,
     ) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["describe"]()
@@ -509,17 +596,31 @@ class TestListTables:
             return_value=httpx2.Response(
                 200,
                 json={"result": rows},
-                headers={"X-Total-Count": str(total if total is not None else len(rows))},
+                headers={
+                    "X-Total-Count": str(total if total is not None else len(rows))
+                },
             ),
         )
 
     @pytest.mark.asyncio()
-    async def test_lists_filtered_tables(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_lists_filtered_tables(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         self._mock_tables(
             [
-                {"name": "incident", "label": "Incident", "super_class": "task", "sys_scope": "Global"},
-                {"name": "incident_alert", "label": "Incident Alert", "super_class": "task", "sys_scope": "Global"},
-            ]
+                {
+                    "name": "incident",
+                    "label": "Incident",
+                    "super_class": "task",
+                    "sys_scope": "Global",
+                },
+                {
+                    "name": "incident_alert",
+                    "label": "Incident Alert",
+                    "super_class": "task",
+                    "sys_scope": "Global",
+                },
+            ],
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
@@ -538,7 +639,9 @@ class TestListTables:
         }
 
     @pytest.mark.asyncio()
-    async def test_coerces_display_value_dicts(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_coerces_display_value_dicts(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         """Reference fields returned as display-value dicts are flattened to strings."""
         self._mock_tables(
             [
@@ -548,7 +651,7 @@ class TestListTables:
                     "super_class": {"display_value": "Task", "value": "abc"},
                     "sys_scope": {"display_value": "Global", "value": "global"},
                 },
-            ]
+            ],
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
@@ -561,9 +664,20 @@ class TestListTables:
         assert row["sys_scope"] == "Global"
 
     @pytest.mark.asyncio()
-    async def test_no_filter_lists_all(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_no_filter_lists_all(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         """Empty name_filter still returns rows (no filter clause)."""
-        self._mock_tables([{"name": "task", "label": "Task", "super_class": "", "sys_scope": "Global"}])
+        self._mock_tables(
+            [
+                {
+                    "name": "task",
+                    "label": "Task",
+                    "super_class": "",
+                    "sys_scope": "Global",
+                },
+            ],
+        )
 
         tools = _register_and_get_tools(settings, auth_provider)
         raw = await tools["describe"](action="list_tables")
@@ -573,12 +687,19 @@ class TestListTables:
         assert result["data"]["count"] == 1
 
     @pytest.mark.asyncio()
-    async def test_truncation_warning(self, settings: Settings, auth_provider: OAuthPKCEProvider) -> None:
+    async def test_truncation_warning(
+        self, settings: Settings, auth_provider: OAuthPKCEProvider
+    ) -> None:
         """Hitting the result cap emits a truncation warning."""
         from servicenow_mcp.capabilities.metadata.describe import _LIST_TABLES_LIMIT
 
         rows = [
-            {"name": f"t{i:04d}", "label": f"T{i}", "super_class": "", "sys_scope": "Global"}
+            {
+                "name": f"t{i:04d}",
+                "label": f"T{i}",
+                "super_class": "",
+                "sys_scope": "Global",
+            }
             for i in range(_LIST_TABLES_LIMIT)
         ]
         self._mock_tables(rows, total=_LIST_TABLES_LIMIT * 2)

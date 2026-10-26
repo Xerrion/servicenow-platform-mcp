@@ -1,14 +1,16 @@
 """Lazy-loaded choice list registry backed by sys_choice."""
 
 import logging
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
-from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.config import Settings
 from servicenow_mcp.platform.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.platform.metadata.cache import AsyncMetadataCache
 from servicenow_mcp.sentry import capture_exception as sentry_capture
 from servicenow_mcp.telemetry import CacheName, HttpTelemetry
+
+if TYPE_CHECKING:
+    from servicenow_mcp.auth import OAuthPKCEProvider
+    from servicenow_mcp.config import Settings
 
 
 logger = logging.getLogger(__name__)
@@ -19,7 +21,9 @@ def _normalize_choice_label(label: str) -> str:
     return label.lower().replace(" ", "_")
 
 
-def _group_choice_records(records: list[dict[str, Any]]) -> dict[tuple[str, str], dict[str, str]]:
+def _group_choice_records(
+    records: list[dict[str, Any]],
+) -> dict[tuple[str, str], dict[str, str]]:
     """Group sys_choice records into a {(table, field): {label: value}} lookup."""
     grouped: dict[tuple[str, str], dict[str, str]] = {}
     for record in records:
@@ -43,8 +47,8 @@ def _merge_with_defaults(
     """Merge instance choices with defaults: instance data overlays defaults."""
     merged: dict[tuple[str, str], dict[str, str]] = {}
 
-    for key in defaults:
-        base = dict(defaults[key])
+    for key, value in defaults.items():
+        base = dict(value)
         if key in grouped:
             base.update(grouped[key])
         merged[key] = base
@@ -127,8 +131,12 @@ class ChoiceRegistry:
         client_factory: ServiceNowClientProvider | None = None,
         telemetry: HttpTelemetry | None = None,
     ) -> None:
-        self._client_factory = client_factory or (lambda: ServiceNowClient(settings, auth_provider))
-        self._metadata_cache = AsyncMetadataCache[str, dict[tuple[str, str], dict[str, str]]](
+        self._client_factory = client_factory or (
+            lambda: ServiceNowClient(settings, auth_provider)
+        )
+        self._metadata_cache = AsyncMetadataCache[
+            str, dict[tuple[str, str], dict[str, str]]
+        ](
             name=CacheName.CHOICES,
             ttl_seconds=settings.metadata_cache_ttl_seconds,
             telemetry=telemetry,
@@ -163,7 +171,9 @@ class ChoiceRegistry:
         """Return fresh choices, with one shared instance load at a time."""
 
         try:
-            return await self._metadata_cache.get_or_load("all", self._fetch_from_instance)
+            return await self._metadata_cache.get_or_load(
+                "all", self._fetch_from_instance
+            )
         except Exception as e:
             logger.warning(
                 "Failed to fetch choice lists from instance; using OOTB defaults",

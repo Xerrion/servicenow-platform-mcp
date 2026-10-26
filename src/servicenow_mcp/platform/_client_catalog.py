@@ -1,12 +1,13 @@
 """Service Catalog API operations."""
 
-from typing import Any
-
-import httpx2
+from typing import TYPE_CHECKING, Any
 
 from servicenow_mcp._json import dump_request_body
 from servicenow_mcp.errors import ServiceNowMCPError
 from servicenow_mcp.platform._client_transport import ServiceNowRequestClient
+
+if TYPE_CHECKING:
+    import httpx2
 
 
 class ServiceCatalogApiClient(ServiceNowRequestClient):
@@ -31,11 +32,17 @@ class ServiceCatalogApiClient(ServiceNowRequestClient):
             params["sysparm_text"] = text
         if limit is not None:
             params["sysparm_limit"] = str(limit)
-        return await self._sc_get("catalogs", params=params, view=view, api_version=api_version)
+        return await self._sc_get(
+            "catalogs", params=params, view=view, api_version=api_version
+        )
 
-    async def sc_get_catalog(self, sys_id: str, *, view: str | None = None, api_version: str | None = None) -> Any:
+    async def sc_get_catalog(
+        self, sys_id: str, *, view: str | None = None, api_version: str | None = None
+    ) -> Any:
         """Retrieve a specific catalog."""
-        return await self._sc_get("catalogs", sys_id, view=view, api_version=api_version)
+        return await self._sc_get(
+            "catalogs", sys_id, view=view, api_version=api_version
+        )
 
     async def sc_get_catalog_categories(
         self,
@@ -56,12 +63,21 @@ class ServiceCatalogApiClient(ServiceNowRequestClient):
         if top_level_only:
             params["sysparm_top_level_only"] = "true"
         return await self._sc_get(
-            "catalogs", catalog_sys_id, "categories", params=params, view=view, api_version=api_version
+            "catalogs",
+            catalog_sys_id,
+            "categories",
+            params=params,
+            view=view,
+            api_version=api_version,
         )
 
-    async def sc_get_category(self, sys_id: str, *, view: str | None = None, api_version: str | None = None) -> Any:
+    async def sc_get_category(
+        self, sys_id: str, *, view: str | None = None, api_version: str | None = None
+    ) -> Any:
         """Retrieve a specific category."""
-        return await self._sc_get("categories", sys_id, view=view, api_version=api_version)
+        return await self._sc_get(
+            "categories", sys_id, view=view, api_version=api_version
+        )
 
     async def sc_get_items(
         self,
@@ -89,42 +105,74 @@ class ServiceCatalogApiClient(ServiceNowRequestClient):
             params["sysparm_category"] = category
         if item_type:
             params["sysparm_type"] = item_type
-        return await self._sc_get("items", params=params, view=view, api_version=api_version)
+        return await self._sc_get(
+            "items", params=params, view=view, api_version=api_version
+        )
 
-    async def sc_get_item(self, sys_id: str, *, view: str | None = None, api_version: str | None = None) -> Any:
+    async def sc_get_item(
+        self, sys_id: str, *, view: str | None = None, api_version: str | None = None
+    ) -> Any:
         """Retrieve a specific catalog item."""
         return await self._sc_get("items", sys_id, view=view, api_version=api_version)
 
     async def sc_get_item_variables(
-        self, sys_id: str, *, view: str | None = None, api_version: str | None = None
+        self,
+        sys_id: str,
+        *,
+        view: str | None = None,
+        api_version: str | None = None,
     ) -> Any:
         """Retrieve variables for a catalog item."""
-        return await self._sc_get("items", sys_id, "variables", view=view, api_version=api_version)
+        return await self._sc_get(
+            "items", sys_id, "variables", view=view, api_version=api_version
+        )
 
-    async def sc_order_now(self, item_sys_id: str, variables: dict[str, Any] | None = None) -> Any:
+    async def sc_order_now(
+        self, item_sys_id: str, variables: dict[str, Any] | None = None
+    ) -> Any:
         """Order a catalog item without using the cart."""
-        return await self._sc_post("items", item_sys_id, "order_now", body=self._sc_item_body(variables))
+        return await self._sc_post(
+            "items", item_sys_id, "order_now", body=self._sc_item_body(variables)
+        )
 
-    async def sc_add_to_cart(self, item_sys_id: str, variables: dict[str, Any] | None = None) -> Any:
+    async def sc_add_to_cart(
+        self, item_sys_id: str, variables: dict[str, Any] | None = None
+    ) -> Any:
         """Add a catalog item to the cart."""
-        return await self._sc_post("items", item_sys_id, "add_to_cart", body=self._sc_item_body(variables))
+        return await self._sc_post(
+            "items", item_sys_id, "add_to_cart", body=self._sc_item_body(variables)
+        )
 
     async def sc_get_cart(self, *, api_version: str | None = None) -> Any:
         """Retrieve the current user's cart."""
         return await self._sc_get("cart", api_version=api_version)
 
-    async def sc_get_delivery_address(self, user_sys_id: str, *, api_version: str | None = None) -> Any:
-        return await self._sc_get("cart", "delivery_address", user_sys_id, api_version=api_version)
+    async def sc_get_delivery_address(
+        self, user_sys_id: str, *, api_version: str | None = None
+    ) -> Any:
+        return await self._sc_get(
+            "cart", "delivery_address", user_sys_id, api_version=api_version
+        )
 
-    async def sc_get_delegation(self, item_sys_id: str, user_sys_id: str, *, api_version: str | None = None) -> Any:
-        return await self._sc_get("items", item_sys_id, "delegation", user_sys_id, api_version=api_version)
+    async def sc_get_delegation(
+        self, item_sys_id: str, user_sys_id: str, *, api_version: str | None = None
+    ) -> Any:
+        return await self._sc_get(
+            "items", item_sys_id, "delegation", user_sys_id, api_version=api_version
+        )
 
-    async def sc_get_wishlist(self, cart_item_id: str | None = None, *, api_version: str | None = None) -> Any:
+    async def sc_get_wishlist(
+        self, cart_item_id: str | None = None, *, api_version: str | None = None
+    ) -> Any:
         segments = ("wishlist", cart_item_id) if cart_item_id else ("wishlist",)
         return await self._sc_get(*segments, api_version=api_version)
 
     async def sc_get_invalid_delegated_users(
-        self, item_sys_id: str, users: list[str], *, api_version: str | None = None
+        self,
+        item_sys_id: str,
+        users: list[str],
+        *,
+        api_version: str | None = None,
     ) -> Any:
         return await self._sc_post(
             "items",
@@ -134,9 +182,15 @@ class ServiceCatalogApiClient(ServiceNowRequestClient):
             api_version=api_version,
         )
 
-    async def sc_variable_display_value(self, sys_id: str, value: str, *, api_version: str | None = None) -> Any:
+    async def sc_variable_display_value(
+        self, sys_id: str, value: str, *, api_version: str | None = None
+    ) -> Any:
         return await self._sc_post(
-            "variables", sys_id, "display_value", body={"sysparm_value": value}, api_version=api_version
+            "variables",
+            sys_id,
+            "display_value",
+            body={"sysparm_value": value},
+            api_version=api_version,
         )
 
     async def sc_mutate(
@@ -160,7 +214,8 @@ class ServiceCatalogApiClient(ServiceNowRequestClient):
             if response.status_code == 204:
                 return {"deleted": True}
             raise ServiceNowMCPError(
-                "Catalog deletion did not return HTTP 204. Remote outcome is unknown. Check ServiceNow before another preview."
+                "Catalog deletion did not return HTTP 204. Remote outcome is unknown. Check ServiceNow before "
+                "another preview.",
             )
         return self._extract_json_result(response)
 
@@ -196,8 +251,12 @@ class ServiceCatalogApiClient(ServiceNowRequestClient):
         self._sc_raise_for_status(response)
         return self._extract_json_result(response)
 
-    async def _sc_post(self, *segments: str, body: dict[str, Any], api_version: str | None = None) -> Any:
-        return await self.sc_mutate("POST", *segments, body=body, api_version=api_version)
+    async def _sc_post(
+        self, *segments: str, body: dict[str, Any], api_version: str | None = None
+    ) -> Any:
+        return await self.sc_mutate(
+            "POST", *segments, body=body, api_version=api_version
+        )
 
     def _sc_raise_for_status(self, response: httpx2.Response) -> None:
         # Catalog errors can echo submitted variables, addresses, or producer script data.
@@ -207,7 +266,8 @@ class ServiceCatalogApiClient(ServiceNowRequestClient):
             error.args = (
                 (
                     f"Service Catalog request failed (HTTP {response.status_code}). Check access and inputs. "
-                    "For mutations, the remote outcome is unknown. Check ServiceNow before another preview. The request was not replayed."
+                    "For mutations, the remote outcome is unknown. Check ServiceNow before another preview. The "
+                    "request was not replayed."
                 ),
             )
             raise

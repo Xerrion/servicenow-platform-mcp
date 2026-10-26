@@ -1,10 +1,14 @@
 """Integration tests for Request Management domain tools against a live ServiceNow instance."""
 
+from typing import TYPE_CHECKING
+
 import pytest
 
-from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.config import Settings
 from servicenow_mcp.platform.client import ServiceNowClient
+
+if TYPE_CHECKING:
+    from servicenow_mcp.auth import OAuthPKCEProvider
+    from servicenow_mcp.config import Settings
 
 
 pytestmark = pytest.mark.integration
@@ -13,7 +17,9 @@ pytestmark = pytest.mark.integration
 class TestDomainRequest:
     """Test Request Management domain API operations on a live instance."""
 
-    async def test_request_list_returns_records(self, live_settings: Settings, live_auth: OAuthPKCEProvider) -> None:
+    async def test_request_list_returns_records(
+        self, live_settings: Settings, live_auth: OAuthPKCEProvider
+    ) -> None:
         """Query service catalog requests without filters."""
         async with ServiceNowClient(live_settings, live_auth) as client:
             result = await client.query_records(
@@ -53,9 +59,13 @@ class TestDomainRequest:
             pytest.skip("No service catalog request found on instance")
 
         async with ServiceNowClient(live_settings, live_auth) as client:
-            record = await client.get_record("sc_request", sc_request_sys_id, fields=["number"])
+            record = await client.get_record(
+                "sc_request", sc_request_sys_id, fields=["number"]
+            )
             number = record.get("number", "")
-            assert number.startswith("REQ"), f"Unexpected request number format: {number}"
+            assert number.startswith("REQ"), (
+                f"Unexpected request number format: {number}"
+            )
 
             result = await client.query_records(
                 "sc_request",
@@ -76,7 +86,9 @@ class TestDomainRequest:
             pytest.skip("No service catalog request found on instance")
 
         async with ServiceNowClient(live_settings, live_auth) as client:
-            record = await client.get_record("sc_request", sc_request_sys_id, fields=["number"])
+            record = await client.get_record(
+                "sc_request", sc_request_sys_id, fields=["number"]
+            )
             number = record.get("number", "")
 
             result = await client.query_records(
@@ -88,7 +100,9 @@ class TestDomainRequest:
         # May have 0 items - just verify API call succeeds
         assert isinstance(result["records"], list)
 
-    async def test_request_item_table_accessible(self, live_settings: Settings, live_auth: OAuthPKCEProvider) -> None:
+    async def test_request_item_table_accessible(
+        self, live_settings: Settings, live_auth: OAuthPKCEProvider
+    ) -> None:
         """Verify sc_req_item table is queryable."""
         async with ServiceNowClient(live_settings, live_auth) as client:
             result = await client.query_records(

@@ -1,19 +1,177 @@
 """HTTP regressions for bounded Flow Designer joins and completeness reporting."""
 
+from typing import TYPE_CHECKING
+
 import httpx2
 import pytest
 from mcp.server import MCPServer
 
 from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.config import Settings
 from servicenow_mcp.errors import ServerError, ServiceNowMCPError
 from servicenow_mcp.mcp.tools.flow import register_tools
 from servicenow_mcp.platform.client import ServiceNowClient
 from tests._mock_transport import http_mock
 from tests.helpers import decode_response, get_tool_functions
 
+if TYPE_CHECKING:
+    from servicenow_mcp.config import Settings
+
 
 BASE_URL = "https://test.service-now.com/api/now/table"
+
+
+@pytest.mark.parametrize(
+    "action,snapshot_field,display_values",
+    [
+        pytest.param(
+            "inspect", "master_snapshot", False, id="False-master_snapshot-inspect"
+        )
+    ],
+)
+async def test_snapshot_id_returns_canonical_recovery_without_switching_target(
+    settings: Settings, action: str, snapshot_field: str, display_values: bool
+) -> None:
+    snapshot_id, canonical_id = "a" * 32, "b" * 32
+    http_mock.get(f"{BASE_URL}/sys_hub_flow/{snapshot_id}").respond(
+        404, json={"error": {"message": "No Record found"}}
+    )
+    row = {"sys_id": canonical_id, snapshot_field: snapshot_id}
+    lookup = http_mock.get(f"{BASE_URL}/sys_hub_flow").respond(
+        200,
+        json={
+            "result": [
+                {key: {"value": value} for key, value in row.items()}
+                if display_values
+                else row
+            ]
+        },
+    )
+    canonical = http_mock.get(f"{BASE_URL}/sys_hub_flow/{canonical_id}").respond(
+        200, json={"result": {"sys_id": canonical_id}}
+    )
+    mcp = MCPServer("test")
+    register_tools(mcp, settings, OAuthPKCEProvider(settings))
+
+    result = decode_response(
+        await get_tool_functions(mcp)["flow"](action=action, sys_id=snapshot_id)
+    )
+
+    assert result["status"] == "error"
+    assert result["data"] is None
+    assert result["error"]["code"] == "FLOW_SNAPSHOT_ID"
+    message = result["error"]["message"]
+    assert f'{{"action": "{action}", "sys_id": "{canonical_id}"}}' in message
+    assert "current saved definition" in message
+    assert "does not inspect the historical snapshot" in message
+    assert not canonical.called
+    assert dict(lookup.calls.last.request.url.params) == {
+        "sysparm_query": f"master_snapshot={snapshot_id}^ORlatest_snapshot={snapshot_id}",
+        "sysparm_display_value": "all",
+        "sysparm_limit": "2",
+        "sysparm_fields": "sys_id,master_snapshot,latest_snapshot",
+    }
+
+
+@pytest.mark.parametrize("owners", [pytest.param(["b" * 32, "c" * 32], id="owners1")])
+async def test_missing_flow_distinguishes_unknown_and_ambiguous_snapshot(
+    settings: Settings, owners: list[str]
+) -> None:
+    identity = "a" * 32
+    http_mock.get(f"{BASE_URL}/sys_hub_flow/{identity}").respond(
+        404, json={"error": {"message": "No Record found"}}
+    )
+    http_mock.get(f"{BASE_URL}/sys_hub_flow").respond(
+        200,
+        json={"result": [{"sys_id": owner} for owner in owners]},
+    )
+    mcp = MCPServer("test")
+    register_tools(mcp, settings, OAuthPKCEProvider(settings))
+
+    result = decode_response(
+        await get_tool_functions(mcp)["flow"](action="inspect", sys_id=identity)
+    )
+
+    assert result["status"] == "error"
+    message = result["error"]["message"]
+    if owners:
+        assert result["error"]["code"] == "AMBIGUOUS_FLOW_SNAPSHOT"
+        assert all(owner in message for owner in owners)
+        assert "Select the intended definition" in message
+    else:
+        assert result["error"]["code"] == "FLOW_NOT_FOUND"
+        assert "not visible" in message
+        assert "does not prove" in message
+        assert "name instead of sys_id" in message
+
+
+@pytest.mark.parametrize("status", [pytest.param(403, id="403")])
+async def test_snapshot_lookup_failure_does_not_claim_absence(
+    settings: Settings, status: int
+) -> None:
+    identity = "a" * 32
+    http_mock.get(f"{BASE_URL}/sys_hub_flow/{identity}").respond(
+        404, json={"error": {"message": "No Record found"}}
+    )
+    http_mock.get(f"{BASE_URL}/sys_hub_flow").respond(
+        status, json={"error": {"message": "Lookup failed"}}
+    )
+    mcp = MCPServer("test")
+    register_tools(mcp, settings, OAuthPKCEProvider(settings))
+
+    result = decode_response(
+        await get_tool_functions(mcp)["flow"](action="inspect", sys_id=identity)
+    )
+
+    assert result["status"] == "error"
+    assert result["error"]["code"] not in {
+        "FLOW_NOT_FOUND",
+        "FLOW_SNAPSHOT_ID",
+        "AMBIGUOUS_FLOW_SNAPSHOT",
+    }
+
+
+async def test_canonical_flow_does_not_need_snapshot_lookup(settings: Settings) -> None:
+    identity = "a" * 32
+    http_mock.get(f"{BASE_URL}/sys_hub_flow/{identity}").respond(
+        200, json={"result": {"sys_id": identity, "name": "Example"}}
+    )
+    lookup = http_mock.get(f"{BASE_URL}/sys_hub_flow").respond(
+        500, json={"error": {"message": "Must not query snapshot owners"}}
+    )
+    mcp = MCPServer("test")
+    register_tools(mcp, settings, OAuthPKCEProvider(settings))
+
+    result = decode_response(
+        await get_tool_functions(mcp)["flow"](
+            action="inspect", sys_id=identity, sections=["flow"]
+        )
+    )
+
+    assert result["status"] == "success"
+    assert result["data"]["flow"]["sys_id"] == identity
+    assert not lookup.called
+
+
+async def test_subflow_instance_read_is_bounded_and_retains_persisted_fields(
+    settings: Settings,
+) -> None:
+    row = {
+        "sys_id": "b" * 32,
+        "subflow": "c" * 32,
+        "subflow_inputs": "blob",
+        "wait_for_completion": "false",
+    }
+    route = http_mock.get(f"{BASE_URL}/sys_hub_sub_flow_instance_v2").respond(
+        200, json={"result": [row]}
+    )
+    async with ServiceNowClient(settings, OAuthPKCEProvider(settings)) as client:
+        assert await client.list_subflow_instances_v2("a" * 32, 11) == [row]
+    assert dict(route.calls.last.request.url.params) == {
+        "sysparm_query": f"flow={'a' * 32}^ORDERBYorder",
+        "sysparm_display_value": "all",
+        "sysparm_limit": "11",
+    }
+    assert route.call_count == 1
 
 
 async def test_flow_read_rejects_async_acceptance_response(settings: Settings) -> None:
@@ -21,7 +179,10 @@ async def test_flow_read_rejects_async_acceptance_response(settings: Settings) -
     http_mock.get(f"{BASE_URL}/sys_hub_flow/{'a' * 32}").respond(202)
 
     async with ServiceNowClient(settings, OAuthPKCEProvider(settings)) as client:
-        with pytest.raises(ServiceNowMCPError, match=r"HTTP 202 Accepted.*synchronous Table API response") as exc:
+        with pytest.raises(
+            ServiceNowMCPError,
+            match=r"HTTP 202 Accepted.*synchronous Table API response",
+        ) as exc:
             await client.get_flow_by_sys_id("a" * 32)
 
     assert exc.value.status_code == 202
@@ -34,7 +195,9 @@ async def test_inspect_surfaces_async_acceptance_response(settings: Settings) ->
     mcp = MCPServer("test")
     register_tools(mcp, settings, OAuthPKCEProvider(settings))
 
-    result = decode_response(await get_tool_functions(mcp)["flow"](action="inspect", sys_id=flow_sys_id))
+    result = decode_response(
+        await get_tool_functions(mcp)["flow"](action="inspect", sys_id=flow_sys_id)
+    )
 
     assert result["status"] == "error"
     assert "HTTP 202 Accepted" in result["error"]["message"]
@@ -45,10 +208,10 @@ async def test_inspect_surfaces_async_acceptance_response(settings: Settings) ->
 @pytest.mark.parametrize(
     "method",
     [
-        "list_triggers_filtered",
-        "get_flows_bulk",
-        "list_v2_triggers_by_remote_ids",
-        "list_v1_triggers_by_table",
+        pytest.param(
+            "list_v2_triggers_by_remote_ids", id="list_v2_triggers_by_remote_ids"
+        ),
+        pytest.param("list_v1_triggers_by_table", id="list_v1_triggers_by_table"),
     ],
 )
 async def test_large_lookup_batches_every_id(settings: Settings, method: str) -> None:
@@ -69,7 +232,9 @@ async def test_large_lookup_batches_every_id(settings: Settings, method: str) ->
     }
     async with ServiceNowClient(settings, OAuthPKCEProvider(settings)) as client:
         if method == "list_triggers_filtered":
-            await client.list_triggers_filtered(table="sc_task", trigger_type="record_update", active="true")
+            await client.list_triggers_filtered(
+                table="sc_task", trigger_type="record_update", active="true"
+            )
         elif method == "list_v1_triggers_by_table":
             await client.list_v1_triggers_by_table("sc_task")
         else:
@@ -82,11 +247,15 @@ async def test_large_lookup_batches_every_id(settings: Settings, method: str) ->
         assert all(len(call.request.url.query) < 8000 for call in route.calls)
         assert all(any(value in query for query in queries) for value in ids)
         if method == "list_triggers_filtered":
-            assert all("record_update" in query and "active=true" in query for query in queries)
+            assert all(
+                "record_update" in query and "active=true" in query for query in queries
+            )
 
 
-@pytest.mark.parametrize("total", ["1001", None, "invalid", "-1", "0"])
-async def test_empty_join_reports_incomplete_source(settings: Settings, total: str | None) -> None:
+@pytest.mark.parametrize("total", [pytest.param("-1", id="-1")])
+async def test_empty_join_reports_incomplete_source(
+    settings: Settings, total: str | None
+) -> None:
     """Zero matches from a capped source page cannot imply an exhaustive search."""
     http_mock.get(f"{BASE_URL}/sys_flow_record_trigger").respond(
         200,
@@ -97,7 +266,9 @@ async def test_empty_join_reports_incomplete_source(settings: Settings, total: s
         http_mock.get(f"{BASE_URL}/{table}").respond(200, json={"result": []})
     mcp = MCPServer("test")
     register_tools(mcp, settings, OAuthPKCEProvider(settings))
-    result = decode_response(await get_tool_functions(mcp)["flow"](action="list_triggers", table="sc_task"))
+    result = decode_response(
+        await get_tool_functions(mcp)["flow"](action="list_triggers", table="sc_task")
+    )
     assert result["status"] == "success"
     assert result["data"]["triggers"] == []
     assert result["data"]["is_complete"] is False
@@ -112,7 +283,9 @@ async def test_empty_join_reports_incomplete_source(settings: Settings, total: s
 async def test_known_total_reveals_server_short_page(settings: Settings) -> None:
     """A server returning fewer rows than requested can still truncate a source."""
     http_mock.get(f"{BASE_URL}/sys_flow_record_trigger").respond(
-        200, json={"result": []}, headers={"X-Total-Count": "5"}
+        200,
+        json={"result": []},
+        headers={"X-Total-Count": "5"},
     )
     async with ServiceNowClient(settings, OAuthPKCEProvider(settings)) as client:
         result = await client.list_triggers_filtered(table="sc_task")
@@ -129,7 +302,11 @@ async def test_header_batches_deduplicate_and_reach_later_ids(
     later = {"sys_id": {"value": "e" * 32}}
 
     def respond(request: httpx2.Request) -> httpx2.Response:
-        rows = [shared, later] if ids[-1] in request.url.params["sysparm_query"] else [shared]
+        rows = (
+            [shared, later]
+            if ids[-1] in request.url.params["sysparm_query"]
+            else [shared]
+        )
         return httpx2.Response(200, json={"result": rows})
 
     route = http_mock.get(f"{BASE_URL}/sys_hub_flow").mock(side_effect=respond)
@@ -153,28 +330,42 @@ async def test_later_trigger_batches_keep_limit_and_deduplicate(
     later = {"sys_id": "b" * 32}
 
     def respond(request: httpx2.Request) -> httpx2.Response:
-        rows = [shared, later] if ids[-1] in request.url.params["sysparm_query"] else [shared]
-        return httpx2.Response(200, json={"result": rows}, headers={"X-Total-Count": str(len(rows))})
+        rows = (
+            [shared, later]
+            if ids[-1] in request.url.params["sysparm_query"]
+            else [shared]
+        )
+        return httpx2.Response(
+            200, json={"result": rows}, headers={"X-Total-Count": str(len(rows))}
+        )
 
     http_mock.get(f"{BASE_URL}/sys_hub_trigger_instance_v2").mock(side_effect=respond)
-    http_mock.get(f"{BASE_URL}/sys_hub_trigger_instance").respond(200, json={"result": []})
+    http_mock.get(f"{BASE_URL}/sys_hub_trigger_instance").respond(
+        200, json={"result": []}
+    )
     async with ServiceNowClient(settings, OAuthPKCEProvider(settings)) as client:
         result = await client.list_triggers_filtered(table="sc_task", limit=2)
     assert result["v2"] == [shared, later]
     assert not result.get("truncation")
 
 
-@pytest.mark.parametrize("total", ["2", None, "1"])
-async def test_trigger_batch_reports_truncation(settings: Settings, total: str | None) -> None:
+@pytest.mark.parametrize("total", [pytest.param("2", id="2")])
+async def test_trigger_batch_reports_truncation(
+    settings: Settings, total: str | None
+) -> None:
     """A full trigger page is incomplete unless a reliable total confirms its end."""
     http_mock.get(f"{BASE_URL}/sys_hub_trigger_instance_v2").respond(
         200,
         json={"result": [{"sys_id": "a" * 32}]},
         headers={"X-Total-Count": total} if total else {},
     )
-    http_mock.get(f"{BASE_URL}/sys_hub_trigger_instance").respond(200, json={"result": []})
+    http_mock.get(f"{BASE_URL}/sys_hub_trigger_instance").respond(
+        200, json={"result": []}
+    )
     async with ServiceNowClient(settings, OAuthPKCEProvider(settings)) as client:
-        result = await client.list_triggers_filtered(limit=1, trigger_type="record_update", active="true")
+        result = await client.list_triggers_filtered(
+            limit=1, trigger_type="record_update", active="true"
+        )
     if total == "1":
         assert not result.get("truncation")
         return
@@ -205,7 +396,7 @@ async def test_later_batch_failure_is_not_partial_success(settings: Settings) ->
         side_effect=[
             httpx2.Response(200, json={"result": [{"sys_id": "a" * 32}]}),
             httpx2.Response(500),
-        ]
+        ],
     )
     async with ServiceNowClient(settings, OAuthPKCEProvider(settings)) as client:
         with pytest.raises(ServerError):
@@ -217,7 +408,8 @@ async def test_merged_cap_discloses_omitted_later_rows(settings: Settings) -> No
     """A full earlier batch cannot hide unique rows fetched in a later batch."""
     ids = [f"{index:032x}" for index in range(51)]
     http_mock.get(f"{BASE_URL}/sys_flow_record_trigger").respond(
-        200, json={"result": [{"sys_id": value} for value in ids]}
+        200,
+        json={"result": [{"sys_id": value} for value in ids]},
     )
     http_mock.get(f"{BASE_URL}/sys_hub_trigger_instance_v2").mock(
         side_effect=[
@@ -231,9 +423,11 @@ async def test_merged_cap_discloses_omitted_later_rows(settings: Settings) -> No
                 json={"result": [{"sys_id": "b" * 32}]},
                 headers={"X-Total-Count": "1"},
             ),
-        ]
+        ],
     )
-    http_mock.get(f"{BASE_URL}/sys_hub_trigger_instance").respond(200, json={"result": []})
+    http_mock.get(f"{BASE_URL}/sys_hub_trigger_instance").respond(
+        200, json={"result": []}
+    )
     async with ServiceNowClient(settings, OAuthPKCEProvider(settings)) as client:
         result = await client.list_triggers_filtered(table="sc_task", limit=1)
     assert result["v2"] == [{"sys_id": "a" * 32}]

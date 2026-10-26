@@ -13,8 +13,8 @@ Arguments for `query`:
 {
   "table": "incident",
   "resolve_labels": [
-    {"field": "state", "label": "open"},
-    {"field": "priority", "label": "high"}
+    { "field": "state", "label": "open" },
+    { "field": "priority", "label": "high" }
   ],
   "fields": ["number", "short_description", "priority", "state"],
   "limit": 20
@@ -87,7 +87,15 @@ Arguments for `flow`:
 {
   "action": "contract",
   "name": "New starter",
-  "sections": ["flow", "published_state", "inputs", "outputs", "triggers", "steps", "warnings"],
+  "sections": [
+    "flow",
+    "published_state",
+    "inputs",
+    "outputs",
+    "triggers",
+    "steps",
+    "warnings"
+  ],
   "section_limit": 50
 }
 ```
@@ -132,7 +140,7 @@ Arguments for `query`:
 {
   "table": "incident",
   "encoded_query": "active=true",
-  "aggregate": [{"operation": "count"}],
+  "aggregate": [{ "operation": "count" }],
   "group_by": ["assignment_group"]
 }
 ```

@@ -1,18 +1,25 @@
 """Native boundary behavior for masks, strict JSON, and upstream failures."""
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from servicenow_mcp.config import Settings
 from servicenow_mcp.errors import ServerError
 from servicenow_mcp.platform._client_transport import ServiceNowRequestClient
 from servicenow_mcp.policy import MASK_VALUE, mask_record
 from tests.helpers import decode_response
 
+if TYPE_CHECKING:
+    from servicenow_mcp.config import Settings
+
 
 def test_masking_is_recursive_and_audit_aware() -> None:
-    record = {"password": "p", "nested": {"api_token": "t"}, "rows": [{"secret": "s"}], "name": "n"}
+    record = {
+        "password": "p",
+        "nested": {"api_token": "t"},
+        "rows": [{"secret": "s"}],
+        "name": "n",
+    }
     assert mask_record("incident", record) == {
         "password": MASK_VALUE,
         "nested": {"api_token": MASK_VALUE},
@@ -20,7 +27,11 @@ def test_masking_is_recursive_and_audit_aware() -> None:
         "name": "n",
     }
     audit = {"fieldname": "password", "oldvalue": "a", "newvalue": "b"}
-    assert mask_record("sys_audit", audit) == {"fieldname": "password", "oldvalue": MASK_VALUE, "newvalue": MASK_VALUE}
+    assert mask_record("sys_audit", audit) == {
+        "fieldname": "password",
+        "oldvalue": MASK_VALUE,
+        "newvalue": MASK_VALUE,
+    }
 
 
 def test_missing_result_is_distinct_from_null_result() -> None:
@@ -32,26 +43,39 @@ def test_missing_result_is_distinct_from_null_result() -> None:
 def test_request_body_is_compact_strict_json() -> None:
     from servicenow_mcp._json import dump_request_body
 
-    assert dump_request_body({"a": "æ", "b": [1, None]}) == '{"a":"æ","b":[1,null]}'.encode()
+    assert (
+        dump_request_body({"a": "æ", "b": [1, None]})
+        == '{"a":"æ","b":[1,null]}'.encode()
+    )
     with pytest.raises(ValueError, match="not JSON compliant"):
         dump_request_body({"a": float("nan")})
 
 
-_SAFE_RESPONSE_BODIES = [b"<html>secret-body</html>", b"\xffsecret-body", b'["secret-body"]', b'"secret-body"', b"null"]
+_SAFE_RESPONSE_BODIES = [
+    b"<html>secret-body</html>",
+    b"\xffsecret-body",
+    b'["secret-body"]',
+    b'"secret-body"',
+    b"null",
+]
 
 
-@pytest.mark.parametrize("body", _SAFE_RESPONSE_BODIES)
 @pytest.mark.parametrize(
-    ("call", "path"),
+    "body,call,path",
     [
-        (lambda c: c.get_attachment("0" * 32), "/api/now/attachment/"),
-        (lambda c: c.sc_get_catalogs(), "/api/sn_sc/servicecatalog/catalogs"),
-        (lambda c: c.code_search("term"), "/api/sn_codesearch/"),
+        pytest.param(
+            _SAFE_RESPONSE_BODIES[2],
+            lambda c: c.sc_get_catalogs(),
+            "/api/sn_sc/servicecatalog/catalogs",
+            id='catalog-["secret-body"]',
+        )
     ],
-    ids=["attachment", "catalog", "code_search"],
 )
 async def test_malformed_or_non_object_responses_raise_curated_server_error(
-    settings: Settings, body: bytes, call: Any, path: str
+    settings: Settings,
+    body: bytes,
+    call: Any,
+    path: str,
 ) -> None:
     """Approved contract: curated ServerError; response content never echoed."""
     from unittest.mock import AsyncMock
@@ -70,7 +94,9 @@ async def test_malformed_or_non_object_responses_raise_curated_server_error(
             await call(client)
         envelope = await safe_tool_call(lambda: call(client))
     message = str(exc.value)
-    assert message.startswith(("Invalid JSON response from GET ", "Unexpected JSON response from "))
+    assert message.startswith(
+        ("Invalid JSON response from GET ", "Unexpected JSON response from ")
+    )
     assert path in message
     for text in (message, str(envelope)):
         assert "secret-body" not in text

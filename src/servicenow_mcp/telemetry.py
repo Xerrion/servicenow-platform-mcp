@@ -3,12 +3,11 @@
 import asyncio
 import logging
 import sys
-from collections.abc import Generator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from enum import StrEnum
 from time import perf_counter
-from typing import Any, ClassVar, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, override
 from uuid import uuid4
 
 import httpx2
@@ -16,6 +15,9 @@ from pydantic import BaseModel, ConfigDict
 
 from servicenow_mcp._http_diagnostics import request_diagnostics
 from servicenow_mcp.sentry import add_sentry_breadcrumb, set_sentry_context
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 
 logger = logging.getLogger(__name__)
@@ -29,7 +31,9 @@ class ToolTrace(BaseModel):
     request_count: int = 0
 
 
-_tool_trace: ContextVar[ToolTrace | None] = ContextVar("servicenow_tool_trace", default=None)
+_tool_trace: ContextVar[ToolTrace | None] = ContextVar(
+    "servicenow_tool_trace", default=None
+)
 
 
 def configure_diagnostic_logging() -> None:
@@ -56,7 +60,9 @@ def trace_tool_call(tool: str) -> Generator[None]:
     token = _tool_trace.set(trace)
     started = perf_counter()
     outcome = "returned"
-    logger.info("ServiceNow tool started trace_id=%s tool=%s", trace.trace_id, trace.tool)
+    logger.info(
+        "ServiceNow tool started trace_id=%s tool=%s", trace.trace_id, trace.tool
+    )
     try:
         yield
     except asyncio.CancelledError:
@@ -194,7 +200,9 @@ class HttpTelemetry:
         if is_shared_pool:
             self._shared_pool_request_count += 1
 
-    def record_completed(self, *, response_bytes: int, duration_ms: float, status_code: int) -> None:
+    def record_completed(
+        self, *, response_bytes: int, duration_ms: float, status_code: int
+    ) -> None:
         """Add measurements for a completed HTTP request."""
         self._completed_request_count += 1
         if status_code >= 400:
@@ -239,7 +247,9 @@ class HttpTelemetry:
             response_bytes=self._response_bytes,
             total_duration_ms=self._total_duration_ms,
             shared_pool_request_count=self._shared_pool_request_count,
-            metadata_caches={name.value: value for name, value in self._metadata_caches.items()},
+            metadata_caches={
+                name.value: value for name, value in self._metadata_caches.items()
+            },
         )
 
     def cache_sentry_context(self) -> dict[str, dict[str, int]]:
@@ -272,11 +282,14 @@ class HttpTelemetry:
 class TelemetryAsyncClient(httpx2.AsyncClient):
     """HTTPX client that records bounded request aggregates."""
 
-    def __init__(self, *, telemetry: HttpTelemetry, is_shared_pool: bool, **kwargs: Any) -> None:
+    def __init__(
+        self, *, telemetry: HttpTelemetry, is_shared_pool: bool, **kwargs: Any
+    ) -> None:
         super().__init__(**kwargs)
         self._telemetry = telemetry
         self._is_shared_pool = is_shared_pool
 
+    @override
     async def send(self, request: httpx2.Request, **kwargs: Any) -> httpx2.Response:
         """Send one request and record safe operational measurements."""
         trace = current_tool_trace()
@@ -286,7 +299,11 @@ class TelemetryAsyncClient(httpx2.AsyncClient):
             trace.request_count += 1
             request_number = trace.request_count
         operation = request_operation(request)
-        method = request.method if request.method in {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"} else "OTHER"
+        method = (
+            request.method
+            if request.method in {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"}
+            else "OTHER"
+        )
         self._telemetry.record_started(is_shared_pool=self._is_shared_pool)
         started = perf_counter()
         diagnostic: dict[str, object] = {
@@ -310,9 +327,21 @@ class TelemetryAsyncClient(httpx2.AsyncClient):
             duration_ms = (perf_counter() - started) * 1000
             self._telemetry.record_failed(duration_ms=duration_ms)
             set_sentry_context("http_telemetry", self._telemetry.sentry_context())
-            outcome = "cancelled" if isinstance(exc, asyncio.CancelledError) else "failed"
-            phase = timeout_phase(exc) if isinstance(exc, httpx2.TimeoutException) else "none"
-            diagnostic.update({"outcome": outcome, "timeout_phase": phase, "duration_ms": round(duration_ms, 3)})
+            outcome = (
+                "cancelled" if isinstance(exc, asyncio.CancelledError) else "failed"
+            )
+            phase = (
+                timeout_phase(exc)
+                if isinstance(exc, httpx2.TimeoutException)
+                else "none"
+            )
+            diagnostic.update(
+                {
+                    "outcome": outcome,
+                    "timeout_phase": phase,
+                    "duration_ms": round(duration_ms, 3),
+                },
+            )
             set_sentry_context("http_request", diagnostic)
             add_sentry_breadcrumb("servicenow.http", diagnostic, is_error=True)
             logger.info(
@@ -338,7 +367,9 @@ class TelemetryAsyncClient(httpx2.AsyncClient):
         else:
             response_bytes = response.num_bytes_downloaded
         self._telemetry.record_completed(
-            response_bytes=response_bytes, duration_ms=duration_ms, status_code=response.status_code
+            response_bytes=response_bytes,
+            duration_ms=duration_ms,
+            status_code=response.status_code,
         )
         set_sentry_context("http_telemetry", self._telemetry.sentry_context())
         diagnostic.update(
@@ -347,10 +378,12 @@ class TelemetryAsyncClient(httpx2.AsyncClient):
                 "status_code": response.status_code,
                 "duration_ms": round(duration_ms, 3),
                 "response_bytes": response_bytes,
-            }
+            },
         )
         set_sentry_context("http_request", diagnostic)
-        add_sentry_breadcrumb("servicenow.http", diagnostic, is_error=response.status_code >= 400)
+        add_sentry_breadcrumb(
+            "servicenow.http", diagnostic, is_error=response.status_code >= 400
+        )
         logger.info(
             "ServiceNow HTTP request completed trace_id=%s request=%d operation=%s method=%s "
             "status_code=%d duration_ms=%.3f response_bytes=%d shared_pool=%s",

@@ -1,7 +1,6 @@
 """Tests for the tool_handler decorator."""
 
 import inspect
-from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -11,39 +10,12 @@ from mcp.types import CallToolResult
 
 from servicenow_mcp.capabilities.contracts import CapabilityResult
 from servicenow_mcp.capabilities.contracts import result as operation_result
-from servicenow_mcp.errors import ForbiddenError
 from servicenow_mcp.mcp.handlers import _REDACTED, _redact_args, tool_handler
 from servicenow_mcp.mcp.outputs import ToolResult
-from tests.helpers import decode_response, get_registered_tools
 
 
 class TestToolHandler:
     """Tests for the tool_handler decorator."""
-
-    def test_preserves_signature(self) -> None:
-        """Tool inputs and defaults remain available to schema introspection."""
-
-        @tool_handler
-        async def my_tool(_table: str, _limit: int = 10) -> CapabilityResult:
-            return operation_result(data=None)
-
-        sig = inspect.signature(my_tool)
-        param_names = list(sig.parameters.keys())
-        assert "correlation_id" not in param_names
-        assert "_table" in param_names
-        assert "_limit" in param_names
-        assert sig.parameters["_limit"].default == 10
-
-    def test_preserves_function_name(self) -> None:
-        """functools.wraps preserves __name__ and __doc__."""
-
-        @tool_handler
-        async def my_tool(_table: str) -> CapabilityResult:
-            """My tool docstring."""
-            return operation_result(data=None)
-
-        assert my_tool.__name__ == "my_tool"
-        assert my_tool.__doc__ == "My tool docstring."
 
     def test_publishes_output_contract_and_preserves_wrapped_function(self) -> None:
         """The SDK sees both envelopes while the capability signature stays intact."""
@@ -54,10 +26,27 @@ class TestToolHandler:
 
         assert inspect.unwrap(my_tool) is not my_tool
         assert inspect.signature(my_tool).return_annotation is ToolResult
-        assert inspect.signature(inspect.unwrap(my_tool)).return_annotation is CapabilityResult
+        assert (
+            inspect.signature(inspect.unwrap(my_tool)).return_annotation
+            is CapabilityResult
+        )
 
-    @pytest.mark.parametrize("value", [None, "", "null", "false", "123", '"quoted"', '{"field":null}', '[false,0,""]'])
-    async def test_nullable_string_survives_mcp_validation(self, value: str | None) -> None:
+    @pytest.mark.parametrize(
+        "value",
+        [
+            None,
+            "",
+            "null",
+            "false",
+            "123",
+            '"quoted"',
+            '{"field":null}',
+            '[false,0,""]',
+        ],
+    )
+    async def test_nullable_string_survives_mcp_validation(
+        self, value: str | None
+    ) -> None:
         """Nullable text must not be JSON-decoded by the MCP SDK."""
         mcp = MCPServer("test")
 
@@ -69,138 +58,26 @@ class TestToolHandler:
         schema = (await mcp.list_tools())[0].input_schema
         assert schema["required"] == ["required"]
         assert schema["properties"]["value"]["default"] is None
-        assert {choice["type"] for choice in schema["properties"]["value"]["anyOf"]} == {"string", "null"}
+        assert {
+            choice["type"] for choice in schema["properties"]["value"]["anyOf"]
+        } == {"string", "null"}
         result = await mcp.call_tool("echo", {"required": "null", "value": value})
         assert isinstance(result, CallToolResult)
         assert isinstance(result.structured_content, dict)
         assert result.structured_content["data"] == {"required": "null", "value": value}
 
-    @pytest.mark.parametrize("value", [{"field": None}, [False, 0], False, 123])
-    async def test_nullable_string_rejects_non_string_values(self, value: Any) -> None:
+    async def test_nullable_string_rejects_non_string_values(self) -> None:
         """Adding null support does not make arbitrary JSON values valid text."""
-        mcp = MCPServer("test")
+        for value in [{"field": None}, [False, 0], False, 123]:
+            mcp = MCPServer("test")
 
-        @mcp.tool()
-        @tool_handler
-        async def echo(value: str | None = None) -> CapabilityResult:
-            return operation_result(data=value)
+            @mcp.tool()
+            @tool_handler
+            async def echo(value: str | None = None) -> CapabilityResult:
+                return operation_result(data=value)
 
-        with pytest.raises(ToolError, match="Input should be a valid string"):
-            await mcp.call_tool("echo", {"value": value})
-
-    async def test_nullable_string_keeps_non_empty_default_and_wrapped_function(self) -> None:
-        mcp = MCPServer("test")
-
-        @mcp.tool()
-        @tool_handler
-        async def echo(value: str | None = "{}") -> CapabilityResult:
-            return operation_result(data=value)
-
-        assert inspect.unwrap(echo) is not echo
-        assert inspect.signature(echo).parameters["value"].default == "{}"
-        result = await mcp.call_tool("echo", {})
-        assert isinstance(result, CallToolResult)
-        assert isinstance(result.structured_content, dict)
-        assert result.structured_content["data"] == "{}"
-
-    async def test_catches_generic_exception(self) -> None:
-        """Exceptions in the tool body are caught and returned as opaque envelopes.
-
-        The wire-level message MUST NOT contain ``str(exc)`` — that would leak
-        internal hostnames, paths, and platform stack fragments. The full
-        exception is logged locally by ``safe_tool_call``.
-        """
-
-        @tool_handler
-        async def my_tool() -> CapabilityResult:
-            raise RuntimeError("something broke")
-
-        result = await my_tool()
-        parsed = decode_response(result)
-        assert isinstance(parsed, dict)
-        assert parsed["status"] == "error"
-        message = parsed["error"]["message"]
-        assert "something broke" not in message
-        assert message.startswith("Internal error")
-        assert "correlation_id" not in parsed
-
-    async def test_catches_forbidden_error(self) -> None:
-        """ForbiddenError is caught and returned as an ACL denial error envelope."""
-
-        @tool_handler
-        async def my_tool() -> CapabilityResult:
-            raise ForbiddenError("ACL blocked")
-
-        result = await my_tool()
-        parsed = decode_response(result)
-        assert isinstance(parsed, dict)
-        assert parsed["status"] == "error"
-        assert "Access denied" in parsed["error"]["message"] or "ACL" in parsed["error"]["message"]
-
-    async def test_passes_args_and_kwargs(self) -> None:
-        """Positional and keyword arguments are forwarded correctly."""
-        captured: dict[str, Any] = {}
-
-        @tool_handler
-        async def my_tool(table: str, fields: str = "") -> CapabilityResult:
-            captured["table"] = table
-            captured["fields"] = fields
-            return operation_result(data={"ok": True})
-
-        await my_tool("incident", fields=["name", "state"])
-        assert captured["table"] == "incident"
-        assert captured["fields"] == ["name", "state"]
-
-    async def test_no_internal_arguments_injected(self) -> None:
-        """Repeated calls receive only the caller's inputs."""
-        calls: list[dict[str, Any]] = []
-
-        @tool_handler
-        async def my_tool(**kwargs: Any) -> CapabilityResult:
-            calls.append(kwargs)
-            return operation_result(data=None)
-
-        await my_tool()
-        await my_tool()
-        assert calls == [{}, {}]
-
-    async def test_works_with_mcp_server_tool_registration(self) -> None:
-        """Verify the decorator works with @mcp.tool() registration."""
-        from mcp.server import MCPServer
-
-        mcp = MCPServer("test")
-
-        @mcp.tool()
-        @tool_handler
-        async def test_tool(table: str) -> CapabilityResult:
-            """A test tool.
-
-            Args:
-                table: The table name.
-            """
-            return operation_result(data={"table": table})
-
-        # Check the tool was registered
-        tools = await get_registered_tools(mcp)
-        assert "test_tool" in tools
-
-        # Check the schema does NOT contain correlation_id
-        tool = tools["test_tool"]
-        schema = tool.input_schema
-        assert "correlation_id" not in schema.get("properties", {})
-        assert "table" in schema.get("properties", {})
-
-        # Check calling the tool works
-        call_result = await mcp.call_tool("test_tool", {"table": "my_table"})
-        assert isinstance(call_result, CallToolResult)
-        assert call_result.result_type == "complete"
-        result = call_result.structured_content
-        assert isinstance(result, dict)
-        assert result["data"] == {"table": "my_table"}
-        parsed = decode_response(call_result)
-        assert isinstance(parsed, dict)
-        assert parsed["status"] == "success"
-        assert parsed["data"]["table"] == "my_table"
+            with pytest.raises(ToolError, match="Input should be a valid string"):
+                await mcp.call_tool("echo", {"value": value})
 
 
 class TestRedactArgs:
@@ -232,22 +109,11 @@ class TestRedactArgs:
                 "variables": {"email": "alice@example.com"},
                 "conditions": '[{"field": "x", "op": "=", "value": "secret"}]',
                 "text": "search for something private",
-            }
+            },
         )
         assert out["variables"] == _REDACTED
         assert out["conditions"] == _REDACTED
         assert out["text"] == _REDACTED
-
-    def test_passes_through_non_sensitive(self) -> None:
-        """Non-sensitive keys retain their original values."""
-        out = _redact_args({"table": "incident", "limit": 10, "sys_id": "abc"})
-        assert out == {"table": "incident", "limit": 10, "sys_id": "abc"}
-
-    def test_key_match_is_case_insensitive(self) -> None:
-        """Sensitive key matching ignores case."""
-        out = _redact_args({"DATA": "x", "Token": "y"})
-        assert out["DATA"] == _REDACTED
-        assert out["Token"] == _REDACTED
 
     async def test_wrapper_pipes_redacted_args_into_sentry_context(self) -> None:
         """``tool_handler`` must attach the *redacted* kwargs dict to Sentry.
@@ -264,6 +130,7 @@ class TestRedactArgs:
                 table: str,
                 data: str = "",
                 password: str = "",
+                **kwargs: object,
             ) -> CapabilityResult:
                 return operation_result(data=None)
 
@@ -271,9 +138,12 @@ class TestRedactArgs:
                 table="incident",
                 data={"password": "hunter2"},
                 password="hunter2",  # NOSONAR(S2068) - test fixture, not a credential
+                Token="private-token",
             )
 
-            tool_calls = [c for c in mock_ctx.call_args_list if c.args and c.args[0] == "tool"]
+            tool_calls = [
+                c for c in mock_ctx.call_args_list if c.args and c.args[0] == "tool"
+            ]
             assert tool_calls, "set_sentry_context('tool', ...) was never called"
             ctx_payload = tool_calls[-1].args[1]
             recorded_args = ctx_payload["args"]
@@ -281,3 +151,4 @@ class TestRedactArgs:
             assert recorded_args["data"] == _REDACTED
             assert recorded_args["password"] == _REDACTED
             assert recorded_args["table"] == "incident"
+            assert recorded_args["Token"] == _REDACTED

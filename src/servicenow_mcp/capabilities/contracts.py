@@ -11,10 +11,20 @@ from servicenow_mcp.errors import ServiceNowMCPError
 class CapabilityError(ServiceNowMCPError):
     """An anticipated operation failure with a safe public message."""
 
-    def __init__(self, message: str, code: str = "INVALID_REQUEST", missing_fields: list[str] | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        code: str = "INVALID_REQUEST",
+        missing_fields: list[str] | None = None,
+        *,
+        missing_arguments: list[str] | None = None,
+        outcome: dict[str, JsonValue] | None = None,
+    ) -> None:
         super().__init__(message)
         self.code = code
         self.missing_fields = missing_fields
+        self.missing_arguments = missing_arguments
+        self.outcome = outcome
 
 
 class Pagination(BaseModel):
@@ -42,7 +52,9 @@ class CapabilityResult(BaseModel):
             if not value.get(name):
                 value.pop(name, None)
         if "pagination" in value:
-            value["pagination"] = {k: v for k, v in value["pagination"].items() if v is not None}
+            value["pagination"] = {
+                k: v for k, v in value["pagination"].items() if v is not None
+            }
         return value
 
     def to_payload(self) -> dict[str, Any]:
@@ -56,7 +68,9 @@ def result(
     truncation: dict[str, Any] | None = None,
 ) -> CapabilityResult:
     """Construct a successful result with explicit completeness metadata."""
-    return CapabilityResult(data=data, pagination=pagination, warnings=warnings, truncation=truncation)
+    return CapabilityResult(
+        data=data, pagination=pagination, warnings=warnings, truncation=truncation
+    )
 
 
 MAX_JSON_PAYLOAD_BYTES = 256 * 1024
@@ -80,7 +94,9 @@ def validate_payload(
     while pending:
         value, depth = pending.pop()
         if depth > max_depth:
-            raise CapabilityError(f"{field_name} exceeds maximum nesting depth of {max_depth}")
+            raise CapabilityError(
+                f"{field_name} exceeds maximum nesting depth of {max_depth}"
+            )
         if isinstance(value, dict):
             if any(not isinstance(key, str) for key in value):
                 raise CapabilityError(f"{field_name} must contain string keys")
@@ -90,7 +106,9 @@ def validate_payload(
         elif not isinstance(value, str | bool | int | float | type(None)):
             raise CapabilityError(f"{field_name} contains a non-JSON value")
     try:
-        encoded = json.dumps(raw, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode("utf-8")
+        encoded = json.dumps(
+            raw, ensure_ascii=False, allow_nan=False, separators=(",", ":")
+        ).encode("utf-8")
     except ValueError, UnicodeError:
         raise CapabilityError(f"{field_name} contains an invalid JSON value") from None
     if len(encoded) > max_bytes:

@@ -66,10 +66,8 @@ For automation associated with a table:
 > Find flows with record triggers on incident. Show their names and available
 > trigger conditions. State any unresolved or incomplete results.
 
-Flow tools read stored configuration.
-They do not edit, publish, or run flows.
-Inspection does not prove that a flow executed successfully.
-Check execution behavior on your instance through your usual ServiceNow workflow.
+The `flow` tool reads stored configuration, performs local validation, and reads lifecycle or exact execution status.
+It does not change, compile, or execute a flow. Inspection does not prove successful execution.
 
 ## Investigate an instance issue
 

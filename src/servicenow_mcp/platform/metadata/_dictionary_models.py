@@ -36,7 +36,13 @@ class TableInheritance(BaseModel):
     tables: list[str]
     complete: bool
     reason: (
-        Literal["table_not_visible", "parent_not_visible", "inheritance_cycle", "inheritance_depth_limit"] | None
+        Literal[
+            "table_not_visible",
+            "parent_not_visible",
+            "inheritance_cycle",
+            "inheritance_depth_limit",
+        ]
+        | None
     ) = None
 
 

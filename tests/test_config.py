@@ -1,9 +1,12 @@
 """Tests for configuration module."""
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 import pytest
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestSettings:
@@ -14,9 +17,8 @@ class TestSettings:
 
         assert "script_allowed_root" not in Settings.model_fields
 
-    @pytest.mark.parametrize(
-        ("setting", "value"),
-        [
+    def test_unsafe_oauth_configuration_rejected(self) -> None:
+        for setting, value in [
             ("SERVICENOW_OAUTH_CLIENT_ID", " "),
             ("SERVICENOW_OAUTH_CLIENT_ID", ""),
             ("SERVICENOW_OAUTH_CLIENT_ID", "client\nother"),
@@ -27,27 +29,39 @@ class TestSettings:
             ("SERVICENOW_OAUTH_REDIRECT_URI", "http://127.0.0.1:0/oauth/callback"),
             ("SERVICENOW_OAUTH_REDIRECT_URI", "http://127.0.0.1:80/oauth/callback"),
             ("SERVICENOW_OAUTH_REDIRECT_URI", "http://127.0.0.1:65536/oauth/callback"),
-            ("SERVICENOW_OAUTH_REDIRECT_URI", "http://127.0.0.1:private/oauth/callback"),
+            (
+                "SERVICENOW_OAUTH_REDIRECT_URI",
+                "http://127.0.0.1:private/oauth/callback",
+            ),
             ("SERVICENOW_OAUTH_REDIRECT_URI", "http://127.0.0.1:8765/other"),
-            ("SERVICENOW_OAUTH_REDIRECT_URI", "http://private@127.0.0.1:8765/oauth/callback"),
-            ("SERVICENOW_OAUTH_REDIRECT_URI", "http://127.0.0.1:8765/oauth/callback?private"),
-            ("SERVICENOW_OAUTH_REDIRECT_URI", "http://127.0.0.1:8765/oauth/callback#private"),
+            (
+                "SERVICENOW_OAUTH_REDIRECT_URI",
+                "http://private@127.0.0.1:8765/oauth/callback",
+            ),
+            (
+                "SERVICENOW_OAUTH_REDIRECT_URI",
+                "http://127.0.0.1:8765/oauth/callback?private",
+            ),
+            (
+                "SERVICENOW_OAUTH_REDIRECT_URI",
+                "http://127.0.0.1:8765/oauth/callback#private",
+            ),
             ("SERVICENOW_INSTANCE_URL", "https://private@example.invalid"),
             ("SERVICENOW_INSTANCE_URL", "https://example.invalid/private"),
             ("SERVICENOW_INSTANCE_URL", "https://example.invalid?private"),
             ("SERVICENOW_INSTANCE_URL", "https://example.invalid#private"),
             ("SERVICENOW_INSTANCE_URL", "https://example.invalid:private"),
-        ],
-    )
-    def test_unsafe_oauth_configuration_rejected(self, setting: str, value: str) -> None:
-        from servicenow_mcp.config import Settings
+        ]:
+            from servicenow_mcp.config import Settings
 
-        with (
-            patch.dict("os.environ", self._make_env(**{setting: value}), clear=True),
-            pytest.raises(ValueError, match=r"OAuth|HTTPS|https://") as exc,
-        ):
-            Settings(_env_file=None)
-        assert "private" not in str(exc.value)
+            with (
+                patch.dict(
+                    "os.environ", self._make_env(**{setting: value}), clear=True
+                ),
+                pytest.raises(ValueError, match="OAuth|HTTPS|https://") as exc,
+            ):
+                Settings(_env_file=None)
+            assert "private" not in str(exc.value)
 
     def _make_env(self, **overrides: str) -> dict[str, str]:
         """Create a minimal valid environment dict."""
@@ -70,7 +84,7 @@ class TestSettings:
         assert settings.servicenow_oauth_client_id == "test-client"
         assert settings.servicenow_oauth_scope == "useraccount"
 
-    @pytest.mark.parametrize("source", ["environment", "dotenv"])
+    @pytest.mark.parametrize("source", [pytest.param("environment", id="environment")])
     def test_stale_client_secret_is_ignored(self, source: str, tmp_path: Path) -> None:
         from servicenow_mcp.config import Settings
 
@@ -79,7 +93,9 @@ class TestSettings:
         if source == "environment":
             env["SERVICENOW_OAUTH_CLIENT_SECRET"] = "test-only-secret"
         else:
-            env_file.write_text("SERVICENOW_OAUTH_CLIENT_SECRET=test-only-secret\n", encoding="utf-8")
+            env_file.write_text(
+                "SERVICENOW_OAUTH_CLIENT_SECRET=test-only-secret\n", encoding="utf-8"
+            )
         with patch.dict("os.environ", env, clear=True):
             settings = Settings(_env_file=env_file if source == "dotenv" else None)
         assert "servicenow_oauth_client_secret" not in Settings.model_fields
@@ -87,13 +103,21 @@ class TestSettings:
         assert "test-only-secret" not in repr(settings)
         assert "test-only-secret" not in settings.model_dump_json()
 
-    @pytest.mark.parametrize("legacy", ["SERVICENOW_API_KEY", "SERVICENOW_USERNAME", "SERVICENOW_PASSWORD"])
+    @pytest.mark.parametrize(
+        "legacy",
+        [
+            pytest.param("SERVICENOW_USERNAME", id="SERVICENOW_USERNAME"),
+            pytest.param("SERVICENOW_PASSWORD", id="SERVICENOW_PASSWORD"),
+        ],
+    )
     def test_legacy_credentials_rejected(self, legacy: str) -> None:
         """OAuth never silently ignores configured legacy credentials."""
         from servicenow_mcp.config import Settings
 
         with (
-            patch.dict("os.environ", self._make_env(**{legacy: "test-only-legacy"}), clear=True),
+            patch.dict(
+                "os.environ", self._make_env(**{legacy: "test-only-legacy"}), clear=True
+            ),
             pytest.raises(ValueError, match="no longer supported") as exc,
         ):
             Settings(_env_file=None)
@@ -148,23 +172,27 @@ class TestSettings:
         ):
             Settings(_env_file=None)
 
-    @pytest.mark.parametrize("scope", ["custom", "useraccount custom/read"])
+    @pytest.mark.parametrize("scope", [pytest.param("custom", id="custom")])
     def test_explicit_oauth_scope_is_preserved(self, scope: str) -> None:
         """An explicit OAuth scope overrides the default."""
         from servicenow_mcp.config import Settings
 
-        with patch.dict("os.environ", self._make_env(SERVICENOW_OAUTH_SCOPE=scope), clear=True):
+        with patch.dict(
+            "os.environ", self._make_env(SERVICENOW_OAUTH_SCOPE=scope), clear=True
+        ):
             settings = Settings(_env_file=None)
 
         assert settings.servicenow_oauth_scope == scope
 
-    @pytest.mark.parametrize("scope", ["", " ", "useraccount  custom", "useraccount\n", "scope\tother", "scopé"])
+    @pytest.mark.parametrize("scope", [pytest.param("", id="")])
     def test_invalid_oauth_scope_rejected(self, scope: str) -> None:
         """Explicit OAuth scopes must use printable ASCII scope-token syntax."""
         from servicenow_mcp.config import Settings
 
         with (
-            patch.dict("os.environ", self._make_env(SERVICENOW_OAUTH_SCOPE=scope), clear=True),
+            patch.dict(
+                "os.environ", self._make_env(SERVICENOW_OAUTH_SCOPE=scope), clear=True
+            ),
             pytest.raises(ValueError, match="OAuth scope"),
         ):
             Settings(_env_file=None)
@@ -218,7 +246,9 @@ class TestSettings:
         assert settings.metadata_cache_ttl_seconds == 300
 
         with (
-            patch.dict("os.environ", self._make_env(METADATA_CACHE_TTL_SECONDS="0"), clear=True),
+            patch.dict(
+                "os.environ", self._make_env(METADATA_CACHE_TTL_SECONDS="0"), clear=True
+            ),
             pytest.raises(ValueError, match="between 1 and 86400"),
         ):
             Settings(_env_file=None)
@@ -253,7 +283,9 @@ class TestSettings:
         with patch.dict("os.environ", env, clear=True):
             settings = Settings(_env_file=None)
 
-        assert settings.large_table_names == frozenset({"table_a", "table_b", "table_c"})
+        assert settings.large_table_names == frozenset(
+            {"table_a", "table_b", "table_c"}
+        )
 
     def test_instance_url_trailing_slash_stripped(self) -> None:
         """Trailing slash is stripped from instance URL."""

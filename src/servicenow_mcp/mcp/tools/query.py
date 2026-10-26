@@ -1,19 +1,26 @@
 """Native query adapter."""
 
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
-from mcp.server import MCPServer
 from mcp.types import ToolAnnotations
 
-from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.capabilities.contracts import CapabilityResult
-from servicenow_mcp.capabilities.records._query_parsing import AggregateOperation, LabelPair
+from servicenow_mcp.capabilities.records._query_parsing import (
+    AggregateOperation,
+    LabelPair,
+)
 from servicenow_mcp.capabilities.records.query import QueryCapability
-from servicenow_mcp.config import Settings
 from servicenow_mcp.mcp.handlers import tool_handler
-from servicenow_mcp.platform.client import ServiceNowClientProvider
-from servicenow_mcp.platform.metadata._dictionary import DictionaryRegistry
-from servicenow_mcp.platform.metadata.choices import ChoiceRegistry
+from servicenow_mcp.mcp.inputs import describe_tool_parameters
+
+if TYPE_CHECKING:
+    from mcp.server import MCPServer
+
+    from servicenow_mcp.auth import OAuthPKCEProvider
+    from servicenow_mcp.config import Settings
+    from servicenow_mcp.platform.client import ServiceNowClientProvider
+    from servicenow_mcp.platform.metadata._dictionary import DictionaryRegistry
+    from servicenow_mcp.platform.metadata.choices import ChoiceRegistry
 
 
 def register_tools(
@@ -34,8 +41,26 @@ def register_tools(
 
     @mcp.tool(
         annotations=ToolAnnotations(
-            read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=True
-        )
+            read_only_hint=True,
+            destructive_hint=False,
+            idempotent_hint=True,
+            open_world_hint=True,
+        ),
+    )
+    @describe_tool_parameters(
+        {
+            "table": "ServiceNow table name, such as incident.",
+            "sys_id": "Fetch one record by sys_id; cannot combine with aggregate.",
+            "encoded_query": "ServiceNow encoded query used to filter matching records.",
+            "fields": "List-mode projection array; required for lists, or use * for all fields.",
+            "limit": "Maximum rows per list page; default is 20.",
+            "offset": "Zero-based list page offset.",
+            "order_by": "Field to sort by; prefix with - for descending.",
+            "display_values": "Return display values for reference and choice fields.",
+            "aggregate": "Operations array: count omits field; avg/sum/min/max require field.",
+            "group_by": "Field-name array grouping aggregate results.",
+            "resolve_labels": "Array of {field,label}; resolves labels and adds stored-value filters.",
+        }
     )
     @tool_handler
     async def query(
@@ -51,33 +76,7 @@ def register_tools(
         group_by: list[str] | None = None,
         resolve_labels: list[LabelPair] | None = None,
     ) -> CapabilityResult:
-        """Read records, aggregates, or a single record from any ServiceNow table.
-
-        Omit unused optional arguments. Explicit null uses the same defaults.
-
-        Args:
-            table: ServiceNow table name (e.g. 'incident').
-            sys_id: When set, fetch a single record by sys_id (other filter args ignored
-                except `fields` and `display_values`).
-            encoded_query: ServiceNow encoded query string (e.g. 'state=1^priority=2').
-                Omit or pass null for no filter; empty strings are also accepted.
-                Large tables require a recognized date constraint. For sys_audit, prefer
-                tablename plus documentkey when investigating one record.
-                Supported field paths use inactive-aware inherited metadata and static reference checks.
-                Unresolved metadata produces unverified warnings, not proof of invalid fields or ACL access.
-            fields: Native array of field projection. List mode requires this argument.
-                ``'*'`` explicitly requests all masked fields. Exact sys_id mode defaults
-                to the compact ``sys_id,sys_updated_on`` projection.
-            limit: Max returned rows (1-max_row_limit), not a database scan or count cap. Default 20.
-            offset: Pagination offset.
-            order_by: Field name; prefix with '-' for descending (e.g. '-sys_created_on').
-            display_values: True returns display_value form for reference and choice fields.
-            aggregate: Native array of aggregate objects: {operation: count} or
-                {operation: avg|sum|min|max, field: field_name}. When set, returns aggregate result instead of rows.
-            group_by: Native array of fields to group by, e.g. state,active (aggregate mode only).
-            resolve_labels: Native array of {field, label} objects (for example {field: state, label: open}).
-                Each label is resolved via ChoiceRegistry to its underlying value, then ANDed
-                into encoded_query as 'field=value'."""
+        """Read ServiceNow Table API rows or Stats API aggregates instead of fetching rows for counts; use resolve_labels for displayed choice labels. Large tables require a recognized date constraint."""
         return await capability.query(
             table=table,
             sys_id=sys_id,

@@ -14,13 +14,13 @@ The public client ID identifies the OAuth application. Requests use the signed-i
 
 Ask your administrator for the resources needed by the selected tools:
 
-| Work | ServiceNow resources |
-| --- | --- |
-| Records, fields, journals, audit history, and Flow Designer inspection | Table API plus access to the target and supporting metadata tables. |
-| Counts and grouped results | Aggregate API, including counts used by some audit checks. |
-| Attachment metadata and downloads | Attachment API and the required attachment or parent-record access. |
-| Script search | Code Search search and table-list resources. |
-| CMDB or catalog work | CMDB Instance and Meta APIs, or the selected Service Catalog resources. |
+| Work                                                                   | ServiceNow resources                                                    |
+| ---------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| Records, fields, journals, audit history, and Flow Designer inspection | Table API plus access to the target and supporting metadata tables.     |
+| Counts and grouped results                                             | Aggregate API, including counts used by some audit checks.              |
+| Attachment metadata and downloads                                      | Attachment API and the required attachment or parent-record access.     |
+| Script search                                                          | Code Search search and table-list resources.                            |
+| CMDB or catalog work                                                   | CMDB Instance and Meta APIs, or the selected Service Catalog resources. |
 
 Supporting metadata can require access to `sys_db_object` and `sys_dictionary`.
 Journal history uses `sys_journal_field`. Requested-item answers use the relevant

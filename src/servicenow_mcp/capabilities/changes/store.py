@@ -5,13 +5,13 @@ import time
 import uuid
 from dataclasses import dataclass
 
+from servicenow_mcp.capabilities.changes.models import StagedChange, retained_bytes
 from servicenow_mcp.capabilities.contracts import CapabilityError
-from servicenow_mcp.capabilities.mutations.models import StagedMutation, retained_bytes
 
 
 @dataclass(frozen=True)
 class _Entry:
-    mutation: StagedMutation
+    change: StagedChange
     created_at: float
     size: int
 
@@ -51,8 +51,8 @@ class PreviewTokenStore:
             if now - entry.created_at > self.ttl_seconds:
                 self._remove(token)
 
-    async def create(self, mutation: StagedMutation) -> str:
-        owned = mutation.model_copy(deep=True)
+    async def create(self, change: StagedChange) -> str:
+        owned = change.model_copy(deep=True)
         size = retained_bytes(owned)
         async with self._lock:
             self._sweep()
@@ -69,7 +69,7 @@ class PreviewTokenStore:
             self._bytes += size
             return token
 
-    async def consume(self, token: str) -> StagedMutation:
+    async def consume(self, token: str) -> StagedChange:
         async with self._lock:
             self._sweep()
             entry = self._remove(token)
@@ -78,7 +78,7 @@ class PreviewTokenStore:
                     "Invalid or expired preview token. Create a new preview.",
                     "PREVIEW_EXPIRED",
                 )
-            return entry.mutation
+            return entry.change
 
     async def clear(self) -> None:
         async with self._lock:

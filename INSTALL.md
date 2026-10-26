@@ -209,7 +209,7 @@ SERVICENOW_ENV=dev
 Confirm that `SERVICENOW_INSTANCE_URL` identifies the intended non-production instance.
 Changing `SERVICENOW_ENV` does not change that URL. Restart the server after changing settings.
 
-Every mutation requires a family preview followed by `mutation_apply`.
+Every change requires a family preview followed by `apply_change`.
 Ask the app to show the target, summary, and limitations before application.
 The server does not enforce human approval.
 Attachment changes, catalog orders, and cart changes use the same preview/apply process.

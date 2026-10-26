@@ -40,7 +40,7 @@ Arguments for `record_preview`:
 ```
 
 Review the returned summary and limitations.
-After the required approval, call `mutation_apply` with its `preview_token`.
+After the required approval, call `apply_change` with its `preview_token`.
 The token expires after 300 seconds and is single-use.
 A token does not prove human approval.
 
@@ -122,7 +122,7 @@ Arguments for `service_catalog_preview`:
 
 Review the item, variables, and limitations before application.
 Preview does not simulate fulfillment or guarantee prices.
-Cart submission and checkout also require preview followed by `mutation_apply`.
+Cart submission and checkout also require preview followed by `apply_change`.
 
 ## Inspect and change attachments
 
@@ -130,7 +130,7 @@ Use `attachment` to inspect metadata and ownership before downloading.
 Use `attachment_preview` for upload or deletion.
 Upload accepts complete base64 content with a decoded limit of 10 MiB.
 Its summary contains metadata, size, and digest, not file contents.
-Apply the reviewed preview with `mutation_apply`.
+Apply the reviewed preview with `apply_change`.
 
 ## Count without reading every record
 
@@ -155,4 +155,4 @@ Use native arrays for fields, sections, and grouping.
 Use native objects for data, investigation parameters, and catalog variables.
 Encoded query strings remain ServiceNow filter expressions.
 Keep projections small, paginate supported reads, and report incomplete evidence.
-If a mutation fails with an unknown remote outcome, check ServiceNow before preparing another mutation.
+If a change fails with an unknown remote outcome, check ServiceNow before preparing another change.

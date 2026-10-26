@@ -11,22 +11,22 @@ from servicenow_mcp.capabilities.attachments.common import (
     ensure_attachment_size_within_limit,
 )
 from servicenow_mcp.capabilities.catalog.contracts import (
-    CatalogMutationAction,
+    CatalogChangeAction,
     CatalogView,
 )
-from servicenow_mcp.capabilities.contracts import CapabilityResult
-from servicenow_mcp.capabilities.mutations.models import (
+from servicenow_mcp.capabilities.changes.models import (
     AttachmentCommand,
     CatalogCommand,
     RecordCommand,
 )
+from servicenow_mcp.capabilities.contracts import CapabilityResult
 from servicenow_mcp.mcp.handlers import tool_handler
 from servicenow_mcp.mcp.inputs import describe_tool_parameters
 
 if TYPE_CHECKING:
     from mcp.server import MCPServer
 
-    from servicenow_mcp.capabilities.mutations.coordinator import MutationCoordinator
+    from servicenow_mcp.capabilities.changes.coordinator import ChangeCoordinator
 
 
 PREVIEW_ANNOTATIONS = ToolAnnotations(
@@ -43,7 +43,7 @@ APPLY_ANNOTATIONS = ToolAnnotations(
 )
 
 
-def register_tools(mcp: MCPServer, coordinator: MutationCoordinator) -> None:
+def register_tools(mcp: MCPServer, coordinator: ChangeCoordinator) -> None:
     if "records" in coordinator.families:
 
         @mcp.tool(annotations=PREVIEW_ANNOTATIONS)
@@ -62,7 +62,7 @@ def register_tools(mcp: MCPServer, coordinator: MutationCoordinator) -> None:
             sys_id: str | None = None,
             data: dict[str, JsonValue] | None = None,
         ) -> CapabilityResult:
-            """Preview a record create, update, or delete without writing it. Review the summary and call mutation_apply with the returned preview_token to perform the change."""
+            """Preview a record create, update, or delete without writing it. Review the result and pass its preview_token to apply_change."""
             return await coordinator.preview(
                 RecordCommand(action=action, table=table, sys_id=sys_id, data=data)
             )
@@ -91,7 +91,7 @@ def register_tools(mcp: MCPServer, coordinator: MutationCoordinator) -> None:
             content_type: str | None = "application/octet-stream",
             sys_id: str | None = None,
         ) -> CapabilityResult:
-            """Preview an attachment upload or deletion without changing ServiceNow. Review its metadata and call mutation_apply with the returned preview_token to execute."""
+            """Preview an attachment upload or deletion without changing ServiceNow. Review the result and pass its preview_token to apply_change."""
             if content_base64 is not None and len(content_base64) > 4 * (
                 (MAX_ATTACHMENT_BYTES + 2) // 3
             ):
@@ -139,7 +139,7 @@ def register_tools(mcp: MCPServer, coordinator: MutationCoordinator) -> None:
         )
         @tool_handler
         async def service_catalog_preview(
-            action: CatalogMutationAction,
+            action: CatalogChangeAction,
             item_sys_id: str | None = None,
             variables: dict[str, JsonValue] | None = None,
             quantity: int | None = None,
@@ -151,7 +151,7 @@ def register_tools(mcp: MCPServer, coordinator: MutationCoordinator) -> None:
             view: CatalogView | None = None,
             api_version: str | None = None,
         ) -> CapabilityResult:
-            """Preview a catalog or cart change without submitting it. Read item variables or cart state first, then call mutation_apply with the reviewed preview_token."""
+            """Preview a catalog or cart change without submitting it. Read item variables or cart state first, then pass the reviewed preview_token to apply_change."""
             return await coordinator.preview(
                 CatalogCommand(
                     action=action,
@@ -175,6 +175,6 @@ def register_tools(mcp: MCPServer, coordinator: MutationCoordinator) -> None:
         }
     )
     @tool_handler
-    async def mutation_apply(preview_token: str) -> CapabilityResult:
-        """Apply a reviewed record, attachment, or catalog change using its exact preview_token. Tokens expire after 300 seconds and are single-use, including after failure."""
+    async def apply_change(preview_token: str) -> CapabilityResult:
+        """Apply a reviewed record, attachment, or catalog change using its preview_token. Tokens expire after 300 seconds and are single-use, including after failure."""
         return await coordinator.apply(preview_token)

@@ -138,7 +138,7 @@ class OAuthPKCEProvider:
                 expected != self._generation or self._token is None
             ):
                 raise AuthError(
-                    "Authorization changed. Create a new preview before applying a mutation."
+                    "Authorization changed. Create a new preview before applying a change."
                 )
             if self._cache is not None:
                 try:

@@ -148,7 +148,7 @@ class TestSafeToolCall:
             )
         ],
     )
-    async def test_mutation_timeout_requires_verification_before_retry(
+    async def test_change_timeout_requires_verification_before_retry(
         self,
         method: str,
         timeout_type: type[httpx2.TimeoutException],

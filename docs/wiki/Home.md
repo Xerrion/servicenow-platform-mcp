@@ -32,7 +32,7 @@ table information, script inspection, Flow Designer inspection, and investigatio
 The server defaults to `readonly` and production protection.
 
 Write tools need separate configuration and ServiceNow permissions.
-Every record, attachment, and catalog mutation requires preview followed by `mutation_apply`.
+Every record, attachment, and catalog change requires preview followed by `apply_change`.
 The server does not enforce human approval.
 Read [[Safety-and-Policy]] before enabling writes.
 

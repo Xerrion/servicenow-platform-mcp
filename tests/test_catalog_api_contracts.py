@@ -20,11 +20,11 @@ from mcp.shared.memory import create_client_server_memory_streams
 from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.bootstrap.stdio import create_mcp_server
 from servicenow_mcp.capabilities.catalog.masking import mask_catalog
-from servicenow_mcp.capabilities.mutations.models import CatalogCommand
+from servicenow_mcp.capabilities.changes.models import CatalogCommand
 from servicenow_mcp.mcp.handlers import _redact_args
 from servicenow_mcp.policy import DENIED_TABLES, MASK_VALUE
 from tests._mock_transport import http_mock
-from tests.helpers import decode_response, get_tool_functions, register_mutations
+from tests.helpers import decode_response, get_tool_functions, register_changes
 from tests.test_service_catalog import _register_and_get_tools
 
 if TYPE_CHECKING:
@@ -42,7 +42,7 @@ SECRET_KEY_LABELS = ("API key", "API-key", "Private key", "Private-key")
 def setup(settings: Settings):
     auth = OAuthPKCEProvider(settings)
     server = MCPServer("catalog-contract")
-    coordinator = register_mutations(server, settings, auth, frozenset({"catalog"}))
+    coordinator = register_changes(server, settings, auth, frozenset({"catalog"}))
     state = {
         "item": {"sys_id": ITEM, "name": "Fixture", "type": "record_producer"},
         "definitions": [{"name": "password", "value": PRIVATE}],
@@ -79,7 +79,7 @@ def setup(settings: Settings):
     return auth, coordinator, get_tool_functions(server), state
 
 
-MUTATIONS = [
+CHANGES = [
     (
         {
             "action": "submit_producer",
@@ -177,13 +177,13 @@ MUTATIONS = [
 ]
 
 
-async def test_all_mutation_endpoint_contracts(settings: Settings) -> None:
-    for arguments, method, path, body in MUTATIONS:
+async def test_all_change_endpoint_contracts(settings: Settings) -> None:
+    for arguments, method, path, body in CHANGES:
         http_mock.reset()
-        await _assert_mutation_contract(settings, arguments, method, path, body)
+        await _assert_change_contract(settings, arguments, method, path, body)
 
 
-async def _assert_mutation_contract(
+async def _assert_change_contract(
     settings: Settings, arguments, method, path, body
 ) -> None:
     _, coordinator, tools, _ = setup(settings)
@@ -205,7 +205,7 @@ async def _assert_mutation_contract(
     assert all(call.request.method == "GET" for call in http_mock.calls)
     assert PRIVATE not in str(preview)
     token = preview["data"]["preview_token"]
-    applied = decode_response(await tools["mutation_apply"](preview_token=token))
+    applied = decode_response(await tools["apply_change"](preview_token=token))
     assert applied["status"] == "success", applied
     assert applied["data"] == ({"deleted": True} if method == "DELETE" else response)
     assert route.call_count == 1
@@ -217,7 +217,7 @@ async def _assert_mutation_contract(
     )
     assert request.headers["Content-Type"] == "application/json"
     assert "Authorization" in request.headers
-    assert (await tools["mutation_apply"](preview_token=token)).is_error
+    assert (await tools["apply_change"](preview_token=token)).is_error
     assert route.call_count == 1
     assert coordinator.store.retained_payload_bytes == 0
 
@@ -395,7 +395,7 @@ async def test_view_type_and_version(
         ),
     ],
 )
-async def test_invalid_mutations_never_read_or_stage(
+async def test_invalid_changes_never_read_or_stage(
     settings: Settings, arguments
 ) -> None:
     _, coordinator, tools, _ = setup(settings)
@@ -443,7 +443,7 @@ async def test_producer_drift_consumes_token(settings: Settings, key: str) -> No
         state[key].append({"name": "new"})
     else:
         state[key]["sys_updated_on"] = "2"
-    failure = await tools["mutation_apply"](
+    failure = await tools["apply_change"](
         preview_token=preview["data"]["preview_token"]
     )
     assert decode_response(failure)["error"]["code"] == "STALE_PREVIEW"
@@ -472,13 +472,13 @@ async def test_producer_rechecks_safeguards(settings: Settings, change: str) -> 
     try:
         with (
             patch(
-                "servicenow_mcp.capabilities.mutations.store.time.monotonic",
+                "servicenow_mcp.capabilities.changes.store.time.monotonic",
                 return_value=float("inf"),
             )
             if change == "expiry"
             else nullcontext()
         ):
-            result = await tools["mutation_apply"](
+            result = await tools["apply_change"](
                 preview_token=preview["data"]["preview_token"]
             )
         assert result.is_error
@@ -517,7 +517,7 @@ async def test_producer_failure_is_single_use_and_private(
             else {},
         )
 
-    mutation = http_mock.post(f"{SC}/items/{ITEM}/submit_producer").mock(
+    change = http_mock.post(f"{SC}/items/{ITEM}/submit_producer").mock(
         side_effect=respond
     )
     preview = decode_response(
@@ -528,15 +528,15 @@ async def test_producer_failure_is_single_use_and_private(
     token = preview["data"]["preview_token"]
     if failure == "cancel":
         with pytest.raises(asyncio.CancelledError):
-            await tools["mutation_apply"](preview_token=token)
+            await tools["apply_change"](preview_token=token)
     else:
-        result = await tools["mutation_apply"](preview_token=token)
+        result = await tools["apply_change"](preview_token=token)
         assert result.is_error
         assert PRIVATE not in str(result)
-    assert mutation.call_count == 1
+    assert change.call_count == 1
     assert len(coordinator.store) == 0
-    assert (await tools["mutation_apply"](preview_token=token)).is_error
-    assert mutation.call_count == 1
+    assert (await tools["apply_change"](preview_token=token)).is_error
+    assert change.call_count == 1
 
 
 async def test_producer_masks_summary_but_retains_exact_inputs(
@@ -561,7 +561,7 @@ async def test_producer_masks_summary_but_retains_exact_inputs(
     assert "fixture script" not in str(preview)
     variables["urgency"] = "3"
     result = decode_response(
-        await tools["mutation_apply"](preview_token=preview["data"]["preview_token"])
+        await tools["apply_change"](preview_token=preview["data"]["preview_token"])
     )
     assert result["data"]["api_token"] == MASK_VALUE
     assert json.loads(route.calls.last.request.content) == {
@@ -579,7 +579,7 @@ async def test_empty_guide_is_documented_success(settings: Settings) -> None:
         await tools["service_catalog_preview"](action="submit_guide", item_sys_id=ITEM)
     )
     result = decode_response(
-        await tools["mutation_apply"](preview_token=preview["data"]["preview_token"])
+        await tools["apply_change"](preview_token=preview["data"]["preview_token"])
     )
     assert result["status"] == "success"
     assert result["data"] == []
@@ -678,7 +678,7 @@ async def test_exact_cart_item_drift_blocks_apply(
         json={"result": {"sys_id": CART_ITEM, "quantity": "2"}},
     )
     result = decode_response(
-        await tools["mutation_apply"](preview_token=preview["data"]["preview_token"])
+        await tools["apply_change"](preview_token=preview["data"]["preview_token"])
     )
     assert result["error"]["code"] == "STALE_PREVIEW"
     assert all(call.request.method == "GET" for call in http_mock.calls)
@@ -695,14 +695,14 @@ async def test_legacy_empty_variables_payload_is_unchanged(settings: Settings) -
         ),
     )
     assert not (
-        await tools["mutation_apply"](preview_token=preview["data"]["preview_token"])
+        await tools["apply_change"](preview_token=preview["data"]["preview_token"])
     ).is_error
     assert json.loads(route.calls.last.request.content) == {}
 
 
 async def test_producer_concurrent_apply_dispatches_once(settings: Settings) -> None:
     _, _, tools, _ = setup(settings)
-    mutation = http_mock.post(f"{SC}/items/{ITEM}/submit_producer").respond(
+    change = http_mock.post(f"{SC}/items/{ITEM}/submit_producer").respond(
         200,
         json={"result": {"sys_id": ITEM, "table": "incident"}},
     )
@@ -713,12 +713,12 @@ async def test_producer_concurrent_apply_dispatches_once(settings: Settings) -> 
     )
     results = await asyncio.gather(
         *(
-            tools["mutation_apply"](preview_token=preview["data"]["preview_token"])
+            tools["apply_change"](preview_token=preview["data"]["preview_token"])
             for _ in range(10)
         ),
     )
     assert sum(not result.is_error for result in results) == 1
-    assert mutation.call_count == 1
+    assert change.call_count == 1
 
 
 @pytest.mark.parametrize("failure", [pytest.param("http_401", id="http_401")])
@@ -735,7 +735,7 @@ async def test_put_failure_never_replays(settings: Settings, failure: str) -> No
             status, json={"error": {"message": PRIVATE}} if status != 200 else {}
         )
 
-    mutation = http_mock.route(method="PUT", url=f"{SC}/cart/{CART_ITEM}").mock(
+    change = http_mock.route(method="PUT", url=f"{SC}/cart/{CART_ITEM}").mock(
         side_effect=respond
     )
     preview = decode_response(
@@ -744,14 +744,14 @@ async def test_put_failure_never_replays(settings: Settings, failure: str) -> No
         ),
     )
     token = preview["data"]["preview_token"]
-    result = await tools["mutation_apply"](preview_token=token)
+    result = await tools["apply_change"](preview_token=token)
     assert result.is_error
     assert PRIVATE not in str(result)
     if failure == "timeout":
         assert "unknown" in str(result).lower()
     assert coordinator.store.retained_payload_bytes == 0
-    assert (await tools["mutation_apply"](preview_token=token)).is_error
-    assert mutation.call_count == 1
+    assert (await tools["apply_change"](preview_token=token)).is_error
+    assert change.call_count == 1
 
 
 @pytest.mark.parametrize(
@@ -803,16 +803,14 @@ async def test_producer_policy_change_during_reads_prevents_write(
         return httpx2.Response(200, json={"result": state["producer"]})
 
     http_mock.get(PRODUCER).mock(side_effect=change_policy)
-    mutation = http_mock.post(f"{SC}/items/{ITEM}/submit_producer").respond(
+    change = http_mock.post(f"{SC}/items/{ITEM}/submit_producer").respond(
         200, json={"result": {"sys_id": ITEM}}
     )
     try:
         assert (
-            await tools["mutation_apply"](
-                preview_token=preview["data"]["preview_token"]
-            )
+            await tools["apply_change"](preview_token=preview["data"]["preview_token"])
         ).is_error
-        assert not mutation.called
+        assert not change.called
     finally:
         DENIED_TABLES.discard("incident")
 
@@ -826,7 +824,7 @@ async def test_producer_version_retained_for_read_and_write(settings: Settings) 
     http_mock.get(f"{versioned}/items/{ITEM}/variables").respond(
         200, json={"result": state["definitions"]}
     )
-    mutation = http_mock.post(f"{versioned}/items/{ITEM}/submit_producer").respond(
+    change = http_mock.post(f"{versioned}/items/{ITEM}/submit_producer").respond(
         200,
         json={"result": {"sys_id": ITEM, "table": "incident"}},
     )
@@ -835,11 +833,11 @@ async def test_producer_version_retained_for_read_and_write(settings: Settings) 
             action="submit_producer", item_sys_id=ITEM, api_version="v2"
         ),
     )
-    assert not mutation.called
+    assert not change.called
     assert not (
-        await tools["mutation_apply"](preview_token=preview["data"]["preview_token"])
+        await tools["apply_change"](preview_token=preview["data"]["preview_token"])
     ).is_error
-    assert mutation.call_count == 1
+    assert change.call_count == 1
     assert all(
         "/api/sn_sc/v2/" in str(call.request.url)
         for call in http_mock.calls
@@ -859,7 +857,7 @@ async def test_incomplete_producer_response_is_unknown(
     settings: Settings, response
 ) -> None:
     _, _, tools, _ = setup(settings)
-    mutation = http_mock.post(f"{SC}/items/{ITEM}/submit_producer").respond(
+    change = http_mock.post(f"{SC}/items/{ITEM}/submit_producer").respond(
         200, json={"result": response}
     )
     preview = decode_response(
@@ -868,13 +866,13 @@ async def test_incomplete_producer_response_is_unknown(
         )
     )
     result = decode_response(
-        await tools["mutation_apply"](preview_token=preview["data"]["preview_token"])
+        await tools["apply_change"](preview_token=preview["data"]["preview_token"])
     )
     assert result["error"]["code"] == "UNKNOWN_OUTCOME"
-    assert mutation.call_count == 1
+    assert change.call_count == 1
 
 
-async def test_large_cart_rejected_without_mutation(settings: Settings) -> None:
+async def test_large_cart_rejected_without_change(settings: Settings) -> None:
     _, coordinator, tools, _ = setup(settings)
     http_mock.get(f"{BASE}/api/now/table/sc_cart_item").respond(
         200, json={"result": [{"sys_id": ITEM}] * 1000}
@@ -888,7 +886,7 @@ async def test_large_cart_rejected_without_mutation(settings: Settings) -> None:
 
 async def test_unexpected_delete_response_is_unknown(settings: Settings) -> None:
     _, _, tools, _ = setup(settings)
-    mutation = http_mock.delete(f"{SC}/cart/{CART_ITEM}").respond(
+    change = http_mock.delete(f"{SC}/cart/{CART_ITEM}").respond(
         200, json={"result": {"sys_id": ITEM}}
     )
     preview = decode_response(
@@ -896,12 +894,10 @@ async def test_unexpected_delete_response_is_unknown(settings: Settings) -> None
             action="cart_item_delete", cart_item_id=CART_ITEM
         )
     )
-    result = await tools["mutation_apply"](
-        preview_token=preview["data"]["preview_token"]
-    )
+    result = await tools["apply_change"](preview_token=preview["data"]["preview_token"])
     assert result.is_error
     assert "unknown" in str(result).lower()
-    assert mutation.call_count == 1
+    assert change.call_count == 1
 
 
 @pytest.mark.parametrize(
@@ -961,7 +957,7 @@ async def test_variable_labels_mask_preview_and_guide_result(
     }
     state["definitions"] = [variable]
     response = [{"sys_id": ITEM, "variables": [variable]}]
-    mutation = http_mock.route(
+    change = http_mock.route(
         method="PUT", url=f"{SC}/items/{ITEM}/submit_guide"
     ).respond(
         200,
@@ -972,9 +968,9 @@ async def test_variable_labels_mask_preview_and_guide_result(
     )
     assert preview["status"] == "success"
     assert PRIVATE not in str(preview)
-    assert not mutation.called
+    assert not change.called
     result = decode_response(
-        await tools["mutation_apply"](preview_token=preview["data"]["preview_token"])
+        await tools["apply_change"](preview_token=preview["data"]["preview_token"])
     )
     assert result["status"] == "success"
     assert PRIVATE not in str(result)
@@ -1019,7 +1015,7 @@ async def test_submitted_map_uses_definition_labels_without_changing_apply_paylo
     response = {"sys_id": ITEM, "table": "incident", "variables": original}
     if action == "cart_item_update":
         response["catalog_item_id"] = ITEM
-    mutation = http_mock.route(method=method, url=f"{SC}/{path}").respond(
+    change = http_mock.route(method=method, url=f"{SC}/{path}").respond(
         200, json={"result": response}
     )
     with patch("servicenow_mcp.mcp.handlers.set_sentry_context") as diagnostics:
@@ -1030,13 +1026,11 @@ async def test_submitted_map_uses_definition_labels_without_changing_apply_paylo
             "u_field_1": MASK_VALUE,
         }
         assert PRIVATE not in str(preview)
-        assert not mutation.called
+        assert not change.called
         assert variables == original
         assert definitions == original_definitions
         applied = decode_response(
-            await tools["mutation_apply"](
-                preview_token=preview["data"]["preview_token"]
-            )
+            await tools["apply_change"](preview_token=preview["data"]["preview_token"])
         )
         assert applied["status"] == "success"
         assert applied["data"]["variables"] == {**original, "u_field_1": MASK_VALUE}
@@ -1044,7 +1038,7 @@ async def test_submitted_map_uses_definition_labels_without_changing_apply_paylo
     expected_body = {"variables": original}
     if action in {"order_now", "add_to_cart", "cart_item_update"}:
         expected_body["sysparm_quantity"] = "2" if action == "cart_item_update" else "1"
-    assert json.loads(mutation.calls.last.request.content) == expected_body
+    assert json.loads(change.calls.last.request.content) == expected_body
     assert variables == original
     assert response["variables"] == original
     assert PRIVATE not in str(diagnostics.call_args_list)
@@ -1093,7 +1087,7 @@ async def test_guide_submitted_maps_use_each_items_definitions_and_preserve_appl
             for item in original
         ],
     }
-    mutation = http_mock.post(f"{SC}/items/{ITEM}/checkout_guide").respond(
+    change = http_mock.post(f"{SC}/items/{ITEM}/checkout_guide").respond(
         200, json={"result": response}
     )
     with patch("servicenow_mcp.mcp.handlers.set_sentry_context") as diagnostics:
@@ -1111,17 +1105,15 @@ async def test_guide_submitted_maps_use_each_items_definitions_and_preserve_appl
         assert masked_items[1]["variables"] == original[1]["variables"]
         assert PRIVATE not in str(preview)
         assert items == original
-        assert not mutation.called
+        assert not change.called
         applied = decode_response(
-            await tools["mutation_apply"](
-                preview_token=preview["data"]["preview_token"]
-            )
+            await tools["apply_change"](preview_token=preview["data"]["preview_token"])
         )
         assert applied["status"] == "success"
         assert applied["data"]["items"][0]["variables"]["u_field_1"] == MASK_VALUE
         assert applied["data"]["items"][1]["variables"] == original[1]["variables"]
         assert PRIVATE not in str(applied)
-    assert json.loads(mutation.calls.last.request.content) == {"items": original}
+    assert json.loads(change.calls.last.request.content) == {"items": original}
     assert items == original
     assert response["items"][0]["variables"]["u_field_1"] == PRIVATE
     assert PRIVATE not in str(diagnostics.call_args_list)
@@ -1241,7 +1233,7 @@ async def test_item_form_labels_also_mask_submitted_maps(settings: Settings) -> 
     state["item"]["variables"] = [
         {"name": "u_field_1", "label": "Password", "value": ""}
     ]
-    mutation = http_mock.post(f"{SC}/items/{ITEM}/submit_producer").respond(
+    change = http_mock.post(f"{SC}/items/{ITEM}/submit_producer").respond(
         200,
         json={
             "result": {
@@ -1261,11 +1253,11 @@ async def test_item_form_labels_also_mask_submitted_maps(settings: Settings) -> 
     assert preview["status"] == "success"
     assert PRIVATE not in str(preview)
     result = decode_response(
-        await tools["mutation_apply"](preview_token=preview["data"]["preview_token"])
+        await tools["apply_change"](preview_token=preview["data"]["preview_token"])
     )
     assert result["status"] == "success"
     assert PRIVATE not in str(result)
-    assert json.loads(mutation.calls.last.request.content) == {
+    assert json.loads(change.calls.last.request.content) == {
         "variables": {"u_field_1": PRIVATE}
     }
 
@@ -1286,7 +1278,7 @@ async def test_submitted_map_failure_does_not_disclose_or_replay(
         arguments["items"] = [{"sys_id": ITEM, "variables": {"u_field_1": PRIVATE}}]
     else:
         arguments["variables"] = {"u_field_1": PRIVATE}
-    mutation = http_mock.post(f"{SC}/items/{ITEM}/{action}").respond(
+    change = http_mock.post(f"{SC}/items/{ITEM}/{action}").respond(
         500, json={"error": {"message": PRIVATE}}
     )
     with patch("servicenow_mcp.mcp.handlers.set_sentry_context") as diagnostics:
@@ -1294,11 +1286,11 @@ async def test_submitted_map_failure_does_not_disclose_or_replay(
         assert preview["status"] == "success"
         assert PRIVATE not in str(preview)
         token = preview["data"]["preview_token"]
-        result = await tools["mutation_apply"](preview_token=token)
+        result = await tools["apply_change"](preview_token=token)
         assert result.is_error
         assert PRIVATE not in str(result)
-        assert (await tools["mutation_apply"](preview_token=token)).is_error
-    assert mutation.call_count == 1
+        assert (await tools["apply_change"](preview_token=token)).is_error
+    assert change.call_count == 1
     assert PRIVATE not in str(diagnostics.call_args_list)
     assert PRIVATE not in caplog.text
     assert coordinator.store.retained_payload_bytes == 0
@@ -1354,7 +1346,7 @@ async def test_cart_update_masks_metadata_gaps_and_detects_label_drift(
         200,
         json={"result": {"sys_id": CART_ITEM, "cat_item": reference}},
     )
-    mutation = http_mock.route(method="PUT", url=f"{SC}/cart/{CART_ITEM}").respond(
+    change = http_mock.route(method="PUT", url=f"{SC}/cart/{CART_ITEM}").respond(
         200,
         json={"result": {"sys_id": CART_ITEM}},
     )
@@ -1371,16 +1363,16 @@ async def test_cart_update_masks_metadata_gaps_and_detects_label_drift(
     assert preview["data"]["summary"]["variables"]["u_field_1"] == expected
     state["definitions"][0]["label"] = "Password"
     applied = decode_response(
-        await tools["mutation_apply"](preview_token=preview["data"]["preview_token"])
+        await tools["apply_change"](preview_token=preview["data"]["preview_token"])
     )
     assert coordinator.store.retained_payload_bytes == 0
     if has_item_reference:
         assert applied["error"]["code"] == "STALE_PREVIEW"
-        assert not mutation.called
+        assert not change.called
     else:
         assert applied["status"] == "success"
         assert (
-            json.loads(mutation.calls.last.request.content)["variables"]["u_field_1"]
+            json.loads(change.calls.last.request.content)["variables"]["u_field_1"]
             == PRIVATE
         )
 
@@ -1453,7 +1445,7 @@ async def test_guide_checkout_rechecks_both_policies_before_dispatch(
     change_at: str,
 ) -> None:
     _, coordinator, tools, state = setup(settings)
-    mutation = http_mock.post(f"{SC}/items/{ITEM}/checkout_guide").respond(
+    change = http_mock.post(f"{SC}/items/{ITEM}/checkout_guide").respond(
         200, json={"result": {"cart_id": CART}}
     )
     preview = decode_response(
@@ -1462,7 +1454,7 @@ async def test_guide_checkout_rechecks_both_policies_before_dispatch(
         ),
     )
     assert preview["status"] == "success"
-    assert not mutation.called
+    assert not change.called
     if change_at == "before_apply":
         monkeypatch.setattr(
             "servicenow_mcp.policy.DENIED_TABLES", DENIED_TABLES | {denied_table}
@@ -1483,9 +1475,9 @@ async def test_guide_checkout_rechecks_both_policies_before_dispatch(
             ],
         )
     token = preview["data"]["preview_token"]
-    result = await tools["mutation_apply"](preview_token=token)
+    result = await tools["apply_change"](preview_token=token)
     assert result.is_error
-    assert not mutation.called
+    assert not change.called
     if change_at == "last_precondition_read":
         assert decode_response(result)["error"]["code"] == "POLICYERROR"
         definition_reads = [
@@ -1497,8 +1489,8 @@ async def test_guide_checkout_rechecks_both_policies_before_dispatch(
         assert len(definition_reads) == 4  # Two preview reads, then two apply reads.
     assert all(call.request.method == "GET" for call in http_mock.calls)
     assert coordinator.store.retained_payload_bytes == 0
-    assert (await tools["mutation_apply"](preview_token=token)).is_error
-    assert not mutation.called
+    assert (await tools["apply_change"](preview_token=token)).is_error
+    assert not change.called
 
 
 def test_coverage_matrix_accounts_for_every_exported_operation() -> None:

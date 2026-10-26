@@ -18,7 +18,7 @@ from tests.helpers import (
     decode_response,
     get_tool_functions,
     preview_and_apply,
-    register_mutations,
+    register_changes,
 )
 
 if TYPE_CHECKING:
@@ -47,7 +47,7 @@ def _register_and_get_tools(
     """Register the unified attachment tools on a fresh MCP and return callables."""
     mcp = MCPServer("test")
     register_read_tools(mcp, settings, auth_provider)
-    register_mutations(mcp, settings, auth_provider, frozenset({"attachments"}))
+    register_changes(mcp, settings, auth_provider, frozenset({"attachments"}))
     return get_tool_functions(mcp)
 
 

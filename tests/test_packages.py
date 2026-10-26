@@ -1,4 +1,4 @@
-"""Package presets, custom selection, and mutation-group exposure."""
+"""Package presets, custom selection, and change-group exposure."""
 
 from typing import TYPE_CHECKING
 
@@ -6,7 +6,7 @@ import pytest
 
 from servicenow_mcp.bootstrap.stdio import create_mcp_server
 from servicenow_mcp.packages import (
-    MUTATION_GROUPS,
+    CHANGE_GROUPS,
     PACKAGE_REGISTRY,
     TOOL_GROUPS,
     get_package,
@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 def test_presets_have_complete_disjoint_write_selection() -> None:
     assert set(PACKAGE_REGISTRY) == {"full", "readonly", "core_readonly", "none"}
     assert set(PACKAGE_REGISTRY["full"]) == TOOL_GROUPS
-    assert set(PACKAGE_REGISTRY["readonly"]) == TOOL_GROUPS - MUTATION_GROUPS
+    assert set(PACKAGE_REGISTRY["readonly"]) == TOOL_GROUPS - CHANGE_GROUPS
     assert set(PACKAGE_REGISTRY["core_readonly"]) == {"query", "describe", "attachment"}
     assert PACKAGE_REGISTRY["none"] == []
     assert "service_catalog" in PACKAGE_REGISTRY["readonly"]
@@ -63,7 +63,7 @@ async def test_each_group_exposes_only_its_own_tools(settings: Settings) -> None
             "service_catalog_write": "service_catalog_preview",
         }.get(group, group)
         assert names == {"list_tool_packages", expected} | (
-            {"mutation_apply"} if group in MUTATION_GROUPS else set()
+            {"apply_change"} if group in CHANGE_GROUPS else set()
         ), group
 
 
@@ -72,11 +72,11 @@ async def test_apply_registered_once_for_multiple_groups(settings: Settings) -> 
     server = create_mcp_server(settings)
     async with server._lowlevel_server.lifespan(server._lowlevel_server):
         names = [tool.name for tool in await server.list_tools()]
-    assert names.count("mutation_apply") == 1
+    assert names.count("apply_change") == 1
     assert set(names) == {
         "list_tool_packages",
         "record_preview",
         "attachment_preview",
         "service_catalog_preview",
-        "mutation_apply",
+        "apply_change",
     }

@@ -1,7 +1,7 @@
 # Choose the available tools
 
 `MCP_TOOL_PACKAGE` defaults to `readonly`.
-`SERVICENOW_ENV` defaults to `prod`, which blocks mutation previews and application.
+`SERVICENOW_ENV` defaults to `prod`, which blocks change previews and application.
 Tool selection does not grant ServiceNow permissions.
 Restart the application after changing settings.
 
@@ -11,7 +11,7 @@ Restart the application after changing settings.
 | --------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | `readonly`      | Records, metadata, attachments, history, submitted answers, investigations, audits, flows, code search, CMDB, and catalog browsing. |
 | `core_readonly` | Queries, table descriptions, and attachment reads.                                                                                  |
-| `full`          | All read tools, all mutation previews, and shared application.                                                                      |
+| `full`          | All read tools, all change previews, and shared application.                                                                        |
 | `none`          | Only `list_tool_packages`.                                                                                                          |
 
 `list_tool_packages` lists package definitions and groups without contacting ServiceNow.
@@ -35,7 +35,7 @@ Use the AI app's tool list to check the actual registered surface.
 | `cmdb`            | Read CIs, relationships, and class metadata.                                                         |
 | `service_catalog` | Browse catalogs, categories, items, variables, carts, wish lists, and delegation checks.             |
 
-## Mutation groups
+## Change groups
 
 | Group                   | Preview tool                                                                                        |
 | ----------------------- | --------------------------------------------------------------------------------------------------- |
@@ -43,9 +43,9 @@ Use the AI app's tool list to check the actual registered surface.
 | `attachment_write`      | `attachment_preview` for upload and delete.                                                         |
 | `service_catalog_write` | `service_catalog_preview` for orders, record producers, order guides, wish lists, and cart changes. |
 
-Selecting any mutation group registers `mutation_apply` exactly once.
+Selecting any change group registers `apply_change` exactly once.
 Application rejects commands from families that are not enabled.
-Every mutation requires preview followed by apply.
+Every change requires preview followed by apply.
 A preview token does not prove human approval.
 
 For a development instance:
@@ -70,4 +70,4 @@ Use a preset alone or combine group names.
 Unknown names, empty names, and a preset combined with groups fail startup.
 Repeated groups are deduplicated in their first-occurrence order.
 
-See [[Tool-Reference]] for current inputs and [[Safety-and-Policy]] for mutation limits.
+See [[Tool-Reference]] for current inputs and [[Safety-and-Policy]] for change limits.

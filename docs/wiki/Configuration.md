@@ -60,10 +60,10 @@ is not a valid scope value.
 
 ## Tools and write protection
 
-| Variable           | Default    | Accepted value and purpose                                                                                          |
-| ------------------ | ---------- | ------------------------------------------------------------------------------------------------------------------- |
-| `MCP_TOOL_PACKAGE` | `readonly` | A preset package or comma-separated group names. See [[Tool-Packages]].                                             |
-| `SERVICENOW_ENV`   | `prod`     | `dev` and `test` permit mutations. `prod` and `production`, ignoring case, block them. Unknown values fail startup. |
+| Variable           | Default    | Accepted value and purpose                                                                                        |
+| ------------------ | ---------- | ----------------------------------------------------------------------------------------------------------------- |
+| `MCP_TOOL_PACKAGE` | `readonly` | A preset package or comma-separated group names. See [[Tool-Packages]].                                           |
+| `SERVICENOW_ENV`   | `prod`     | `dev` and `test` permit changes. `prod` and `production`, ignoring case, block them. Unknown values fail startup. |
 
 Use `readonly` or a smaller read package for ordinary ITSM work.
 Enabling a tool does not grant permission to use its ServiceNow resources.

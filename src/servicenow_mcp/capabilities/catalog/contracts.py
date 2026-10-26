@@ -23,7 +23,7 @@ CatalogReadAction = Literal[
     "get_invalid_delegated_users",
     "variable_display_value",
 ]
-CatalogMutationAction = Literal[
+CatalogChangeAction = Literal[
     "order_now",
     "add_to_cart",
     "cart_submit",

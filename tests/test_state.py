@@ -5,17 +5,17 @@ from unittest.mock import patch
 
 import pytest
 
-from servicenow_mcp.capabilities.contracts import CapabilityError
-from servicenow_mcp.capabilities.mutations.models import (
+from servicenow_mcp.capabilities.changes.models import (
     RecordCommand,
-    StagedMutation,
+    StagedChange,
     retained_bytes,
 )
-from servicenow_mcp.capabilities.mutations.store import PreviewTokenStore
+from servicenow_mcp.capabilities.changes.store import PreviewTokenStore
+from servicenow_mcp.capabilities.contracts import CapabilityError
 
 
-def staged() -> StagedMutation:
-    return StagedMutation(
+def staged() -> StagedChange:
+    return StagedChange(
         command=RecordCommand(
             action="create", table="incident", data={"nested": {"value": 1}}
         ),
@@ -30,7 +30,7 @@ async def test_one_concurrent_consumer_wins() -> None:
     results = await asyncio.gather(
         *(store.consume(token) for _ in range(10)), return_exceptions=True
     )
-    assert sum(isinstance(value, StagedMutation) for value in results) == 1
+    assert sum(isinstance(value, StagedChange) for value in results) == 1
     assert sum(isinstance(value, CapabilityError) for value in results) == 9
     assert len(store) == 0
 
@@ -38,13 +38,13 @@ async def test_one_concurrent_consumer_wins() -> None:
 async def test_entry_capacity_and_expiry_reclamation() -> None:
     store = PreviewTokenStore(max_size=1)
     with patch(
-        "servicenow_mcp.capabilities.mutations.store.time.monotonic", return_value=1000
+        "servicenow_mcp.capabilities.changes.store.time.monotonic", return_value=1000
     ):
         await store.create(staged())
         with pytest.raises(CapabilityError, match="capacity"):
             await store.create(staged())
     with patch(
-        "servicenow_mcp.capabilities.mutations.store.time.monotonic", return_value=1301
+        "servicenow_mcp.capabilities.changes.store.time.monotonic", return_value=1301
     ):
         assert await store.create(staged())
     assert len(store) == 1

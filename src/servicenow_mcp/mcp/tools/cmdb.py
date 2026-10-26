@@ -54,7 +54,7 @@ def register_tools(
         limit: int | None = 20,
         offset: int | None = 0,
     ) -> CapabilityResult:
-        """Read CMDB items, relationships, or class metadata. Use query for non-CMDB tables."""
+        """Read configuration items, their relationships, or CMDB class metadata. Use query for other tables."""
         return await capability.cmdb(
             action=action,
             class_name=class_name,

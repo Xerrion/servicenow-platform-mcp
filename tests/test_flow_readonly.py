@@ -12,7 +12,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.bootstrap.stdio import create_mcp_server
-from servicenow_mcp.capabilities.mutations.models import MutationCommand
+from servicenow_mcp.capabilities.changes.models import ChangeCommand
 from servicenow_mcp.platform.client import ServiceNowClient
 from tests._mock_transport import http_mock
 from tests.helpers import decode_response
@@ -160,9 +160,9 @@ async def test_flow_transport_rejects_effect_resources_before_http(settings, res
     assert not http_mock.calls
 
 
-def test_flow_commands_are_rejected_by_the_mutation_contract():
+def test_flow_commands_are_rejected_by_the_change_contract():
     with pytest.raises(ValidationError):
-        TypeAdapter(MutationCommand).validate_python(
+        TypeAdapter(ChangeCommand).validate_python(
             {
                 "family": "flows",
                 "action": "create",

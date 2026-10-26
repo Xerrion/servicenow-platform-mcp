@@ -9,14 +9,14 @@ import pytest
 from mcp.server import MCPServer
 
 from servicenow_mcp.auth import OAuthPKCEProvider
+from servicenow_mcp.capabilities.changes.store import PreviewTokenStore
 from servicenow_mcp.capabilities.contracts import MAX_JSON_PAYLOAD_BYTES
-from servicenow_mcp.capabilities.mutations.store import PreviewTokenStore
 from tests._mock_transport import http_mock
 from tests.helpers import (
     decode_response,
     get_tool_functions,
     preview_and_apply,
-    register_mutations,
+    register_changes,
 )
 
 if TYPE_CHECKING:
@@ -38,7 +38,7 @@ def _register_and_get_tools(
 ) -> dict[str, Any]:
     """Register write tools on a fresh server and return their callables."""
     mcp = MCPServer("test")
-    register_mutations(mcp, settings, auth_provider, frozenset({"records"}))
+    register_changes(mcp, settings, auth_provider, frozenset({"records"}))
     return get_tool_functions(mcp)
 
 
@@ -46,9 +46,7 @@ def _register_and_get_tools(
 def server(settings: Settings) -> MCPServer:
     """Register write tools without reading local credentials."""
     mcp = MCPServer("test")
-    register_mutations(
-        mcp, settings, OAuthPKCEProvider(settings), frozenset({"records"})
-    )
+    register_changes(mcp, settings, OAuthPKCEProvider(settings), frozenset({"records"}))
     return mcp
 
 
@@ -82,7 +80,7 @@ class TestInlineRecordWrite:
         "action,preview,content",
         [pytest.param("update", True, None, id="None-True-update")],
     )
-    async def test_inline_xml_rejected_before_token_or_mutation(
+    async def test_inline_xml_rejected_before_token_or_change(
         self,
         settings: Settings,
         auth_provider: OAuthPKCEProvider,
@@ -156,7 +154,7 @@ class TestInlineRecordWrite:
                     },
                 },
             )
-        mutation = http_mock.route(
+        change = http_mock.route(
             method="POST" if action == "create" else "PATCH", url=url
         ).respond(
             200,
@@ -185,7 +183,7 @@ class TestInlineRecordWrite:
         assert result["status"] == "success"
         assert "test-only-secret" not in json.dumps(result)
         if preview:
-            assert not mutation.called
+            assert not change.called
             section = result["data"]["summary"][
                 "data" if action == "create" else "diff"
             ]
@@ -193,17 +191,17 @@ class TestInlineRecordWrite:
                 actual = section[key] if action == "create" else section[key]["new"]
                 assert actual == ("***MASKED***" if key == "password" else value)
             token = result["data"]["preview_token"]
-            result = decode_response(await tools["mutation_apply"](preview_token=token))
+            result = decode_response(await tools["apply_change"](preview_token=token))
             assert result["status"] == "success"
             assert "test-only-secret" not in json.dumps(result)
             assert (
-                decode_response(await tools["mutation_apply"](preview_token=token))[
+                decode_response(await tools["apply_change"](preview_token=token))[
                     "status"
                 ]
                 == "error"
             )
-        assert mutation.call_count == 1
-        assert json.loads(mutation.calls[0].request.content) == payload
+        assert change.call_count == 1
+        assert json.loads(change.calls[0].request.content) == payload
         metadata_calls = [
             call
             for call in http_mock.calls
@@ -226,7 +224,7 @@ class TestInlineRecordWrite:
         url = f"{BASE_URL}/sys_script/{SYS_ID}"
         current = {"sys_id": SYS_ID, "script": "doNotChange();", "active": True}
         http_mock.get(url).respond(200, json={"result": current})
-        mutation = http_mock.patch(url).respond(
+        change = http_mock.patch(url).respond(
             200, json={"result": {**current, "active": False}}
         )
         tools = _register_and_get_tools(settings, auth_provider)
@@ -241,10 +239,10 @@ class TestInlineRecordWrite:
         assert result["status"] == "success"
         assert set(result["data"]["summary"]["diff"]) == {"active"}
         applied = decode_response(
-            await tools["mutation_apply"](preview_token=result["data"]["preview_token"])
+            await tools["apply_change"](preview_token=result["data"]["preview_token"])
         )
         assert applied["data"]["record"]["script"] == current["script"]
-        assert json.loads(mutation.calls[0].request.content) == {"active": False}
+        assert json.loads(change.calls[0].request.content) == {"active": False}
         metadata_calls = [
             call
             for call in http_mock.calls
@@ -405,16 +403,14 @@ class TestInlineRecordWrite:
         )
         settings.servicenow_env = "prod"
         result = decode_response(
-            await tools["mutation_apply"](
-                preview_token=preview["data"]["preview_token"]
-            )
+            await tools["apply_change"](preview_token=preview["data"]["preview_token"])
         )
         assert result["status"] == "error"
         assert "production" in result["error"]["message"].lower()
         assert all(call.request.method == "GET" for call in http_mock.calls)
         assert (
             decode_response(
-                await tools["mutation_apply"](
+                await tools["apply_change"](
                     preview_token=preview["data"]["preview_token"]
                 )
             )["status"]

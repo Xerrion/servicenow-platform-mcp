@@ -72,7 +72,7 @@ def register_tools(
         window_days: int | None = None,
         limit: int | None = None,
     ) -> CapabilityResult:
-        """Inspect audit settings for a table or field, or read a record's change history. History defaults to 90 days because sys_audit is very large."""
+        """Inspect audit settings or read a record's field change history. History defaults to the last 90 days."""
         return await capability.audit(
             action=action,
             table=table,

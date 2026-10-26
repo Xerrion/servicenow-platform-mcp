@@ -51,7 +51,7 @@ def register_tools(
         params: dict[str, JsonValue] | None = None,
         element_id: str | None = None,
     ) -> CapabilityResult:
-        """Run a named diagnostic or explain a finding. Use describe first to get supported investigation names and parameter schemas."""
+        """Run a named diagnostic or explain a finding. Use action=describe to find available diagnostics and their inputs."""
         return await capability.investigate(
             action=action, name=name, params=params, element_id=element_id
         )

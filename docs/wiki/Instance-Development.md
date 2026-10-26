@@ -98,7 +98,7 @@ The environment setting controls write protection and does not select the instan
 For production connections, `SERVICENOW_ENV=prod` or `production` blocks writes through this server.
 Read [[Safety-and-Policy]] before changing write access.
 
-Record mutations require `record_preview` followed by `mutation_apply`.
+Record changes require `record_preview` followed by `apply_change`.
 The server does not enforce human approval. Use this review process:
 
 1. Read the current record, including its complete script and relevant conditions.

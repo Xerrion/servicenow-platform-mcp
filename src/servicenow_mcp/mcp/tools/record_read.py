@@ -55,7 +55,7 @@ def register_tools(
         name: str | None = None,
         fields: list[str] | Literal["*"] | None = None,
     ) -> CapabilityResult:
-        """Read one record by sys_id or exact name. Use query for multiple records or encoded-query filters; sensitive fields are masked."""
+        """Read one record by sys_id or exact name, with sensitive fields masked. Use query for multiple records or encoded filters."""
         return await capability.record_read(
             table=table, sys_id=sys_id, name=name, fields=fields
         )

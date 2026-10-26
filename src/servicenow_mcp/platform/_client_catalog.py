@@ -266,7 +266,7 @@ class ServiceCatalogApiClient(ServiceNowRequestClient):
             error.args = (
                 (
                     f"Service Catalog request failed (HTTP {response.status_code}). Check access and inputs. "
-                    "For mutations, the remote outcome is unknown. Check ServiceNow before another preview. The "
+                    "For changes, the remote outcome is unknown. Check ServiceNow before another preview. The "
                     "request was not replayed."
                 ),
             )

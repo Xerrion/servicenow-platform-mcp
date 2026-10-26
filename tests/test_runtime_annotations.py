@@ -66,11 +66,16 @@ async def test_full_mcp_initialize_list_tools_and_shutdown_without_network(
             tools = (await session.list_tools()).tools
             assert len(tools) == 17
             assert "flow_preview" not in {tool.name for tool in tools}
+            assert "mutation_apply" not in {tool.name for tool in tools}
             assert {
                 "query",
                 "flow",
                 "service_catalog_preview",
-                "mutation_apply",
+                "apply_change",
             } <= {tool.name for tool in tools}
+            legacy = await session.call_tool(
+                "mutation_apply", {"preview_token": "not-a-token"}
+            )
+            assert legacy.is_error
         tasks.cancel_scope.cancel()
     assert not http_mock.calls

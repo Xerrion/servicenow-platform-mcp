@@ -79,7 +79,7 @@ Creating a ticket, adding a work note, or changing an assignment needs write too
 Ask your administrator to enable the required tools for a development or test instance first.
 Read [[Safety-and-Policy]] for the controls that apply to writes.
 
-Record changes require `record_preview` followed by `mutation_apply`.
+Record changes require `record_preview` followed by `apply_change`.
 The server does not enforce human approval. Use this review process for a record change:
 
 1. Ask the app to read the current ticket.
@@ -111,7 +111,7 @@ Catalog ordering is separate from reading request records.
 `service_catalog` provides browsing in `readonly`.
 The separate `service_catalog_write` group provides order and cart previews.
 
-Catalog orders, cart changes, attachment uploads, and deletions require their family preview followed by `mutation_apply`.
+Catalog orders, cart changes, attachment uploads, and deletions require their family preview followed by `apply_change`.
 Check the target, requested item or file, and intended action before authorizing these operations.
 
 Use [[Tool-Packages]] to choose the available tools.

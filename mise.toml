@@ -12,10 +12,6 @@ python_files = "."
 description = "Regenerate offline native tool schema fixtures"
 run = "uv run python -m tests.generate_tool_schemas"
 
-[tasks.test-integration]
-description = "Run live integration tests (non-production instance only)"
-run = "uv run pytest -m integration"
-
 [tasks.build]
 description = "Build the distribution"
 run = "uv build"

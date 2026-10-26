@@ -1,18 +1,18 @@
 """Owned contract models preserve optional fields and native values."""
 
+from servicenow_mcp.capabilities.changes.models import ChangePreview
 from servicenow_mcp.capabilities.flows._flow_models import (
     ActionTypeRef,
     FlowNode,
     V2Trigger,
 )
-from servicenow_mcp.capabilities.mutations.models import MutationPreview
 from servicenow_mcp.capabilities.records.models import DiffEntry
 
 
 def test_write_model_native_values() -> None:
     nested = {"a": [1, {"b": None}], "n": 0}
     assert DiffEntry(old=nested, new=None).to_payload() == {"old": nested, "new": None}
-    model = MutationPreview(
+    model = ChangePreview(
         family="records",
         action="create",
         preview_token="k",

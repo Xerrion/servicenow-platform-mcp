@@ -80,7 +80,7 @@ def register_tools(
         value: str | None = None,
         api_version: str | None = None,
     ) -> CapabilityResult:
-        """Read Service Catalog items, variables, cart, and user-specific catalog state. Use service_catalog_preview for changes."""
+        """Read Service Catalog items, variables, cart, and user-specific details. Use service_catalog_preview to prepare changes."""
         return await capability.service_catalog(
             action=action,
             sys_id=sys_id,

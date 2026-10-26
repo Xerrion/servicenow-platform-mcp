@@ -10,9 +10,9 @@ import httpx2
 import pytest
 
 from servicenow_mcp.auth import OAuthPKCEProvider
+from servicenow_mcp.capabilities.changes.models import StagedChange
+from servicenow_mcp.capabilities.changes.store import PreviewTokenStore
 from servicenow_mcp.capabilities.contracts import MAX_JSON_PAYLOAD_BYTES
-from servicenow_mcp.capabilities.mutations.models import StagedMutation
-from servicenow_mcp.capabilities.mutations.store import PreviewTokenStore
 from servicenow_mcp.capabilities.records._artifact import validate_ui_macro_xml
 from servicenow_mcp.platform.metadata._dictionary import DictionaryRegistry
 from servicenow_mcp.policy import DENIED_TABLES
@@ -20,7 +20,7 @@ from tests._mock_transport import http_mock
 from tests.helpers import decode_response, get_tool_functions, preview_and_apply
 
 if TYPE_CHECKING:
-    from servicenow_mcp.capabilities.mutations.models import StagedMutation
+    from servicenow_mcp.capabilities.changes.models import StagedChange
     from servicenow_mcp.config import Settings
 
 
@@ -48,13 +48,13 @@ def _register_and_get_tools(
     """Register the unified record_write tools on a fresh MCP and return callables."""
     from mcp.server import MCPServer
 
-    from tests.helpers import register_mutations
+    from tests.helpers import register_changes
 
     mcp = MCPServer("test")
     dictionary = AsyncMock(spec=DictionaryRegistry)
     dictionary.get_fields.return_value = []
     dictionary.get_chain.side_effect = lambda table: [table]
-    register_mutations(
+    register_changes(
         mcp, settings, auth_provider, frozenset({"records"}), dictionary=dictionary
     )
     return get_tool_functions(mcp)
@@ -148,15 +148,15 @@ class TestActionDispatch:
         auth_provider: OAuthPKCEProvider,
     ) -> None:
         """Oversized JSON returns an error without allocating a preview token."""
-        from servicenow_mcp.capabilities.mutations import store as record_write_module
+        from servicenow_mcp.capabilities.changes import store as record_write_module
 
         # Patch PreviewTokenStore.create to detect any token-allocation attempt.
         # If the cap fires correctly, this never runs.
-        created_tokens: list[StagedMutation] = []
+        created_tokens: list[StagedChange] = []
 
         original_create = record_write_module.PreviewTokenStore.create
 
-        async def _spy_create(self: PreviewTokenStore, payload: StagedMutation) -> str:
+        async def _spy_create(self: PreviewTokenStore, payload: StagedChange) -> str:
             created_tokens.append(payload)
             return await original_create(self, payload)
 
@@ -228,7 +228,7 @@ class TestStandardRecordWrite:
         body: bytes,
     ) -> None:
         http_mock.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
-        mutation = http_mock.post(f"{BASE_URL}/api/now/table/incident").respond(
+        change = http_mock.post(f"{BASE_URL}/api/now/table/incident").respond(
             201,
             content=body,
             headers={"Content-Type": "text/html"},
@@ -252,7 +252,7 @@ class TestStandardRecordWrite:
         assert "Verify remote outcome before retrying" in result["error"]["message"]
         assert "request was not replayed" in result["error"]["message"]
         assert "private response" not in result["error"]["message"]
-        assert mutation.call_count == 1
+        assert change.call_count == 1
 
     @pytest.mark.asyncio()
     async def test_update_apply_empty_response_warns_before_retry(
@@ -265,7 +265,7 @@ class TestStandardRecordWrite:
             json={"result": {"sys_id": SYS_ID_INC001, "state": "1"}},
         )
         http_mock.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
-        mutation = http_mock.patch(
+        change = http_mock.patch(
             f"{BASE_URL}/api/now/table/incident/{SYS_ID_INC001}"
         ).respond(200, content=b"")
         tools = _register_and_get_tools(settings, auth_provider)
@@ -288,7 +288,7 @@ class TestStandardRecordWrite:
         )
         assert "Remote outcome unknown" in result["error"]["message"]
         assert "Verify remote outcome before retrying" in result["error"]["message"]
-        assert mutation.call_count == 1
+        assert change.call_count == 1
 
     @pytest.mark.asyncio()
     @pytest.mark.parametrize("status_code", [pytest.param(200, id="200")])
@@ -299,7 +299,7 @@ class TestStandardRecordWrite:
         status_code: int,
     ) -> None:
         http_mock.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
-        mutation = http_mock.post(f"{BASE_URL}/api/now/table/incident").respond(
+        change = http_mock.post(f"{BASE_URL}/api/now/table/incident").respond(
             status_code, json=[]
         )
         tools = _register_and_get_tools(settings, auth_provider)
@@ -319,7 +319,7 @@ class TestStandardRecordWrite:
         assert f"HTTP {status_code}" in result["error"]["message"]
         assert "Remote outcome unknown" in result["error"]["message"]
         assert "Verify remote outcome before retrying" in result["error"]["message"]
-        assert mutation.call_count == 1
+        assert change.call_count == 1
 
     @pytest.mark.asyncio()
     async def test_update_apply_non_object_json_response_warns_before_retry(
@@ -332,7 +332,7 @@ class TestStandardRecordWrite:
             json={"result": {"sys_id": SYS_ID_INC001, "state": "1"}},
         )
         http_mock.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
-        mutation = http_mock.patch(
+        change = http_mock.patch(
             f"{BASE_URL}/api/now/table/incident/{SYS_ID_INC001}"
         ).respond(200, json=[])
         tools = _register_and_get_tools(settings, auth_provider)
@@ -354,7 +354,7 @@ class TestStandardRecordWrite:
         )
         assert "Remote outcome unknown" in result["error"]["message"]
         assert "Verify remote outcome before retrying" in result["error"]["message"]
-        assert mutation.call_count == 1
+        assert change.call_count == 1
 
     @pytest.mark.asyncio()
     async def test_create_preview_returns_token(
@@ -467,13 +467,13 @@ class TestStandardRecordWrite:
                 json={"result": {"sys_id": "new042", "short_description": "Apply me"}},
             ),
         )
-        raw = await tools["mutation_apply"](preview_token=token)
+        raw = await tools["apply_change"](preview_token=token)
         result = decode_response(raw)
         assert result["status"] == "success"
         assert result["data"]["sys_id"] == "new042"
 
         # Token is single-use - second call must fail.
-        raw2 = await tools["mutation_apply"](preview_token=token)
+        raw2 = await tools["apply_change"](preview_token=token)
         assert decode_response(raw2)["status"] == "error"
 
     @pytest.mark.asyncio()
@@ -483,7 +483,7 @@ class TestStandardRecordWrite:
         auth_provider: OAuthPKCEProvider,
     ) -> None:
         http_mock.get(METADATA_URL).mock(return_value=NO_MANDATORY_RESPONSE)
-        mutation = http_mock.post(f"{BASE_URL}/api/now/table/incident").respond(
+        change = http_mock.post(f"{BASE_URL}/api/now/table/incident").respond(
             201, content=b""
         )
         tools = _register_and_get_tools(settings, auth_provider)
@@ -494,16 +494,16 @@ class TestStandardRecordWrite:
         )
         token = preview["data"]["preview_token"]
 
-        result = decode_response(await tools["mutation_apply"](preview_token=token))
+        result = decode_response(await tools["apply_change"](preview_token=token))
         assert result["status"] == "error"
         assert "Remote outcome unknown" in result["error"]["message"]
         assert "Verify remote outcome before retrying" in result["error"]["message"]
-        assert mutation.call_count == 1
+        assert change.call_count == 1
 
-        second = decode_response(await tools["mutation_apply"](preview_token=token))
+        second = decode_response(await tools["apply_change"](preview_token=token))
         assert second["status"] == "error"
         assert "Invalid or expired preview token" in second["error"]["message"]
-        assert mutation.call_count == 1
+        assert change.call_count == 1
 
     @pytest.mark.asyncio()
     async def test_record_apply_unknown_token_returns_error(
@@ -512,7 +512,7 @@ class TestStandardRecordWrite:
         auth_provider: OAuthPKCEProvider,
     ) -> None:
         tools = _register_and_get_tools(settings, auth_provider)
-        raw = await tools["mutation_apply"](preview_token="not-a-real-token")
+        raw = await tools["apply_change"](preview_token="not-a-real-token")
         result = decode_response(raw)
         assert result["status"] == "error"
         assert "Invalid or expired" in result["error"]["message"]
@@ -535,7 +535,7 @@ class TestMandatoryFieldValues:
                 "result": [{"element": name, "mandatory": "true"} for name in payload]
             },
         )
-        mutation = http_mock.post(f"{BASE_URL}/api/now/table/incident").respond(
+        change = http_mock.post(f"{BASE_URL}/api/now/table/incident").respond(
             201,
             json={"result": {"sys_id": SYS_ID_INC001, **payload}},
         )
@@ -557,13 +557,13 @@ class TestMandatoryFieldValues:
         if preview:
             assert result["data"]["summary"]["data"]["active"] is False
             assert result["data"]["summary"]["data"]["order"] == 0
-            assert not mutation.called
-            raw = await tools["mutation_apply"](
+            assert not change.called
+            raw = await tools["apply_change"](
                 preview_token=result["data"]["preview_token"]
             )
             assert decode_response(raw)["status"] == "success"
-        assert mutation.call_count == 1
-        submitted = json.loads(mutation.calls[0].request.content)
+        assert change.call_count == 1
+        submitted = json.loads(change.calls[0].request.content)
         assert submitted["active"] is False
         assert submitted["order"] == 0
         assert type(submitted["order"]) is int
@@ -611,7 +611,7 @@ class TestInheritedMandatoryFields:
     ) -> None:
         from mcp.server import MCPServer
 
-        from tests.helpers import register_mutations
+        from tests.helpers import register_changes
 
         def objects(request: httpx2.Request) -> httpx2.Response:
             parent = (
@@ -648,12 +648,12 @@ class TestInheritedMandatoryFields:
             side_effect=objects
         )
         http_mock.get(METADATA_URL).mock(side_effect=fields)
-        mutation = http_mock.post(f"{BASE_URL}/api/now/table/u_child").respond(
+        change = http_mock.post(f"{BASE_URL}/api/now/table/u_child").respond(
             201,
             json={"result": {"sys_id": SYS_ID_INC001}},
         )
         mcp = MCPServer("test")
-        register_mutations(mcp, settings, auth_provider, frozenset({"records"}))
+        register_changes(mcp, settings, auth_provider, frozenset({"records"}))
         with patch.object(
             PreviewTokenStore, "create", new_callable=AsyncMock, return_value="preview"
         ) as create_token:
@@ -667,12 +667,12 @@ class TestInheritedMandatoryFields:
         if child_mandatory == "false":
             assert result["status"] == "success"
             assert create_token.await_count == 1
-            assert mutation.call_count == 0
+            assert change.call_count == 0
         else:
             assert result["status"] == "error"
             assert result["error"]["missing_fields"] == ["name"]
             create_token.assert_not_awaited()
-            assert not mutation.called
+            assert not change.called
 
     @pytest.mark.parametrize(
         "preview,status_code", [pytest.param(True, 401, id="401-True")]
@@ -686,7 +686,7 @@ class TestInheritedMandatoryFields:
     ) -> None:
         from mcp.server import MCPServer
 
-        from tests.helpers import register_mutations
+        from tests.helpers import register_changes
 
         def objects(request: httpx2.Request) -> httpx2.Response:
             parent = (
@@ -713,7 +713,7 @@ class TestInheritedMandatoryFields:
         )
         http_mock.get(METADATA_URL).mock(side_effect=fields)
         mcp = MCPServer("test")
-        register_mutations(mcp, settings, auth_provider, frozenset({"records"}))
+        register_changes(mcp, settings, auth_provider, frozenset({"records"}))
         with patch.object(
             PreviewTokenStore, "create", new_callable=AsyncMock
         ) as create_token:
@@ -735,7 +735,7 @@ class TestInheritedMandatoryFields:
     ) -> None:
         from mcp.server import MCPServer
 
-        from tests.helpers import register_mutations
+        from tests.helpers import register_changes
 
         def objects(request: httpx2.Request) -> httpx2.Response:
             parent = (
@@ -750,7 +750,7 @@ class TestInheritedMandatoryFields:
         )
         metadata = http_mock.get(METADATA_URL).respond(200, json={"result": []})
         mcp = MCPServer("test")
-        register_mutations(mcp, settings, auth_provider, frozenset({"records"}))
+        register_changes(mcp, settings, auth_provider, frozenset({"records"}))
         tools = get_tool_functions(mcp)
         preview = decode_response(
             await tools["record_preview"](action="create", table="u_child", data={})
@@ -766,9 +766,7 @@ class TestInheritedMandatoryFields:
 
         metadata.mock(side_effect=fields)
         result = decode_response(
-            await tools["mutation_apply"](
-                preview_token=preview["data"]["preview_token"]
-            )
+            await tools["apply_change"](preview_token=preview["data"]["preview_token"])
         )
         assert result["status"] == "error"
         assert result["error"]["missing_fields"] == ["name"]

@@ -60,7 +60,7 @@ async def test_full_stdio_retains_flow_reads_and_rejects_flow_preview(tmp_path):
                 "record_preview",
                 "attachment_preview",
                 "service_catalog_preview",
-                "mutation_apply",
+                "apply_change",
             } <= names
             description = await session.call_tool("flow", {"action": "describe"})
             await session.validate_tool_result("flow", description)

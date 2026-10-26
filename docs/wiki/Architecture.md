@@ -25,10 +25,10 @@ Paths are relative to `src/servicenow_mcp/`.
 | `mcp/tools/`                                          | Thin adapters with enumerated actions, native inputs, descriptions, and annotations.             |
 | `mcp/handlers.py`, `mcp/errors.py`, `mcp/outputs.py`  | Redacted diagnostics and native MCP error translation.                                           |
 | `capabilities/`                                       | Records, metadata, attachments, catalog, audit, investigations, flows, CMDB, and code search.    |
-| `capabilities/mutations/`                             | Typed commands, bounded staging, and single-use application.                                     |
+| `capabilities/changes/`                               | Typed commands, bounded staging, and single-use application.                                     |
 | `platform/client.py`, `platform/_client_*.py`         | Shared REST facade and existing API-family clients.                                              |
 | `platform/metadata/`                                  | Dictionary inheritance, field classification, choices, audit metadata, and cache ownership.      |
-| `policy/`                                             | Denied tables, query bounds, field masking, and mutation protection.                             |
+| `policy/`                                             | Denied tables, query bounds, field masking, and change protection.                               |
 | `auth.py`, `oauth_callback.py`, `credential_cache.py` | Local public-client PKCE, memory-only access tokens, and opt-in native OS refresh-token caching. |
 | `telemetry.py`, `_http_diagnostics.py`, `sentry.py`   | Request timing, safe evidence, and optional error reporting.                                     |
 
@@ -54,16 +54,16 @@ Text and structured errors contain the same information.
 
 ## Construction and cleanup
 
-Bootstrap creates one OAuth provider, shared HTTP pool, client factory, choice registry, dictionary registry, and mutation coordinator.
+Bootstrap creates one OAuth provider, shared HTTP pool, client factory, choice registry, dictionary registry, and change coordinator.
 Constructing the application does not authorize or contact ServiceNow.
 The first outbound operation obtains authorization.
 Directly constructed clients own their transport. Factory clients share the application pool.
 
-Shutdown closes the shared pool and clears staged mutations.
+Shutdown closes the shared pool and clears staged changes.
 The installed command also shuts down Sentry.
 The temporary loopback HTTP listener receives OAuth callbacks only. It does not receive MCP requests.
 
-## Authorization and mutations
+## Authorization and changes
 
 OAuth uses public authorization-code flow with PKCE S256 and no client secret.
 Access tokens stay in memory. Refresh tokens also stay in memory unless native OS caching is explicitly enabled.
@@ -73,7 +73,7 @@ Token refresh retains the process-local authorization generation. Browser author
 A detected cache change clears in-memory authorization and blocks held previews. No cached account is substituted within that process.
 Preview tokens are never persisted or transferred between processes.
 
-Every mutation requires a family preview and `mutation_apply`.
+Every change requires a family preview and `apply_change`.
 Preview reads metadata and current state, then stores an owned copy of the typed command.
 Apply atomically consumes the token and checks the enabled family, environment, instance, authorization generation, policy, and detectable state changes.
 Header acquisition also checks the authorization generation, including after precondition reads.
@@ -82,7 +82,7 @@ Apply cannot authorize in the browser and continue with an existing preview.
 Record application refreshes relevant dictionary metadata and checks mandatory and XML fields.
 Attachment deletion checks actual ownership and metadata.
 Catalog application checks the observed item or cart state.
-State checks and the subsequent REST mutation are not atomic.
+State checks and the subsequent REST change are not atomic.
 Catalog previews do not simulate fulfillment or guarantee prices.
 A preview token does not prove human approval.
 
@@ -90,8 +90,8 @@ Tokens expire after 300 seconds and are consumed on success or failure.
 The store permits 1,000 entries and 64 MiB of retained payloads.
 Attachment bytes count once. Consumption, expiration, and shutdown release that capacity.
 The byte limit bounds retained payloads, not total Python process memory.
-No token or mutation payload is persisted.
-Remote failures never trigger automatic mutation replay.
+No token or change payload is persisted.
+Remote failures never trigger automatic change replay.
 
 ## Metadata and evidence
 

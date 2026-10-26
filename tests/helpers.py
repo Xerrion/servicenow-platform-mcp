@@ -6,9 +6,9 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 from jsonschema import Draft202012Validator
 from mcp.types import CallToolResult
 
-from servicenow_mcp.capabilities.mutations.coordinator import MutationCoordinator
+from servicenow_mcp.capabilities.changes.coordinator import ChangeCoordinator
 from servicenow_mcp.mcp.outputs import error_result
-from servicenow_mcp.mcp.tools.mutations import register_tools
+from servicenow_mcp.mcp.tools.changes import register_tools
 from servicenow_mcp.platform.client import ServiceNowClient, ServiceNowClientProvider
 from servicenow_mcp.platform.metadata._dictionary import DictionaryRegistry
 
@@ -87,17 +87,17 @@ async def get_tool_names(mcp: MCPServer) -> list[str]:
     return [tool.name for tool in await mcp.list_tools()]
 
 
-def register_mutations(
+def register_changes(
     mcp: MCPServer,
     settings: Settings,
     auth: OAuthPKCEProvider,
     families: frozenset[str],
     dictionary: DictionaryRegistry | None = None,
     client_factory: ServiceNowClientProvider | None = None,
-) -> MutationCoordinator:
+) -> ChangeCoordinator:
     clients = client_factory or (lambda: ServiceNowClient(settings, auth))
     dictionary = dictionary or DictionaryRegistry(settings, auth, clients)
-    coordinator = MutationCoordinator(settings, auth, clients, dictionary, families)
+    coordinator = ChangeCoordinator(settings, auth, clients, dictionary, families)
     register_tools(mcp, coordinator)
     return coordinator
 
@@ -109,4 +109,4 @@ async def preview_and_apply(
     value = decode_response(preview)
     if value["status"] == "error":
         return preview
-    return await tools["mutation_apply"](preview_token=value["data"]["preview_token"])
+    return await tools["apply_change"](preview_token=value["data"]["preview_token"])

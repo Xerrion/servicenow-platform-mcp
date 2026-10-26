@@ -52,7 +52,7 @@ def register_tools(
         table_sys_id: str | None = None,
         file_name: str | None = None,
     ) -> CapabilityResult:
-        """Read attachment metadata or content by parent record, attachment ID, or file name. Use attachment_preview then mutation_apply for uploads or deletions."""
+        """List a record's attachments or read one by ID or by record and file name. Use attachment_preview to prepare changes."""
         return await capability.attachment(
             action=action,
             sys_id=sys_id,

@@ -14,7 +14,7 @@ from tests._mock_transport import http_mock
 from tests.helpers import (
     decode_response,
     get_tool_functions,
-    register_mutations,
+    register_changes,
 )
 
 if TYPE_CHECKING:
@@ -42,7 +42,7 @@ def _register_and_get_tools(
     """Register the unified service_catalog tool on a fresh MCP and return callables."""
     mcp = MCPServer("test")
     register_tools(mcp, settings, auth_provider)
-    register_mutations(mcp, settings, auth_provider, frozenset({"catalog"}))
+    register_changes(mcp, settings, auth_provider, frozenset({"catalog"}))
     http_mock.get(f"{SC_BASE}/items/{ITEM_SYS_ID}").respond(
         200, json={"result": {"sys_id": ITEM_SYS_ID}}
     )

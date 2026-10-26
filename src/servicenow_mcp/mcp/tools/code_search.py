@@ -54,7 +54,7 @@ def register_tools(
         limit: int | None = 20,
         extended_matching: bool | None = False,
     ) -> CapabilityResult:
-        """Search indexed ServiceNow source code or inspect Code Search table coverage. Use query or record_read for record data."""
+        """Search indexed ServiceNow code or list searchable tables. Use query or record_read to read records."""
         return await capability.code_search(
             action=action,
             term=term,

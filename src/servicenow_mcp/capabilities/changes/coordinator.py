@@ -3,23 +3,23 @@
 from typing import TYPE_CHECKING
 
 from servicenow_mcp.auth import OAuthPKCEProvider, require_authorization_generation
-from servicenow_mcp.capabilities.attachments import mutations as attachments
-from servicenow_mcp.capabilities.catalog import mutations as catalog
-from servicenow_mcp.capabilities.contracts import CapabilityError, CapabilityResult
-from servicenow_mcp.capabilities.mutations.models import (
+from servicenow_mcp.capabilities.attachments import changes as attachments
+from servicenow_mcp.capabilities.catalog import changes as catalog
+from servicenow_mcp.capabilities.changes.models import (
     AttachmentCommand,
     CatalogCommand,
-    MutationCommand,
-    MutationPreview,
+    ChangeCommand,
+    ChangePreview,
     RecordCommand,
-    StagedMutation,
+    StagedChange,
 )
-from servicenow_mcp.capabilities.mutations.store import PreviewTokenStore
-from servicenow_mcp.capabilities.records import mutations as records
+from servicenow_mcp.capabilities.changes.store import PreviewTokenStore
+from servicenow_mcp.capabilities.contracts import CapabilityError, CapabilityResult
+from servicenow_mcp.capabilities.records import changes as records
 from servicenow_mcp.policy import (
     gate_write,
     production_write_blocked,
-    require_mutation_policy,
+    require_change_policy,
 )
 
 if TYPE_CHECKING:
@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from servicenow_mcp.platform.metadata._dictionary import DictionaryRegistry
 
 
-class MutationCoordinator:
+class ChangeCoordinator:
     def __init__(
         self,
         settings: Settings,
@@ -45,11 +45,11 @@ class MutationCoordinator:
         self.families = families
         self.store = store if store is not None else PreviewTokenStore()
 
-    def _gate(self, command: MutationCommand, owning_table: str | None = None) -> None:
+    def _gate(self, command: ChangeCommand, owning_table: str | None = None) -> None:
         production_write_blocked(self.settings)
         if command.family not in self.families:
             raise CapabilityError(
-                "This mutation family is not enabled.", "MUTATION_DISABLED"
+                "This change family is not enabled.", "CHANGE_DISABLED"
             )
         if isinstance(command, RecordCommand | AttachmentCommand):
             table = command.table
@@ -57,7 +57,7 @@ class MutationCoordinator:
             table = catalog.target_table(command)
         else:
             raise CapabilityError(
-                "This mutation family is not supported.", "MUTATION_DISABLED"
+                "This change family is not supported.", "CHANGE_DISABLED"
             )
         if table or owning_table:
             gate_write(table or owning_table or "", self.settings)
@@ -69,7 +69,7 @@ class MutationCoordinator:
         }:
             gate_write("sc_cart_item", self.settings)
 
-    def _apply_gate(self, staged: StagedMutation) -> None:
+    def _apply_gate(self, staged: StagedChange) -> None:
         self._gate(staged.command, staged.owning_table)
         if staged.instance != self.settings.servicenow_instance_url:
             raise CapabilityError(
@@ -77,7 +77,7 @@ class MutationCoordinator:
                 "PREVIEW_CONNECTION_CHANGED",
             )
 
-    async def preview(self, command: MutationCommand) -> CapabilityResult:
+    async def preview(self, command: ChangeCommand) -> CapabilityResult:
         self._gate(command)
         await self.auth.get_headers()
         generation = self.auth.authorization_generation
@@ -101,11 +101,11 @@ class MutationCoordinator:
                     )
                 else:
                     raise CapabilityError(
-                        "This mutation family is not supported.", "MUTATION_DISABLED"
+                        "This change family is not supported.", "CHANGE_DISABLED"
                     )
         self._gate(command, table)
         token = await self.store.create(
-            StagedMutation(
+            StagedChange(
                 command=command,
                 instance=self.settings.servicenow_instance_url,
                 authorization_generation=generation,
@@ -115,7 +115,7 @@ class MutationCoordinator:
         )
         limitations = [
             "A preview token does not prove human approval. Apply rechecks policy and detectable state changes.",
-            "State checks and the upstream mutation are not atomic.",
+            "State checks and the upstream change are not atomic.",
         ]
         if isinstance(command, CatalogCommand):
             limitations.extend(
@@ -124,7 +124,7 @@ class MutationCoordinator:
                     "Preview cannot predict fulfillment, prices, routing, or all server-side validation.",
                 ],
             )
-        data = MutationPreview(
+        data = ChangePreview(
             family=command.family,
             action=command.action,
             preview_token=token,
@@ -140,7 +140,7 @@ class MutationCoordinator:
         self._apply_gate(staged)
         with (
             require_authorization_generation(staged.authorization_generation),
-            require_mutation_policy(lambda: self._apply_gate(staged)),
+            require_change_policy(lambda: self._apply_gate(staged)),
         ):
             async with self.clients() as client:
                 if isinstance(command, RecordCommand):
@@ -155,7 +155,7 @@ class MutationCoordinator:
                     value = await catalog.apply(command, staged.fingerprint, client)
                 else:
                     raise CapabilityError(
-                        "This mutation family is not supported.", "MUTATION_DISABLED"
+                        "This change family is not supported.", "CHANGE_DISABLED"
                     )
         empty_guide = (
             isinstance(command, CatalogCommand)
@@ -169,7 +169,7 @@ class MutationCoordinator:
             or (isinstance(value, dict) and "error" in value)
         ):
             raise CapabilityError(
-                "Mutation response did not establish success. Remote outcome is unknown. Check ServiceNow before "
+                "Change response did not establish success. Remote outcome is unknown. Check ServiceNow before "
                 "another preview.",
                 "UNKNOWN_OUTCOME",
             )

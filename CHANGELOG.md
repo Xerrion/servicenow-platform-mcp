@@ -4,7 +4,7 @@
 
 ### Removed
 
-- Remove all Flow authoring commands, planners, serializers, mutation adapters,
+- Remove all Flow authoring commands, planners, serializers, change adapters,
   lifecycle effects, schema-provider execution, and temporary preview tracing.
   Flow inspection, contract reads, trigger discovery, decoding, and existing
   execution status remain available. `flow describe` lists only read actions.
@@ -14,8 +14,11 @@
 
 ### Changed
 
+- Rename the public `mutation_apply` tool to `apply_change`. Clients must use the new name.
+- Rename the `MUTATION_DISABLED` error code to `CHANGE_DISABLED`.
+
 - Consolidate endpoint and input-validation contracts while retaining OAuth,
-  credential-cache, mutation-token, privacy, and read-only Flow regressions.
+  credential-cache, change-token, privacy, and read-only Flow regressions.
 - Keep `flow validate` as a bounded local check of saved V2 structure. Its result
   explicitly excludes input-type compatibility, full semantic validation, and
   runtime behavior. Unreadable, truncated, V1, or changing definitions remain

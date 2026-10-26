@@ -28,7 +28,7 @@ REQUIRED = {
     "query": ["table"],
     "describe": [],
     "record_preview": ["action", "table"],
-    "mutation_apply": ["preview_token"],
+    "apply_change": ["preview_token"],
     "record_read": ["table"],
     "attachment": ["action"],
     "attachment_preview": ["action"],
@@ -132,7 +132,7 @@ async def test_create_needs_no_sys_id_and_null_keeps_preview_default(
     if commit:
         response = await _call(
             server,
-            "mutation_apply",
+            "apply_change",
             {"preview_token": response["data"]["preview_token"]},
         )
         assert response["status"] == "success"
@@ -314,7 +314,7 @@ async def test_attachment_upload_null_content_type_uses_default(
     assert response["status"] == "success"
     assert not route.called
     response = await _call(
-        server, "mutation_apply", {"preview_token": response["data"]["preview_token"]}
+        server, "apply_change", {"preview_token": response["data"]["preview_token"]}
     )
     assert response["status"] == "success"
     assert (

@@ -1,9 +1,9 @@
-"""Record mutation previews, dictionary checks, and one-request execution."""
+"""Record change previews, dictionary checks, and one-request execution."""
 
 from typing import TYPE_CHECKING, Any
 
+from servicenow_mcp.capabilities.changes.models import RecordCommand, fingerprint
 from servicenow_mcp.capabilities.contracts import CapabilityError
-from servicenow_mcp.capabilities.mutations.models import RecordCommand, fingerprint
 from servicenow_mcp.capabilities.records._artifact import validate_ui_macro_xml
 from servicenow_mcp.capabilities.records._record_helpers import (
     _build_update_diff,
@@ -96,7 +96,7 @@ async def apply(
         )
     if not isinstance(record, dict) or not record.get("sys_id"):
         raise CapabilityError(
-            "Mutation response was incomplete. Remote outcome is unknown. Check the record before another preview.",
+            "Change response was incomplete. Remote outcome is unknown. Check the record before another preview.",
             "UNKNOWN_OUTCOME",
         )
     return {

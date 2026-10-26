@@ -13,23 +13,23 @@ if TYPE_CHECKING:
     from servicenow_mcp.config import Settings
 
 
-_mutation_policy: ContextVar[Callable[[], None] | None] = ContextVar(
-    "mutation_policy", default=None
+_change_policy: ContextVar[Callable[[], None] | None] = ContextVar(
+    "change_policy", default=None
 )
 
 
 @contextmanager
-def require_mutation_policy(check: Callable[[], None]) -> Generator[None]:
+def require_change_policy(check: Callable[[], None]) -> Generator[None]:
     """Recheck a staged command's policy when obtaining request headers."""
-    token = _mutation_policy.set(check)
+    token = _change_policy.set(check)
     try:
         yield
     finally:
-        _mutation_policy.reset(token)
+        _change_policy.reset(token)
 
 
-def check_mutation_policy() -> None:
-    check = _mutation_policy.get()
+def check_change_policy() -> None:
+    check = _change_policy.get()
     if check is not None:
         check()
 
@@ -188,14 +188,14 @@ def enforce_query_safety(
 
 
 def write_gate(table: str, settings: Settings) -> None:
-    """Reject a mutation blocked by environment or table policy."""
+    """Reject a change blocked by environment or table policy."""
     reason = write_blocked_reason(table, settings)
     if reason:
         raise PolicyError(reason)
 
 
 def production_write_blocked(settings: Settings) -> None:
-    """Reject production mutations before metadata requests."""
+    """Reject production changes before metadata requests."""
     if not settings.is_production:
         return
     raise PolicyError("Write operations are blocked in production environments")
@@ -218,7 +218,7 @@ def write_blocked_reason(table: str, settings: Settings) -> str | None:
 
 
 def gate_write(table: str, settings: Settings) -> None:
-    """Validate a target and reject mutations that violate policy."""
+    """Validate a target and reject changes that violate policy."""
     from servicenow_mcp.validation import validate_identifier
 
     validate_identifier(table)

@@ -66,28 +66,21 @@ def prod_auth_provider(prod_settings: Settings) -> OAuthPKCEProvider:
 
 
 @pytest.fixture(autouse=True)
-def _isolate_unit_settings(
-    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def _isolate_unit_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     """Do not load developer credentials or telemetry settings in unit tests."""
-    if "integration" not in request.node.path.parts:
-        model_config = Settings.model_config.copy()
-        model_config["env_file"] = None
-        monkeypatch.setattr(Settings, "model_config", model_config)
+    model_config = Settings.model_config.copy()
+    model_config["env_file"] = None
+    monkeypatch.setattr(Settings, "model_config", model_config)
 
 
 @pytest.fixture(autouse=True)
 def _stub_user_authorization(request: pytest.FixtureRequest) -> Generator[None]:
-    """Keep unit tests offline; authentication and integration tests use the real provider."""
-    if (
-        request.node.path.name
-        in {
-            "test_auth.py",
-            "test_credential_cache.py",
-            "test_credential_cache_stdio.py",
-        }
-        or "integration" in request.node.path.parts
-    ):
+    """Keep unit tests offline; authentication tests use the real provider."""
+    if request.node.path.name in {
+        "test_auth.py",
+        "test_credential_cache.py",
+        "test_credential_cache_stdio.py",
+    }:
         yield
         return
     with patch.object(
@@ -120,8 +113,6 @@ def _fail_closed_network(
 
     Loopback sockets are allowed only for tests marked ``loopback``.
     """
-    if "integration" in request.node.path.parts:
-        return
     is_loopback_allowed = request.node.get_closest_marker("loopback") is not None
     original_connect = socket.socket.connect
     original_connect_ex = socket.socket.connect_ex
@@ -189,9 +180,7 @@ def _mock_http(
 
     Tests marked ``real_http`` keep the real transport for loopback TLS and proxy fixtures.
     """
-    if "integration" in request.node.path.parts or request.node.get_closest_marker(
-        "real_http"
-    ):
+    if request.node.get_closest_marker("real_http"):
         yield
         return
     http_mock.reset()

@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_MUTATION_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+_CHANGE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 _TIMEOUT_ACTIONS = {
     "connect": "connecting",
     "pool": "waiting for a connection",
@@ -68,7 +68,7 @@ def _timeout_error(error: httpx2.TimeoutException) -> dict[str, str]:
         )
     if operation in {"table_metadata", "dictionary", "choices", "documentation"}:
         guidance += " The timed-out request was a metadata lookup, not a read of the target records."
-    if method in _MUTATION_METHODS:
+    if method in _CHANGE_METHODS:
         action = _TIMEOUT_ACTIONS.get(phase, _TIMEOUT_ACTIONS["unknown"])
         guidance = (
             f"ServiceNow {method} request timed out while {action}; remote outcome is unknown. "

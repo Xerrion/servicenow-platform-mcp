@@ -6327,7 +6327,7 @@
       "open_world_hint": true
     }
   },
-  "mutation_apply": {
+  "apply_change": {
     "input": {
       "properties": {
         "preview_token": {
@@ -6339,7 +6339,7 @@
       "required": [
         "preview_token"
       ],
-      "title": "mutation_applyArguments",
+      "title": "apply_changeArguments",
       "type": "object",
       "additionalProperties": false
     },

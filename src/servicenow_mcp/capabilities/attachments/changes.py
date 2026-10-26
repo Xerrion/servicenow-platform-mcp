@@ -7,8 +7,8 @@ from servicenow_mcp.capabilities.attachments.common import (
     ensure_attachment_size_within_limit,
     get_attachment_table_name,
 )
+from servicenow_mcp.capabilities.changes.models import AttachmentCommand, fingerprint
 from servicenow_mcp.capabilities.contracts import CapabilityError
-from servicenow_mcp.capabilities.mutations.models import AttachmentCommand, fingerprint
 from servicenow_mcp.policy import check_table_access, mask_sensitive_fields
 
 if TYPE_CHECKING:

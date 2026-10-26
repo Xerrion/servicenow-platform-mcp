@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-async def test_safe_default_server_exposes_no_mutations() -> None:
+async def test_safe_default_server_exposes_no_changes() -> None:
     with patch.dict(
         "os.environ",
         {
@@ -37,7 +37,7 @@ async def test_safe_default_server_exposes_no_mutations() -> None:
         "record_preview",
         "attachment_preview",
         "service_catalog_preview",
-        "mutation_apply",
+        "apply_change",
     } & set(names)
 
 
@@ -59,7 +59,7 @@ def test_missing_configuration_is_secret_safe(
 
 
 @pytest.mark.parametrize("value", [pytest.param("", id="")])
-def test_unknown_environment_cannot_enable_mutations(value: str) -> None:
+def test_unknown_environment_cannot_enable_changes(value: str) -> None:
     from pydantic import ValidationError
 
     with (

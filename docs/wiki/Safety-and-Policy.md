@@ -50,12 +50,12 @@ Local write protection allows reads.
 
 Tool selection is a separate control.
 The default package is `readonly` and the default environment is `prod`.
-Only explicit `dev` or `test` settings permit mutations.
+Only explicit `dev` or `test` settings permit changes.
 Unknown environment labels fail startup.
 
 ## Review and apply changes
 
-Every mutation requires a preview followed by `mutation_apply`.
+Every change requires a preview followed by `apply_change`.
 The server does not enforce human approval.
 
 1. Read the current state and confirm the instance.
@@ -64,11 +64,11 @@ The server does not enforce human approval.
 4. Apply its token only after the required approval.
 5. Check the saved result in ServiceNow.
 
-`record_preview`, `attachment_preview`, and `service_catalog_preview` make no upstream mutation.
+`record_preview`, `attachment_preview`, and `service_catalog_preview` make no upstream change.
 They return a summary, `preview_token`, expiry, and limitations.
-`mutation_apply` atomically consumes the token before execution.
+`apply_change` atomically consumes the token before execution.
 It checks the enabled family, environment, instance, authorization generation, policy, and detectable state changes.
-Metadata errors block record mutations.
+Metadata errors block record changes.
 Record application refreshes relevant dictionary metadata.
 
 Previews stay in memory for 300 seconds.
@@ -86,8 +86,8 @@ Preview does not reserve the target.
 Catalog preview does not simulate fulfillment or guarantee prices.
 
 An apply attempt consumes its token on success, rejection, cancellation, or failure.
-No mutation is replayed automatically.
-On an unknown remote outcome, check ServiceNow before preparing another mutation.
+No change is replayed automatically.
+On an unknown remote outcome, check ServiceNow before preparing another change.
 
 ## Script and markup validation
 

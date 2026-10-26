@@ -19,9 +19,7 @@ TOOL_GROUPS = frozenset(
         "cmdb",
     },
 )
-MUTATION_GROUPS = frozenset(
-    {"record_write", "attachment_write", "service_catalog_write"}
-)
+CHANGE_GROUPS = frozenset({"record_write", "attachment_write", "service_catalog_write"})
 PACKAGE_REGISTRY: dict[str, list[str]] = {
     "full": [
         "query",

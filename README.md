@@ -1,34 +1,28 @@
 # ServiceNow Platform MCP
 
-Use your AI app to work with ServiceNow tickets, understand your instance, and
-prepare changes to records or scripts.
+Connect your AI app to ServiceNow to read tickets, inspect configuration, and
+prepare changes to records or scripts. The server uses the Model Context Protocol (MCP).
 
-MCP (Model Context Protocol) lets an AI app use tools from another system.
-This server connects those tools to your ServiceNow instance. You describe the
-work in plain language, and the app calls the tools it needs.
-
-You sign in with your ServiceNow account. Your roles, API access policies, and
-access control rules (ACLs) still determine what you can read or change.
+Sign in with your ServiceNow account. Your roles, API access policies, and
+access control rules (ACLs) determine what you can read or change.
 
 ## Start here
 
-- **Working with tickets and requests?** Start with [ITSM work](#itsm-work).
-- **Administering or developing an instance?** Start with [instance administration and development](#instance-administration-and-development).
-- **Connecting for the first time?** Follow [connection setup](#connection-setup), or ask your administrator for the configuration.
+- [Connect your AI app](#connection-setup).
+- [Work with tickets and requests](#itsm-work).
+- [Inspect or develop an instance](#instance-administration-and-development).
 
-If your AI app already has this server configured, try:
+If the server is already configured, ask your AI app:
 
 > Use ServiceNow to show 5 active incidents I can access. Include the incident
 > number, short description, priority, and assigned person. Do not change anything.
 
-The first request that needs ServiceNow opens your browser for sign-in and
-permission to connect. Use the browser on the computer running the MCP server.
+If you need to sign in, the server opens a browser on its computer.
 
 ## ITSM work
 
-Read incident, problem, change, and request records. Review ticket history,
-inspect attachments, or count records for a status update. You can ask for the
-result as a list, table, or summary.
+Read incident, problem, change, and request records. Review history, inspect
+attachments, or count records for a status update.
 
 For example:
 
@@ -37,18 +31,16 @@ For example:
 - "Count open incidents by assignment group. Include the filters you used."
 - "Show the answers submitted with RITM0012345."
 
-Replace example numbers and group names with values from your instance.
-State a time period and limit when you ask for a list or history.
-Ask the app to include record numbers so you can check its answer in ServiceNow.
+Use record numbers and group names from your instance. Include a time period
+and limit for lists and history.
 
 Creating tickets, updating work notes, and changing assignments require write
 tools and ServiceNow permissions. See [making changes](#making-changes).
 
 ## Instance administration and development
 
-Use the MCP to inspect how your instance works, investigate issues, and prepare
-changes to ServiceNow configuration. You can start with a record name or a
-question. You do not need to write API requests or know the MCP tool names.
+Inspect configuration, investigate issues, and prepare changes. Start with a
+record name or a question. You do not need to know the MCP tool names.
 
 | Work                                     | What you can inspect                                                      |
 | ---------------------------------------- | ------------------------------------------------------------------------- |
@@ -65,11 +57,10 @@ For example:
 - "Inspect the 'New starter' flow. Explain its trigger and configured steps."
 - "Investigate script errors from the last 24 hours. Show the evidence for each finding."
 
-Replace example rule and flow names with records from your instance.
-
-Diagnostic findings help you investigate a cause. They do not establish a root
-cause or automatically repair the instance. The `flow` tool reads stored
-configuration, checks saved V2 structure locally, and reads status. It never changes or executes a flow.
+Replace example rule and flow names with names from your instance.
+Diagnostic findings help you investigate. They do not establish a root cause or repair the instance.
+The `flow` tool inspects configuration, checks saved V2 structure locally, and reads status.
+It cannot change or execute a flow.
 
 With write tools enabled, you can create or update configuration records,
 including script fields. Follow the [change workflow](#making-changes) before
@@ -77,18 +68,15 @@ applying a script change.
 
 ## Connection setup
 
-An administrator prepares the ServiceNow connection. Each user then authorizes
-access with their own ServiceNow account.
-
-The supported connection runs locally on your computer. Your AI app starts
-the server using **stdio**, a local connection between the two programs.
+An administrator prepares OAuth. Each user authorizes access with their own
+ServiceNow account. Your AI app starts the server locally using **stdio**.
 You need Python 3.14 or later, [uv](https://docs.astral.sh/uv/getting-started/installation/),
 and an AI app that can start local MCP servers.
 
 ### 1. Prepare OAuth in ServiceNow
 
-OAuth lets users authorize the connection through their browser.
-The public client ID identifies the application. It is not a password or a client secret.
+OAuth lets users authorize the connection in a browser. The public client ID
+identifies the application and is not a password or client secret.
 
 Open **System OAuth > Application Registry**. Select **New**, then
 **Create an OAuth API endpoint for external clients**, or select an existing inbound application.
@@ -102,12 +90,9 @@ Configure the application to meet these requirements:
 | Scope              | `useraccount`                          |
 | Redirect URL       | `http://127.0.0.1:8765/oauth/callback` |
 
-Save the application. Copy its public client ID for the next step.
-If you cannot configure OAuth, ask your ServiceNow administrator to provide
-that ID and the instance URL.
-
-Users need API access to the records required for their work. OAuth does not
-grant additional table or field permissions.
+Save the application and copy its public client ID. If you cannot configure
+OAuth, ask your administrator for the client ID and instance URL.
+Users still need API access and table and field permissions.
 
 ### 2. Add the connection to your AI app
 
@@ -115,9 +100,9 @@ Replace `https://your-instance.service-now.com` and `your-public-client-id`
 with the values from your administrator. Use the instance's HTTPS address
 without a page path such as `/nav_to.do`.
 
-These examples explicitly select `readonly` and block writes with
-`SERVICENOW_ENV=prod`. The environment setting controls write protection.
-It does not select an instance or detect whether that instance is production.
+These examples select `readonly` and block writes with `SERVICENOW_ENV=prod`.
+The environment setting controls write protection. It does not select the
+instance or detect whether the instance is production.
 
 Keep existing server entries when adding this configuration.
 Do not add passwords, API keys, client secrets, or tokens.
@@ -188,11 +173,11 @@ entry you can adapt.
 1. Restart your AI app or its ServiceNow MCP server after saving the configuration.
 2. Ask: "List the available ServiceNow tools."
 3. Ask: "Use ServiceNow to show one active incident. Include its number and short description."
-4. Complete authorization in the browser with the intended ServiceNow account.
+4. If prompted, sign in through the browser with the intended ServiceNow account.
 
-A returned record confirms that the connection can read that table.
-If you cannot read incidents, use a table your account can access.
-Tool discovery alone does not confirm a working ServiceNow connection.
+A returned record confirms read access to that table. If you cannot read
+incidents, use a table your account can access. Tool discovery alone does not
+confirm a working connection.
 
 Tokens stay in server memory by default. The server renews expired access tokens when possible.
 Optional `SERVICENOW_OAUTH_CACHE=os` stores only refresh tokens in the native OS credential store,
@@ -200,16 +185,15 @@ so a new local process can reuse a previous login. See [OAuth cache configuratio
 
 ## Making changes
 
-Begin with a development or test instance. Ask your administrator to enable
-only the write tools needed for your work and grant the corresponding
-ServiceNow permissions.
+Start with a development or test instance. Ask your administrator to enable
+only the write tools you need and grant the corresponding ServiceNow permissions.
 
 For example, `MCP_TOOL_PACKAGE=query,describe,record_read,record_write`
 enables record inspection and changes. Set `SERVICENOW_ENV=dev` for that
 non-production instance. Restart the server after changing the configuration.
 
-Every record, attachment, and catalog mutation requires preview followed by `mutation_apply`.
-The server does not enforce human approval. Use this review process:
+Record, attachment, and catalog changes require a preview before `apply_change`.
+The server does not enforce human approval. Review each change before applying it:
 
 1. Ask the app to read the current record.
 2. Ask for a preview of the proposed change.
@@ -228,21 +212,19 @@ For a script update:
 > explain it. Show a preview with the complete replacement script. Wait for my
 > approval before applying it.
 
-`record_preview`, `attachment_preview`, and `service_catalog_preview` return single-use tokens.
-`mutation_apply` consumes a reviewed token and checks policy, authorization, and detectable state changes.
-Tokens expire after 300 seconds and disappear on restart.
-If a remote outcome is `UNKNOWN_OUTCOME`, read the target state before another preview. Never automatically replay the operation.
+The preview tools return single-use tokens. `apply_change` checks policy,
+authorization, and detectable state changes. Tokens expire after 300 seconds
+and disappear on restart. If the result is `UNKNOWN_OUTCOME`, read the target
+state before another preview. Do not automatically replay the operation.
 
-Catalog browsing is available in `readonly` through `service_catalog`.
-Catalog mutation previews require the `service_catalog_write` group.
-Preview does not simulate fulfillment or guarantee prices.
+The `readonly` package includes catalog browsing. Catalog changes require the
+`service_catalog_write` group. A preview does not simulate fulfillment or guarantee prices.
 
 Script updates replace the complete field value. The server does not check
 JavaScript syntax. Review and test the script before relying on its behavior.
 
-Set `SERVICENOW_ENV=prod` or `production` for production connections to block
-writes through this server. ServiceNow permissions remain the authority for
-record access. Tool selection and environment settings are additional local controls.
+Set `SERVICENOW_ENV=prod` or `production` to block writes through this server.
+ServiceNow permissions still control record access. Tool selection and environment settings add local controls.
 
 ## Choose the available tools
 
@@ -264,7 +246,7 @@ For the full inventory and tool inputs, see the [tool reference](docs/wiki/Tool-
 
 | Problem                                                | Next action                                                                                       |
 | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
-| The AI app cannot start the server                     | Check Python, `uv`, the launch command, and the two required ServiceNow settings.                 |
+| The AI app cannot start the server                     | Check Python, `uv`, the server command, and the two required ServiceNow settings.                 |
 | No browser opens, or authorization times out           | Use a browser on the server's computer. Check the exact registered redirect URL.                  |
 | ServiceNow rejects OAuth                               | Ask the administrator to check public-client mode, PKCE S256, client ID, scope, and redirect URL. |
 | Sign-in works, but a record request returns 401 or 403 | Ask the administrator to check API policies, roles, and record or field access rules.             |

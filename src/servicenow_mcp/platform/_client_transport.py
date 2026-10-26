@@ -19,7 +19,7 @@ from servicenow_mcp.errors import (
     ServerError,
     ServiceNowMCPError,
 )
-from servicenow_mcp.policy import check_mutation_policy
+from servicenow_mcp.policy import check_change_policy
 from servicenow_mcp.sentry import set_sentry_context, set_sentry_tag
 from servicenow_mcp.telemetry import (
     current_tool_trace,
@@ -81,7 +81,7 @@ class ServiceNowRequestClient:
         """Build isolated request headers with authorization and correlation data."""
         with trace_authorization_wait():
             headers = await self._auth_provider.get_headers()
-        check_mutation_policy()
+        check_change_policy()
         trace = current_tool_trace()
         headers["X-Correlation-ID"] = trace.trace_id if trace else str(uuid.uuid4())
         return headers
@@ -134,7 +134,7 @@ class ServiceNowRequestClient:
             "PATCH",
         }:
             raise ServerError(
-                "Mutation response is missing result. Remote outcome unknown. Check ServiceNow before another "
+                "Change response is missing result. Remote outcome unknown. Check ServiceNow before another "
                 "preview. The request was not replayed.",
             )
         return self._extract_result(payload)

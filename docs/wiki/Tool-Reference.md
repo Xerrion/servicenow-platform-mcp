@@ -3,15 +3,15 @@
 Start with the task you want to complete. You can ask your AI app in plain
 language. The app chooses the tools and supplies their inputs.
 
-| Your task                                         | Tools                                                    |
-| ------------------------------------------------- | -------------------------------------------------------- |
-| Find tickets, read a record, or count records     | `query`, `record_read`                                   |
-| Understand tables, fields, or choice values       | `describe`, `resolve_choice`                             |
-| Read comments, request answers, or field changes  | `analysis`, `audit`                                      |
-| Inspect attachments or configuration items        | `attachment`, `cmdb`                                     |
-| Understand scripts, flows, or instance issues     | `code_search`, `flow`, `investigate`                     |
-| Browse the catalog or place an order              | `service_catalog`                                        |
-| Create, update, or delete records and attachments | `record_preview`, `mutation_apply`, `attachment_preview` |
+| Your task                                         | Tools                                                  |
+| ------------------------------------------------- | ------------------------------------------------------ |
+| Find tickets, read a record, or count records     | `query`, `record_read`                                 |
+| Understand tables, fields, or choice values       | `describe`, `resolve_choice`                           |
+| Read comments, request answers, or field changes  | `analysis`, `audit`                                    |
+| Inspect attachments or configuration items        | `attachment`, `cmdb`                                   |
+| Understand scripts, flows, or instance issues     | `code_search`, `flow`, `investigate`                   |
+| Browse the catalog or place an order              | `service_catalog`                                      |
+| Create, update, or delete records and attachments | `record_preview`, `apply_change`, `attachment_preview` |
 
 The configured tool package determines which tools your app can use.
 See [[Tool-Packages]] for availability and [[Safety-and-Policy]] for access and write controls.
@@ -643,7 +643,7 @@ Catalog reads are available in `readonly` and the `service_catalog` group.
 Omitted, null, and empty text or identifier filters are not sent upstream.
 All actions accept `api_version`, such as `v1`. Omit it for the default endpoint URL.
 `view` accepts `desktop`, `mobile`, or `both`. `item_type` maps to `sysparm_type` unchanged.
-The two lookup actions use documented read-only POST endpoints. They do not require a mutation preview.
+The two lookup actions use documented read-only POST endpoints. They do not require a change preview.
 Catalog masking checks sensitive keys, common personal fields, and variable names and labels before returning answer fields.
 Variable maps use observed labels for the associated item. Answers without usable label metadata are masked.
 Preview summaries and apply responses use masked copies. Apply sends the original submitted values.
@@ -655,7 +655,7 @@ It cannot identify personal data embedded in arbitrary free text.
 
 ### `service_catalog_preview`
 
-The `service_catalog_write` group enables catalog mutation previews.
+The `service_catalog_write` group enables catalog change previews.
 Read `item_variables` before preparing an order.
 
 | Action                         | Required inputs              | Optional inputs                                                         |
@@ -680,7 +680,7 @@ Read `item_variables` before preparing an order.
 
 Preview reads item definitions or the cart without changing ServiceNow.
 It cannot simulate fulfillment, producer scripts, routing, prices, or every server-side validation.
-Apply the reviewed token with `mutation_apply`.
+Apply the reviewed token with `apply_change`.
 Detectable item or cart changes require a new preview.
 All actions accept `api_version`. `quantity` is a non-negative integer.
 `also_request_for` accepts 1-50 user sys_ids. Guide quantities are positive integer strings.
@@ -698,7 +698,7 @@ See [Service Catalog API coverage](../service-catalog-api.md) for endpoint cover
 
 ## Preview and apply changes
 
-Every mutation requires a preview followed by `mutation_apply`.
+Every change requires a preview followed by `apply_change`.
 The intended non-production instance, local policy, enabled group, and ServiceNow permissions must permit the operation.
 The server does not enforce human approval.
 
@@ -727,7 +727,7 @@ The tool does not read local script files or check JavaScript syntax.
 
 Inherited dictionary metadata identifies XML fields and mandatory create fields.
 XML values must be non-empty, well-formed strings.
-Child declarations take precedence. Metadata request errors block mutations.
+Child declarations take precedence. Metadata request errors block changes.
 Apply refreshes relevant metadata and repeats the checks.
 Dictionary fields hidden by ACLs cannot receive local validation.
 
@@ -744,9 +744,9 @@ The summary includes metadata, size, and digest, never file contents.
 Deletion resolves the actual owning record from attachment metadata.
 Apply checks ownership and detectable metadata changes again.
 
-### `mutation_apply`
+### `apply_change`
 
-Every enabled mutation group registers this shared tool once.
+Every enabled change group registers this shared tool once.
 Supply the reviewed preview's token:
 
 ```json
@@ -758,10 +758,10 @@ Tokens remain in memory for 300 seconds and disappear on restart.
 The store permits 1,000 entries and 64 MiB of retained payloads.
 An apply attempt consumes a token on success, rejection, cancellation, or failure.
 Application checks the enabled family, environment, instance, authorization, policy, and detectable state changes.
-State checks and the upstream mutation are not atomic.
+State checks and the upstream change are not atomic.
 Browser reauthorization requires a new preview.
-An unknown remote outcome requires checking ServiceNow before another mutation.
-No mutation is automatically replayed.
+An unknown remote outcome requires checking ServiceNow before another change.
+No change is automatically replayed.
 A preview token does not establish human approval.
 
 ## Interpret results and incomplete reads

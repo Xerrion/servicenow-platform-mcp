@@ -1,10 +1,10 @@
-"""Catalog previews use GETs only. Apply sends exactly one staged mutation."""
+"""Catalog previews use GETs only. Apply sends exactly one staged change."""
 
 from typing import TYPE_CHECKING, Any
 
 from servicenow_mcp.capabilities.catalog.masking import mask_catalog
+from servicenow_mcp.capabilities.changes.models import CatalogCommand, fingerprint
 from servicenow_mcp.capabilities.contracts import CapabilityError
-from servicenow_mcp.capabilities.mutations.models import CatalogCommand, fingerprint
 from servicenow_mcp.errors import ServiceNowMCPError
 from servicenow_mcp.query_builder import ServiceNowQuery
 from servicenow_mcp.validation import (

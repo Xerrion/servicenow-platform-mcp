@@ -63,7 +63,7 @@ def register_tools(
         field_offset: int | None = 0,
         field_limit: int | None = 25,
     ) -> CapabilityResult:
-        """Discover ServiceNow tables and field metadata before querying or editing. Use list_tables for unknown table names and list_script_fields to locate script-capable fields."""
+        """Discover tables and field metadata before querying or editing. Use action=list_tables to find tables and action=list_script_fields to find script fields."""
         return await capability.describe(
             table=table,
             fields=fields,

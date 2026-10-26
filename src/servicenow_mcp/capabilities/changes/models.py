@@ -1,4 +1,4 @@
-"""Immutable commands and reviewable mutation summaries."""
+"""Immutable commands and reviewable change summaries."""
 
 import hashlib
 import json
@@ -8,7 +8,7 @@ from typing import Annotated, ClassVar, Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 from servicenow_mcp.capabilities.catalog.contracts import (
-    CatalogMutationAction,
+    CatalogChangeAction,
     CatalogView,
     validate_api_version,
     validate_users,
@@ -101,7 +101,7 @@ class AttachmentCommand(Command):
 
 class CatalogCommand(Command):
     family: Literal["catalog"] = "catalog"
-    action: CatalogMutationAction
+    action: CatalogChangeAction
     item_sys_id: str | None = None
     variables: dict[str, JsonValue] | None = Field(default=None, repr=False)
     quantity: int | None = Field(default=None, strict=True, ge=0)
@@ -198,21 +198,21 @@ class CatalogCommand(Command):
         return self
 
 
-MutationCommand = Annotated[
+ChangeCommand = Annotated[
     RecordCommand | AttachmentCommand | CatalogCommand,
     Field(discriminator="family"),
 ]
 
 
-class StagedMutation(Command):
-    command: MutationCommand = Field(repr=False)
+class StagedChange(Command):
+    command: ChangeCommand = Field(repr=False)
     instance: str
     authorization_generation: int
     fingerprint: str | None = None
     owning_table: str | None = None
 
 
-class MutationPreview(BaseModel):
+class ChangePreview(BaseModel):
     family: Literal["records", "attachments", "catalog"]
     action: str
     preview_token: str
@@ -232,12 +232,12 @@ def fingerprint(value: JsonValue) -> str:
         ).encode()
     except TypeError, ValueError, UnicodeError:
         raise CapabilityError(
-            "Cannot establish the current state for this mutation."
+            "Cannot establish the current state for this change."
         ) from None
     return hashlib.sha256(encoded).hexdigest()
 
 
-def retained_bytes(staged: StagedMutation) -> int:
+def retained_bytes(staged: StagedChange) -> int:
     command = staged.command
     payload = staged.model_dump(mode="python", exclude={"command"})
     payload["command"] = command.model_dump(mode="python", exclude={"content"})

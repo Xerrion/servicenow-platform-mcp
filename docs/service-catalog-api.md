@@ -61,10 +61,10 @@ The unsupported `variables/display_value` route has no variable ID segment and i
 The MCP tools retain the existing default page size of 20.
 Ordering accepts up to 50 additional users. The delegated-user validation lookup accepts a non-empty user array within the payload limit.
 
-All mutation actions require `mutation_apply`. Preview uses GET endpoints only.
+All change actions require `apply_change`. Preview uses GET endpoints only.
 Preview does not execute producers or order-guide rules. Apply rechecks state, policy,
 connection, and authorization. Tokens expire after 300 seconds and permit one application attempt.
-Failures, cancellation, and uncertain outcomes consume the token. The server never replays a mutation.
+Failures, cancellation, and uncertain outcomes consume the token. The server never replays a change.
 Check ServiceNow before another preview if the remote outcome is unknown.
 `checkout_guide` checks both `sc_request` and `sc_cart_item` policy, including immediately before dispatch.
 The public reference documents a branch that adds cart items at L5404-L5405.
@@ -105,7 +105,7 @@ Paths establish route existence, but not safe payloads, effects, or state precon
 Full API completeness remains blocked for all 26 operations below.
 The supplied local contract investigation found no sufficient contracts in the export or public local corpus.
 Implementation requires authoritative request fields and types, required inputs, effects, permissions, and response/error contracts.
-Mutation operations also need enough state semantics to define safe preview and apply checks.
+Change operations also need enough state semantics to define safe preview and apply checks.
 No generic passthrough or guessed payload is exposed.
 They are not treated as covered by the 24-operation public reference.
 

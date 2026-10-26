@@ -8,8 +8,8 @@ from urllib.parse import urlparse
 from mcp.types import ToolAnnotations
 
 from servicenow_mcp.auth import create_auth
+from servicenow_mcp.capabilities.changes.coordinator import ChangeCoordinator
 from servicenow_mcp.capabilities.contracts import CapabilityResult
-from servicenow_mcp.capabilities.mutations.coordinator import MutationCoordinator
 from servicenow_mcp.config import Settings
 from servicenow_mcp.mcp.handlers import tool_handler
 from servicenow_mcp.mcp.inputs import NativeMCPServer
@@ -17,12 +17,12 @@ from servicenow_mcp.mcp.tools import (
     analysis,
     attachment,
     audit,
+    changes,
     cmdb,
     code_search,
     describe,
     flow,
     investigate,
-    mutations,
     query,
     record_read,
     resolve_choice,
@@ -65,17 +65,17 @@ def create_mcp_server(settings: Settings | None = None) -> NativeMCPServer:
     dictionary = DictionaryRegistry(settings, auth, clients, telemetry)
     choices = ChoiceRegistry(settings, auth, clients, telemetry)
     groups = get_package(settings.mcp_tool_package)
-    mutation_groups = {
+    change_groups = {
         "record_write": "records",
         "attachment_write": "attachments",
         "service_catalog_write": "catalog",
     }
-    coordinator = MutationCoordinator(
+    coordinator = ChangeCoordinator(
         settings,
         auth,
         clients,
         dictionary,
-        frozenset(mutation_groups[g] for g in groups if g in mutation_groups),
+        frozenset(change_groups[g] for g in groups if g in change_groups),
     )
 
     @asynccontextmanager
@@ -135,8 +135,8 @@ def create_mcp_server(settings: Settings | None = None) -> NativeMCPServer:
         ),
     }
     for group in groups:
-        if group not in mutation_groups:
+        if group not in change_groups:
             registrars[group]()
     if coordinator.families:
-        mutations.register_tools(server, coordinator)
+        changes.register_tools(server, coordinator)
     return server

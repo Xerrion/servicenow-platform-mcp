@@ -67,7 +67,7 @@ def register_tools(
         limit: int | None = None,
         offset: int | None = 0,
     ) -> CapabilityResult:
-        """Read requested-item variables or record journal history. Use 'describe' to discover actions and 'audit' for sys_audit history."""
+        """Read requested item answers or record journal entries. Use audit for field change history."""
         return await capability.analysis(
             action=action,
             table=table,

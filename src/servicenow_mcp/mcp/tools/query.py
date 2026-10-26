@@ -76,7 +76,7 @@ def register_tools(
         group_by: list[str] | None = None,
         resolve_labels: list[LabelPair] | None = None,
     ) -> CapabilityResult:
-        """Read ServiceNow Table API rows or Stats API aggregates instead of fetching rows for counts; use resolve_labels for displayed choice labels. Large tables require a recognized date constraint."""
+        """Query records with the Table API or use aggregate for counts, averages, sums, minima, and maxima with the Stats API. Large tables require a recognized date constraint."""
         return await capability.query(
             table=table,
             sys_id=sys_id,

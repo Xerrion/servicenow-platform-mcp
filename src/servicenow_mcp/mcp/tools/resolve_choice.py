@@ -37,5 +37,5 @@ def register_tools(mcp: MCPServer, choices: ChoiceRegistry | None = None) -> Non
     async def resolve_choice(
         table: str, field: str, label: str | None = None
     ) -> CapabilityResult:
-        """Resolve a displayed choice label to its stored value for a table field. Omit label to retrieve the full label-to-value mapping."""
+        """Resolve a choice label to its stored value for a table field. Omit label to read the label-to-value map."""
         return await capability.resolve_choice(table=table, field=field, label=label)

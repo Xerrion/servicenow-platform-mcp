@@ -7,6 +7,7 @@ from mcp.types import ToolAnnotations
 from servicenow_mcp.capabilities.attachments.attachment import AttachmentCapability
 from servicenow_mcp.capabilities.contracts import CapabilityResult
 from servicenow_mcp.mcp.handlers import tool_handler
+from servicenow_mcp.mcp.inputs import describe_tool_parameters
 
 if TYPE_CHECKING:
     from mcp.server import MCPServer
@@ -34,6 +35,15 @@ def register_tools(
             open_world_hint=True,
         ),
     )
+    @describe_tool_parameters(
+        {
+            "action": "Choose list, get, download, or download_by_name.",
+            "sys_id": "Attachment sys_id for get or download.",
+            "table": "Parent table for list or download_by_name.",
+            "table_sys_id": "Parent record sys_id for list or download_by_name.",
+            "file_name": "Exact attachment name for download_by_name.",
+        }
+    )
     @tool_handler
     async def attachment(
         action: Literal["list", "get", "download", "download_by_name"],
@@ -42,17 +52,7 @@ def register_tools(
         table_sys_id: str | None = None,
         file_name: str | None = None,
     ) -> CapabilityResult:
-        """Read attachments. action: 'list' | 'get' | 'download' | 'download_by_name'.
-
-        Omit unused arguments; null uses defaults. Action-specific required
-        arguments are still validated.
-
-        Args:
-            action: One of: list, get, download, download_by_name.
-            sys_id: Attachment sys_id (for get, download).
-            table: Parent table (for list, download_by_name).
-            table_sys_id: Parent record sys_id (for list, download_by_name).
-            file_name: File name (for download_by_name)."""
+        """Read attachment metadata or content by parent record, attachment ID, or file name. Use attachment_preview then mutation_apply for uploads or deletions."""
         return await capability.attachment(
             action=action,
             sys_id=sys_id,

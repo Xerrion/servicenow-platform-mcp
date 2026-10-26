@@ -49,8 +49,8 @@ class LabelPair(BaseModel):
         frozen=True, extra="forbid", hide_input_in_errors=True
     )
 
-    field: str
-    label: str
+    field: str = Field(description="Choice field element name on the query table.")
+    label: str = Field(description="Displayed choice label to resolve and filter by.")
 
     @model_validator(mode="after")
     def check_field(self) -> LabelPair:
@@ -64,8 +64,13 @@ class AggregateOperation(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(
         frozen=True, extra="forbid", hide_input_in_errors=True
     )
-    operation: Literal["count", "avg", "sum", "min", "max"]
-    field: str | None = None
+    operation: Literal["count", "avg", "sum", "min", "max"] = Field(
+        description="Aggregate to calculate; count omits field, others require it."
+    )
+    field: str | None = Field(
+        default=None,
+        description="Numeric or comparable table field for avg, sum, min, or max.",
+    )
 
     @model_validator(mode="after")
     def check_operation(self) -> AggregateOperation:

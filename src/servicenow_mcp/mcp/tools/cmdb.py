@@ -7,6 +7,7 @@ from mcp.types import ToolAnnotations
 from servicenow_mcp.capabilities.cmdb.cmdb import CmdbCapability
 from servicenow_mcp.capabilities.contracts import CapabilityResult
 from servicenow_mcp.mcp.handlers import tool_handler
+from servicenow_mcp.mcp.inputs import describe_tool_parameters
 
 if TYPE_CHECKING:
     from mcp.server import MCPServer
@@ -34,6 +35,16 @@ def register_tools(
             open_world_hint=True,
         ),
     )
+    @describe_tool_parameters(
+        {
+            "action": "Choose query, get, meta, or describe.",
+            "class_name": "CMDB class, such as cmdb_ci_server; required except for describe.",
+            "sys_id": "CI sys_id for get.",
+            "encoded_query": "ServiceNow encoded filter for query.",
+            "limit": "Maximum CIs per page; default is 20.",
+            "offset": "Zero-based query offset; add limit for the next page.",
+        }
+    )
     @tool_handler
     async def cmdb(
         action: Literal["query", "get", "meta", "describe"],
@@ -43,17 +54,7 @@ def register_tools(
         limit: int | None = 20,
         offset: int | None = 0,
     ) -> CapabilityResult:
-        """Inspect configuration items, relationships, or CMDB class metadata.
-
-        Omit unused optional arguments; null uses their defaults.
-
-        Args:
-            action: 'query', 'get', 'meta', or 'describe'.
-            class_name: CMDB table, such as 'cmdb_ci_server'. Required except for describe.
-            sys_id: CI sys_id, required for get.
-            encoded_query: Optional ServiceNow encoded filter for query.
-            limit: Maximum CIs per query page (default 20, capped by MAX_ROW_LIMIT).
-            offset: Starting query row (default 0). Advance by limit to fetch the next page."""
+        """Read CMDB items, relationships, or class metadata. Use query for non-CMDB tables."""
         return await capability.cmdb(
             action=action,
             class_name=class_name,

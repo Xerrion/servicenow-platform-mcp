@@ -8,6 +8,7 @@ from pydantic import JsonValue
 from servicenow_mcp.capabilities.contracts import CapabilityResult
 from servicenow_mcp.capabilities.investigations.investigate import InvestigateCapability
 from servicenow_mcp.mcp.handlers import tool_handler
+from servicenow_mcp.mcp.inputs import describe_tool_parameters
 
 if TYPE_CHECKING:
     from mcp.server import MCPServer
@@ -35,6 +36,14 @@ def register_tools(
             open_world_hint=True,
         ),
     )
+    @describe_tool_parameters(
+        {
+            "action": "Choose run, explain, or describe.",
+            "name": "Investigation name for run; optional family filter for describe/explain.",
+            "params": "Native JSON object of run parameters from describe.",
+            "element_id": "Finding ID returned by run, usually table:sys_id.",
+        }
+    )
     @tool_handler
     async def investigate(
         action: Literal["run", "explain", "describe"],
@@ -42,22 +51,7 @@ def register_tools(
         params: dict[str, JsonValue] | None = None,
         element_id: str | None = None,
     ) -> CapabilityResult:
-        """Run an investigation or explain a finding.
-
-        Omit unused optional arguments; null uses their defaults.
-
-        Args:
-            action: 'run' | 'explain' | 'describe'.
-            name: Investigation name (required for 'run'; optional direct selector for 'explain' and filter for
-                'describe').
-                Available: stale_automations, deprecated_apis, table_health,
-                acl_conflicts, error_analysis, slow_transactions, performance_bottlenecks.
-            params: Native object of the selected investigation's run parameters.
-                Use describe to read its names and types. Unknown keys and invalid types are rejected.
-                slow_transactions.categories is a native string array.
-            element_id: Finding identifier (explain only). Usually 'table:sys_id'.
-                With name='table_health' or heavy automation, use the table name.
-                With name='acl_conflicts', an ACL sys_id is also accepted."""
+        """Run a named diagnostic or explain a finding. Use describe first to get supported investigation names and parameter schemas."""
         return await capability.investigate(
             action=action, name=name, params=params, element_id=element_id
         )

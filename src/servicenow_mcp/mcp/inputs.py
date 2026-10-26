@@ -2,19 +2,33 @@
 
 import inspect
 import json
-from typing import TYPE_CHECKING, Any, override
+from collections.abc import Callable
+from functools import reduce
+from operator import or_
+from types import NoneType, UnionType
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    TypeVar,
+    Union,
+    cast,
+    get_args,
+    get_origin,
+    override,
+)
 
 from jsonschema import Draft202012Validator
 from mcp.server import MCPServer
 from mcp.types import CallToolResult
-from pydantic import BaseModel, ConfigDict, ValidationError, create_model
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model
 
 from servicenow_mcp.capabilities.contracts import CapabilityError
 from servicenow_mcp.mcp.outputs import error_result
 from servicenow_mcp.telemetry import trace_flow_preview, trace_flow_preview_boundary
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable
 
     from mcp.server.context import CallNext, HandlerResult, ServerRequestContext
 
@@ -24,6 +38,62 @@ _SCHEMA_MESSAGE = "Arguments do not match the tool schema. Check required fields
 _JSON_STRING_HINT = (
     "Pass arrays and objects as native JSON values, not JSON-encoded strings."
 )
+_Tool = TypeVar("_Tool", bound=Callable[..., Any])
+
+
+def describe_tool_parameters(
+    descriptions: dict[str, str | dict[str, Any]],
+) -> Callable[[_Tool], _Tool]:
+    """Attach concise Pydantic descriptions to every registered tool parameter."""
+
+    def decorate(fn: _Tool) -> _Tool:
+        signature = inspect.signature(fn, eval_str=True, follow_wrapped=False)
+        parameters = signature.parameters
+        if set(descriptions) != set(parameters):
+            raise ValueError(
+                f"Tool parameter descriptions must match {getattr(fn, '__name__', 'tool')}'s parameters."
+            )
+        documented = []
+        for name, parameter in parameters.items():
+            spec = descriptions[name]
+            if isinstance(spec, dict):
+                description = str(spec.get("description", "")).strip()
+                constraints = {
+                    key: value for key, value in spec.items() if key != "description"
+                }
+                annotation = parameter.annotation
+                schema_constraints: dict[str, Any] = {}
+                if constraints:
+                    origin = get_origin(annotation)
+                    if origin is Annotated:
+                        schema_constraints = constraints
+                    elif origin in (Union, UnionType):
+                        branches = [
+                            branch
+                            if branch is NoneType
+                            else Annotated[branch, Field(**constraints)]
+                            for branch in get_args(annotation)
+                        ]
+                        annotation = reduce(or_, branches)
+                    else:
+                        annotation = Annotated[annotation, Field(**constraints)]
+                field = Field(
+                    description=description,
+                    json_schema_extra=schema_constraints or None,
+                )
+            else:
+                description = spec.strip()
+                annotation = parameter.annotation
+                field = Field(description=description)
+            if not field.description:
+                raise ValueError(f"Tool parameter {name!r} needs a description.")
+            documented.append(
+                parameter.replace(annotation=Annotated[annotation, field])
+            )
+        cast(Any, fn).__signature__ = signature.replace(parameters=documented)
+        return fn
+
+    return decorate
 
 
 def _expected(schema: Any) -> str:

@@ -7,6 +7,7 @@ from mcp.types import ToolAnnotations
 from servicenow_mcp.capabilities.code_search.code_search import CodeSearchCapability
 from servicenow_mcp.capabilities.contracts import CapabilityResult
 from servicenow_mcp.mcp.handlers import tool_handler
+from servicenow_mcp.mcp.inputs import describe_tool_parameters
 
 if TYPE_CHECKING:
     from mcp.server import MCPServer
@@ -34,6 +35,16 @@ def register_tools(
             open_world_hint=True,
         ),
     )
+    @describe_tool_parameters(
+        {
+            "action": "Choose search, list_tables, or describe; defaults to search.",
+            "term": "Distinctive code symbol or phrase for search.",
+            "table": "Optional indexed-table filter for search, such as sys_script_include.",
+            "search_group": "Code Search group; omit to use the ServiceNow default.",
+            "limit": "Maximum search matches; default is 20.",
+            "extended_matching": "Set true to include additional indexed context fields.",
+        }
+    )
     @tool_handler
     async def code_search(
         action: Literal["search", "list_tables", "describe"] | None = "search",
@@ -43,18 +54,7 @@ def register_tools(
         limit: int | None = 20,
         extended_matching: bool | None = False,
     ) -> CapabilityResult:
-        """Search ServiceNow code or inspect Code Search table coverage.
-
-        Omit unused optional arguments; null uses their defaults.
-
-        Args:
-            action: One of 'search', 'list_tables', or 'describe'.
-            term: Search term for action='search'.
-            table: Optional table filter for action='search' (e.g. 'sys_script_include').
-            search_group: ServiceNow Code Search group; empty uses sn_codesearch.Default Search Group.
-            limit: Max search results for action='search'. Default 20.
-            extended_matching: Include additional Code Search context fields. Default false.
-                Set true when the extra context is needed."""
+        """Search indexed ServiceNow source code or inspect Code Search table coverage. Use query or record_read for record data."""
         return await capability.code_search(
             action=action,
             term=term,

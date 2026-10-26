@@ -7,6 +7,7 @@ from mcp.types import ToolAnnotations
 from servicenow_mcp.capabilities.contracts import CapabilityResult
 from servicenow_mcp.capabilities.flows.flow import FlowCapability
 from servicenow_mcp.mcp.handlers import tool_handler
+from servicenow_mcp.mcp.inputs import describe_tool_parameters
 
 if TYPE_CHECKING:
     from mcp.server import MCPServer
@@ -34,6 +35,21 @@ def register_tools(
             open_world_hint=True,
         ),
     )
+    @describe_tool_parameters(
+        {
+            "action": "Choose contract, inspect, find_by_table, decode_values, list_triggers, describe, validate, or status.",
+            "sys_id": "Canonical sys_hub_flow sys_id for a flow or subflow.",
+            "name": "Flow name or internal_name for contract/inspect.",
+            "value": "Gzip+base64 encoded JSON blob for decode_values.",
+            "table": "Target table for find_by_table or a list_triggers filter.",
+            "trigger_type": "Optional trigger type filter for list_triggers.",
+            "active": "Optional true/false trigger filter.",
+            "limit": "Maximum triggers returned; default is 100.",
+            "sections": "Inspection sections array; use * for all sections.",
+            "section_limit": "Shared row/node cap for selected sections.",
+            "execution_sys_id": "Existing execution context sys_id for status; does not start execution.",
+        }
+    )
     @tool_handler
     async def flow(
         action: Literal[
@@ -57,30 +73,7 @@ def register_tools(
         section_limit: int | None = None,
         execution_sys_id: str | None = None,
     ) -> CapabilityResult:
-        """Inspect Flow Designer flows, triggers, and value blobs (read-only).
-
-        Omit unused optional arguments; null uses their defaults.
-
-        Args:
-            action: 'contract' | 'inspect' | 'find_by_table' | 'decode_values' | 'list_triggers' |
-                'describe' | 'validate' | 'status'.
-            validate: requires sys_id. Local semantic validation only.
-                It never compiles, saves, activates, or runs a flow.
-            status: requires sys_id. execution_sys_id selects one exact existing execution context;
-                no execution is started.
-            sys_id: Canonical sys_hub_flow.sys_id for a flow or subflow definition.
-                Do not use master_snapshot, latest_snapshot, step, action type, or execution context IDs.
-                contract/inspect reject snapshot IDs with a canonical-ID recovery request when an owner is visible.
-                Recovery reads the owner's current saved definition, not the historical snapshot.
-                Mutually exclusive with name for contract/inspect.
-            name: Definition name or internal_name (contract/inspect; mutually exclusive with sys_id).
-            value: gzip+base64+JSON blob to decode (decode_values).
-            table: Target table (find_by_table; optional filter for list_triggers).
-            trigger_type: Trigger type filter (list_triggers, e.g. 'record_update').
-            active: 'true' | 'false' filter (list_triggers).
-            limit: Row cap for list_triggers (default 100).
-            sections: Native array of inspect/contract sections. Empty uses the compact default; '*' returns all.
-            section_limit: Shared cap for selected flow rows/nodes (default 100, max MAX_ROW_LIMIT)."""
+        """Inspect Flow Designer definitions, triggers, local validation, or existing execution status. Use flow_preview to prepare changes; this tool is read-only."""
         return await capability.flow(
             action=action,
             sys_id=sys_id,

@@ -7,6 +7,7 @@ from mcp.types import ToolAnnotations
 from servicenow_mcp.capabilities.contracts import CapabilityResult
 from servicenow_mcp.capabilities.metadata.describe import DescribeCapability
 from servicenow_mcp.mcp.handlers import tool_handler
+from servicenow_mcp.mcp.inputs import describe_tool_parameters
 
 if TYPE_CHECKING:
     from mcp.server import MCPServer
@@ -39,6 +40,18 @@ def register_tools(
             open_world_hint=True,
         ),
     )
+    @describe_tool_parameters(
+        {
+            "table": "Table to describe or inspect for script fields.",
+            "fields": "Optional field-name array; use * for all fields.",
+            "verbose": "Return fuller sys_dictionary rows when true.",
+            "include_docs": "Include field labels, help, hints, and documentation URLs.",
+            "action": "Choose default table details, list_tables, or list_script_fields.",
+            "name_filter": "Substring filter for table names and labels in list_tables.",
+            "field_offset": "Zero-based offset for paging table fields.",
+            "field_limit": "Fields per page, from 1 to 100.",
+        }
+    )
     @tool_handler
     async def describe(
         table: str | None = None,
@@ -50,29 +63,7 @@ def register_tools(
         field_offset: int | None = 0,
         field_limit: int | None = 25,
     ) -> CapabilityResult:
-        """Return slim field metadata for a table, or list tables / script fields.
-
-        Omit unused optional arguments; null uses their defaults.
-
-        Args:
-            table: ServiceNow table name. Required for the default flow and for
-                ``action='list_script_fields'``. Ignored by
-                ``action='list_tables'``.
-            fields: Native array of fields to include. Empty returns a bounded
-                compact page. ``'*'`` explicitly returns all fields.
-            verbose: When True, return the full sys_dictionary row per field
-                minus a fixed deny-list of high-noise keys. Default False.
-            include_docs: When True, attach the matching sys_documentation entry
-                (label/help/hint/url) per field. Default False.
-            action: When ``'list_script_fields'``, return the dictionary-driven
-                script-bearing fields for ``table`` with its resolved super_class
-                chain. When ``'list_tables'``, list tables from sys_db_object
-                (optionally filtered by ``name_filter``). Empty (default) runs
-                the standard table-describe flow.
-            name_filter: Substring matched against table name and label when
-                ``action='list_tables'``. Empty returns all tables (capped).
-            field_offset: Zero-based field offset for compact default pages.
-            field_limit: Field count for compact default pages (1-100)."""
+        """Discover ServiceNow tables and field metadata before querying or editing. Use list_tables for unknown table names and list_script_fields to locate script-capable fields."""
         return await capability.describe(
             table=table,
             fields=fields,

@@ -7,6 +7,7 @@ from mcp.types import ToolAnnotations
 from servicenow_mcp.capabilities.catalog.analysis import AnalysisCapability
 from servicenow_mcp.capabilities.contracts import CapabilityResult
 from servicenow_mcp.mcp.handlers import tool_handler
+from servicenow_mcp.mcp.inputs import describe_tool_parameters
 
 if TYPE_CHECKING:
     from mcp.server import MCPServer
@@ -39,6 +40,22 @@ def register_tools(
             open_world_hint=True,
         ),
     )
+    @describe_tool_parameters(
+        {
+            "action": "Select ritm_variables, journal_history, or describe.",
+            "table": "Target table for journal_history, such as incident.",
+            "sys_id": "Record sys_id; use a requested-item ID for ritm_variables.",
+            "fields": "Journal fields: comments, work_notes, or close_notes.",
+            "since": {
+                "description": "Journal cutoff date; overrides window_days.",
+                "format": "date",
+                "pattern": r"^\d{4}-\d{2}-\d{2}$",
+            },
+            "window_days": "Recent journal window in days; default is 90.",
+            "limit": "Maximum journal rows to return.",
+            "offset": "Zero-based journal result offset.",
+        }
+    )
     @tool_handler
     async def analysis(
         action: Literal["ritm_variables", "journal_history", "describe"],
@@ -50,19 +67,7 @@ def register_tools(
         limit: int | None = None,
         offset: int | None = 0,
     ) -> CapabilityResult:
-        """Run bounded, read-only analysis over catalog answers or journals.
-
-        Omit unused optional arguments; null uses their defaults.
-
-        Args:
-            action: 'ritm_variables' | 'journal_history' | 'describe'.
-            table: Target table for journal_history.
-            sys_id: Target record sys_id for ritm_variables or journal_history.
-            fields: Allowed journal fields: comments, work_notes, close_notes.
-            since: ISO date floor for journal_history; overrides window_days.
-            window_days: Journal window; defaults to 90 days.
-            limit: Row cap; defaults to MAX_ROW_LIMIT and is capped by it.
-            offset: Zero-based row offset."""
+        """Read requested-item variables or record journal history. Use 'describe' to discover actions and 'audit' for sys_audit history."""
         return await capability.analysis(
             action=action,
             table=table,

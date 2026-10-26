@@ -7,6 +7,7 @@ from mcp.types import ToolAnnotations
 from servicenow_mcp.capabilities.audit.audit import AuditCapability
 from servicenow_mcp.capabilities.contracts import CapabilityResult
 from servicenow_mcp.mcp.handlers import tool_handler
+from servicenow_mcp.mcp.inputs import describe_tool_parameters
 
 if TYPE_CHECKING:
     from mcp.server import MCPServer
@@ -42,6 +43,22 @@ def register_tools(
             open_world_hint=True,
         ),
     )
+    @describe_tool_parameters(
+        {
+            "action": "Choose check_field, check_fields, check_table, history, or describe.",
+            "table": "Target ServiceNow table; required except for describe.",
+            "field": "Field to inspect for check_field.",
+            "fields": "1-50 field names for check_fields.",
+            "sys_id": "Record sys_id for history.",
+            "since": {
+                "description": "History cutoff date; overrides window_days.",
+                "format": "date",
+                "pattern": r"^\d{4}-\d{2}-\d{2}$",
+            },
+            "window_days": "Recent history window in days; default is 90.",
+            "limit": "Maximum audit rows returned.",
+        }
+    )
     @tool_handler
     async def audit(
         action: Literal[
@@ -55,24 +72,7 @@ def register_tools(
         window_days: int | None = None,
         limit: int | None = None,
     ) -> CapabilityResult:
-        """Inspect ServiceNow audit posture (table/field config) and audit trail.
-
-        IMPORTANT: ``sys_audit`` is one of the largest tables on the platform.
-        Every action keeps a default 90-day window for that reason. Override
-        ``window_days`` (or ``since`` on ``history``) only when you genuinely
-        need older rows - wider windows cause slow queries and can time out.
-
-        Omit unused optional arguments; null uses their defaults.
-
-        Args:
-            action: 'check_field' | 'check_fields' | 'check_table' | 'history' | 'describe'.
-            table: ServiceNow table name (required for all actions except 'describe').
-            field: Field name (required for 'check_field').
-            fields: Native array of field names (required for 'check_fields', 1..50).
-            sys_id: 32-char record sys_id (required for 'history').
-            since: YYYY-MM-DD cutoff (history only; overrides window_days).
-            window_days: Audit-trail/positive-control window (defaults to 90).
-            limit: Row cap for 'history' (defaults to settings.max_row_limit)."""
+        """Inspect audit settings for a table or field, or read a record's change history. History defaults to 90 days because sys_audit is very large."""
         return await capability.audit(
             action=action,
             table=table,

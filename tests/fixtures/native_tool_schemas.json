@@ -299,6 +299,7 @@
           "additionalProperties": false,
           "properties": {
             "operation": {
+              "description": "Aggregate to calculate; count omits field, others require it.",
               "enum": [
                 "count",
                 "avg",
@@ -319,6 +320,7 @@
                 }
               ],
               "default": null,
+              "description": "Numeric or comparable table field for avg, sum, min, or max.",
               "title": "Field"
             }
           },
@@ -333,10 +335,12 @@
           "description": "One parsed ``field=label`` choice-resolution directive.",
           "properties": {
             "field": {
+              "description": "Choice field element name on the query table.",
               "title": "Field",
               "type": "string"
             },
             "label": {
+              "description": "Displayed choice label to resolve and filter by.",
               "title": "Label",
               "type": "string"
             }
@@ -351,6 +355,7 @@
       },
       "properties": {
         "table": {
+          "description": "ServiceNow table name, such as incident.",
           "title": "Table",
           "type": "string"
         },
@@ -364,6 +369,7 @@
             }
           ],
           "default": null,
+          "description": "Fetch one record by sys_id; cannot combine with aggregate.",
           "title": "Sys Id"
         },
         "encoded_query": {
@@ -376,6 +382,7 @@
             }
           ],
           "default": null,
+          "description": "ServiceNow encoded query used to filter matching records.",
           "title": "Encoded Query"
         },
         "fields": {
@@ -395,6 +402,7 @@
             }
           ],
           "default": null,
+          "description": "List-mode projection array; required for lists, or use * for all fields.",
           "title": "Fields"
         },
         "limit": {
@@ -407,6 +415,7 @@
             }
           ],
           "default": 20,
+          "description": "Maximum rows per list page; default is 20.",
           "title": "Limit"
         },
         "offset": {
@@ -419,6 +428,7 @@
             }
           ],
           "default": 0,
+          "description": "Zero-based list page offset.",
           "title": "Offset"
         },
         "order_by": {
@@ -431,6 +441,7 @@
             }
           ],
           "default": null,
+          "description": "Field to sort by; prefix with - for descending.",
           "title": "Order By"
         },
         "display_values": {
@@ -443,6 +454,7 @@
             }
           ],
           "default": false,
+          "description": "Return display values for reference and choice fields.",
           "title": "Display Values"
         },
         "aggregate": {
@@ -458,6 +470,7 @@
             }
           ],
           "default": null,
+          "description": "Operations array: count omits field; avg/sum/min/max require field.",
           "title": "Aggregate"
         },
         "group_by": {
@@ -473,6 +486,7 @@
             }
           ],
           "default": null,
+          "description": "Field-name array grouping aggregate results.",
           "title": "Group By"
         },
         "resolve_labels": {
@@ -488,6 +502,7 @@
             }
           ],
           "default": null,
+          "description": "Array of {field,label}; resolves labels and adds stored-value filters.",
           "title": "Resolve Labels"
         }
       },
@@ -797,6 +812,7 @@
             }
           ],
           "default": null,
+          "description": "Table to describe or inspect for script fields.",
           "title": "Table"
         },
         "fields": {
@@ -816,6 +832,7 @@
             }
           ],
           "default": null,
+          "description": "Optional field-name array; use * for all fields.",
           "title": "Fields"
         },
         "verbose": {
@@ -828,6 +845,7 @@
             }
           ],
           "default": false,
+          "description": "Return fuller sys_dictionary rows when true.",
           "title": "Verbose"
         },
         "include_docs": {
@@ -840,6 +858,7 @@
             }
           ],
           "default": false,
+          "description": "Include field labels, help, hints, and documentation URLs.",
           "title": "Include Docs"
         },
         "action": {
@@ -857,6 +876,7 @@
             }
           ],
           "default": null,
+          "description": "Choose default table details, list_tables, or list_script_fields.",
           "title": "Action"
         },
         "name_filter": {
@@ -869,6 +889,7 @@
             }
           ],
           "default": null,
+          "description": "Substring filter for table names and labels in list_tables.",
           "title": "Name Filter"
         },
         "field_offset": {
@@ -881,6 +902,7 @@
             }
           ],
           "default": 0,
+          "description": "Zero-based offset for paging table fields.",
           "title": "Field Offset"
         },
         "field_limit": {
@@ -893,6 +915,7 @@
             }
           ],
           "default": 25,
+          "description": "Fields per page, from 1 to 100.",
           "title": "Field Limit"
         }
       },
@@ -1190,6 +1213,7 @@
     "input": {
       "properties": {
         "table": {
+          "description": "ServiceNow table name.",
           "title": "Table",
           "type": "string"
         },
@@ -1203,6 +1227,7 @@
             }
           ],
           "default": null,
+          "description": "Record sys_id; mutually exclusive with name.",
           "title": "Sys Id"
         },
         "name": {
@@ -1215,6 +1240,7 @@
             }
           ],
           "default": null,
+          "description": "Exact record name; mutually exclusive with sys_id.",
           "title": "Name"
         },
         "fields": {
@@ -1234,6 +1260,7 @@
             }
           ],
           "default": null,
+          "description": "Field projection array; * returns all masked fields.",
           "title": "Fields"
         }
       },
@@ -1534,6 +1561,7 @@
     "input": {
       "properties": {
         "action": {
+          "description": "Choose list, get, download, or download_by_name.",
           "enum": [
             "list",
             "get",
@@ -1553,6 +1581,7 @@
             }
           ],
           "default": null,
+          "description": "Attachment sys_id for get or download.",
           "title": "Sys Id"
         },
         "table": {
@@ -1565,6 +1594,7 @@
             }
           ],
           "default": null,
+          "description": "Parent table for list or download_by_name.",
           "title": "Table"
         },
         "table_sys_id": {
@@ -1577,6 +1607,7 @@
             }
           ],
           "default": null,
+          "description": "Parent record sys_id for list or download_by_name.",
           "title": "Table Sys Id"
         },
         "file_name": {
@@ -1589,6 +1620,7 @@
             }
           ],
           "default": null,
+          "description": "Exact attachment name for download_by_name.",
           "title": "File Name"
         }
       },
@@ -1892,6 +1924,7 @@
       },
       "properties": {
         "action": {
+          "description": "Choose run, explain, or describe.",
           "enum": [
             "run",
             "explain",
@@ -1910,6 +1943,7 @@
             }
           ],
           "default": null,
+          "description": "Investigation name for run; optional family filter for describe/explain.",
           "title": "Name"
         },
         "params": {
@@ -1925,6 +1959,7 @@
             }
           ],
           "default": null,
+          "description": "Native JSON object of run parameters from describe.",
           "title": "Params"
         },
         "element_id": {
@@ -1937,6 +1972,7 @@
             }
           ],
           "default": null,
+          "description": "Finding ID returned by run, usually table:sys_id.",
           "title": "Element Id"
         }
       },
@@ -2237,10 +2273,12 @@
     "input": {
       "properties": {
         "table": {
+          "description": "Table containing the choice field.",
           "title": "Table",
           "type": "string"
         },
         "field": {
+          "description": "Choice field element name, such as state.",
           "title": "Field",
           "type": "string"
         },
@@ -2254,6 +2292,7 @@
             }
           ],
           "default": null,
+          "description": "Exact displayed choice label to resolve.",
           "title": "Label"
         }
       },
@@ -2555,6 +2594,7 @@
     "input": {
       "properties": {
         "action": {
+          "description": "Read action: browse/get catalogs, categories, items, variables, cart, address, delegation, wishlist, or display values.",
           "enum": [
             "catalogs_list",
             "catalog_get",
@@ -2584,6 +2624,7 @@
             }
           ],
           "default": null,
+          "description": "Catalog/category/item sys_id; required for get, item_variables, and variable_display_value.",
           "title": "Sys Id"
         },
         "catalog_sys_id": {
@@ -2596,6 +2637,7 @@
             }
           ],
           "default": null,
+          "description": "Catalog sys_id for categories_list.",
           "title": "Catalog Sys Id"
         },
         "catalog": {
@@ -2608,6 +2650,7 @@
             }
           ],
           "default": null,
+          "description": "Catalog sys_id filter for items_list.",
           "title": "Catalog"
         },
         "category": {
@@ -2620,6 +2663,7 @@
             }
           ],
           "default": null,
+          "description": "Category sys_id filter for items_list.",
           "title": "Category"
         },
         "text": {
@@ -2632,6 +2676,7 @@
             }
           ],
           "default": null,
+          "description": "Search phrase for catalogs_list or items_list.",
           "title": "Text"
         },
         "limit": {
@@ -2644,6 +2689,7 @@
             }
           ],
           "default": 20,
+          "description": "Maximum list rows per page; default is 20.",
           "title": "Limit"
         },
         "offset": {
@@ -2656,6 +2702,7 @@
             }
           ],
           "default": 0,
+          "description": "Zero-based list offset.",
           "title": "Offset"
         },
         "top_level_only": {
@@ -2668,6 +2715,7 @@
             }
           ],
           "default": false,
+          "description": "Return only top-level categories.",
           "title": "Top Level Only"
         },
         "view": {
@@ -2685,6 +2733,7 @@
             }
           ],
           "default": null,
+          "description": "Optional desktop, mobile, or both catalog view.",
           "title": "View"
         },
         "item_type": {
@@ -2697,6 +2746,7 @@
             }
           ],
           "default": null,
+          "description": "ServiceNow item type filter for items_list.",
           "title": "Item Type"
         },
         "user_sys_id": {
@@ -2709,6 +2759,7 @@
             }
           ],
           "default": null,
+          "description": "User sys_id for delivery_address or delegation.",
           "title": "User Sys Id"
         },
         "item_sys_id": {
@@ -2721,6 +2772,7 @@
             }
           ],
           "default": null,
+          "description": "Item sys_id for delegation or delegated-user validation.",
           "title": "Item Sys Id"
         },
         "cart_item_id": {
@@ -2733,6 +2785,7 @@
             }
           ],
           "default": null,
+          "description": "Cart-item sys_id for wishlist_item_get.",
           "title": "Cart Item Id"
         },
         "also_request_for": {
@@ -2748,6 +2801,7 @@
             }
           ],
           "default": null,
+          "description": "User sys_id array for delegated-user validation.",
           "title": "Also Request For"
         },
         "value": {
@@ -2760,6 +2814,7 @@
             }
           ],
           "default": null,
+          "description": "Record sys_id for variable_display_value.",
           "title": "Value"
         },
         "api_version": {
@@ -2772,6 +2827,8 @@
             }
           ],
           "default": null,
+          "description": "Optional API version, such as v1.",
+          "pattern": "^v[1-9][0-9]*$",
           "title": "Api Version"
         }
       },
@@ -3072,6 +3129,7 @@
     "input": {
       "properties": {
         "action": {
+          "description": "Select ritm_variables, journal_history, or describe.",
           "enum": [
             "ritm_variables",
             "journal_history",
@@ -3090,6 +3148,7 @@
             }
           ],
           "default": null,
+          "description": "Target table for journal_history, such as incident.",
           "title": "Table"
         },
         "sys_id": {
@@ -3102,6 +3161,7 @@
             }
           ],
           "default": null,
+          "description": "Record sys_id; use a requested-item ID for ritm_variables.",
           "title": "Sys Id"
         },
         "fields": {
@@ -3117,6 +3177,7 @@
             }
           ],
           "default": null,
+          "description": "Journal fields: comments, work_notes, or close_notes.",
           "title": "Fields"
         },
         "since": {
@@ -3129,6 +3190,9 @@
             }
           ],
           "default": null,
+          "description": "Journal cutoff date; overrides window_days.",
+          "format": "date",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
           "title": "Since"
         },
         "window_days": {
@@ -3141,6 +3205,7 @@
             }
           ],
           "default": null,
+          "description": "Recent journal window in days; default is 90.",
           "title": "Window Days"
         },
         "limit": {
@@ -3153,6 +3218,7 @@
             }
           ],
           "default": null,
+          "description": "Maximum journal rows to return.",
           "title": "Limit"
         },
         "offset": {
@@ -3165,6 +3231,7 @@
             }
           ],
           "default": 0,
+          "description": "Zero-based journal result offset.",
           "title": "Offset"
         }
       },
@@ -3465,6 +3532,7 @@
     "input": {
       "properties": {
         "action": {
+          "description": "Choose check_field, check_fields, check_table, history, or describe.",
           "enum": [
             "check_field",
             "check_fields",
@@ -3485,6 +3553,7 @@
             }
           ],
           "default": null,
+          "description": "Target ServiceNow table; required except for describe.",
           "title": "Table"
         },
         "field": {
@@ -3497,6 +3566,7 @@
             }
           ],
           "default": null,
+          "description": "Field to inspect for check_field.",
           "title": "Field"
         },
         "fields": {
@@ -3512,6 +3582,7 @@
             }
           ],
           "default": null,
+          "description": "1-50 field names for check_fields.",
           "title": "Fields"
         },
         "sys_id": {
@@ -3524,6 +3595,7 @@
             }
           ],
           "default": null,
+          "description": "Record sys_id for history.",
           "title": "Sys Id"
         },
         "since": {
@@ -3536,6 +3608,9 @@
             }
           ],
           "default": null,
+          "description": "History cutoff date; overrides window_days.",
+          "format": "date",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
           "title": "Since"
         },
         "window_days": {
@@ -3548,6 +3623,7 @@
             }
           ],
           "default": null,
+          "description": "Recent history window in days; default is 90.",
           "title": "Window Days"
         },
         "limit": {
@@ -3560,6 +3636,7 @@
             }
           ],
           "default": null,
+          "description": "Maximum audit rows returned.",
           "title": "Limit"
         }
       },
@@ -3860,6 +3937,7 @@
     "input": {
       "properties": {
         "action": {
+          "description": "Choose contract, inspect, find_by_table, decode_values, list_triggers, describe, validate, or status.",
           "enum": [
             "contract",
             "inspect",
@@ -3883,6 +3961,7 @@
             }
           ],
           "default": null,
+          "description": "Canonical sys_hub_flow sys_id for a flow or subflow.",
           "title": "Sys Id"
         },
         "name": {
@@ -3895,6 +3974,7 @@
             }
           ],
           "default": null,
+          "description": "Flow name or internal_name for contract/inspect.",
           "title": "Name"
         },
         "value": {
@@ -3907,6 +3987,7 @@
             }
           ],
           "default": null,
+          "description": "Gzip+base64 encoded JSON blob for decode_values.",
           "title": "Value"
         },
         "table": {
@@ -3919,6 +4000,7 @@
             }
           ],
           "default": null,
+          "description": "Target table for find_by_table or a list_triggers filter.",
           "title": "Table"
         },
         "trigger_type": {
@@ -3931,6 +4013,7 @@
             }
           ],
           "default": null,
+          "description": "Optional trigger type filter for list_triggers.",
           "title": "Trigger Type"
         },
         "active": {
@@ -3943,6 +4026,7 @@
             }
           ],
           "default": null,
+          "description": "Optional true/false trigger filter.",
           "title": "Active"
         },
         "limit": {
@@ -3955,6 +4039,7 @@
             }
           ],
           "default": null,
+          "description": "Maximum triggers returned; default is 100.",
           "title": "Limit"
         },
         "sections": {
@@ -3974,6 +4059,7 @@
             }
           ],
           "default": null,
+          "description": "Inspection sections array; use * for all sections.",
           "title": "Sections"
         },
         "section_limit": {
@@ -3986,6 +4072,7 @@
             }
           ],
           "default": null,
+          "description": "Shared row/node cap for selected sections.",
           "title": "Section Limit"
         },
         "execution_sys_id": {
@@ -3998,6 +4085,7 @@
             }
           ],
           "default": null,
+          "description": "Existing execution context sys_id for status; does not start execution.",
           "title": "Execution Sys Id"
         }
       },
@@ -4312,6 +4400,7 @@
             }
           ],
           "default": "search",
+          "description": "Choose search, list_tables, or describe; defaults to search.",
           "title": "Action"
         },
         "term": {
@@ -4324,6 +4413,7 @@
             }
           ],
           "default": null,
+          "description": "Distinctive code symbol or phrase for search.",
           "title": "Term"
         },
         "table": {
@@ -4336,6 +4426,7 @@
             }
           ],
           "default": null,
+          "description": "Optional indexed-table filter for search, such as sys_script_include.",
           "title": "Table"
         },
         "search_group": {
@@ -4348,6 +4439,7 @@
             }
           ],
           "default": null,
+          "description": "Code Search group; omit to use the ServiceNow default.",
           "title": "Search Group"
         },
         "limit": {
@@ -4360,6 +4452,7 @@
             }
           ],
           "default": 20,
+          "description": "Maximum search matches; default is 20.",
           "title": "Limit"
         },
         "extended_matching": {
@@ -4372,6 +4465,7 @@
             }
           ],
           "default": false,
+          "description": "Set true to include additional indexed context fields.",
           "title": "Extended Matching"
         }
       },
@@ -4669,6 +4763,7 @@
     "input": {
       "properties": {
         "action": {
+          "description": "Choose query, get, meta, or describe.",
           "enum": [
             "query",
             "get",
@@ -4688,6 +4783,7 @@
             }
           ],
           "default": null,
+          "description": "CMDB class, such as cmdb_ci_server; required except for describe.",
           "title": "Class Name"
         },
         "sys_id": {
@@ -4700,6 +4796,7 @@
             }
           ],
           "default": null,
+          "description": "CI sys_id for get.",
           "title": "Sys Id"
         },
         "encoded_query": {
@@ -4712,6 +4809,7 @@
             }
           ],
           "default": null,
+          "description": "ServiceNow encoded filter for query.",
           "title": "Encoded Query"
         },
         "limit": {
@@ -4724,6 +4822,7 @@
             }
           ],
           "default": 20,
+          "description": "Maximum CIs per page; default is 20.",
           "title": "Limit"
         },
         "offset": {
@@ -4736,6 +4835,7 @@
             }
           ],
           "default": 0,
+          "description": "Zero-based query offset; add limit for the next page.",
           "title": "Offset"
         }
       },
@@ -5039,6 +5139,7 @@
       },
       "properties": {
         "action": {
+          "description": "Choose create, update, or delete.",
           "enum": [
             "create",
             "update",
@@ -5048,6 +5149,7 @@
           "type": "string"
         },
         "table": {
+          "description": "Target ServiceNow table.",
           "title": "Table",
           "type": "string"
         },
@@ -5061,6 +5163,7 @@
             }
           ],
           "default": null,
+          "description": "Record sys_id for update/delete; omit for create.",
           "title": "Sys Id"
         },
         "data": {
@@ -5076,6 +5179,7 @@
             }
           ],
           "default": null,
+          "description": "Native field/value object for create/update; include mandatory fields.",
           "title": "Data"
         }
       },
@@ -5377,6 +5481,7 @@
     "input": {
       "properties": {
         "action": {
+          "description": "Choose upload or delete.",
           "enum": [
             "upload",
             "delete"
@@ -5394,6 +5499,7 @@
             }
           ],
           "default": null,
+          "description": "Parent table for upload.",
           "title": "Table"
         },
         "table_sys_id": {
@@ -5406,6 +5512,7 @@
             }
           ],
           "default": null,
+          "description": "Parent record sys_id for upload.",
           "title": "Table Sys Id"
         },
         "file_name": {
@@ -5418,6 +5525,7 @@
             }
           ],
           "default": null,
+          "description": "Attachment file name for upload.",
           "title": "File Name"
         },
         "content_base64": {
@@ -5430,6 +5538,7 @@
             }
           ],
           "default": null,
+          "description": "Actual file bytes encoded as base64; upload only, maximum 10 MiB decoded.",
           "title": "Content Base64"
         },
         "content_type": {
@@ -5442,6 +5551,7 @@
             }
           ],
           "default": "application/octet-stream",
+          "description": "Upload MIME type; defaults to application/octet-stream.",
           "title": "Content Type"
         },
         "sys_id": {
@@ -5454,6 +5564,7 @@
             }
           ],
           "default": null,
+          "description": "Attachment sys_id for delete.",
           "title": "Sys Id"
         }
       },
@@ -5757,6 +5868,7 @@
       },
       "properties": {
         "action": {
+          "description": "Choose an order, producer, guide, wishlist, or cart operation.",
           "enum": [
             "order_now",
             "add_to_cart",
@@ -5783,6 +5895,7 @@
             }
           ],
           "default": null,
+          "description": "Catalog item sys_id for item and guide operations.",
           "title": "Item Sys Id"
         },
         "variables": {
@@ -5798,6 +5911,7 @@
             }
           ],
           "default": null,
+          "description": "Native object mapping catalog variable names to values.",
           "title": "Variables"
         },
         "quantity": {
@@ -5810,6 +5924,7 @@
             }
           ],
           "default": null,
+          "description": "Non-negative item quantity.",
           "title": "Quantity"
         },
         "requested_for": {
@@ -5822,6 +5937,7 @@
             }
           ],
           "default": null,
+          "description": "User sys_id for whom to place the request.",
           "title": "Requested For"
         },
         "also_request_for": {
@@ -5837,6 +5953,7 @@
             }
           ],
           "default": null,
+          "description": "Additional user sys_id array; 1-50 entries.",
           "title": "Also Request For"
         },
         "cart_item_id": {
@@ -5849,6 +5966,7 @@
             }
           ],
           "default": null,
+          "description": "Cart item sys_id for update or delete.",
           "title": "Cart Item Id"
         },
         "cart_sys_id": {
@@ -5861,6 +5979,7 @@
             }
           ],
           "default": null,
+          "description": "Cart sys_id for cart_empty.",
           "title": "Cart Sys Id"
         },
         "items": {
@@ -5879,6 +5998,7 @@
             }
           ],
           "default": null,
+          "description": "Guide checkout items; each has sys_id, sysparm_quantity, and variables.",
           "title": "Items"
         },
         "view": {
@@ -5896,6 +6016,7 @@
             }
           ],
           "default": null,
+          "description": "Optional catalog view: desktop, mobile, or both.",
           "title": "View"
         },
         "api_version": {
@@ -5908,6 +6029,8 @@
             }
           ],
           "default": null,
+          "description": "Optional endpoint version, such as v1.",
+          "pattern": "^v[1-9][0-9]*$",
           "title": "Api Version"
         }
       },
@@ -6208,6 +6331,7 @@
     "input": {
       "properties": {
         "preview_token": {
+          "description": "Exact token returned by a preview tool; expires after 300 seconds and is single-use.",
           "title": "Preview Token",
           "type": "string"
         }

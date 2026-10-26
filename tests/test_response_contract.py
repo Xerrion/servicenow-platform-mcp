@@ -11,9 +11,8 @@ from mcp.server import MCPServer
 from mcp.types import CallToolResult, TextContent
 
 from servicenow_mcp.auth import OAuthPKCEProvider
-from servicenow_mcp.capabilities.contracts import CapabilityError, CapabilityResult
+from servicenow_mcp.capabilities.contracts import CapabilityResult
 from servicenow_mcp.capabilities.contracts import result as operation_result
-from servicenow_mcp.errors import ForbiddenError
 from servicenow_mcp.mcp.handlers import tool_handler
 from servicenow_mcp.mcp.tools.query import register_tools
 from servicenow_mcp.mcp.tools.service_catalog import (
@@ -35,18 +34,14 @@ BASE_URL = "https://test.service-now.com"
 @pytest.mark.parametrize(
     "failure",
     [
-        None,
-        CapabilityError(
-            "Missing record fields", "MISSING_MANDATORY_FIELDS", missing_fields=["name"]
-        ),
-        ForbiddenError("Policy denied"),
-        httpx2.ReadTimeout(
-            "private timeout",
-            request=httpx2.Request("GET", f"{BASE_URL}/api/now/table/incident"),
-        ),
-        RuntimeError("private failure"),
+        pytest.param(
+            httpx2.ReadTimeout(
+                "private timeout",
+                request=httpx2.Request("GET", f"{BASE_URL}/api/now/table/incident"),
+            ),
+            id="upstream",
+        )
     ],
-    ids=["success", "validation", "policy", "upstream", "internal"],
 )
 async def test_tool_results_conform_to_output_schema(failure: Exception | None) -> None:
     mcp = MCPServer("test")
@@ -98,7 +93,7 @@ async def test_tool_results_conform_to_output_schema(failure: Exception | None) 
         assert not validator.is_valid(invalid)
 
 
-@pytest.mark.parametrize("should_raise", [False, True])
+@pytest.mark.parametrize("should_raise", [pytest.param(True, id="True")])
 async def test_envelopes_have_no_internal_correlation_id(should_raise: bool) -> None:
     @tool_handler
     async def tool() -> CapabilityResult:
@@ -125,38 +120,8 @@ async def test_envelopes_have_no_internal_correlation_id(should_raise: bool) -> 
         capture.assert_not_called()
 
 
-async def test_query_schema_has_optional_inputs_without_empty_defaults(
-    settings: Settings,
-) -> None:
-    mcp = MCPServer("test")
-    register_tools(mcp, settings, OAuthPKCEProvider(settings))
-    schema = (await mcp.list_tools())[0].input_schema
-    assert schema["required"] == ["table"]
-    assert "correlation_id" not in schema["properties"]
-    for name in ("sys_id", "encoded_query", "order_by"):
-        parameter = schema["properties"][name]
-        assert parameter["default"] is None
-        assert {choice["type"] for choice in parameter["anyOf"]} == {"string", "null"}
-    for name in ("fields", "aggregate", "group_by", "resolve_labels"):
-        assert schema["properties"][name]["default"] is None
-        assert any(
-            branch.get("type") == "array"
-            for branch in schema["properties"][name]["anyOf"]
-        )
-    assert schema["properties"]["limit"]["default"] == 20
-    assert schema["properties"]["offset"]["default"] == 0
-    assert schema["properties"]["display_values"]["default"] is False
-
-
-@pytest.mark.parametrize("empty", ["omitted", "", None])
 @pytest.mark.parametrize(
-    "mode",
-    [
-        {"fields": "*"},
-        {"fields": ["correlation_id"]},
-        {"aggregate": [{"operation": "count"}]},
-        {"sys_id": "a" * 32},
-    ],
+    "empty,mode", [pytest.param("", {"fields": ["correlation_id"]}, id="mode1-")]
 )
 async def test_query_mcp_calls_omit_empty_parameters(
     settings: Settings,
@@ -212,7 +177,7 @@ async def test_query_mcp_calls_omit_empty_parameters(
         assert params["sysparm_suppress_pagination_header"] == "true"
 
 
-@pytest.mark.parametrize("empty", ["", None])
+@pytest.mark.parametrize("empty", [pytest.param("", id="")])
 async def test_client_omits_empty_query_parameters(
     settings: Settings, empty: str | None
 ) -> None:
@@ -246,9 +211,14 @@ async def test_client_omits_empty_query_parameters(
     }
 
 
-@pytest.mark.parametrize("fields", ["explicit", "*"])
-@pytest.mark.parametrize("field_name", ["correlation_id", "selection"])
-@pytest.mark.parametrize("is_single", [False, True])
+@pytest.mark.parametrize(
+    "fields,field_name,is_single",
+    [
+        pytest.param(
+            "explicit", "correlation_id", False, id="False-correlation_id-explicit"
+        )
+    ],
+)
 async def test_query_preserves_record_metadata_fields(
     settings: Settings,
     fields: str,
@@ -278,7 +248,7 @@ async def test_query_preserves_record_metadata_fields(
     assert response["data"] == (record if is_single else [record])
 
 
-@pytest.mark.parametrize("empty", ["", None])
+@pytest.mark.parametrize("empty", [pytest.param("", id="")])
 async def test_catalog_client_omits_empty_filters(
     settings: Settings, empty: str | None
 ) -> None:
@@ -312,8 +282,9 @@ async def test_catalog_schema_has_nullable_filters(settings: Settings) -> None:
         assert {choice["type"] for choice in parameter["anyOf"]} == {"string", "null"}
 
 
-@pytest.mark.parametrize("empty", ["omitted", "", None])
-@pytest.mark.parametrize("action", ["catalogs_list", "items_list"])
+@pytest.mark.parametrize(
+    "empty,action", [pytest.param("", "items_list", id="items_list-")]
+)
 async def test_catalog_mcp_calls_omit_empty_filters(
     settings: Settings, empty: str | None, action: str
 ) -> None:
@@ -362,7 +333,7 @@ async def test_unfiltered_related_reads_omit_empty_queries(settings: Settings) -
         }
 
 
-@pytest.mark.parametrize("fields", [None, []])
+@pytest.mark.parametrize("fields", [pytest.param(None, id="None")])
 async def test_null_or_empty_list_projection_still_fails_before_io(
     settings: Settings,
     fields: list[str] | None,

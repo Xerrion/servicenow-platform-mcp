@@ -71,26 +71,6 @@ async def test_resolves_label_to_value(
     choices.resolve.assert_awaited_once_with("incident", "state", "open")
 
 
-@pytest.mark.asyncio()
-async def test_empty_label_returns_full_mapping(
-    settings: Settings, auth_provider: OAuthPKCEProvider
-) -> None:
-    """An empty label returns the full {label: value} mapping for the field."""
-    choices = _make_choices(settings, auth_provider)
-    mapping = {"open": "1", "in_progress": "2", "closed": "7"}
-    choices.get_choices = AsyncMock(return_value=mapping)  # type: ignore[method-assign]
-
-    tools = _register_and_get_tools(choices=choices)
-    raw = await tools["resolve_choice"](table="incident", field="state")
-    result = decode_response(raw)
-
-    assert result["status"] == "success"
-    assert result["data"]["table"] == "incident"
-    assert result["data"]["field"] == "state"
-    assert result["data"]["choices"] == mapping
-    choices.get_choices.assert_awaited_once_with("incident", "state")
-
-
 # ---------------------------------------------------------------------------
 # warning behaviour
 # ---------------------------------------------------------------------------

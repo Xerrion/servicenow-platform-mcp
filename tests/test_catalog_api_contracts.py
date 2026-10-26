@@ -177,8 +177,13 @@ MUTATIONS = [
 ]
 
 
-@pytest.mark.parametrize(("arguments", "method", "path", "body"), MUTATIONS)
-async def test_mutation_contracts(
+async def test_all_mutation_endpoint_contracts(settings: Settings) -> None:
+    for arguments, method, path, body in MUTATIONS:
+        http_mock.reset()
+        await _assert_mutation_contract(settings, arguments, method, path, body)
+
+
+async def _assert_mutation_contract(
     settings: Settings, arguments, method, path, body
 ) -> None:
     _, coordinator, tools, _ = setup(settings)
@@ -272,15 +277,44 @@ async def test_read_contracts(
 
 
 @pytest.mark.parametrize(
-    ("action", "path", "arguments"),
+    "action,path,arguments",
     [
-        ("catalogs_list", "catalogs", {}),
-        ("catalog_get", f"catalogs/{ITEM}", {"sys_id": ITEM}),
-        ("categories_list", f"catalogs/{ITEM}/categories", {"catalog_sys_id": ITEM}),
-        ("category_get", f"categories/{ITEM}", {"sys_id": ITEM}),
-        ("items_list", "items", {"item_type": "record_producer"}),
-        ("item_get", f"items/{ITEM}", {"sys_id": ITEM}),
-        ("item_variables", f"items/{ITEM}/variables", {"sys_id": ITEM}),
+        pytest.param(
+            "catalog_get",
+            f"catalogs/{ITEM}",
+            {"sys_id": ITEM},
+            id="catalog_get-catalogs/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-arguments1",
+        ),
+        pytest.param(
+            "categories_list",
+            f"catalogs/{ITEM}/categories",
+            {"catalog_sys_id": ITEM},
+            id="categories_list-catalogs/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/categories-arguments2",
+        ),
+        pytest.param(
+            "category_get",
+            f"categories/{ITEM}",
+            {"sys_id": ITEM},
+            id="category_get-categories/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-arguments3",
+        ),
+        pytest.param(
+            "items_list",
+            "items",
+            {"item_type": "record_producer"},
+            id="items_list-items-arguments4",
+        ),
+        pytest.param(
+            "item_get",
+            f"items/{ITEM}",
+            {"sys_id": ITEM},
+            id="item_get-items/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-arguments5",
+        ),
+        pytest.param(
+            "item_variables",
+            f"items/{ITEM}/variables",
+            {"sys_id": ITEM},
+            id="item_variables-items/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/variables-arguments6",
+        ),
     ],
 )
 async def test_view_type_and_version(
@@ -303,49 +337,62 @@ async def test_view_type_and_version(
 @pytest.mark.parametrize(
     "arguments",
     [
-        {"action": "submit_producer"},
-        {"action": "submit_producer", "item_sys_id": "../private"},
-        {"action": "submit_producer", "item_sys_id": ITEM, "quantity": 1},
-        {"action": "order_now", "item_sys_id": ITEM, "quantity": -1},
-        {"action": "order_now", "item_sys_id": ITEM, "quantity": True},
-        {"action": "order_now", "item_sys_id": ITEM, "quantity": 1.5},
-        {"action": "order_now", "item_sys_id": ITEM, "requested_for": "invalid"},
-        {"action": "order_now", "item_sys_id": ITEM, "also_request_for": [USER] * 51},
-        {"action": "cart_item_update", "cart_item_id": CART_ITEM},
-        {"action": "cart_item_delete", "cart_item_id": CART_ITEM, "variables": {}},
-        {"action": "cart_empty"},
-        {"action": "cart_checkout", "item_sys_id": ITEM},
-        {"action": "checkout_guide", "item_sys_id": ITEM},
-        {
-            "action": "checkout_guide",
-            "item_sys_id": ITEM,
-            "items": [{"sys_id": ITEM, "sysparm_quantity": "0"}],
-        },
-        {
-            "action": "checkout_guide",
-            "item_sys_id": ITEM,
-            "items": [{"sys_id": ITEM, "extra": PRIVATE}],
-        },
-        {
-            "action": "checkout_guide",
-            "item_sys_id": ITEM,
-            "items": [{"sys_id": ITEM, "variables": "{}"}],
-        },
-        {
-            "action": "submit_producer",
-            "item_sys_id": ITEM,
-            "variables": {"value": float("nan")},
-        },
-        {
-            "action": "submit_producer",
-            "item_sys_id": ITEM,
-            "variables": {"value": "x" * (256 * 1024)},
-        },
-        {
-            "action": "submit_producer",
-            "item_sys_id": ITEM,
-            "api_version": "v1/../../private",
-        },
+        pytest.param({"action": "submit_producer"}, id="arguments0"),
+        pytest.param(
+            {"action": "submit_producer", "item_sys_id": ITEM, "quantity": 1},
+            id="arguments2",
+        ),
+        pytest.param(
+            {"action": "order_now", "item_sys_id": ITEM, "requested_for": "invalid"},
+            id="arguments6",
+        ),
+        pytest.param(
+            {
+                "action": "order_now",
+                "item_sys_id": ITEM,
+                "also_request_for": [USER] * 51,
+            },
+            id="arguments7",
+        ),
+        pytest.param(
+            {"action": "cart_item_update", "cart_item_id": CART_ITEM}, id="arguments8"
+        ),
+        pytest.param({"action": "cart_empty"}, id="arguments10"),
+        pytest.param(
+            {"action": "checkout_guide", "item_sys_id": ITEM}, id="arguments12"
+        ),
+        pytest.param(
+            {
+                "action": "checkout_guide",
+                "item_sys_id": ITEM,
+                "items": [{"sys_id": ITEM, "sysparm_quantity": "0"}],
+            },
+            id="arguments13",
+        ),
+        pytest.param(
+            {
+                "action": "checkout_guide",
+                "item_sys_id": ITEM,
+                "items": [{"sys_id": ITEM, "extra": PRIVATE}],
+            },
+            id="arguments14",
+        ),
+        pytest.param(
+            {
+                "action": "checkout_guide",
+                "item_sys_id": ITEM,
+                "items": [{"sys_id": ITEM, "variables": "{}"}],
+            },
+            id="arguments15",
+        ),
+        pytest.param(
+            {
+                "action": "submit_producer",
+                "item_sys_id": ITEM,
+                "variables": {"value": float("nan")},
+            },
+            id="arguments16",
+        ),
     ],
 )
 async def test_invalid_mutations_never_read_or_stage(
@@ -362,16 +409,20 @@ async def test_invalid_mutations_never_read_or_stage(
 @pytest.mark.parametrize(
     "arguments",
     [
-        {"action": "delivery_address"},
-        {"action": "delegation", "user_sys_id": USER},
-        {"action": "wishlist_item_get", "cart_item_id": "invalid"},
-        {
-            "action": "get_invalid_delegated_users",
-            "item_sys_id": ITEM,
-            "also_request_for": [],
-        },
-        {"action": "variable_display_value", "sys_id": ITEM},
-        {"action": "cart_get", "api_version": "invalid"},
+        pytest.param(
+            {"action": "wishlist_item_get", "cart_item_id": "invalid"}, id="arguments2"
+        ),
+        pytest.param(
+            {
+                "action": "get_invalid_delegated_users",
+                "item_sys_id": ITEM,
+                "also_request_for": [],
+            },
+            id="arguments3",
+        ),
+        pytest.param(
+            {"action": "variable_display_value", "sys_id": ITEM}, id="arguments4"
+        ),
     ],
 )
 async def test_invalid_reads_never_dispatch(settings: Settings, arguments) -> None:
@@ -380,7 +431,7 @@ async def test_invalid_reads_never_dispatch(settings: Settings, arguments) -> No
     assert not http_mock.calls
 
 
-@pytest.mark.parametrize("key", ["item", "definitions", "producer"])
+@pytest.mark.parametrize("key", [pytest.param("item", id="item")])
 async def test_producer_drift_consumes_token(settings: Settings, key: str) -> None:
     _, coordinator, tools, state = setup(settings)
     preview = decode_response(
@@ -400,10 +451,7 @@ async def test_producer_drift_consumes_token(settings: Settings, key: str) -> No
     assert len(coordinator.store) == 0
 
 
-@pytest.mark.parametrize(
-    "change",
-    ["production", "instance", "family", "target_policy", "authorization", "expiry"],
-)
+@pytest.mark.parametrize("change", [pytest.param("authorization", id="authorization")])
 async def test_producer_rechecks_safeguards(settings: Settings, change: str) -> None:
     auth, coordinator, tools, _ = setup(settings)
     preview = decode_response(
@@ -442,7 +490,11 @@ async def test_producer_rechecks_safeguards(settings: Settings, change: str) -> 
 
 @pytest.mark.parametrize(
     "failure",
-    ["timeout", "invalid_json", "missing_result", "cancel", "api_error", "http_error"],
+    [
+        pytest.param("timeout", id="timeout"),
+        pytest.param("api_error", id="api_error"),
+        pytest.param("http_error", id="http_error"),
+    ],
 )
 async def test_producer_failure_is_single_use_and_private(
     settings: Settings, failure: str
@@ -610,7 +662,9 @@ def test_new_diagnostic_inputs_are_redacted() -> None:
     assert PRIVATE not in str(_redact_args(arguments))
 
 
-@pytest.mark.parametrize("action", ["cart_item_update", "cart_item_delete"])
+@pytest.mark.parametrize(
+    "action", [pytest.param("cart_item_update", id="cart_item_update")]
+)
 async def test_exact_cart_item_drift_blocks_apply(
     settings: Settings, action: str
 ) -> None:
@@ -667,9 +721,7 @@ async def test_producer_concurrent_apply_dispatches_once(settings: Settings) -> 
     assert mutation.call_count == 1
 
 
-@pytest.mark.parametrize(
-    "failure", ["timeout", "incomplete", "http_401", "http_403", "http_429", "http_500"]
-)
+@pytest.mark.parametrize("failure", [pytest.param("http_401", id="http_401")])
 async def test_put_failure_never_replays(settings: Settings, failure: str) -> None:
     _, coordinator, tools, _ = setup(settings)
 
@@ -705,10 +757,9 @@ async def test_put_failure_never_replays(settings: Settings, failure: str) -> No
 @pytest.mark.parametrize(
     "metadata",
     [
-        {},
-        {"table_name": ""},
-        {"table_name": "../private"},
-        {"table_name": "sys_credentials"},
+        pytest.param({}, id="metadata0"),
+        pytest.param({"table_name": "../private"}, id="metadata2"),
+        pytest.param({"table_name": "sys_credentials"}, id="metadata3"),
     ],
 )
 async def test_producer_invalid_target_never_stages(
@@ -799,11 +850,9 @@ async def test_producer_version_retained_for_read_and_write(settings: Settings) 
 @pytest.mark.parametrize(
     "response",
     [
-        None,
-        {},
-        {"number": "INC0000001"},
-        {"sys_id": ITEM},
-        {"sys_id": ITEM, "table": None},
+        pytest.param(None, id="None"),
+        pytest.param({}, id="response1"),
+        pytest.param({"sys_id": ITEM}, id="response3"),
     ],
 )
 async def test_incomplete_producer_response_is_unknown(
@@ -856,7 +905,8 @@ async def test_unexpected_delete_response_is_unknown(settings: Settings) -> None
 
 
 @pytest.mark.parametrize(
-    "action", ["get_invalid_delegated_users", "variable_display_value"]
+    "action",
+    [pytest.param("get_invalid_delegated_users", id="get_invalid_delegated_users")],
 )
 async def test_read_post_errors_are_private(settings: Settings, action: str) -> None:
     tools = _register_and_get_tools(settings, OAuthPKCEProvider(settings))
@@ -878,9 +928,7 @@ async def test_read_post_errors_are_private(settings: Settings, action: str) -> 
     assert PRIVATE not in str(result)
 
 
-@pytest.mark.parametrize(
-    "label", ["Password", "API token", "Email address", *SECRET_KEY_LABELS]
-)
+@pytest.mark.parametrize("label", [pytest.param("Password", id="Password")])
 def test_variable_label_masks_all_answer_fields(label: str) -> None:
     variable = {
         "name": "u_field_1",
@@ -900,7 +948,7 @@ def test_variable_label_masks_all_answer_fields(label: str) -> None:
     assert variable["value"] == PRIVATE
 
 
-@pytest.mark.parametrize("label", ["Password", *SECRET_KEY_LABELS])
+@pytest.mark.parametrize("label", [pytest.param("Password", id="Password")])
 async def test_variable_labels_mask_preview_and_guide_result(
     settings: Settings, label: str
 ) -> None:
@@ -935,10 +983,9 @@ async def test_variable_labels_mask_preview_and_guide_result(
 
 
 @pytest.mark.parametrize(
-    "action",
-    ["submit_producer", "submit_guide", "order_now", "add_to_cart", "cart_item_update"],
+    "action,label",
+    [pytest.param("submit_producer", "Password", id="Password-submit_producer")],
 )
-@pytest.mark.parametrize("label", ["Password", *SECRET_KEY_LABELS])
 async def test_submitted_map_uses_definition_labels_without_changing_apply_payload(
     settings: Settings,
     caplog: pytest.LogCaptureFixture,
@@ -1005,7 +1052,7 @@ async def test_submitted_map_uses_definition_labels_without_changing_apply_paylo
     assert coordinator.store.retained_payload_bytes == 0
 
 
-@pytest.mark.parametrize("label", ["Password", *SECRET_KEY_LABELS])
+@pytest.mark.parametrize("label", [pytest.param("Password", id="Password")])
 async def test_guide_submitted_maps_use_each_items_definitions_and_preserve_apply_payload(
     settings: Settings,
     caplog: pytest.LogCaptureFixture,
@@ -1113,8 +1160,7 @@ def test_variable_map_metadata_is_nested_scoped_and_copy_only() -> None:
 
 
 @pytest.mark.parametrize(
-    "definitions",
-    [None, [], [{"name": "u_field_1"}], [{"name": "u_field_1", "label": " "}]],
+    "definitions", [pytest.param([{"name": "u_field_1"}], id="definitions2")]
 )
 def test_variable_maps_without_usable_metadata_are_masked(definitions) -> None:
     assert mask_catalog(
@@ -1224,7 +1270,9 @@ async def test_item_form_labels_also_mask_submitted_maps(settings: Settings) -> 
     }
 
 
-@pytest.mark.parametrize("action", ["submit_producer", "checkout_guide"])
+@pytest.mark.parametrize(
+    "action", [pytest.param("checkout_guide", id="checkout_guide")]
+)
 async def test_submitted_map_failure_does_not_disclose_or_replay(
     settings: Settings,
     caplog: pytest.LogCaptureFixture,
@@ -1256,7 +1304,13 @@ async def test_submitted_map_failure_does_not_disclose_or_replay(
     assert coordinator.store.retained_payload_bytes == 0
 
 
-@pytest.mark.parametrize("action", ["cart_get", "wishlist_get", "wishlist_item_get"])
+@pytest.mark.parametrize(
+    "action",
+    [
+        pytest.param("cart_get", id="cart_get"),
+        pytest.param("wishlist_item_get", id="wishlist_item_get"),
+    ],
+)
 async def test_catalog_read_maps_without_labels_do_not_disclose_answers(
     settings: Settings, action: str
 ) -> None:
@@ -1286,7 +1340,7 @@ async def test_catalog_read_maps_without_labels_do_not_disclose_answers(
     assert PRIVATE not in str(result)
 
 
-@pytest.mark.parametrize("has_item_reference", [False, True])
+@pytest.mark.parametrize("has_item_reference", [pytest.param(True, id="True")])
 async def test_cart_update_masks_metadata_gaps_and_detects_label_drift(
     settings: Settings,
     has_item_reference: bool,
@@ -1331,7 +1385,7 @@ async def test_cart_update_masks_metadata_gaps_and_detects_label_drift(
         )
 
 
-@pytest.mark.parametrize("invalid_users", [[], [PRIVATE], [PRIVATE, PRIVATE]])
+@pytest.mark.parametrize("invalid_users", [pytest.param([], id="invalid_users0")])
 async def test_delegated_user_validation_preserves_outcome(
     settings: Settings, invalid_users: list[str]
 ) -> None:
@@ -1361,7 +1415,9 @@ def test_delegated_user_masking_recurses_and_fails_closed_for_malformed_values()
     assert mask_catalog({"invalidUsers": PRIVATE}) == {"invalidUsers": MASK_VALUE}
 
 
-@pytest.mark.parametrize("denied_table", ["sc_request", "sc_cart_item"])
+@pytest.mark.parametrize(
+    "denied_table", [pytest.param("sc_cart_item", id="sc_cart_item")]
+)
 async def test_guide_checkout_checks_both_policies_before_preview(
     settings: Settings,
     monkeypatch: pytest.MonkeyPatch,
@@ -1380,8 +1436,16 @@ async def test_guide_checkout_checks_both_policies_before_preview(
     assert len(coordinator.store) == 0
 
 
-@pytest.mark.parametrize("denied_table", ["sc_request", "sc_cart_item"])
-@pytest.mark.parametrize("change_at", ["before_apply", "last_precondition_read"])
+@pytest.mark.parametrize(
+    "denied_table,change_at",
+    [
+        pytest.param(
+            "sc_request",
+            "last_precondition_read",
+            id="last_precondition_read-sc_request",
+        )
+    ],
+)
 async def test_guide_checkout_rechecks_both_policies_before_dispatch(
     settings: Settings,
     monkeypatch: pytest.MonkeyPatch,

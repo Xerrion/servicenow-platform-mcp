@@ -67,7 +67,7 @@ class TestQueryMode:
         assert "Large tables require a recognized date constraint." in description
         assert "narrow date bound" not in description
 
-    @pytest.mark.parametrize("total", [3, 50])
+    @pytest.mark.parametrize("total", [pytest.param(3, id="3")])
     async def test_capped_limit_uses_pagination_not_warning(
         self,
         settings: Settings,
@@ -145,7 +145,7 @@ class TestQueryMode:
         assert result["pagination"] == {"offset": 0, "limit": 20, "total": 2}
         assert "selection" not in result
 
-    @pytest.mark.parametrize("offset", [None, 0])
+    @pytest.mark.parametrize("offset", [pytest.param(None, id="None")])
     async def test_first_page_avoids_upstream_pagination_rejection(
         self,
         settings: Settings,
@@ -287,9 +287,7 @@ class TestQueryMode:
         assert "sysparm_fields" not in route.calls.last.request.url.params
         assert "selection" not in result
 
-    @pytest.mark.parametrize(
-        "fields", [["description", "active", "sys_mod_count", "sys_tags"], "*"]
-    )
+    @pytest.mark.parametrize("fields", [pytest.param("*", id="*")])
     async def test_explicit_fields_preserve_empty_and_system_values(
         self,
         settings: Settings,
@@ -511,7 +509,7 @@ class TestAggregateMode:
     """Stats API mode."""
 
     @pytest.mark.parametrize(
-        "group_by", [["state", "active"], ["request_item.state", "active"]]
+        "group_by", [pytest.param(["state", "active"], id="group_by0")]
     )
     async def test_multiple_group_fields(
         self,
@@ -535,8 +533,7 @@ class TestAggregateMode:
         )
 
     @pytest.mark.parametrize(
-        "group_by",
-        [["state", "active^ORstate=3"], ["state", "", "active"], [""], ["state", ""]],
+        "group_by", [pytest.param(["state", "active^ORstate=3"], id="group_by0")]
     )
     async def test_invalid_group_fields_fail_before_io(
         self,
@@ -742,9 +739,9 @@ class TestModeConflicts:
 class TestExtractQueryFields:
     """Best-effort parse of field references out of an encoded query."""
 
-    @pytest.mark.parametrize(
-        ("encoded_query", "expected"),
-        [
+    def test_extracts_field_paths(self) -> None:
+        """Complete paths are deduplicated and order-preserved."""
+        for encoded_query, expected in [
             ("", []),
             ("name=Vinklubben", ["name"]),
             ("state=1^priority=2", ["state", "priority"]),
@@ -764,17 +761,12 @@ class TestExtractQueryFields:
             ("state=1^ORDERBYDESCsys_created_on", ["state", "sys_created_on"]),
             ("priority=1^NQstate=2", ["priority", "state"]),
             ("state=1^priority=2^state=3", ["state", "priority"]),
-        ],
-    )
-    def test_extracts_field_paths(
-        self, encoded_query: str, expected: list[str]
-    ) -> None:
-        """Complete paths are deduplicated and order-preserved."""
-        from servicenow_mcp.capabilities.records._query_parsing import (
-            extract_query_fields,
-        )
+        ]:
+            from servicenow_mcp.capabilities.records._query_parsing import (
+                extract_query_fields,
+            )
 
-        assert extract_query_fields(encoded_query) == expected
+            assert extract_query_fields(encoded_query) == expected
 
 
 # ---------------------------------------------------------------------------

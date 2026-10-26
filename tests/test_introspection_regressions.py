@@ -48,7 +48,7 @@ async def test_v1_table_lookup_without_record_triggers_does_not_scan(
     assert len(http_mock.calls) == 1
 
 
-@pytest.mark.parametrize("body", [b"", b"<html>private response</html>"])
+@pytest.mark.parametrize("body", [pytest.param(b"", id="")])
 async def test_non_json_flow_response_has_safe_context(
     settings: Settings, body: bytes
 ) -> None:

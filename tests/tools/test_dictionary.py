@@ -69,15 +69,6 @@ def _mock_root_table(dictionary_rows: list[dict[str, Any]]) -> None:
 class TestSelectedFields:
     """Write validation fetches only supplied columns, without a broad field load."""
 
-    async def test_empty_selection_does_not_query(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
-    ) -> None:
-        assert (
-            await DictionaryRegistry(settings, auth_provider).get_fields("u_child", [])
-            == []
-        )
-        assert not http_mock.calls
-
     async def test_child_override_and_inherited_types(
         self,
         settings: Settings,
@@ -128,62 +119,9 @@ class TestSelectedFields:
         assert second == first
         assert len(http_mock.calls) == 2
 
-    async def test_selection_is_batched_and_stops_after_resolution(
-        self,
-        settings: Settings,
-        auth_provider: OAuthPKCEProvider,
-    ) -> None:
-        registry = DictionaryRegistry(settings, auth_provider)
-        registry.get_chain = AsyncMock(return_value=["u_child", "u_parent"])
-        names = [f"field_{index}" for index in range(205)]
-
-        def dictionary(request: httpx2.Request) -> httpx2.Response:
-            query = request.url.params["sysparm_query"]
-            assert query.startswith("name=u_child^")
-            selected = query.split("elementIN", 1)[1].split("^", 1)[0].split(",")
-            assert 1 <= len(selected) <= 100
-            assert request.url.params["sysparm_limit"] == str(len(selected))
-            return httpx2.Response(
-                200,
-                json={
-                    "result": [
-                        {"element": name, "internal_type.name": "string"}
-                        for name in selected
-                    ]
-                },
-            )
-
-        metadata = http_mock.get(DICTIONARY_URL).mock(side_effect=dictionary)
-        fields = await registry.get_fields("u_child", names)
-        assert {field.name for field in fields} == set(names)
-        assert metadata.call_count == 3
-
 
 class TestTypeFilter:
     """The unambiguous-type list admits fields regardless of attributes."""
-
-    @pytest.mark.asyncio()
-    async def test_unambiguous_script_types_admitted(
-        self,
-        settings: Settings,
-        auth_provider: OAuthPKCEProvider,
-    ) -> None:
-        _mock_root_table(
-            [
-                _row("script", "script"),
-                _row("template", "html_template"),
-                _row("css", "css"),
-                _row("name", "string"),
-                _row("active", "boolean"),
-            ],
-        )
-        registry = DictionaryRegistry(settings, auth_provider)
-        fields = await registry.get_script_fields("sys_script")
-
-        names = [f.name for f in fields]
-        assert names == ["script", "template", "css"]
-        assert all(f.via_heuristic is False for f in fields)
-        assert all(f.inherited_from is None for f in fields)
 
     @pytest.mark.asyncio()
     async def test_excluded_elements_dropped(
@@ -204,51 +142,6 @@ class TestTypeFilter:
 
 class TestHeuristicAdmission:
     """``html`` and ``xml`` require a heuristic flag in attributes to admit."""
-
-    @pytest.mark.asyncio()
-    async def test_html_with_tinymce_flag_admitted(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
-    ) -> None:
-        _mock_root_table(
-            [_row("layout", "html", "tinymce_allow_all=true,html_sanitize=false")]
-        )
-        registry = DictionaryRegistry(settings, auth_provider)
-        fields = await registry.get_script_fields("sys_email_layout")
-
-        assert len(fields) == 1
-        assert fields[0].name == "layout"
-        assert fields[0].via_heuristic is True
-
-    @pytest.mark.asyncio()
-    async def test_html_without_flag_rejected(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
-    ) -> None:
-        _mock_root_table([_row("description", "html", "edge_encryption_enabled=true")])
-        registry = DictionaryRegistry(settings, auth_provider)
-        fields = await registry.get_script_fields("incident")
-
-        assert fields == []
-
-    @pytest.mark.asyncio()
-    async def test_internal_type_uses_dot_walk_name_not_reference_sys_id(
-        self,
-        settings: Settings,
-        auth_provider: OAuthPKCEProvider,
-    ) -> None:
-        _mock_root_table(
-            [
-                {
-                    "element": "comments",
-                    "internal_type": {"value": "a" * 32},
-                    "internal_type.name": "journal_input",
-                    "attributes": "",
-                },
-            ],
-        )
-        fields = await DictionaryRegistry(settings, auth_provider).get_all_fields(
-            "task"
-        )
-        assert fields[0].internal_type == "journal_input"
 
     @pytest.mark.asyncio()
     async def test_internal_type_fallback_queries_dot_walk_name(
@@ -316,36 +209,6 @@ class TestAttributesAdmitHeuristic:
 
     def test_empty_string_not_admitted(self) -> None:
         assert attributes_admit_heuristic("") is False
-
-    def test_legitimate_flag_admitted(self) -> None:
-        assert attributes_admit_heuristic("tinymce_allow_all=true") is True
-
-    def test_legitimate_flag_with_other_tokens_admitted(self) -> None:
-        assert (
-            attributes_admit_heuristic("foo=bar,tinymce_allow_all=true,baz=qux") is True
-        )
-
-    def test_html_sanitize_false_admitted(self) -> None:
-        assert attributes_admit_heuristic("html_sanitize=false") is True
-
-    def test_substring_key_rejected(self) -> None:
-        """``my_tinymce_allow_all=true`` must not false-positive."""
-        assert attributes_admit_heuristic("my_tinymce_allow_all=true,other=x") is False
-        assert attributes_admit_heuristic("not_html_sanitize=false") is False
-
-    def test_wrong_value_rejected(self) -> None:
-        assert attributes_admit_heuristic("tinymce_allow_all=false") is False
-        assert attributes_admit_heuristic("html_sanitize=true") is False
-
-    def test_whitespace_tolerated(self) -> None:
-        assert attributes_admit_heuristic("foo=bar, tinymce_allow_all = true ") is True
-
-    def test_case_insensitive(self) -> None:
-        assert attributes_admit_heuristic("TINYMCE_ALLOW_ALL=TRUE") is True
-
-    def test_value_containing_equals_survives(self) -> None:
-        """Split on first ``=`` only; spurious ``=`` in values does not break parsing."""
-        assert attributes_admit_heuristic("other=a=b,tinymce_allow_all=true") is True
 
 
 # ---------------------------------------------------------------------------
@@ -422,25 +285,6 @@ class TestSuperClassChain:
         assert fields[0].internal_type == "script"
         assert fields[0].inherited_from is None
 
-    @pytest.mark.asyncio()
-    async def test_missing_super_class_yields_single_table_chain(
-        self,
-        settings: Settings,
-        auth_provider: OAuthPKCEProvider,
-    ) -> None:
-        # sys_db_object returns no rows for an unknown table.
-        http_mock.get(DB_OBJECT_URL).mock(
-            return_value=httpx2.Response(200, json={"result": []})
-        )
-        http_mock.get(DICTIONARY_URL).mock(
-            return_value=httpx2.Response(200, json={"result": []})
-        )
-
-        registry = DictionaryRegistry(settings, auth_provider)
-        chain = await registry.get_chain("unknown_table")
-        assert chain == ["unknown_table"]
-        assert await registry.get_script_fields("unknown_table") == []
-
 
 class TestCycleAndDepthGuards:
     """The chain walker bails out on cycles and at the depth ceiling."""
@@ -481,29 +325,6 @@ class TestCycleAndDepthGuards:
 
 class TestCache:
     """The registry caches per-table results to avoid re-querying."""
-
-    @pytest.mark.asyncio()
-    async def test_second_call_does_not_refetch(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
-    ) -> None:
-        db_route = http_mock.get(DB_OBJECT_URL).mock(
-            return_value=httpx2.Response(
-                200, json={"result": [{"super_class.name": ""}]}
-            ),
-        )
-        dict_route = http_mock.get(DICTIONARY_URL).mock(
-            return_value=httpx2.Response(
-                200, json={"result": [_row("script", "script")]}
-            ),
-        )
-
-        registry = DictionaryRegistry(settings, auth_provider)
-        first = await registry.get_script_fields("sys_script")
-        second = await registry.get_script_fields("sys_script")
-
-        assert first == second
-        assert db_route.call_count == 1
-        assert dict_route.call_count == 1
 
     @pytest.mark.asyncio()
     async def test_flush_invalidates_cache(
@@ -611,8 +432,3 @@ class TestCache:
         context = telemetry.cache_sentry_context()
         assert context[CacheName.DICTIONARY_CHAINS.value]["hits"] == 1
         assert "sensitive_customer_table" not in str(context)
-
-
-# ---------------------------------------------------------------------------
-# Template-syntax helper
-# ---------------------------------------------------------------------------

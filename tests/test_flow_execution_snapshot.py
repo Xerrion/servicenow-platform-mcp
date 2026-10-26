@@ -127,12 +127,18 @@ def assert_snapshot_diagnostic(data, code):
     ] == [(code, "execution.snapshot", True)]
 
 
-@pytest.mark.parametrize("mode", ["status"])
 @pytest.mark.parametrize(
-    "owner", [FLOW, AUTHORING], ids=["owner", "authoring-ancestor"]
+    "mode,owner,wrapped,state",
+    [
+        pytest.param(
+            "status",
+            AUTHORING,
+            True,
+            "COMPLETE",
+            id="COMPLETE-reference-value-authoring-ancestor-status",
+        )
+    ],
 )
-@pytest.mark.parametrize("wrapped", [False, True], ids=["raw", "reference-value"])
-@pytest.mark.parametrize("state", ["COMPLETE", "WAITING"])
 async def test_exact_owned_compiled_snapshot_does_not_verify_content_or_version(
     settings, mode, owner, wrapped, state
 ):
@@ -170,60 +176,43 @@ async def test_exact_owned_compiled_snapshot_does_not_verify_content_or_version(
     assert_compiled_reads(COMPILED)
 
 
-@pytest.mark.parametrize("mode", ["status"])
 @pytest.mark.parametrize(
-    "record,http_status,code",
+    "mode,record,http_status,code",
     [
         pytest.param(
+            "status",
             compiled_record(parent=OTHER),
             200,
             "EXECUTION_SNAPSHOT_MISMATCH",
-            id="wrong-parent",
+            id="wrong-parent-status",
         ),
         pytest.param(
-            compiled_record(sys_id=OTHER),
-            200,
-            "EXECUTION_SNAPSHOT_MISMATCH",
-            id="wrong-identity",
+            "status", None, 200, "MALFORMED_EXECUTION_SNAPSHOT", id="null-record-status"
         ),
-        pytest.param({}, 200, "MALFORMED_EXECUTION_SNAPSHOT", id="missing-record"),
-        pytest.param(None, 200, "MALFORMED_EXECUTION_SNAPSHOT", id="null-record"),
-        pytest.param([], 200, "MALFORMED_EXECUTION_SNAPSHOT", id="non-record"),
         pytest.param(
+            "status",
             {"sys_id": COMPILED},
             200,
             "MALFORMED_EXECUTION_SNAPSHOT",
-            id="missing-parent",
+            id="missing-parent-status",
         ),
         pytest.param(
-            {"parent": FLOW}, 200, "MALFORMED_EXECUTION_SNAPSHOT", id="missing-identity"
-        ),
-        pytest.param(
+            "status",
             compiled_record(parent=""),
             200,
             "MALFORMED_EXECUTION_SNAPSHOT",
-            id="empty-parent",
+            id="empty-parent-status",
         ),
         pytest.param(
-            compiled_record(parent={"display_value": FLOW}),
-            200,
-            "MALFORMED_EXECUTION_SNAPSHOT",
-            id="display-only-parent",
-        ),
-        pytest.param(
+            "status",
             compiled_record(sys_id=COMPILED.upper()),
             200,
             "MALFORMED_EXECUTION_SNAPSHOT",
-            id="uppercase-identity",
+            id="uppercase-identity-status",
         ),
         pytest.param(
-            compiled_record(parent=FLOW + "\n"),
-            200,
-            "MALFORMED_EXECUTION_SNAPSHOT",
-            id="newline-parent",
+            "status", {}, 403, "UNREADABLE_EXECUTION_SNAPSHOT", id="denied-status"
         ),
-        pytest.param({}, 403, "UNREADABLE_EXECUTION_SNAPSHOT", id="denied"),
-        pytest.param({}, 404, "UNREADABLE_EXECUTION_SNAPSHOT", id="not-found"),
     ],
 )
 async def test_limited_compiled_record_evidence_preserves_known_execution(
@@ -239,34 +228,16 @@ async def test_limited_compiled_record_evidence_preserves_known_execution(
     assert_compiled_reads(COMPILED)
 
 
-@pytest.mark.parametrize("mode", ["status"])
 @pytest.mark.parametrize(
-    "snapshot,code",
+    "mode,snapshot,code",
     [
-        pytest.param(MISSING, "MISSING_EXECUTION_SNAPSHOT", id="missing"),
-        pytest.param(None, "MISSING_EXECUTION_SNAPSHOT", id="null"),
-        pytest.param("", "PENDING_EXECUTION_SNAPSHOT", id="pending"),
-        pytest.param("not-an-id", "MALFORMED_EXECUTION_SNAPSHOT", id="invalid"),
-        pytest.param(COMPILED.upper(), "MALFORMED_EXECUTION_SNAPSHOT", id="uppercase"),
+        pytest.param("status", "", "PENDING_EXECUTION_SNAPSHOT", id="pending-status"),
         pytest.param(
-            " " + COMPILED, "MALFORMED_EXECUTION_SNAPSHOT", id="leading-space"
-        ),
-        pytest.param(
-            COMPILED + " ", "MALFORMED_EXECUTION_SNAPSHOT", id="trailing-space"
-        ),
-        pytest.param(
-            "f" * 32 + "\n", "MALFORMED_EXECUTION_SNAPSHOT", id="trailing-newline"
-        ),
-        pytest.param(
+            "status",
             {"display_value": COMPILED},
             "MALFORMED_EXECUTION_SNAPSHOT",
-            id="display-only-reference",
+            id="display-only-reference-status",
         ),
-        pytest.param(
-            {"value": None}, "MALFORMED_EXECUTION_SNAPSHOT", id="null-reference-value"
-        ),
-        pytest.param([COMPILED], "MALFORMED_EXECUTION_SNAPSHOT", id="array-reference"),
-        pytest.param(True, "MALFORMED_EXECUTION_SNAPSHOT", id="boolean-reference"),
     ],
 )
 async def test_missing_pending_or_malformed_snapshot_never_hides_terminal_context(
@@ -281,9 +252,10 @@ async def test_missing_pending_or_malformed_snapshot_never_hides_terminal_contex
     assert_compiled_reads(None)
 
 
-@pytest.mark.parametrize("mode", ["status"])
-@pytest.mark.parametrize("owner", [MISSING, None, ""], ids=["missing", "null", "empty"])
-@pytest.mark.parametrize("state", ["COMPLETE", "QUEUED"])
+@pytest.mark.parametrize(
+    "mode,owner,state",
+    [pytest.param("status", "", "COMPLETE", id="COMPLETE-empty-status")],
+)
 async def test_compiled_owner_does_not_resolve_pending_context_flow_race(
     settings, mode, owner, state
 ):

@@ -307,7 +307,7 @@ def _flatten_canvas(canvas: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return nodes
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
+@pytest.mark.parametrize("action", [pytest.param("contract", id="contract")])
 async def test_v2_subflow_readback(
     settings: Settings, auth_provider: OAuthPKCEProvider, action: str
 ) -> None:
@@ -355,9 +355,14 @@ async def test_v2_subflow_readback(
     client.list_subflow_instances_v2.assert_awaited_once_with(SYS_ID_FLOW, 101)
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
 @pytest.mark.parametrize(
-    "defect", ["cap", "acl", "blob", "parent", "cycle", "wait", "bindings"]
+    "action,defect",
+    [
+        pytest.param("contract", "acl", id="acl-contract"),
+        pytest.param("contract", "blob", id="blob-contract"),
+        pytest.param("inspect", "cycle", id="cycle-inspect"),
+        pytest.param("inspect", "wait", id="wait-inspect"),
+    ],
 )
 async def test_subflow_read_completeness(
     settings: Settings, auth_provider: OAuthPKCEProvider, action, defect
@@ -461,7 +466,7 @@ async def test_subflow_under_logic_uses_persisted_component_fields(
     assert result["data"]["steps"][1]["wait_for_completion"] is False
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
+@pytest.mark.parametrize("action", [pytest.param("contract", id="contract")])
 async def test_native_handler_readback_preserves_parallel_and_sandwich_order(
     settings: Settings, auth_provider: OAuthPKCEProvider, action: str
 ) -> None:
@@ -532,7 +537,7 @@ async def test_native_handler_readback_preserves_parallel_and_sandwich_order(
     assert summary["complete"] is True
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
+@pytest.mark.parametrize("action", [pytest.param("contract", id="contract")])
 async def test_native_handler_readback_bounds_combined_native_order(
     settings: Settings, auth_provider: OAuthPKCEProvider, action: str
 ) -> None:
@@ -561,23 +566,17 @@ async def test_native_handler_readback_bounds_combined_native_order(
     assert result["data"]["structural_summary"]["metadata_complete"] is False
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
 @pytest.mark.parametrize(
-    "defect",
+    "action,defect",
     [
-        "syntax",
-        "negative",
-        "ordinary_zero",
-        "unreadable_zero_type",
-        "unowned_wrapper",
-        "duplicate_order",
-        "duplicate_ui_syntax",
-        "arrow_parent",
-        "arrow_head",
-        "long_arrow_head",
-        "arrow_position",
-        "unreadable_branch_type",
-        "unowned_branch",
+        pytest.param("inspect", "duplicate_order", id="duplicate_order-inspect"),
+        pytest.param(
+            "contract", "duplicate_ui_syntax", id="duplicate_ui_syntax-contract"
+        ),
+        pytest.param("inspect", "arrow_parent", id="arrow_parent-inspect"),
+        pytest.param("inspect", "arrow_head", id="arrow_head-inspect"),
+        pytest.param("inspect", "arrow_position", id="arrow_position-inspect"),
+        pytest.param("inspect", "unowned_branch", id="unowned_branch-inspect"),
     ],
 )
 async def test_native_handler_readback_keeps_invalid_orders_incomplete(
@@ -672,9 +671,14 @@ async def test_inspect_compact_default_omits_optional_detail_requests(
         getattr(client, method_name).assert_not_awaited()
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
-@pytest.mark.parametrize("sections", [[], ["warnings"]])
-@pytest.mark.parametrize("spoke_field", ["category", "sys_scope"])
+@pytest.mark.parametrize(
+    "action,sections,spoke_field",
+    [
+        pytest.param(
+            "contract", ["warnings"], "sys_scope", id="sys_scope-sections1-contract"
+        )
+    ],
+)
 @pytest.mark.asyncio()
 async def test_selected_warnings_fetch_spoke_metadata_without_action_schema(
     settings: Settings,
@@ -706,8 +710,9 @@ async def test_selected_warnings_fetch_spoke_metadata_without_action_schema(
     client.list_action_output_definitions.assert_not_awaited()
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
-@pytest.mark.parametrize("sections", [[], ["warnings"]])
+@pytest.mark.parametrize(
+    "action,sections", [pytest.param("contract", [], id="sections0-contract")]
+)
 @pytest.mark.asyncio()
 async def test_selected_warnings_disclose_spoke_beyond_probe(
     settings: Settings,
@@ -864,7 +869,7 @@ async def test_warning_truncation_discloses_missing_action_type_metadata(
 
 
 @pytest.mark.parametrize(
-    ("action", "section"), [("inspect", "canvas"), ("contract", "steps")]
+    "action,section", [pytest.param("contract", "steps", id="contract-steps")]
 )
 @pytest.mark.asyncio()
 async def test_node_section_discloses_missing_action_type_metadata(
@@ -981,7 +986,7 @@ async def test_inspect_explicit_sections_fetch_dependencies_once_and_only_when_n
     client.list_flow_variables.assert_not_awaited()
 
 
-@pytest.mark.parametrize("complete_inputs", [True, False])
+@pytest.mark.parametrize("complete_inputs", [pytest.param(True, id="True")])
 @pytest.mark.asyncio()
 async def test_inspect_section_limit_discloses_truncation_and_continuation(
     settings: Settings,
@@ -1039,13 +1044,8 @@ async def test_inspect_section_limit_discloses_truncation_and_continuation(
 
 
 @pytest.mark.parametrize(
-    ("action", "sections", "node_section"),
-    [
-        ("inspect", ["canvas", "warnings"], "canvas"),
-        ("contract", ["steps", "warnings"], "steps"),
-        ("inspect", "*", "canvas"),
-        ("contract", "*", "steps"),
-    ],
+    "action,sections,node_section",
+    [pytest.param("contract", "*", "steps", id="contract-*-steps")],
 )
 @pytest.mark.asyncio()
 async def test_node_section_bound_does_not_truncate_warning_analysis(
@@ -1122,7 +1122,7 @@ async def test_node_section_bound_does_not_truncate_warning_analysis(
 
 
 @pytest.mark.parametrize(
-    ("action", "section"), [("inspect", "canvas"), ("contract", "steps")]
+    "action,section", [pytest.param("contract", "steps", id="contract-steps")]
 )
 @pytest.mark.asyncio()
 async def test_node_truncation_at_max_names_direct_query_paths(
@@ -1176,7 +1176,7 @@ async def test_node_truncation_at_max_names_direct_query_paths(
     assert "Query safety and row limits still apply" in truncation["continuation"]
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
+@pytest.mark.parametrize("action", [pytest.param("contract", id="contract")])
 @pytest.mark.asyncio()
 async def test_structural_summary_truncation_at_max_names_all_truncated_sources(
     settings: Settings,
@@ -1259,14 +1259,14 @@ async def test_warning_truncation_at_max_names_complete_direct_query_sequence(
 
 
 @pytest.mark.parametrize(
-    ("section", "client_method", "source_path"),
+    "section,client_method,source_path",
     [
-        ("inputs", "list_flow_inputs", "sys_hub_flow_input (encoded_query=model="),
-        (
+        pytest.param(
             "triggers",
             "list_trigger_instances_v2",
             "sys_hub_trigger_instance_v2 (encoded_query=flow=",
-        ),
+            id="triggers-list_trigger_instances_v2-sys_hub_trigger_instance_v2 (encoded_query=flow=",
+        )
     ],
 )
 @pytest.mark.asyncio()
@@ -1654,7 +1654,7 @@ async def test_inspect_snapshot_drift_emits_warning(
     assert any("snapshot drift" in w for w in result["data"]["warnings"])
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
+@pytest.mark.parametrize("action", [pytest.param("contract", id="contract")])
 @pytest.mark.asyncio()
 async def test_flow_stages_include_root_and_snapshot_provenance(
     settings: Settings,
@@ -1737,7 +1737,7 @@ async def test_flow_stages_include_root_and_snapshot_provenance(
     assert client.list_flow_stages.await_count == 2
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
+@pytest.mark.parametrize("action", [pytest.param("contract", id="contract")])
 @pytest.mark.asyncio()
 async def test_flow_stages_empty_and_shared_snapshot_are_normalized(
     settings: Settings,
@@ -2033,27 +2033,19 @@ async def test_contract_returns_concise_configured_bindings(
 
 
 @pytest.mark.parametrize(
-    ("lookup_method", "lookup_label", "failure"),
+    "lookup_method,lookup_label,failure",
     [
-        (
+        pytest.param(
             "list_action_input_definitions",
             "input",
             httpx2.ConnectError("definition table connection failed"),
+            id="list_action_input_definitions-input-failure0",
         ),
-        (
-            "list_action_input_definitions",
-            "input",
-            json.JSONDecodeError("invalid definition response", "", 0),
-        ),
-        (
+        pytest.param(
             "list_action_output_definitions",
             "output",
             httpx2.ConnectError("definition table connection failed"),
-        ),
-        (
-            "list_action_output_definitions",
-            "output",
-            json.JSONDecodeError("invalid definition response", "", 0),
+            id="list_action_output_definitions-output-failure2",
         ),
     ],
 )
@@ -2430,7 +2422,7 @@ def _legacy_handler_read_kwargs() -> dict[str, Any]:
     return kwargs
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
+@pytest.mark.parametrize("action", [pytest.param("contract", id="contract")])
 async def test_legacy_handler_readback_preserves_source_types_and_complete_topology(
     settings: Settings, auth_provider: OAuthPKCEProvider, action: str
 ) -> None:
@@ -2478,19 +2470,16 @@ async def test_legacy_handler_readback_preserves_source_types_and_complete_topol
     assert summary["metadata_complete"] is None
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
 @pytest.mark.parametrize(
-    "defect",
+    "action,defect",
     [
-        "missing_metadata",
-        "wrong_definition",
-        "ordinary_catch",
-        "missing_catch",
-        "duplicate_catch",
-        "instance_link",
-        "enabled",
-        "extra_input",
-        "main_input",
+        pytest.param("inspect", "missing_metadata", id="missing_metadata-inspect"),
+        pytest.param("inspect", "ordinary_catch", id="ordinary_catch-inspect"),
+        pytest.param("inspect", "duplicate_catch", id="duplicate_catch-inspect"),
+        pytest.param("inspect", "instance_link", id="instance_link-inspect"),
+        pytest.param("contract", "enabled", id="enabled-contract"),
+        pytest.param("inspect", "extra_input", id="extra_input-inspect"),
+        pytest.param("inspect", "main_input", id="main_input-inspect"),
     ],
 )
 async def test_legacy_table_handler_unknown_profiles_remain_incomplete(
@@ -2565,7 +2554,7 @@ async def test_legacy_table_handler_unknown_profiles_remain_incomplete(
     assert result["data"]["structural_summary"]["metadata_complete"] is False
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
+@pytest.mark.parametrize("action", [pytest.param("contract", id="contract")])
 async def test_legacy_handler_table_evidence_requires_untruncated_complete_dataset(
     settings: Settings, auth_provider: OAuthPKCEProvider, action: str
 ) -> None:

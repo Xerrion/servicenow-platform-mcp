@@ -13,13 +13,6 @@ if TYPE_CHECKING:
 class TestDenyList:
     """Test table deny list enforcement."""
 
-    def test_denied_table_raises_policy_error(self) -> None:
-        """Accessing a denied table raises PolicyError."""
-        from servicenow_mcp.policy import check_table_access
-
-        with pytest.raises(PolicyError, match="denied"):
-            check_table_access("sys_user_has_password")
-
     def test_credential_table_denied(self) -> None:
         """Credential tables are denied."""
         from servicenow_mcp.policy import check_table_access
@@ -52,56 +45,28 @@ class TestDenyList:
 class TestSensitiveFieldMasking:
     """Test sensitive field masking."""
 
-    def test_password_field_masked(self) -> None:
-        """Password fields are masked."""
-        from servicenow_mcp.policy import mask_sensitive_fields
-
-        record = {"sys_id": "123", "password": "secret123", "name": "admin"}
-        masked = mask_sensitive_fields(record)
-
-        assert masked["password"] == "***MASKED***"
-        assert masked["name"] == "admin"
-        assert masked["sys_id"] == "123"
-
-    def test_token_field_masked(self) -> None:
-        """Token fields are masked."""
-        from servicenow_mcp.policy import mask_sensitive_fields
-
-        record = {"token": "abc123", "name": "test"}
-        masked = mask_sensitive_fields(record)
-
-        assert masked["token"] == "***MASKED***"
-
-    def test_secret_field_masked(self) -> None:
-        """Fields containing 'secret' are masked."""
-        from servicenow_mcp.policy import mask_sensitive_fields
-
-        record = {"client_secret": "xyz", "name": "test"}
-        masked = mask_sensitive_fields(record)
-
-        assert masked["client_secret"] == "***MASKED***"
-
-    def test_non_sensitive_fields_unchanged(self) -> None:
-        """Non-sensitive fields are not modified."""
+    def test_sensitive_fields_are_masked_without_mutating_the_record(self) -> None:
+        """Mask each supported secret name and preserve ordinary fields and the source."""
         from servicenow_mcp.policy import mask_sensitive_fields
 
         record = {
             "sys_id": "123",
+            "password": "secret123",
+            "token": "abc123",
+            "client_secret": "xyz",
+            "name": "admin",
             "short_description": "Test",
-            "number": "INC001",
         }
+        original = record.copy()
         masked = mask_sensitive_fields(record)
 
-        assert masked == record
-
-    def test_original_record_not_mutated(self) -> None:
-        """Original record dict is not modified."""
-        from servicenow_mcp.policy import mask_sensitive_fields
-
-        record = {"password": "secret123"}
-        mask_sensitive_fields(record)
-
-        assert record["password"] == "secret123"
+        assert masked["password"] == "***MASKED***"
+        assert masked["token"] == "***MASKED***"
+        assert masked["client_secret"] == "***MASKED***"
+        assert masked["name"] == "admin"
+        assert masked["sys_id"] == "123"
+        assert masked["short_description"] == "Test"
+        assert record == original
 
 
 class TestAuditEntryMasking:
@@ -124,19 +89,8 @@ class TestAuditEntryMasking:
         assert masked["newvalue"] == MASK_VALUE
         assert masked["user"] == "admin"
         assert masked["fieldname"] == "password"
-
-    def test_masks_token_fieldname(self) -> None:
-        """Masks values when fieldname contains 'token'."""
-        from servicenow_mcp.policy import MASK_VALUE, mask_audit_entry
-
-        entry = {
-            "fieldname": "api_token",
-            "oldvalue": "",
-            "newvalue": "tok_abc123",
-        }
-        masked = mask_audit_entry(entry)
-
-        assert masked["newvalue"] == MASK_VALUE
+        assert entry["oldvalue"] == "old_secret"
+        assert entry["newvalue"] == "new_secret"
 
     def test_masks_using_field_key(self) -> None:
         """Supports 'field' as an alternative key to 'fieldname'."""
@@ -165,20 +119,6 @@ class TestAuditEntryMasking:
 
         assert masked["oldvalue"] == "1"
         assert masked["newvalue"] == "2"
-
-    def test_original_entry_not_mutated(self) -> None:
-        """Original entry dict is not modified."""
-        from servicenow_mcp.policy import mask_audit_entry
-
-        entry = {
-            "fieldname": "password",
-            "oldvalue": "secret",
-            "newvalue": "new_secret",
-        }
-        mask_audit_entry(entry)
-
-        assert entry["oldvalue"] == "secret"
-        assert entry["newvalue"] == "new_secret"
 
     def test_no_fieldname_key_leaves_values_unchanged(self) -> None:
         """Entry without fieldname or field key leaves values unchanged."""

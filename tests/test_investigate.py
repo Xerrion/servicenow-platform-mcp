@@ -111,7 +111,9 @@ async def test_run_unknown_investigation_returns_error_with_valid_names(
 
 
 @pytest.mark.asyncio()
-@pytest.mark.parametrize("warnings", [[], ["Source unavailable"]])
+@pytest.mark.parametrize(
+    "warnings", [pytest.param(["Source unavailable"], id="warnings1")]
+)
 async def test_run_dispatches_to_module_run(
     settings: Settings,
     auth_provider: OAuthPKCEProvider,

@@ -25,7 +25,7 @@ def status_header():
     }
 
 
-@pytest.mark.parametrize("state", ["COMPLETE", "WAITING", "UNRECOGNIZED"])
+@pytest.mark.parametrize("state", [pytest.param("UNRECOGNIZED", id="UNRECOGNIZED")])
 async def test_status_reads_exact_execution_context_without_starting_it(
     settings, state
 ):

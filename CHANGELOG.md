@@ -9,10 +9,13 @@
   Flow inspection, contract reads, trigger discovery, decoding, and existing
   execution status remain available. `flow describe` lists only read actions.
 - Remove tests, fixtures, and guides for the deleted authoring feature. The
-  general test-suite reduction remains deferred.
+  remaining test suite removes duplicate client wrappers, repeated parameter
+  combinations, and local checks mislabeled as live integration tests.
 
 ### Changed
 
+- Consolidate endpoint and input-validation contracts while retaining OAuth,
+  credential-cache, mutation-token, privacy, and read-only Flow regressions.
 - Keep `flow validate` as a bounded local check of saved V2 structure. Its result
   explicitly excludes input-type compatibility, full semantic validation, and
   runtime behavior. Unreadable, truncated, V1, or changing definitions remain

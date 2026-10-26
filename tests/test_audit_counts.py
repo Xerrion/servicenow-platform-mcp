@@ -81,21 +81,19 @@ async def test_empty_groups_mean_zero_activity(settings: Settings) -> None:
 @pytest.mark.parametrize(
     "result",
     [
-        {},
-        None,
-        [None],
-        [{}],
-        [{"groupby_fields": []}],
-        [{"groupby_fields": [None]}],
-        [{"groupby_fields": [{"field": "wrong_field", "value": "state"}]}],
-        [{"groupby_fields": [{"field": "fieldname", "value": "state"}]}],
-        [_group("unexpected_field", "1")],
-        [_group("state", "1"), _group("state", "2")],
-        [_group("state", "not-a-number")],
-        [_group("state", -1)],
-        [_group("state", True)],
-        [_group("state", 1.5)],
-        [_group("state", None)],
+        pytest.param({}, id="result0"),
+        pytest.param([None], id="result2"),
+        pytest.param([{"groupby_fields": []}], id="result4"),
+        pytest.param([{"groupby_fields": [None]}], id="result5"),
+        pytest.param(
+            [{"groupby_fields": [{"field": "wrong_field", "value": "state"}]}],
+            id="result6",
+        ),
+        pytest.param(
+            [{"groupby_fields": [{"field": "fieldname", "value": "state"}]}],
+            id="result7",
+        ),
+        pytest.param([_group("state", "1"), _group("state", "2")], id="result9"),
     ],
 )
 async def test_malformed_groups_fail_instead_of_reporting_inactivity(

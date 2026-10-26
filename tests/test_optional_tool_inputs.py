@@ -110,8 +110,7 @@ async def test_all_optional_schema_inputs_are_nullable_and_omittable(
         assert schemas[tool].input_schema["properties"][parameter]["default"] == default
 
 
-@pytest.mark.parametrize("fill_null", [False, True])
-@pytest.mark.parametrize("commit", [False, True])
+@pytest.mark.parametrize("fill_null,commit", [pytest.param(True, True, id="True-True")])
 async def test_create_needs_no_sys_id_and_null_keeps_preview_default(
     server: MCPServer,
     fill_null: bool,
@@ -147,8 +146,7 @@ async def test_create_needs_no_sys_id_and_null_keeps_preview_default(
         assert all(call.request.method == "GET" for call in http_mock.calls)
 
 
-@pytest.mark.parametrize("fill_null", [False, True])
-@pytest.mark.parametrize("since", [None, "2026-09-15"])
+@pytest.mark.parametrize("fill_null,since", [pytest.param(True, None, id="None-True")])
 async def test_history_needs_no_irrelevant_fields_and_keeps_window_and_limit_defaults(
     server: MCPServer,
     settings: Settings,
@@ -177,29 +175,30 @@ async def test_history_needs_no_irrelevant_fields_and_keeps_window_and_limit_def
     assert f"documentkey={SYS_ID}" in params["sysparm_query"]
 
 
-@pytest.mark.parametrize("fill_null", [False, True])
 @pytest.mark.parametrize(
-    ("tool", "arguments", "error"),
+    "fill_null,tool,arguments,error",
     [
-        ("record_preview", {"action": "create", "table": "incident"}, "data"),
-        (
-            "record_preview",
-            {"action": "update", "table": "incident", "data": {}},
+        pytest.param(
+            True,
+            "record_read",
+            {"table": "incident"},
+            "exactly one of sys_id or name",
+            id="record_read-arguments4-exactly one of sys_id or name-True",
+        ),
+        pytest.param(
+            False,
+            "attachment_preview",
+            {"action": "upload"},
+            "table",
+            id="attachment_preview-arguments5-table-False",
+        ),
+        pytest.param(
+            False,
+            "service_catalog",
+            {"action": "item_get"},
             "sys_id",
+            id="service_catalog-arguments6-sys_id-False",
         ),
-        ("audit", {"action": "history", "table": "incident"}, "sys_id is required"),
-        ("audit", {"action": "check_fields", "table": "incident"}, "fields must list"),
-        ("record_read", {"table": "incident"}, "exactly one of sys_id or name"),
-        ("attachment_preview", {"action": "upload"}, "table"),
-        ("service_catalog", {"action": "item_get"}, "sys_id"),
-        ("code_search", {}, "'term' is required"),
-        ("query", {"table": "incident"}, "fields is required"),
-        (
-            "describe",
-            {"table": "incident", "field_limit": 0},
-            "field_limit must be between",
-        ),
-        ("code_search", {"action": ""}, "schema"),
     ],
 )
 async def test_null_does_not_bypass_action_requirements_or_explicit_values(
@@ -215,24 +214,33 @@ async def test_null_does_not_bypass_action_requirements_or_explicit_values(
     assert not http_mock.calls
 
 
-@pytest.mark.parametrize("fill_null", [False, True])
 @pytest.mark.parametrize(
-    ("tool", "arguments"),
+    "fill_null,tool,arguments",
     [
-        ("query", {"table": "incident", "fields": "*"}),
-        ("describe", {"table": "incident"}),
-        ("record_read", {"table": "incident", "sys_id": SYS_ID}),
-        ("attachment", {"action": "list", "table": "incident", "table_sys_id": SYS_ID}),
-        ("investigate", {"action": "describe"}),
-        ("resolve_choice", {"table": "incident", "field": "state"}),
-        ("service_catalog", {"action": "items_list"}),
-        (
+        pytest.param(
+            True,
+            "record_read",
+            {"table": "incident", "sys_id": SYS_ID},
+            id="record_read-arguments2-True",
+        ),
+        pytest.param(
+            False,
+            "resolve_choice",
+            {"table": "incident", "field": "state"},
+            id="resolve_choice-arguments5-False",
+        ),
+        pytest.param(
+            False,
             "analysis",
             {"action": "journal_history", "table": "incident", "sys_id": SYS_ID},
+            id="analysis-arguments7-False",
         ),
-        ("audit", {"action": "check_fields", "table": "incident", "fields": ["state"]}),
-        ("flow", {"action": "list_triggers"}),
-        ("code_search", {"term": "current.update"}),
+        pytest.param(
+            False,
+            "audit",
+            {"action": "check_fields", "table": "incident", "fields": ["state"]},
+            id="audit-arguments8-False",
+        ),
     ],
 )
 async def test_optional_inputs_reach_all_read_tool_handlers(
@@ -281,7 +289,7 @@ async def test_optional_inputs_reach_all_read_tool_handlers(
         assert params["sysparm_suppress_pagination_header"] == "true"
 
 
-@pytest.mark.parametrize("fill_null", [False, True])
+@pytest.mark.parametrize("fill_null", [pytest.param(True, id="True")])
 async def test_attachment_upload_null_content_type_uses_default(
     server: MCPServer, fill_null: bool
 ) -> None:

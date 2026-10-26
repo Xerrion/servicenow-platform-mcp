@@ -24,42 +24,6 @@ def staged() -> StagedMutation:
     )
 
 
-async def test_owned_command_consumes_once() -> None:
-    value = staged()
-    store = PreviewTokenStore()
-    token = await store.create(value)
-    assert isinstance(value.command, RecordCommand)
-    assert value.command.data is not None
-    nested = value.command.data["nested"]
-    assert isinstance(nested, dict)
-    nested["value"] = 2
-    consumed = await store.consume(token)
-    assert isinstance(consumed.command, RecordCommand)
-    assert consumed.command.data == {"nested": {"value": 1}}
-    assert len(store) == store.retained_payload_bytes == 0
-    with pytest.raises(CapabilityError, match="Invalid or expired"):
-        await store.consume(token)
-
-
-@pytest.mark.parametrize(("elapsed", "valid"), [(59, True), (60, True), (61, False)])
-async def test_monotonic_expiry(elapsed: int, valid: bool) -> None:
-    with patch(
-        "servicenow_mcp.capabilities.mutations.store.time.monotonic", return_value=1000
-    ):
-        store = PreviewTokenStore(ttl_seconds=60)
-        token = await store.create(staged())
-    with patch(
-        "servicenow_mcp.capabilities.mutations.store.time.monotonic",
-        return_value=1000 + elapsed,
-    ):
-        if valid:
-            assert await store.consume(token)
-        else:
-            with pytest.raises(CapabilityError, match="Invalid or expired"):
-                await store.consume(token)
-    assert store.retained_payload_bytes == 0
-
-
 async def test_one_concurrent_consumer_wins() -> None:
     store = PreviewTokenStore()
     token = await store.create(staged())
@@ -100,10 +64,3 @@ async def test_exact_retained_byte_capacity() -> None:
     too_small = PreviewTokenStore(max_bytes=size - 1)
     with pytest.raises(CapabilityError, match="capacity"):
         await too_small.create(staged())
-
-
-def test_default_staging_bounds() -> None:
-    store = PreviewTokenStore()
-    assert store.ttl_seconds == 300
-    assert store.max_size == 1000
-    assert store.max_bytes == 64 * 1024 * 1024

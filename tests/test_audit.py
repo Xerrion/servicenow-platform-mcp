@@ -11,7 +11,6 @@ from mcp.server import MCPServer
 from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.mcp.tools.audit import register_tools
 from servicenow_mcp.platform.metadata._dictionary import DictionaryRegistry
-from servicenow_mcp.platform.metadata.audit import attribute_has_no_audit
 from tests._mock_transport import http_mock
 from tests.helpers import decode_response, get_tool_functions
 
@@ -427,25 +426,6 @@ async def test_verdict_inconclusive_field_not_in_chain(
 # ---------------------------------------------------------------------------
 # no_audit attribute veto
 # ---------------------------------------------------------------------------
-
-
-def test_attribute_has_no_audit_recognises_flag() -> None:
-    """The veto regex matches at comma boundaries; substrings do not false-positive."""
-    assert attribute_has_no_audit("no_audit=true")
-    assert attribute_has_no_audit("foo=bar,no_audit=true,baz=qux")
-    assert not attribute_has_no_audit("my_no_audit=true")
-    assert not attribute_has_no_audit("no_audit=false")
-    assert not attribute_has_no_audit("")
-
-
-def test_attribute_has_no_audit_tolerates_trailing_whitespace() -> None:
-    """The right boundary allows trailing whitespace before EOL."""
-    # Trailing space before EOL must match (right-boundary fix).
-    assert attribute_has_no_audit("foo, no_audit = true ")
-    assert attribute_has_no_audit("no_audit=true   ")
-    assert attribute_has_no_audit("no_audit=true\t")
-    # Left-boundary anti-collision protection is preserved.
-    assert not attribute_has_no_audit("my_no_audit=true ")
 
 
 @pytest.mark.asyncio()

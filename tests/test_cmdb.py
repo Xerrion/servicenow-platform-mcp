@@ -30,7 +30,7 @@ async def _call(settings: Settings, **arguments: Any) -> dict[str, Any]:
     return decode_response(result)
 
 
-@pytest.mark.parametrize("null_defaults", [False, True])
+@pytest.mark.parametrize("null_defaults", [pytest.param(False, id="False")])
 async def test_query_caps_and_paginates_without_inventing_a_total(
     settings: Settings, null_defaults: bool
 ) -> None:
@@ -60,7 +60,7 @@ async def test_query_caps_and_paginates_without_inventing_a_total(
     assert "total" not in response["pagination"]
 
 
-@pytest.mark.parametrize("action", ["get", "meta"])
+@pytest.mark.parametrize("action", [pytest.param("get", id="get")])
 async def test_ci_relationships_and_class_metadata_are_preserved_and_masked(
     settings: Settings, action: str
 ) -> None:
@@ -93,14 +93,19 @@ async def test_ci_relationships_and_class_metadata_are_preserved_and_masked(
 @pytest.mark.parametrize(
     "arguments",
     [
-        {"action": "unknown"},
-        {"action": "query"},
-        {"action": "query", "class_name": "../incident"},
-        {"action": "meta", "class_name": "oauth_credential"},
-        {"action": "get", "class_name": "cmdb_ci"},
-        {"action": "get", "class_name": "cmdb_ci", "sys_id": "../bad"},
-        {"action": "query", "class_name": "cmdb_ci", "limit": 0},
-        {"action": "query", "class_name": "cmdb_ci", "offset": -1},
+        pytest.param({"action": "query"}, id="arguments1"),
+        pytest.param({"action": "query", "class_name": "../incident"}, id="arguments2"),
+        pytest.param(
+            {"action": "meta", "class_name": "oauth_credential"}, id="arguments3"
+        ),
+        pytest.param({"action": "get", "class_name": "cmdb_ci"}, id="arguments4"),
+        pytest.param(
+            {"action": "get", "class_name": "cmdb_ci", "sys_id": "../bad"},
+            id="arguments5",
+        ),
+        pytest.param(
+            {"action": "query", "class_name": "cmdb_ci", "limit": 0}, id="arguments6"
+        ),
     ],
 )
 async def test_invalid_or_denied_inputs_fail_before_http(

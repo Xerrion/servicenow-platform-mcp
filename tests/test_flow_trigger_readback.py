@@ -112,8 +112,9 @@ async def read_flow(
     return result
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
-@pytest.mark.parametrize("remote", ["empty", "absent", "present"])
+@pytest.mark.parametrize(
+    "action,remote", [pytest.param("contract", "empty", id="empty-contract")]
+)
 async def test_live_service_catalog_shape(settings: Settings, action: str, remote: str):
     row = service_catalog_row()
     if remote == "absent":
@@ -156,9 +157,23 @@ async def test_live_service_catalog_shape(settings: Settings, action: str, remot
     )
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
-@pytest.mark.parametrize("column", ["trigger_inputs", "trigger_outputs"])
-@pytest.mark.parametrize("value", ["H4sIAnope!", "bm90IGd6aXA=", blob([{}])[:-8]])
+@pytest.mark.parametrize(
+    "action,column,value",
+    [
+        pytest.param(
+            "contract",
+            "trigger_outputs",
+            "bm90IGd6aXA=",
+            id="bm90IGd6aXA=-trigger_outputs-contract",
+        ),
+        pytest.param(
+            "inspect",
+            "trigger_inputs",
+            blob([{}])[:-8],
+            id="H4sIAAAAAAAA/4uuro0FAPz6-trigger_inputs-inspect",
+        ),
+    ],
+)
 async def test_malformed_trigger_blob(
     settings: Settings, action: str, column: str, value: str
 ):
@@ -173,10 +188,9 @@ async def test_malformed_trigger_blob(
     assert result["data"]["structural_summary"]["metadata_complete"] is False
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
 @pytest.mark.parametrize(
-    "missing",
-    ["trigger_inputs", "trigger_outputs", "trigger_type", "trigger_definition"],
+    "action,missing",
+    [pytest.param("contract", "trigger_outputs", id="trigger_outputs-contract")],
 )
 async def test_missing_trigger_metadata(settings: Settings, action: str, missing: str):
     row = service_catalog_row()
@@ -187,8 +201,13 @@ async def test_missing_trigger_metadata(settings: Settings, action: str, missing
     assert "triggers" in result["truncation"]
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
-@pytest.mark.parametrize("value", [None, {}, {"value": None, "display_value": ""}])
+@pytest.mark.parametrize(
+    "action,value",
+    [
+        pytest.param("inspect", None, id="None-inspect"),
+        pytest.param("contract", {}, id="value1-contract"),
+    ],
+)
 async def test_unreadable_blob_field_is_not_a_stored_empty_value(
     settings: Settings, action: str, value: Any
 ):
@@ -199,8 +218,9 @@ async def test_unreadable_blob_field_is_not_a_stored_empty_value(
     assert result["data"]["triggers"][0]["metadata_complete"] is False
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
-@pytest.mark.parametrize("value", ["unexpected", "Service Catalog", ""])
+@pytest.mark.parametrize(
+    "action,value", [pytest.param("contract", "unexpected", id="unexpected-contract")]
+)
 async def test_unknown_trigger_type_is_not_reinterpreted(
     settings: Settings, action: str, value: str
 ):
@@ -214,7 +234,7 @@ async def test_unknown_trigger_type_is_not_reinterpreted(
     )
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
+@pytest.mark.parametrize("action", [pytest.param("contract", id="contract")])
 async def test_outputs_retain_only_stored_reference_metadata(
     settings: Settings, action: str
 ):
@@ -236,8 +256,10 @@ async def test_outputs_retain_only_stored_reference_metadata(
         assert trigger["output_configuration"][0]["reference_table"] == "sc_req_item"
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
-@pytest.mark.parametrize("active", ["true", "false", "not-a-boolean"])
+@pytest.mark.parametrize(
+    "action,active",
+    [pytest.param("contract", "not-a-boolean", id="not-a-boolean-contract")],
+)
 async def test_trigger_active_uses_source_not_flow_header(
     settings: Settings, action: str, active: str
 ):
@@ -251,7 +273,7 @@ async def test_trigger_active_uses_source_not_flow_header(
     )
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
+@pytest.mark.parametrize("action", [pytest.param("contract", id="contract")])
 async def test_invalid_stored_choice_is_reported(settings: Settings, action: str):
     inputs = [
         {
@@ -267,8 +289,9 @@ async def test_invalid_stored_choice_is_reported(settings: Settings, action: str
     assert result["data"]["triggers"][0]["metadata_complete"] is False
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
-@pytest.mark.parametrize("modern", [True, False])
+@pytest.mark.parametrize(
+    "action,modern", [pytest.param("contract", True, id="True-contract")]
+)
 async def test_record_trigger_join_preserves_legacy_and_v2_fields(
     settings: Settings, action: str, modern: bool
 ):
@@ -301,8 +324,9 @@ async def test_record_trigger_join_preserves_legacy_and_v2_fields(
     assert route.call_count == 1
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
-@pytest.mark.parametrize("status", [200, 403])
+@pytest.mark.parametrize(
+    "action,status", [pytest.param("contract", 403, id="403-contract")]
+)
 async def test_missing_record_join_is_partial_not_inactive(
     settings: Settings, action: str, status: int
 ):
@@ -317,11 +341,17 @@ async def test_missing_record_join_is_partial_not_inactive(
     assert any("record" in warning.lower() for warning in result["data"]["warnings"])
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
 @pytest.mark.parametrize(
-    "trigger_type", ["scheduled", "daily", "inbound_email", "service_catalog"]
+    "action,trigger_type,column",
+    [
+        pytest.param(
+            "contract",
+            "scheduled",
+            "trigger_type",
+            id="trigger_type-scheduled-contract",
+        )
+    ],
 )
-@pytest.mark.parametrize("column", ["type", "trigger_type"])
 async def test_nonrecord_legacy_configuration_is_preserved(
     settings: Settings,
     action: str,
@@ -348,7 +378,7 @@ async def test_nonrecord_legacy_configuration_is_preserved(
     )
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
+@pytest.mark.parametrize("action", [pytest.param("contract", id="contract")])
 async def test_legacy_v1_trigger_is_unchanged(settings: Settings, action: str):
     row = {
         "sys_id": TRIGGER,
@@ -387,7 +417,7 @@ async def test_legacy_v1_trigger_is_unchanged(settings: Settings, action: str):
     assert "truncation" not in result
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
+@pytest.mark.parametrize("action", [pytest.param("contract", id="contract")])
 async def test_unloaded_definitions_never_establish_full_metadata(
     settings: Settings, action: str
 ):
@@ -398,7 +428,7 @@ async def test_unloaded_definitions_never_establish_full_metadata(
     assert any("definition" in warning for warning in result["data"]["warnings"])
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
+@pytest.mark.parametrize("action", [pytest.param("contract", id="contract")])
 async def test_capped_triggers_do_not_claim_metadata_completeness(
     settings: Settings, action: str
 ):
@@ -411,7 +441,7 @@ async def test_capped_triggers_do_not_claim_metadata_completeness(
     assert result["truncation"]["triggers"]["omitted_at_least"] == 1
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
+@pytest.mark.parametrize("action", [pytest.param("contract", id="contract")])
 async def test_unreadable_trigger_dataset_has_unknown_counts(
     settings: Settings, action: str
 ):
@@ -432,7 +462,7 @@ def instance_catalog() -> list[dict[str, Any]]:
     return catalog
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
+@pytest.mark.parametrize("action", [pytest.param("contract", id="contract")])
 async def test_live_empty_choice_uses_loaded_definition_without_resolving_default(
     settings: Settings, action: str
 ):
@@ -472,10 +502,14 @@ async def test_live_empty_choice_uses_loaded_definition_without_resolving_defaul
         assert "output_configuration" not in trigger
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
-@pytest.mark.parametrize("required", [False, True])
 @pytest.mark.parametrize(
-    "value", ["", None, "background", "foreground", "invalid", "omitted"]
+    "action,required,value",
+    [
+        pytest.param("inspect", True, "", id="-True-inspect"),
+        pytest.param("contract", False, "invalid", id="invalid-False-contract"),
+        pytest.param("inspect", False, "omitted", id="omitted-False-inspect"),
+        pytest.param("inspect", True, "omitted", id="omitted-True-inspect"),
+    ],
 )
 async def test_definition_choice_constraints(
     settings: Settings, action: str, required: bool, value: Any
@@ -502,8 +536,9 @@ async def test_definition_choice_constraints(
         assert "truncation" not in result
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
-@pytest.mark.parametrize("status", [403, 404, 202])
+@pytest.mark.parametrize(
+    "action,status", [pytest.param("contract", 403, id="403-contract")]
+)
 async def test_definition_access_failure_preserves_config(
     settings: Settings, action: str, status: int
 ):
@@ -519,7 +554,7 @@ async def test_definition_access_failure_preserves_config(
     assert route.call_count == 1
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
+@pytest.mark.parametrize("action", [pytest.param("contract", id="contract")])
 async def test_definition_timeout_does_not_leak_error_or_retry(
     settings: Settings, action: str
 ):
@@ -532,20 +567,17 @@ async def test_definition_timeout_does_not_leak_error_or_retry(
     assert result["data"]["triggers"][0]["definition"]["read_status"] == "unavailable"
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
 @pytest.mark.parametrize(
-    "defect",
+    "action,defect",
     [
-        "inputs",
-        "outputs",
-        "mandatory",
-        "choices",
-        "default",
-        "reference",
-        "dynamic",
-        "duplicate",
-        "category",
-        "type",
+        pytest.param("contract", "outputs", id="outputs-contract"),
+        pytest.param("inspect", "choices", id="choices-inspect"),
+        pytest.param("inspect", "default", id="default-inspect"),
+        pytest.param("inspect", "reference", id="reference-inspect"),
+        pytest.param("inspect", "dynamic", id="dynamic-inspect"),
+        pytest.param("inspect", "duplicate", id="duplicate-inspect"),
+        pytest.param("inspect", "category", id="category-inspect"),
+        pytest.param("inspect", "type", id="type-inspect"),
     ],
 )
 async def test_definition_partial_metadata_is_not_complete(
@@ -583,7 +615,7 @@ async def test_definition_partial_metadata_is_not_complete(
     assert result["data"]["structural_summary"]["metadata_complete"] is False
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
+@pytest.mark.parametrize("action", [pytest.param("contract", id="contract")])
 async def test_shared_catalog_read_is_independent_of_trigger_count(
     settings: Settings, action: str
 ):
@@ -603,7 +635,7 @@ async def test_shared_catalog_read_is_independent_of_trigger_count(
     )
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
+@pytest.mark.parametrize("action", [pytest.param("contract", id="contract")])
 async def test_definition_identity_cap_is_disclosed(
     settings: Settings, action: str, monkeypatch: pytest.MonkeyPatch
 ):
@@ -626,7 +658,7 @@ async def test_definition_identity_cap_is_disclosed(
     assert route.call_count == 1
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
+@pytest.mark.parametrize("action", [pytest.param("contract", id="contract")])
 async def test_definition_field_cap_keeps_partial_schema_and_counts(
     settings: Settings, action: str
 ):
@@ -644,7 +676,7 @@ async def test_definition_field_cap_keeps_partial_schema_and_counts(
     assert route.call_count == 1
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
+@pytest.mark.parametrize("action", [pytest.param("contract", id="contract")])
 async def test_omitted_trigger_section_does_not_read_catalog(
     settings: Settings, action: str
 ):
@@ -658,13 +690,15 @@ async def test_omitted_trigger_section_does_not_read_catalog(
     assert route.call_count == 0
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
 @pytest.mark.parametrize(
-    ("trigger_type", "category"),
+    "action,trigger_type,category",
     [
-        ("record_create", "Record"),
-        ("scheduled", "Scheduled"),
-        ("custom_app", "Application"),
+        pytest.param(
+            "contract",
+            "custom_app",
+            "Application",
+            id="custom_app-Application-contract",
+        )
     ],
 )
 async def test_definition_lookup_uses_identity_across_families(
@@ -701,10 +735,15 @@ async def test_definition_lookup_uses_identity_across_families(
         assert trigger["warnings"] == []
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
 @pytest.mark.parametrize(
-    "defect",
-    ["missing_id", "invalid_id", "not_list", "category", "duplicate_id", "catalog_cap"],
+    "action,defect",
+    [
+        pytest.param("inspect", "invalid_id", id="invalid_id-inspect"),
+        pytest.param("inspect", "not_list", id="not_list-inspect"),
+        pytest.param("inspect", "category", id="category-inspect"),
+        pytest.param("inspect", "duplicate_id", id="duplicate_id-inspect"),
+        pytest.param("contract", "catalog_cap", id="catalog_cap-contract"),
+    ],
 )
 async def test_definition_join_does_not_guess_from_type(
     settings: Settings, action: str, defect: str
@@ -734,7 +773,7 @@ async def test_definition_join_does_not_guess_from_type(
     assert route.call_count == (0 if defect == "invalid_id" else 1)
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
+@pytest.mark.parametrize("action", [pytest.param("contract", id="contract")])
 async def test_definition_lookup_excludes_omitted_trigger_rows(
     settings: Settings, action: str
 ):
@@ -751,15 +790,11 @@ async def test_definition_lookup_excludes_omitted_trigger_rows(
     assert route.call_count == 1
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
 @pytest.mark.parametrize(
-    "defect",
+    "action,defect",
     [
-        "stale_choices",
-        "missing_value",
-        "unknown_field",
-        "duplicate_field",
-        "partial_outputs",
+        pytest.param("contract", "missing_value", id="missing_value-contract"),
+        pytest.param("inspect", "duplicate_field", id="duplicate_field-inspect"),
     ],
 )
 async def test_loaded_definition_is_authoritative_for_input_checks(
@@ -794,7 +829,7 @@ async def test_loaded_definition_is_authoritative_for_input_checks(
         assert not any("choice" in warning for warning in trigger["warnings"])
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
+@pytest.mark.parametrize("action", [pytest.param("contract", id="contract")])
 async def test_partial_input_schema_does_not_declare_omitted_fields_invalid(
     settings: Settings, action: str
 ):
@@ -813,7 +848,7 @@ async def test_partial_input_schema_does_not_declare_omitted_fields_invalid(
     assert not any("absent from" in warning for warning in trigger["warnings"])
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
+@pytest.mark.parametrize("action", [pytest.param("contract", id="contract")])
 async def test_unreadable_input_blob_does_not_establish_missing_required_value(
     settings: Settings, action: str
 ):

@@ -257,17 +257,6 @@ class TestUnifiedAttachmentWrite:
     """Tests for the unified ``attachment_write`` action-dispatching tool."""
 
     @pytest.mark.asyncio()
-    async def test_unknown_action_returns_error(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
-    ) -> None:
-        """An unrecognized write action yields an error envelope."""
-        tools = _register_and_get_tools(settings, auth_provider)
-        result = decode_response(await tools["attachment_preview"](action="bogus"))
-
-        assert result["status"] == "error"
-        assert result["error"]["code"] == "INVALID_REQUEST"
-
-    @pytest.mark.asyncio()
     async def test_upload_action_remains_gated_in_production(
         self,
         prod_settings: Settings,

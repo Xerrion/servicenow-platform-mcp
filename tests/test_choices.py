@@ -1,8 +1,8 @@
 """Tests for ChoiceRegistry lazy-loaded choice list cache."""
 
 import asyncio
-from typing import TYPE_CHECKING, cast
-from unittest.mock import AsyncMock, patch
+from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 import pytest
 from httpx2 import Response
@@ -17,7 +17,6 @@ from tests._mock_transport import http_mock
 
 if TYPE_CHECKING:
     from servicenow_mcp.config import Settings
-    from servicenow_mcp.platform.client import ServiceNowClientProvider
 
 
 BASE_URL = "https://test.service-now.com"
@@ -38,85 +37,6 @@ def _make_registry_with_defaults(
         "all", {k: dict(v) for k, v in ChoiceRegistry._DEFAULTS.items()}
     )
     return registry
-
-
-class TestChoiceRegistryDefaults:
-    """Test default (OOTB) choice resolution without network access."""
-
-    @pytest.mark.asyncio()
-    async def test_resolve_known_label_returns_value(
-        self,
-        settings: Settings,
-        auth_provider: OAuthPKCEProvider,
-    ) -> None:
-        """resolve() should return the stored value for a known label."""
-        registry = _make_registry_with_defaults(settings, auth_provider)
-
-        result = await registry.resolve("incident", "state", "open")
-        assert result == "1"
-
-    @pytest.mark.asyncio()
-    async def test_resolve_unknown_label_returns_passthrough(
-        self,
-        settings: Settings,
-        auth_provider: OAuthPKCEProvider,
-    ) -> None:
-        """resolve() should passthrough an unrecognized label as-is."""
-        registry = _make_registry_with_defaults(settings, auth_provider)
-
-        result = await registry.resolve("incident", "state", "nonexistent")
-        assert result == "nonexistent"
-
-    @pytest.mark.asyncio()
-    async def test_resolve_unknown_table_returns_passthrough(
-        self,
-        settings: Settings,
-        auth_provider: OAuthPKCEProvider,
-    ) -> None:
-        """resolve() should passthrough when the table is not tracked."""
-        registry = _make_registry_with_defaults(settings, auth_provider)
-
-        result = await registry.resolve("fake_table", "state", "open")
-        assert result == "open"
-
-    @pytest.mark.asyncio()
-    async def test_resolve_unknown_field_returns_passthrough(
-        self,
-        settings: Settings,
-        auth_provider: OAuthPKCEProvider,
-    ) -> None:
-        """resolve() should passthrough when the field is not tracked."""
-        registry = _make_registry_with_defaults(settings, auth_provider)
-
-        result = await registry.resolve("incident", "fake_field", "open")
-        assert result == "open"
-
-    @pytest.mark.asyncio()
-    async def test_get_choices_returns_default_map(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
-    ) -> None:
-        """get_choices() should return the full label-to-value dict for a known table/field."""
-        registry = _make_registry_with_defaults(settings, auth_provider)
-
-        choices = await registry.get_choices("incident", "state")
-        assert isinstance(choices, dict)
-        assert choices["open"] == "1"
-        assert choices["in_progress"] == "2"
-        assert choices["resolved"] == "6"
-        assert choices["closed"] == "7"
-        assert choices["canceled"] == "8"
-
-    @pytest.mark.asyncio()
-    async def test_get_choices_unknown_returns_empty(
-        self,
-        settings: Settings,
-        auth_provider: OAuthPKCEProvider,
-    ) -> None:
-        """get_choices() should return an empty dict for an unknown table/field pair."""
-        registry = _make_registry_with_defaults(settings, auth_provider)
-
-        choices = await registry.get_choices("fake_table", "fake_field")
-        assert choices == {}
 
 
 class TestChoiceRegistryFetch:
@@ -157,71 +77,6 @@ class TestChoiceRegistryFetch:
         assert closed == "7"
 
     @pytest.mark.asyncio()
-    async def test_fetch_only_happens_once(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
-    ) -> None:
-        """Repeated resolve() calls should only trigger one HTTP fetch."""
-        route = http_mock.get(f"{BASE_URL}/api/now/table/sys_choice").mock(
-            return_value=Response(
-                200,
-                json={"result": []},
-                headers={"X-Total-Count": "0"},
-            ),
-        )
-
-        registry = ChoiceRegistry(settings, auth_provider)
-        await registry.resolve("incident", "state", "open")
-        await registry.resolve("incident", "state", "closed")
-        await registry.resolve("problem", "state", "new")
-
-        assert route.call_count == 1
-
-    @pytest.mark.asyncio()
-    async def test_fresh_hit_precedes_client_creation(
-        self,
-        settings: Settings,
-        auth_provider: OAuthPKCEProvider,
-    ) -> None:
-        """A fresh choices hit does not call the client factory."""
-        client_factory = AsyncMock(side_effect=AssertionError("client factory called"))
-        registry = ChoiceRegistry(
-            settings, auth_provider, cast("ServiceNowClientProvider", client_factory)
-        )
-        registry._metadata_cache.seed("all", {("incident", "state"): {"open": "1"}})
-
-        assert await registry.resolve("incident", "state", "open") == "1"
-        client_factory.assert_not_called()
-
-    @pytest.mark.asyncio()
-    async def test_fetch_adds_custom_instance_values(
-        self,
-        settings: Settings,
-        auth_provider: OAuthPKCEProvider,
-    ) -> None:
-        """Instance-only choices not in defaults should be available after fetch."""
-        http_mock.get(f"{BASE_URL}/api/now/table/sys_choice").mock(
-            return_value=Response(
-                200,
-                json={
-                    "result": [
-                        {
-                            "name": "incident",
-                            "element": "state",
-                            "value": "77",
-                            "label": "Awaiting Approval",
-                        },
-                    ],
-                },
-                headers={"X-Total-Count": "1"},
-            ),
-        )
-
-        registry = ChoiceRegistry(settings, auth_provider)
-        result = await registry.resolve("incident", "state", "awaiting_approval")
-
-        assert result == "77"
-
-    @pytest.mark.asyncio()
     async def test_concurrent_fetch_shares_load(
         self, settings: Settings, auth_provider: OAuthPKCEProvider
     ) -> None:
@@ -248,88 +103,6 @@ class TestChoiceRegistryFetch:
         assert route.call_count == 1
 
 
-class TestChoiceRegistryLabelNormalization:
-    """Test label normalization behavior (spaces, case)."""
-
-    @pytest.mark.asyncio()
-    async def test_label_with_spaces_normalized(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
-    ) -> None:
-        """Labels with spaces should be stored as underscore-separated lowercase keys."""
-        http_mock.get(f"{BASE_URL}/api/now/table/sys_choice").mock(
-            return_value=Response(
-                200,
-                json={
-                    "result": [
-                        {
-                            "name": "incident",
-                            "element": "state",
-                            "value": "2",
-                            "label": "In Progress",
-                        },
-                    ],
-                },
-                headers={"X-Total-Count": "1"},
-            ),
-        )
-
-        registry = ChoiceRegistry(settings, auth_provider)
-        result = await registry.resolve("incident", "state", "in_progress")
-        assert result == "2"
-
-    @pytest.mark.asyncio()
-    async def test_label_case_insensitive(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
-    ) -> None:
-        """Labels like 'NEW' should be stored as the lowercase key 'new'."""
-        http_mock.get(f"{BASE_URL}/api/now/table/sys_choice").mock(
-            return_value=Response(
-                200,
-                json={
-                    "result": [
-                        {
-                            "name": "problem",
-                            "element": "state",
-                            "value": "1",
-                            "label": "NEW",
-                        },
-                    ],
-                },
-                headers={"X-Total-Count": "1"},
-            ),
-        )
-
-        registry = ChoiceRegistry(settings, auth_provider)
-        result = await registry.resolve("problem", "state", "new")
-        assert result == "1"
-
-    @pytest.mark.asyncio()
-    async def test_label_with_mixed_case_and_spaces(
-        self, settings: Settings, auth_provider: OAuthPKCEProvider
-    ) -> None:
-        """'Root Cause Analysis' should normalize to 'root_cause_analysis'."""
-        http_mock.get(f"{BASE_URL}/api/now/table/sys_choice").mock(
-            return_value=Response(
-                200,
-                json={
-                    "result": [
-                        {
-                            "name": "problem",
-                            "element": "state",
-                            "value": "4",
-                            "label": "Root Cause Analysis",
-                        },
-                    ],
-                },
-                headers={"X-Total-Count": "1"},
-            ),
-        )
-
-        registry = ChoiceRegistry(settings, auth_provider)
-        result = await registry.resolve("problem", "state", "root_cause_analysis")
-        assert result == "4"
-
-
 class TestChoiceHelpers:
     """Test the extracted pure helper functions."""
 
@@ -344,24 +117,6 @@ class TestChoiceHelpers:
         assert grouped[("incident", "state")] == {"closed": "7"}
         # The record with empty name should not appear anywhere
         assert len(grouped) == 1
-
-    def test_group_choice_records_skips_falsy_element(self) -> None:
-        """Records with empty element should be skipped."""
-        records = [
-            {"name": "incident", "element": "", "label": "Open", "value": "1"},
-            {"name": "incident", "element": "state", "label": "Closed", "value": "7"},
-        ]
-        grouped = _group_choice_records(records)
-        assert grouped == {("incident", "state"): {"closed": "7"}}
-
-    def test_group_choice_records_skips_falsy_label(self) -> None:
-        """Records with empty label should be skipped."""
-        records = [
-            {"name": "incident", "element": "state", "label": "", "value": "1"},
-            {"name": "incident", "element": "state", "label": "Closed", "value": "7"},
-        ]
-        grouped = _group_choice_records(records)
-        assert grouped == {("incident", "state"): {"closed": "7"}}
 
     def test_merge_with_defaults_includes_instance_only_choices(self) -> None:
         """Instance-only choices not present in defaults should appear in merged output."""

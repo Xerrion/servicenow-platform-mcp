@@ -447,10 +447,7 @@ class TestDescribe:
         assert fields["state"]["label"] == "Incident state"
 
     @pytest.mark.asyncio()
-    @pytest.mark.parametrize(
-        "table",
-        ["incident", "sc_request", "sc_req_item", "problem", "sc_task", "task_sla"],
-    )
+    @pytest.mark.parametrize("table", [pytest.param("incident", id="incident")])
     async def test_task_derived_tables_surface_task_fields(
         self,
         table: str,

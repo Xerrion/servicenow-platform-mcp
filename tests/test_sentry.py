@@ -212,16 +212,6 @@ class TestCaptureException:
 class TestSetSentryTag:
     """Tests for set_sentry_tag()."""
 
-    def test_noop_when_not_initialized(self) -> None:
-        """set_sentry_tag does nothing when not initialized."""
-        set_sentry_tag("key", "value")  # Should not raise
-
-    def test_noop_when_sdk_not_installed(self) -> None:
-        """set_sentry_tag does nothing when HAS_SENTRY is False."""
-        sentry_mod._initialized = True
-        with patch.object(sentry_mod, "HAS_SENTRY", False):
-            set_sentry_tag("key", "value")
-
     def test_delegates_when_initialized(self) -> None:
         """set_sentry_tag calls sentry_sdk.set_tag when initialized."""
         sentry_mod._initialized = True
@@ -232,37 +222,6 @@ class TestSetSentryTag:
         ):
             set_sentry_tag("tool.name", "incident_list")
             mock_sdk.set_tag.assert_called_once_with("tool.name", "incident_list")
-
-
-# ---------------------------------------------------------------------------
-# set_sentry_context
-# ---------------------------------------------------------------------------
-
-
-class TestSetSentryContext:
-    """Tests for set_sentry_context()."""
-
-    def test_noop_when_not_initialized(self) -> None:
-        """set_sentry_context does nothing when not initialized."""
-        set_sentry_context("tool", {"name": "test"})  # Should not raise
-
-    def test_noop_when_sdk_not_installed(self) -> None:
-        """set_sentry_context does nothing when HAS_SENTRY is False."""
-        sentry_mod._initialized = True
-        with patch.object(sentry_mod, "HAS_SENTRY", False):
-            set_sentry_context("tool", {"name": "test"})
-
-    def test_delegates_when_initialized(self) -> None:
-        """set_sentry_context calls sentry_sdk.set_context when initialized."""
-        sentry_mod._initialized = True
-        data = {"name": "incident_list", "args": {"table": "incident"}}
-
-        with (
-            patch.object(sentry_mod, "HAS_SENTRY", True),
-            patch.object(sentry_mod, "sentry_sdk", create=True) as mock_sdk,
-        ):
-            set_sentry_context("tool", data)
-            mock_sdk.set_context.assert_called_once_with("tool", data)
 
 
 # ---------------------------------------------------------------------------

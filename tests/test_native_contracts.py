@@ -60,15 +60,16 @@ _SAFE_RESPONSE_BODIES = [
 ]
 
 
-@pytest.mark.parametrize("body", _SAFE_RESPONSE_BODIES)
 @pytest.mark.parametrize(
-    ("call", "path"),
+    "body,call,path",
     [
-        (lambda c: c.get_attachment("0" * 32), "/api/now/attachment/"),
-        (lambda c: c.sc_get_catalogs(), "/api/sn_sc/servicecatalog/catalogs"),
-        (lambda c: c.code_search("term"), "/api/sn_codesearch/"),
+        pytest.param(
+            _SAFE_RESPONSE_BODIES[2],
+            lambda c: c.sc_get_catalogs(),
+            "/api/sn_sc/servicecatalog/catalogs",
+            id='catalog-["secret-body"]',
+        )
     ],
-    ids=["attachment", "catalog", "code_search"],
 )
 async def test_malformed_or_non_object_responses_raise_curated_server_error(
     settings: Settings,

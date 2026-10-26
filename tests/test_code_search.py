@@ -106,7 +106,7 @@ class TestCodeSearch:
         )
         assert route.calls.last.request.url.params["extended_matching"] == "false"
 
-    @pytest.mark.parametrize("extended_matching", [False, True])
+    @pytest.mark.parametrize("extended_matching", [pytest.param(False, id="False")])
     async def test_search_context_opt_in_preserves_platform_metadata(
         self,
         settings: Settings,

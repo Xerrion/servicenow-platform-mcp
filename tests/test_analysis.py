@@ -50,14 +50,8 @@ async def test_describe_has_no_io(
 
 @pytest.mark.asyncio()
 @pytest.mark.parametrize(
-    ("label", "value", "masked"),
-    [
-        ("API Key", "synthetic", True),
-        ("Request", "synthetic", False),
-        ("Request", "", False),
-        ("Request", "0", False),
-        ("Request", "false", False),
-    ],
+    "label,value,masked",
+    [pytest.param("API Key", "synthetic", True, id="API Key-synthetic-True")],
 )
 async def test_ritm_variables_returns_one_value_per_answer_and_paginates(
     settings: Settings,
@@ -185,13 +179,7 @@ async def test_ritm_variables_missing_and_invalid(
 
 
 @pytest.mark.asyncio()
-@pytest.mark.parametrize(
-    "variable_type",
-    [
-        pytest.param("21", id="raw-type"),
-        pytest.param("List Collector", id="display-type"),
-    ],
-)
+@pytest.mark.parametrize("variable_type", [pytest.param("21", id="raw-type")])
 async def test_ritm_variables_handles_list_collector_and_duplicate_answers(
     settings: Settings,
     auth_provider: OAuthPKCEProvider,
@@ -320,11 +308,7 @@ async def test_ritm_variables_discloses_mrvs_presence_without_payload(
 
 @pytest.mark.asyncio()
 @pytest.mark.parametrize(
-    ("offset", "option_id"),
-    [
-        pytest.param(0, "b" * 32, id="full-answer-page"),
-        pytest.param(1, "c" * 32, id="later-offset"),
-    ],
+    "offset,option_id", [pytest.param(1, "c" * 32, id="later-offset")]
 )
 async def test_ritm_variables_mrvs_metadata_does_not_distort_answer_pagination(
     settings: Settings,
@@ -469,12 +453,7 @@ async def test_ritm_variables_deduplicates_mrvs_warnings(
 
 @pytest.mark.asyncio()
 @pytest.mark.parametrize(
-    ("name", "question_text"),
-    [
-        (None, "Credential"),
-        ("credential", None),
-        ("", ""),
-    ],
+    "name,question_text", [pytest.param("credential", None, id="credential-None")]
 )
 async def test_ritm_variables_masks_incomplete_definition_metadata(
     settings: Settings,

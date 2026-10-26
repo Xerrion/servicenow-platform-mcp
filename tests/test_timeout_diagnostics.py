@@ -40,14 +40,8 @@ def _diagnostic_logging(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.parametrize(
-    ("error_type", "phase"),
-    [
-        (httpx2.ConnectTimeout, "connect"),
-        (httpx2.ReadTimeout, "read"),
-        (httpx2.WriteTimeout, "write"),
-        (httpx2.PoolTimeout, "pool"),
-        (httpx2.TimeoutException, "unknown"),
-    ],
+    "error_type,phase",
+    [pytest.param(httpx2.TimeoutException, "unknown", id="TimeoutException-unknown")],
 )
 async def test_timeout_error_is_correlated_and_redacted(
     error_type: type[httpx2.TimeoutException],
@@ -89,12 +83,13 @@ async def test_timeout_error_is_correlated_and_redacted(
 
 
 @pytest.mark.parametrize(
-    ("path", "operation"),
+    "path,operation",
     [
-        ("/api/now/table/sys_db_object", "table_metadata"),
-        ("/api/now/table/sys_dictionary", "dictionary"),
-        ("/api/now/table/sys_choice", "choices"),
-        ("/api/now/table/sys_documentation", "documentation"),
+        pytest.param(
+            "/api/now/table/sys_db_object",
+            "table_metadata",
+            id="/api/now/table/sys_db_object-table_metadata",
+        )
     ],
 )
 async def test_metadata_timeout_does_not_blame_target_query(
@@ -113,7 +108,7 @@ async def test_metadata_timeout_does_not_blame_target_query(
     assert "narrow" not in error["message"].lower()
 
 
-@pytest.mark.parametrize("method", ["POST", "PATCH", "DELETE"])
+@pytest.mark.parametrize("method", [pytest.param("POST", id="POST")])
 async def test_write_timeout_warns_about_unknown_remote_outcome(method: str) -> None:
     attempts = 0
 

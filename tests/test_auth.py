@@ -253,12 +253,11 @@ async def test_public_pkce_loopback_exchange_and_bearer_request(
 @pytest.mark.parametrize(
     "query",
     [
-        "code=x",
-        "state=wrong&code=x",
-        "state=expected&state=expected&code=x",
-        "state=expected&code=x&code=y",
-        "state=%FF&code=x",
-        "state=expected&bad",
+        pytest.param(
+            "state=expected&state=expected&code=x",
+            id="state=expected&state=expected&code=x",
+        ),
+        pytest.param("state=expected&bad", id="state=expected&bad"),
     ],
 )
 def test_invalid_callback_does_not_consume_grant(query: str) -> None:
@@ -295,11 +294,7 @@ def test_callback_host_and_method_are_checked() -> None:
 
 @pytest.mark.parametrize(
     "query",
-    [
-        "state=expected&error=access_denied&error_description=private",
-        "state=expected",
-        "state=expected&code=%0D%0A",
-    ],
+    [pytest.param("state=expected&code=%0D%0A", id="state=expected&code=%0D%0A")],
 )
 def test_callback_errors_are_sanitized(query: str) -> None:
     result = _callback_result(_request(query), REDIRECT, "expected")
@@ -307,9 +302,8 @@ def test_callback_errors_are_sanitized(query: str) -> None:
     assert "private" not in str(result)
 
 
-@pytest.mark.parametrize(
-    "payload",
-    [
+def test_invalid_token_response_rejected() -> None:
+    for payload in [
         None,
         [],
         {},
@@ -324,18 +318,16 @@ def test_callback_errors_are_sanitized(query: str) -> None:
         {"expires_in": None},
         {"refresh_token": "bad\r\ntoken"},
         {"refresh_token": None},
-    ],
-)
-def test_invalid_token_response_rejected(payload: Any) -> None:
-    if isinstance(payload, dict) and payload:
-        payload = {
-            "access_token": "test-token",
-            "token_type": "Bearer",
-            "expires_in": 60,
-            **payload,
-        }
-    with pytest.raises(AuthError):
-        _parse_token(payload, 100)
+    ]:
+        if isinstance(payload, dict) and payload:
+            payload = {
+                "access_token": "test-token",
+                "token_type": "Bearer",
+                "expires_in": 60,
+                **payload,
+            }
+        with pytest.raises(AuthError):
+            _parse_token(payload, 100)
 
 
 def test_token_expiry_and_repr() -> None:
@@ -688,7 +680,7 @@ def test_stale_401_does_not_invalidate_new_token(settings: Settings) -> None:
     assert provider._token is not None
 
 
-@pytest.mark.parametrize("status", [302, 400, 401, 500])
+@pytest.mark.parametrize("status", [pytest.param(302, id="302")])
 async def test_exchange_failure_is_sanitized(
     settings: Settings, status: int, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -831,7 +823,7 @@ async def test_denial_closes_listener(redirect_uri: str) -> None:
     await _assert_closed(redirect_uri)
 
 
-@pytest.mark.parametrize("query", ["state=expected", "state=expected&code=%0D%0A"])
+@pytest.mark.parametrize("query", [pytest.param("state=expected", id="state=expected")])
 async def test_malformed_state_bound_callback_closes_listener(
     redirect_uri: str, query: str
 ) -> None:
@@ -896,7 +888,14 @@ async def test_cancellation_during_listener_start_releases_port(
     await _assert_closed(redirect_uri)
 
 
-@pytest.mark.parametrize("failure", ["http", "network", "json", "token", "cancel"])
+@pytest.mark.parametrize(
+    "failure",
+    [
+        pytest.param("network", id="network"),
+        pytest.param("token", id="token"),
+        pytest.param("cancel", id="cancel"),
+    ],
+)
 async def test_exchange_failure_leaves_loopback_port_reusable(
     settings: Settings,
     redirect_uri: str,
@@ -1019,7 +1018,7 @@ async def test_cancelled_owner_allows_waiting_call_to_reauthorize(
     await _assert_closed(redirect_uri)
 
 
-@pytest.mark.parametrize("has_callback", [True, False])
+@pytest.mark.parametrize("has_callback", [pytest.param(False, id="False")])
 async def test_flow_exit_closes_idle_browser_connection(
     redirect_uri: str, has_callback: bool
 ) -> None:

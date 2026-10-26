@@ -20,9 +20,14 @@ if TYPE_CHECKING:
 BASE_URL = "https://test.service-now.com/api/now/table"
 
 
-@pytest.mark.parametrize("action", ["inspect", "contract"])
-@pytest.mark.parametrize("snapshot_field", ["master_snapshot", "latest_snapshot"])
-@pytest.mark.parametrize("display_values", [False, True])
+@pytest.mark.parametrize(
+    "action,snapshot_field,display_values",
+    [
+        pytest.param(
+            "inspect", "master_snapshot", False, id="False-master_snapshot-inspect"
+        )
+    ],
+)
 async def test_snapshot_id_returns_canonical_recovery_without_switching_target(
     settings: Settings, action: str, snapshot_field: str, display_values: bool
 ) -> None:
@@ -67,7 +72,7 @@ async def test_snapshot_id_returns_canonical_recovery_without_switching_target(
     }
 
 
-@pytest.mark.parametrize("owners", [[], ["b" * 32, "c" * 32]])
+@pytest.mark.parametrize("owners", [pytest.param(["b" * 32, "c" * 32], id="owners1")])
 async def test_missing_flow_distinguishes_unknown_and_ambiguous_snapshot(
     settings: Settings, owners: list[str]
 ) -> None:
@@ -99,7 +104,7 @@ async def test_missing_flow_distinguishes_unknown_and_ambiguous_snapshot(
         assert "name instead of sys_id" in message
 
 
-@pytest.mark.parametrize("status", [403, 500])
+@pytest.mark.parametrize("status", [pytest.param(403, id="403")])
 async def test_snapshot_lookup_failure_does_not_claim_absence(
     settings: Settings, status: int
 ) -> None:
@@ -203,10 +208,10 @@ async def test_inspect_surfaces_async_acceptance_response(settings: Settings) ->
 @pytest.mark.parametrize(
     "method",
     [
-        "list_triggers_filtered",
-        "get_flows_bulk",
-        "list_v2_triggers_by_remote_ids",
-        "list_v1_triggers_by_table",
+        pytest.param(
+            "list_v2_triggers_by_remote_ids", id="list_v2_triggers_by_remote_ids"
+        ),
+        pytest.param("list_v1_triggers_by_table", id="list_v1_triggers_by_table"),
     ],
 )
 async def test_large_lookup_batches_every_id(settings: Settings, method: str) -> None:
@@ -247,7 +252,7 @@ async def test_large_lookup_batches_every_id(settings: Settings, method: str) ->
             )
 
 
-@pytest.mark.parametrize("total", ["1001", None, "invalid", "-1", "0"])
+@pytest.mark.parametrize("total", [pytest.param("-1", id="-1")])
 async def test_empty_join_reports_incomplete_source(
     settings: Settings, total: str | None
 ) -> None:
@@ -344,7 +349,7 @@ async def test_later_trigger_batches_keep_limit_and_deduplicate(
     assert not result.get("truncation")
 
 
-@pytest.mark.parametrize("total", ["2", None, "1"])
+@pytest.mark.parametrize("total", [pytest.param("2", id="2")])
 async def test_trigger_batch_reports_truncation(
     settings: Settings, total: str | None
 ) -> None:

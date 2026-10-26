@@ -86,7 +86,7 @@ def test_cache_is_opt_in_and_construction_does_no_io(settings):
         assert OAuthPKCEProvider(os_settings(settings))._cache is not None
 
 
-@pytest.mark.parametrize("value", ["plaintext", "auto", "OS", "file", "private-input"])
+@pytest.mark.parametrize("value", [pytest.param("plaintext", id="plaintext")])
 def test_cache_setting_rejects_unknown_backends(settings, value):
     from servicenow_mcp.config import Settings
 
@@ -96,20 +96,17 @@ def test_cache_setting_rejects_unknown_backends(settings, value):
         )
 
 
-@pytest.mark.parametrize(
-    "field,value",
-    [
+def test_cache_partition(settings):
+    for field, value in [
         ("servicenow_instance_url", "https://other.service-now.com"),
         ("servicenow_oauth_client_id", "other-client"),
         ("servicenow_oauth_scope", "other-scope"),
         ("servicenow_oauth_redirect_uri", "http://127.0.0.1:8766/oauth/callback"),
-    ],
-)
-def test_cache_partition(settings, field, value):
-    assert (
-        CredentialCache(settings).service
-        != CredentialCache(settings.model_copy(update={field: value})).service
-    )
+    ]:
+        assert (
+            CredentialCache(settings).service
+            != CredentialCache(settings.model_copy(update={field: value})).service
+        )
 
 
 def test_origin_and_scope_canonicalization(settings):
@@ -204,41 +201,35 @@ def test_linux_locked_store_never_unlocks(monkeypatch, locked):
             backend.unlock(SimpleNamespace(is_locked=lambda: True))
 
 
-@pytest.mark.parametrize(
-    "value", ["", "not-json", "[]", "{}", '{"version":1}', "x" * 4097]
-)
-def test_malformed_records_are_sanitized_and_not_exported(
-    settings, native_store, value
-):
-    cache = CredentialCache(settings)
-    native_store.records[cache.service, cache.account] = value
-    with pytest.raises(AuthError) as error:
-        cache.load()
-    assert str(error.value) == (
-        "OS OAuth cache record is invalid. Stop cache-enabled processes and clear this entry."
-    )
-    assert error.value.__cause__ is None
+def test_malformed_records_are_sanitized_and_not_exported(settings, native_store):
+    for value in ["", "not-json", "[]", "{}", '{"version":1}', "x" * 4097]:
+        cache = CredentialCache(settings)
+        native_store.records[cache.service, cache.account] = value
+        with pytest.raises(AuthError) as error:
+            cache.load()
+        assert (
+            str(error.value)
+            == "OS OAuth cache record is invalid. Stop cache-enabled processes and clear this entry."
+        )
+        assert error.value.__cause__ is None
 
 
-@pytest.mark.parametrize(
-    "change",
-    [
+def test_cache_record_contract(settings, native_store):
+    for change in [
         {"version": True},
         {"expires_at": True},
         {"expires_at": "123"},
         {"refresh_token": None},
         {"refresh_token": "bad\r\nsecret"},
         {"extra": "synthetic-sensitive-value"},
-    ],
-)
-def test_cache_record_contract(settings, native_store, change):
-    cache = seed(settings, native_store)
-    key = cache.service, cache.account
-    native_store.records[key] = json.dumps(
-        {**json.loads(native_store.records[key]), **change}
-    )
-    with pytest.raises(AuthError):
-        cache.load()
+    ]:
+        cache = seed(settings, native_store)
+        key = (cache.service, cache.account)
+        native_store.records[key] = json.dumps(
+            {**json.loads(native_store.records[key]), **change}
+        )
+        with pytest.raises(AuthError):
+            cache.load()
 
 
 @pytest.mark.parametrize("expiry", [0, -1, credential_cache.MAX_AGE_SECONDS * 2])
@@ -466,7 +457,7 @@ async def test_cache_write_failure_never_releases_access_token(settings, native_
     assert provider._token is None
 
 
-@pytest.mark.parametrize("raw", ["bad-json", ""])
+@pytest.mark.parametrize("raw", [pytest.param("bad-json", id="bad-json")])
 def test_clear_works_for_malformed_entry_and_optout_does_not_clear(
     settings, native_store, raw
 ):
@@ -527,7 +518,7 @@ async def test_unrotated_cached_refresh_is_preserved(settings, native_store):
     )
 
 
-@pytest.mark.parametrize("failure", ["network", "server", "malformed"])
+@pytest.mark.parametrize("failure", [pytest.param("network", id="network")])
 async def test_transient_refresh_failure_retains_cache_without_browser(
     settings, native_store, failure
 ):

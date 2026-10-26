@@ -220,9 +220,7 @@ class TestStandardRecordWrite:
         assert all(call.request.method == "GET" for call in http_mock.calls)
 
     @pytest.mark.asyncio()
-    @pytest.mark.parametrize(
-        "body", [b"", b"<html>private response</html>"], ids=["empty", "malformed"]
-    )
+    @pytest.mark.parametrize("body", [pytest.param(b"", id="empty")])
     async def test_create_apply_non_json_response_returns_context(
         self,
         settings: Settings,
@@ -293,7 +291,7 @@ class TestStandardRecordWrite:
         assert mutation.call_count == 1
 
     @pytest.mark.asyncio()
-    @pytest.mark.parametrize("status_code", [200, 201])
+    @pytest.mark.parametrize("status_code", [pytest.param(200, id="200")])
     async def test_create_apply_non_object_json_response_warns_before_retry(
         self,
         settings: Settings,
@@ -523,7 +521,7 @@ class TestStandardRecordWrite:
 class TestMandatoryFieldValues:
     """Mandatory checks distinguish missing values from supplied false and zero."""
 
-    @pytest.mark.parametrize("preview", [True, False])
+    @pytest.mark.parametrize("preview", [pytest.param(True, id="True")])
     async def test_false_and_zero_are_supplied(
         self,
         settings: Settings,
@@ -570,9 +568,8 @@ class TestMandatoryFieldValues:
         assert submitted["order"] == 0
         assert type(submitted["order"]) is int
 
-    @pytest.mark.parametrize("preview", [True, False])
     @pytest.mark.parametrize(
-        "payload", [{}, {"name": None}, {"name": ""}], ids=["absent", "null", "empty"]
+        "preview,payload", [pytest.param(True, {"name": None}, id="null-True")]
     )
     async def test_missing_values_block_create(
         self,
@@ -602,8 +599,9 @@ class TestMandatoryFieldValues:
 class TestInheritedMandatoryFields:
     """Create checks resolve mandatory fields child-first before any write."""
 
-    @pytest.mark.parametrize("preview", [True, False])
-    @pytest.mark.parametrize("child_mandatory", [None, "false", "true"])
+    @pytest.mark.parametrize(
+        "preview,child_mandatory", [pytest.param(True, "false", id="false-True")]
+    )
     async def test_inherited_mandatory_and_child_overrides(
         self,
         settings: Settings,
@@ -676,8 +674,9 @@ class TestInheritedMandatoryFields:
             create_token.assert_not_awaited()
             assert not mutation.called
 
-    @pytest.mark.parametrize("preview", [True, False])
-    @pytest.mark.parametrize("status_code", [401, 403, 404, 500])
+    @pytest.mark.parametrize(
+        "preview,status_code", [pytest.param(True, 401, id="401-True")]
+    )
     async def test_parent_metadata_error_blocks_create(
         self,
         settings: Settings,

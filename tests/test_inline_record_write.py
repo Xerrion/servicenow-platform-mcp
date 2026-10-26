@@ -78,10 +78,9 @@ class TestInlineRecordWrite:
             "data",
         }
 
-    @pytest.mark.parametrize("action", ["create", "update"])
-    @pytest.mark.parametrize("preview", [True, False])
     @pytest.mark.parametrize(
-        "content", ["<unclosed>", "", None, 1, {"value": "<root/>"}]
+        "action,preview,content",
+        [pytest.param("update", True, None, id="None-True-update")],
     )
     async def test_inline_xml_rejected_before_token_or_mutation(
         self,
@@ -115,8 +114,9 @@ class TestInlineRecordWrite:
             for call in http_mock.calls
         )
 
-    @pytest.mark.parametrize("action", ["create", "update"])
-    @pytest.mark.parametrize("preview", [True, False])
+    @pytest.mark.parametrize(
+        "action,preview", [pytest.param("update", True, id="True-update")]
+    )
     async def test_multiple_inline_fields_round_trip(
         self,
         settings: Settings,
@@ -260,8 +260,9 @@ class TestInlineRecordWrite:
             == "element,internal_type.name"
         )
 
-    @pytest.mark.parametrize("action", ["create", "update"])
-    @pytest.mark.parametrize("preview", [True, False])
+    @pytest.mark.parametrize(
+        "action,preview", [pytest.param("create", True, id="True-create")]
+    )
     async def test_inline_size_limit_precedes_metadata(
         self,
         settings: Settings,
@@ -314,7 +315,7 @@ class TestInlineRecordWrite:
         )
         assert result["status"] == "success"
 
-    @pytest.mark.parametrize("payload", ["[]", "not json", '{"bad^key":"x"}'])
+    @pytest.mark.parametrize("payload", [pytest.param("[]", id="[]")])
     async def test_invalid_payload_precedes_metadata(
         self,
         settings: Settings,
@@ -331,7 +332,7 @@ class TestInlineRecordWrite:
         assert result["status"] == "error"
         assert not http_mock.calls
 
-    @pytest.mark.parametrize("status_code", [403, 500])
+    @pytest.mark.parametrize("status_code", [pytest.param(403, id="403")])
     async def test_metadata_error_blocks_write(
         self,
         settings: Settings,

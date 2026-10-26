@@ -58,9 +58,8 @@ exclude = [".venv*", "venv", "ENV"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = "-m 'not integration' --cov=servicenow_mcp --cov-report=xml --cov-report=term-missing"
+addopts = "--cov=servicenow_mcp --cov-report=xml --cov-report=term-missing"
 markers = [
-    "integration: tests that run against a live ServiceNow instance (requires .env.local credentials)",
     "loopback: unit tests allowed to open loopback sockets",
     "real_http: unit tests that use the real httpx2 transport against local fixtures",
 ]

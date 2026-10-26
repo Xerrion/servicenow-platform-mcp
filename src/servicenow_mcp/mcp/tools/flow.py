@@ -73,7 +73,7 @@ def register_tools(
         section_limit: int | None = None,
         execution_sys_id: str | None = None,
     ) -> CapabilityResult:
-        """Inspect Flow Designer definitions, triggers, local validation, or existing execution status. This tool is read-only."""
+        """Inspect Flow Designer definitions, triggers, saved V2 structure, or existing execution status. This tool is read-only."""
         return await capability.flow(
             action=action,
             sys_id=sys_id,

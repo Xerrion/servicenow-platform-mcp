@@ -1,18 +1,11 @@
 """Bounded operational telemetry for ServiceNow HTTP traffic."""
 
 import asyncio
-import hashlib
-import json
 import logging
-import marshal
-import os
-import stat
 import sys
-from contextlib import ExitStack, contextmanager, suppress
+from contextlib import contextmanager
 from contextvars import ContextVar
 from enum import StrEnum
-from functools import lru_cache
-from pathlib import Path
 from time import perf_counter
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, override
 from uuid import uuid4
@@ -25,7 +18,6 @@ from servicenow_mcp.sentry import add_sentry_breadcrumb, set_sentry_context
 
 if TYPE_CHECKING:
     from collections.abc import Generator
-    from types import CodeType
 
 
 logger = logging.getLogger(__name__)
@@ -42,166 +34,6 @@ class ToolTrace(BaseModel):
 _tool_trace: ContextVar[ToolTrace | None] = ContextVar(
     "servicenow_tool_trace", default=None
 )
-_flow_preview_trace: ContextVar[str | None] = ContextVar(
-    "flow_preview_trace", default=None
-)
-# Temporary local evidence sink. Remove it with the preview instrumentation after diagnosis.
-_FLOW_TRACE_ROOT = Path(
-    "/private/var/folders/7n/70rkdwfs0v53vjm2cm0vf3xw0000gp/T/opencode"
-)
-_FLOW_TRACE_DIRECTORY = "servicenow-flow-preview-trace"
-_FLOW_TRACE_FILENAME = "boundaries.jsonl"
-_FLOW_TRACE_MAX_BYTES = 256 * 1024
-
-
-def _write_flow_preview_trace(record: str) -> None:
-    """Append only the sanitized boundary record to one fixed, owner-only bounded file."""
-    encoded = (record + "\n").encode("utf-8")
-    if len(encoded) > 4096:
-        return
-    try:
-        import fcntl
-
-        with ExitStack() as resources:
-            root = os.open(
-                _FLOW_TRACE_ROOT, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
-            )
-            resources.callback(os.close, root)
-            root_info = os.fstat(root)
-            if (
-                root_info.st_uid != os.getuid()
-                or stat.S_IMODE(root_info.st_mode) & 0o022
-            ):
-                return
-            with suppress(FileExistsError):
-                os.mkdir(_FLOW_TRACE_DIRECTORY, mode=0o700, dir_fd=root)
-            directory = os.open(
-                _FLOW_TRACE_DIRECTORY,
-                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
-                dir_fd=root,
-            )
-            resources.callback(os.close, directory)
-            info = os.fstat(directory)
-            if info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o700:
-                return
-            target = os.open(
-                _FLOW_TRACE_FILENAME,
-                os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW | os.O_NONBLOCK,
-                0o600,
-                dir_fd=directory,
-            )
-            resources.callback(os.close, target)
-            info = os.fstat(target)
-            if (
-                not stat.S_ISREG(info.st_mode)
-                or info.st_uid != os.getuid()
-                or stat.S_IMODE(info.st_mode) != 0o600
-                or info.st_nlink != 1
-            ):
-                return
-            fcntl.flock(target, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            if os.fstat(target).st_size + len(encoded) <= _FLOW_TRACE_MAX_BYTES:
-                os.write(target, encoded)
-    except ImportError, OSError:
-        # File errors must not fail the MCP request. Never wait for another writer's lock.
-        return
-
-
-@contextmanager
-def trace_flow_preview() -> Generator[None]:
-    """Correlate one native preview across SDK, command, planner and output boundaries."""
-    token = _flow_preview_trace.set(str(uuid4()))
-    try:
-        yield
-    finally:
-        _flow_preview_trace.reset(token)
-
-
-@lru_cache(maxsize=32)
-def _loaded_code_hash(code: CodeType) -> str:
-    # Hash the loaded code, not source that could change after process startup.
-    return hashlib.sha256(marshal.dumps(code)).hexdigest()
-
-
-def trace_flow_preview_boundary(
-    boundary: Literal[
-        "protocol",
-        "handler",
-        "command",
-        "planner.in",
-        "planner.out",
-        "handler.out",
-        "wire.structured",
-        "wire.text",
-    ],
-    *,
-    arguments: Any = None,
-    action: Any = None,
-    edits: Any = None,
-    flow: Any = None,
-    summary: Any = None,
-) -> None:
-    """Emit fixed metadata only. Never serialize arguments, platform values or arbitrary keys."""
-    trace_id = _flow_preview_trace.get()
-    if trace_id is None:
-        return
-    caller = sys._getframe(1).f_code
-    metadata: dict[str, Any] = {
-        "marker": "flow-preview-boundaries-v1",
-        "trace_id": trace_id,
-        "pid": os.getpid(),
-        "boundary": boundary,
-        "module_path": caller.co_filename,
-        "loaded_code_sha256": _loaded_code_hash(caller),
-    }
-    if isinstance(arguments, dict):
-        declared = (
-            "action",
-            "sys_id",
-            "name",
-            "scope",
-            "description",
-            "action_type_sys_id",
-            "subflow_sys_id",
-            "inputs",
-            "edits",
-            "expected_scope",
-            "expected_update_set",
-            "expected_revision",
-        )
-        metadata["argument_keys"] = [key for key in declared if key in arguments]
-        action, edits = arguments.get("action"), arguments.get("edits")
-    if boundary in {"protocol", "handler", "command", "planner.in"}:
-        metadata["action"] = (
-            action
-            if isinstance(action, str)
-            and action in {"create", "add_action", "add_subflow", "edit"}
-            else "other"
-        )
-        metadata["edit_count"] = (
-            len(edits) if isinstance(edits, list) else 0 if edits is None else -1
-        )
-    if isinstance(flow, dict):
-        metadata["node_counts"] = {
-            kind: len(flow[key]) if isinstance(flow.get(key), list) else -1
-            for kind, key in (
-                ("action", "actionInstances"),
-                ("flowlogic", "flowLogicInstances"),
-                ("subflow", "subFlowInstances"),
-            )
-        }
-    if boundary in {"planner.out", "handler.out", "wire.structured", "wire.text"}:
-        for key, count in (
-            ("changes", "change_count"),
-            ("before", "before_count"),
-            ("after", "after_count"),
-            ("data_pills", "pill_count"),
-        ):
-            value = summary.get(key) if isinstance(summary, dict) else None
-            metadata[count] = len(value) if isinstance(value, list) else -1
-    record = json.dumps(metadata, sort_keys=True)
-    _write_flow_preview_trace(record)
-    logger.info("Flow preview boundary %s", record)
 
 
 def configure_diagnostic_logging() -> None:

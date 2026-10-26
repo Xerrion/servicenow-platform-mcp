@@ -6,11 +6,9 @@ from servicenow_mcp.auth import OAuthPKCEProvider, require_authorization_generat
 from servicenow_mcp.capabilities.attachments import mutations as attachments
 from servicenow_mcp.capabilities.catalog import mutations as catalog
 from servicenow_mcp.capabilities.contracts import CapabilityError, CapabilityResult
-from servicenow_mcp.capabilities.flows import mutations as flows
 from servicenow_mcp.capabilities.mutations.models import (
     AttachmentCommand,
     CatalogCommand,
-    FlowCommand,
     MutationCommand,
     MutationPreview,
     RecordCommand,
@@ -23,7 +21,6 @@ from servicenow_mcp.policy import (
     production_write_blocked,
     require_mutation_policy,
 )
-from servicenow_mcp.telemetry import trace_flow_preview_boundary
 
 if TYPE_CHECKING:
     from servicenow_mcp.config import Settings
@@ -58,83 +55,10 @@ class MutationCoordinator:
             table = command.table
         elif isinstance(command, CatalogCommand):
             table = catalog.target_table(command)
-        elif isinstance(command, FlowCommand):
-            table = "sys_hub_flow"
         else:
             raise CapabilityError(
                 "This mutation family is not supported.", "MUTATION_DISABLED"
             )
-        if isinstance(command, FlowCommand) and command.action == "add_action":
-            gate_write("sys_hub_action_instance_v2", self.settings)
-        if isinstance(command, FlowCommand) and command.action == "add_subflow":
-            gate_write("sys_hub_sub_flow_instance_v2", self.settings)
-        if isinstance(command, FlowCommand) and command.action == "resolve_schema":
-            gate_write("sys_hub_action_type_definition", self.settings)
-            gate_write("sys_hub_action_type_snapshot", self.settings)
-            gate_write("sys_hub_action_instance_v2", self.settings)
-            gate_write("sys_flow_context", self.settings)
-        if isinstance(command, FlowCommand) and command.action in {
-            "activate",
-            "publish",
-            "deactivate",
-            "test",
-        }:
-            gate_write("sys_hub_flow_snapshot", self.settings)
-            for component in (
-                "sys_hub_action_instance_v2",
-                "sys_hub_sub_flow_instance_v2",
-                "sys_hub_flow_logic_instance_v2",
-                "sys_hub_trigger_instance_v2",
-                "sys_hub_flow_stage",
-            ):
-                gate_write(component, self.settings)
-            if command.action == "test":
-                gate_write("sys_flow_context", self.settings)
-        if isinstance(command, FlowCommand) and (
-            command.action == "edit" or command.action == "create" and command.edits
-        ):
-            for edit in command.edits or []:
-                if (
-                    edit.get("op") == "set_trigger"
-                    and edit.get("type") == "service_catalog"
-                ):
-                    gate_write("sys_hub_flow_input", self.settings)
-                if edit.get("op") in {"create_field", "update_field", "delete_field"}:
-                    field_table = {
-                        "inputs": "sys_hub_flow_input",
-                        "outputs": "sys_hub_flow_output",
-                        "flowVariables": "sys_hub_flow_variable",
-                    }.get(str(edit.get("collection")))
-                    if field_table:
-                        gate_write(field_table, self.settings)
-            if any(
-                edit.get("op")
-                in {
-                    "create_stage",
-                    "update_stage",
-                    "delete_stage",
-                    "attach_stage",
-                    "detach_stage",
-                    "set_error_handler",
-                    "remove_error_handler",
-                    "move_step",
-                    "delete_step",
-                    "insert_logic",
-                    "set_variables",
-                    "assign_outputs",
-                    "insert_action",
-                    "insert_subflow",
-                }
-                for edit in command.edits or []
-            ):
-                gate_write("sys_hub_flow_stage", self.settings)
-            for component in (
-                "sys_hub_action_instance_v2",
-                "sys_hub_flow_logic_instance_v2",
-                "sys_hub_sub_flow_instance_v2",
-                "sys_hub_trigger_instance_v2",
-            ):
-                gate_write(component, self.settings)
         if table or owning_table:
             gate_write(table or owning_table or "", self.settings)
         if isinstance(command, CatalogCommand) and owning_table:
@@ -154,40 +78,9 @@ class MutationCoordinator:
             )
 
     async def preview(self, command: MutationCommand) -> CapabilityResult:
-        evidence_entries: list[StagedMutation] = []
-        if isinstance(command, FlowCommand):
-            if command.schema_evidence:
-                raise CapabilityError(
-                    "Schema evidence must come from single-use schema_tokens."
-                )
-            evidence_entries = await self.store.consume_many(
-                command.schema_tokens or []
-            )
-        if isinstance(command, FlowCommand):
-            trace_flow_preview_boundary(
-                "command", action=command.action, edits=command.edits
-            )
         self._gate(command)
         await self.auth.get_headers()
         generation = self.auth.authorization_generation
-        if isinstance(command, FlowCommand) and evidence_entries:
-            evidence = []
-            for entry in evidence_entries:
-                if entry.kind != "schema_evidence" or entry.evidence is None:
-                    raise CapabilityError(
-                        "schema_tokens must refer to retained schema evidence.",
-                        "SCHEMA_TOKEN_INVALID",
-                    )
-                self._apply_gate(entry)
-                if entry.authorization_generation != generation:
-                    raise CapabilityError(
-                        "Authorization changed. Resolve the schema again.",
-                        "SCHEMA_AUTHORIZATION_CHANGED",
-                    )
-                evidence.append(flows.validate_schema_evidence(entry.evidence))
-            command = command.model_copy(
-                update={"schema_tokens": None, "schema_evidence": evidence}, deep=True
-            )
         async with self.clients() as client:
             with require_authorization_generation(generation):
                 if isinstance(command, RecordCommand):
@@ -199,9 +92,6 @@ class MutationCoordinator:
                     summary, table, expected = await attachments.preview(
                         command, client
                     )
-                elif isinstance(command, FlowCommand):
-                    summary, expected = await flows.preview(command, client)
-                    table = "sys_hub_flow"
                 elif isinstance(command, CatalogCommand):
                     summary, expected = await catalog.preview(command, client)
                     table = (
@@ -234,18 +124,6 @@ class MutationCoordinator:
                     "Preview cannot predict fulfillment, prices, routing, or all server-side validation.",
                 ],
             )
-        if isinstance(command, FlowCommand):
-            limitations.append(
-                "Experimental undocumented Workflow Studio API. Source-derived offline verification only. ServiceNow controls update-set capture. MCP does not inspect or manage update sets."
-            )
-            if command.action in {"activate", "publish", "deactivate", "test"}:
-                limitations.append(
-                    "This is an explicit lifecycle effect. Test executes real actions. Activate publishes and enables triggers. Existing executions are not cancelled by deactivation."
-                )
-            if command.action == "resolve_schema":
-                limitations.append(
-                    "Apply executes the metadata-selected provider action once. It may have arbitrary side effects. A retained schema token still requires a separate reviewed authoring preview."
-                )
         data = MutationPreview(
             family=command.family,
             action=command.action,
@@ -258,11 +136,6 @@ class MutationCoordinator:
 
     async def apply(self, preview_token: str) -> CapabilityResult:
         staged = await self.store.consume(preview_token)
-        if staged.kind != "mutation":
-            raise CapabilityError(
-                "Schema evidence tokens cannot be applied. Supply schema_tokens to a new authoring preview.",
-                "PREVIEW_TOKEN_KIND",
-            )
         command = staged.command
         self._apply_gate(staged)
         with (
@@ -278,51 +151,12 @@ class MutationCoordinator:
                     value = await attachments.apply(
                         command, staged.owning_table or "", staged.fingerprint, client
                     )
-                elif isinstance(command, FlowCommand):
-                    value = await flows.apply(command, staged.fingerprint, client)
                 elif isinstance(command, CatalogCommand):
                     value = await catalog.apply(command, staged.fingerprint, client)
                 else:
                     raise CapabilityError(
                         "This mutation family is not supported.", "MUTATION_DISABLED"
                     )
-        if isinstance(value, flows.SchemaResolution):
-            try:
-                self._apply_gate(staged)
-                if (
-                    self.auth.authorization_generation
-                    != staged.authorization_generation
-                ):
-                    raise CapabilityError(
-                        "Authorization changed after provider execution."
-                    )
-                token = await self.store.create(
-                    StagedMutation(
-                        command=command,
-                        instance=staged.instance,
-                        authorization_generation=staged.authorization_generation,
-                        fingerprint=staged.fingerprint,
-                        owning_table=staged.owning_table,
-                        kind="schema_evidence",
-                        evidence=flows.validate_schema_evidence(value.evidence),
-                    )
-                )
-            except Exception:  # noqa: BLE001 - provider effect already occurred
-                raise CapabilityError(
-                    "The provider executed, but its schema evidence was not retained. "
-                    "No schema token is available. Do not replay the action automatically.",
-                    "SCHEMA_EVIDENCE_NOT_RETAINED",
-                    outcome={"provider_executed": True, "schema_retained": False},
-                ) from None
-            return CapabilityResult(
-                data={
-                    "action": "resolve_schema",
-                    "schema_token": token,
-                    "expires_in_seconds": self.store.ttl_seconds,
-                    "summary": value.summary,
-                    "provider_executed": True,
-                }
-            )
         empty_guide = (
             isinstance(command, CatalogCommand)
             and command.action == "submit_guide"

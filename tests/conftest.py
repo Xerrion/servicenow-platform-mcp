@@ -17,7 +17,6 @@ from tests._mock_transport import http_mock
 
 if TYPE_CHECKING:
     from collections.abc import Generator
-    from pathlib import Path
 
 
 @pytest.fixture(autouse=True)
@@ -180,15 +179,6 @@ def _fail_closed_network(
         raise RuntimeError("Unit tests must not initialize remote Sentry telemetry")
 
     monkeypatch.setattr(sentry_sdk, "init", blocked_sentry_init)
-
-
-@pytest.fixture(autouse=True)
-def _isolate_flow_preview_sink(
-    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """Keep offline test diagnostics out of the temporary live evidence file."""
-    if "integration" not in request.node.path.parts:
-        monkeypatch.setattr("servicenow_mcp.telemetry._FLOW_TRACE_ROOT", tmp_path)
 
 
 @pytest.fixture(autouse=True)

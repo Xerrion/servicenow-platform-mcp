@@ -437,16 +437,16 @@ The `flow` tool is read-only. It inspects stored configuration, validates locall
 It never edits, publishes, activates, or tests a flow. A configured step is not evidence of execution.
 Flow creation, editing, and lifecycle effects are not exposed by the server.
 
-| Action          | Required inputs                   | Optional inputs and result                                                                                               |
-| --------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `contract`      | Exactly one of `sys_id` or `name` | `sections`, `section_limit`. Concise declared fields and configured V2 steps.                                            |
-| `inspect`       | Exactly one of `sys_id` or `name` | `sections`, `section_limit`. Detailed flow metadata and configuration.                                                   |
-| `find_by_table` | `table`                           | Finds V1/V2 record-triggered flows for that table.                                                                       |
-| `list_triggers` | None                              | `table`, `trigger_type`, `active`, `limit`. Lists V1/V2 record triggers.                                                 |
-| `decode_values` | `value`                           | Decodes a complete gzip, base64, and JSON `values` blob.                                                                 |
-| `validate`      | `sys_id`                          | Local semantic/schema/reference checks. No remote compilation or execution.                                              |
-| `status`        | `sys_id`                          | Optional `execution_sys_id` reads one exact existing execution context.                                                  |
-| `describe`      | None                              | Returns action contracts and internal validation coverage without contacting ServiceNow; this does not enable mutations. |
+| Action          | Required inputs                   | Optional inputs and result                                                                |
+| --------------- | --------------------------------- | ----------------------------------------------------------------------------------------- |
+| `contract`      | Exactly one of `sys_id` or `name` | `sections`, `section_limit`. Concise declared fields and configured V2 steps.             |
+| `inspect`       | Exactly one of `sys_id` or `name` | `sections`, `section_limit`. Detailed flow metadata and configuration.                    |
+| `find_by_table` | `table`                           | Finds V1/V2 record-triggered flows for that table.                                        |
+| `list_triggers` | None                              | `table`, `trigger_type`, `active`, `limit`. Lists V1/V2 record triggers.                  |
+| `decode_values` | `value`                           | Decodes a complete gzip, base64, and JSON `values` blob.                                  |
+| `validate`      | `sys_id`                          | Local checks of saved V2 structure. No input-type, runtime, or remote compilation checks. |
+| `status`        | `sys_id`                          | Optional `execution_sys_id` reads one exact existing execution context.                   |
+| `describe`      | None                              | Returns the read-only action contracts without contacting ServiceNow.                     |
 
 `name` matches a flow's name or `internal_name` and must identify one flow.
 For `list_triggers`, `active` is the string `"true"` or `"false"`, not a JSON
@@ -478,26 +478,20 @@ Both `inspect` and `contract` default to
 `sections="*"` requests every section for that action.
 `section_limit` defaults to 100 and is capped by `MAX_ROW_LIMIT`.
 
-`validate` requires `sys_id` and performs local semantic/schema/reference checks on a saved draft.
-It never sends a compile or execution request. Check `valid`, `complete`, and safe `diagnostics` together.
-`INCOMPLETE_SEMANTICS` reports the first failed parser invariant with a schema path and list index, without stored values.
-Local validation requires supported V2 draft or native versioned-owner fields and complete step identities, bindings, orders, and parent links.
-A missing trigger activation field does not reject local validation. The flow's `active` field is a separate prerequisite.
-Unknown or unsupported Studio representations remain `valid=null`, `complete=false`. The validator does not repair them.
+`validate` requires `sys_id` and checks saved V2 identities, parent links, orders, binding shapes, and trigger metadata through bounded table reads.
+Check `valid`, `complete`, and `diagnostics` together. `completeness_scope=saved_v2_structure_only` limits the result to these checks.
+`semantic_validation=not_performed` and `runtime_validation=not_performed` are explicit: input types, pill compatibility, and runtime behavior are not validated.
+Unreadable, truncated, V1, or changing definitions return `valid=null`, `complete=false`. Validation does not repair saved fields or call Studio's authoring endpoints.
 `status` requires `sys_id`; optional `execution_sys_id` reads one exact existing execution context.
 Draft/published status, active state, version references, and exact execution context are separate results.
 Execution results expose context ownership separately from `snapshot_sys_id` and `snapshot_owner_verified` for the context's exact compiled `sys_hub_snapshot`.
 That snapshot is not an authoring `sys_hub_flow_snapshot`. Matching its identity and parent does not prove authored-version or content equality.
 `snapshot_content_verified=false` and `version_verified=false` remain explicit. Missing or unreadable snapshot evidence makes the result incomplete without hiding known context state.
-See [execution evidence boundaries](../flow-authoring.md#validation-status-and-target-binding) for snapshot diagnostics and the bounded read contract.
 A bounded read-only live check verified these ownership fields on a known terminal owned Log-subflow context without reading compiled payloads or causing effects.
 That evidence does not certify other context families, authored-version correlation, or content equality.
 Status does not read update sets, Customer Updates, or session selection.
 Unknown state never authorizes replay. The server exposes no Flow lifecycle effects.
-Explicit subflow publication, flow activation/deactivation, and saved-owner tests have bounded native Log-fixture live evidence and offline coverage.
-This does not certify every authoring family or business runtime. Execution-to-version correlation and independent published-content equality remain unverified.
-Independent remote validation and production run remain unavailable. Test is not a run alias.
-Flow publish-only is unavailable because native flow publication also activates triggers.
+Flow creation, editing, publication, activation, deactivation, schema-provider execution, and test execution are unavailable.
 
 | Sections                                                                                                            | Available in             |
 | ------------------------------------------------------------------------------------------------------------------- | ------------------------ |

@@ -69,7 +69,7 @@ Replace example rule and flow names with records from your instance.
 
 Diagnostic findings help you investigate a cause. They do not establish a root
 cause or automatically repair the instance. The `flow` tool reads stored
-configuration, performs local validation, and reads status. It never changes or executes a flow.
+configuration, checks saved V2 structure locally, and reads status. It never changes or executes a flow.
 
 With write tools enabled, you can create or update configuration records,
 including script fields. Follow the [change workflow](#making-changes) before
@@ -208,7 +208,7 @@ For example, `MCP_TOOL_PACKAGE=query,describe,record_read,record_write`
 enables record inspection and changes. Set `SERVICENOW_ENV=dev` for that
 non-production instance. Restart the server after changing the configuration.
 
-Every record, attachment, catalog, and Flow mutation requires preview followed by `mutation_apply`.
+Every record, attachment, and catalog mutation requires preview followed by `mutation_apply`.
 The server does not enforce human approval. Use this review process:
 
 1. Ask the app to read the current record.
@@ -248,12 +248,12 @@ record access. Tool selection and environment settings are additional local cont
 
 `MCP_TOOL_PACKAGE` controls which tools your AI app can call:
 
-| Package         | Use                                                                                                        |
-| --------------- | ---------------------------------------------------------------------------------------------------------- |
-| `readonly`      | ITSM reads, metadata, attachments, investigations, audits, flows, code search, and CMDB inspection.        |
-| `core_readonly` | Only queries, table descriptions, and attachment reads.                                                    |
-| `full`          | All tools, including record, attachment, catalog, and experimental Flow mutation previews and application. |
-| `none`          | Only `list_tool_packages`, for checking that the server starts.                                            |
+| Package         | Use                                                                                                 |
+| --------------- | --------------------------------------------------------------------------------------------------- |
+| `readonly`      | ITSM reads, metadata, attachments, investigations, audits, flows, code search, and CMDB inspection. |
+| `core_readonly` | Only queries, table descriptions, and attachment reads.                                             |
+| `full`          | All tools, including reviewed record, attachment, and catalog changes.                              |
+| `none`          | Only `list_tool_packages`, for checking that the server starts.                                     |
 
 The package defaults to `readonly` and the environment defaults to `prod`.
 A package enables tools. It does not grant ServiceNow permissions.

@@ -98,10 +98,13 @@ async def test_describe_returns_all_action_keys(
         "decode_values",
         "list_triggers",
         "describe",
+        "validate",
+        "status",
     ):
         assert name in actions
     assert "sections" in actions["inspect"]["params"]
     assert "section_limit" in actions["contract"]["params"]
+    assert set(result["data"]) == {"actions"}
 
 
 # ---------------------------------------------------------------------------

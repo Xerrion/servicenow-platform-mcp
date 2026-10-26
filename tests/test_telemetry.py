@@ -1,11 +1,6 @@
 """Tests for shared ServiceNow HTTP transport and telemetry."""
 
-import asyncio
-import json
 import logging
-import os
-import stat
-import sys
 from typing import TYPE_CHECKING, Any, Protocol, cast, override
 from unittest.mock import AsyncMock, patch
 
@@ -13,21 +8,17 @@ import httpx2
 import pytest
 from mcp.server import MCPServer
 
-from servicenow_mcp import telemetry as trace_module
 from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.platform.client import ServiceNowClient, ServiceNowClientFactory
 from servicenow_mcp.telemetry import (
     HttpTelemetry,
     TelemetryAsyncClient,
-    trace_flow_preview,
-    trace_flow_preview_boundary,
 )
 from tests.helpers import decode_response, get_tool_functions
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from contextlib import AbstractAsyncContextManager
-    from pathlib import Path
 
     from servicenow_mcp.config import Settings
 
@@ -269,230 +260,3 @@ async def test_mcp_server_lifespan_closes_shared_transport_once_on_exception() -
         pass
 
     close.assert_awaited_once_with()
-
-
-def test_flow_preview_trace_uses_fixed_metadata_only(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    caplog.set_level(logging.INFO, logger="servicenow_mcp.telemetry")
-    private = "private-sensitive-marker"
-    with trace_flow_preview():
-        trace_flow_preview_boundary(
-            "protocol",
-            arguments={
-                "action": private,
-                "edits": [{private: {"password": private}}],
-                private: private,
-            },
-        )
-        trace_flow_preview_boundary(
-            "planner.in",
-            action="edit",
-            edits=private,
-            flow={
-                "actionInstances": [{"name": private}],
-                "flowLogicInstances": [],
-                "subFlowInstances": [],
-            },
-        )
-        trace_flow_preview_boundary(
-            "wire.structured",
-            summary={
-                "changes": [private],
-                "before": [private],
-                "after": [private],
-                "data_pills": [private],
-                "preview_token": private,
-                private: private,
-            },
-        )
-    records = [
-        json.loads(record.getMessage().removeprefix("Flow preview boundary "))
-        for record in caplog.records
-    ]
-    assert records[0]["argument_keys"] == ["action", "edits"]
-    assert (records[0]["action"], records[0]["edit_count"]) == ("other", 1)
-    assert records[1]["edit_count"] == -1
-    assert records[1]["node_counts"] == {"action": 1, "flowlogic": 0, "subflow": 0}
-    assert records[2]["change_count"] == records[2]["pill_count"] == 1
-    assert private not in caplog.text
-    assert "password" not in caplog.text
-    assert "preview_token" not in caplog.text
-
-
-def test_flow_preview_trace_restores_context_after_failure(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    def fail() -> None:
-        with trace_flow_preview():
-            trace_flow_preview_boundary("protocol", action="edit", edits=[])
-            raise RuntimeError("private-sensitive-marker")
-
-    caplog.set_level(logging.INFO, logger="servicenow_mcp.telemetry")
-    trace_flow_preview_boundary("protocol", action="edit", edits=[])
-    assert not caplog.records
-    with trace_flow_preview():
-        trace_flow_preview_boundary("protocol", action="edit", edits=[])
-        with pytest.raises(RuntimeError):
-            fail()
-        trace_flow_preview_boundary("command", action="edit", edits=[])
-    trace_flow_preview_boundary("protocol", action="edit", edits=[])
-    records = [
-        json.loads(record.getMessage().removeprefix("Flow preview boundary "))
-        for record in caplog.records
-    ]
-    assert len(records) == 3
-    assert records[0]["trace_id"] == records[2]["trace_id"] != records[1]["trace_id"]
-    assert "private-sensitive-marker" not in caplog.text
-
-
-async def test_parallel_flow_preview_traces_do_not_share_correlation(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    caplog.set_level(logging.INFO, logger="servicenow_mcp.telemetry")
-
-    async def run() -> None:
-        with trace_flow_preview():
-            trace_flow_preview_boundary("protocol", action="edit", edits=[])
-            await asyncio.sleep(0)
-            trace_flow_preview_boundary("command", action="edit", edits=[])
-
-    await asyncio.gather(run(), run())
-    records = [
-        json.loads(record.getMessage().removeprefix("Flow preview boundary "))
-        for record in caplog.records
-    ]
-    assert len(records) == 4
-    assert len({record["trace_id"] for record in records}) == 2
-    for trace_id in {record["trace_id"] for record in records}:
-        assert [
-            record["boundary"] for record in records if record["trace_id"] == trace_id
-        ] == ["protocol", "command"]
-
-
-def test_flow_preview_trace_writes_stderr_not_protocol_stdout(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    logger = logging.getLogger("servicenow_mcp.telemetry")
-    handler = logging.StreamHandler(sys.stderr)
-    with (
-        patch.object(logger, "handlers", [handler]),
-        patch.object(logger, "propagate", False),
-        patch.object(logger, "level", logging.INFO),
-        trace_flow_preview(),
-    ):
-        trace_flow_preview_boundary("protocol", action="edit", edits=[])
-    captured = capsys.readouterr()
-    assert captured.out == ""
-    assert captured.err.startswith("Flow preview boundary ")
-    metadata = json.loads(captured.err.removeprefix("Flow preview boundary "))
-    assert (metadata["boundary"], metadata["edit_count"]) == ("protocol", 0)
-
-
-def test_preview_sink_is_owner_only_bounded_and_private(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(trace_module, "_FLOW_TRACE_ROOT", tmp_path)
-    monkeypatch.setattr(trace_module, "_FLOW_TRACE_MAX_BYTES", 2048)
-    private = "private-sensitive-marker"
-    with trace_flow_preview():
-        for _ in range(20):
-            trace_flow_preview_boundary(
-                "protocol", arguments={"action": "edit", "edits": [{private: private}]}
-            )
-    directory = tmp_path / "servicenow-flow-preview-trace"
-    target = directory / "boundaries.jsonl"
-    assert stat.S_IMODE(directory.stat().st_mode) == 0o700
-    assert stat.S_IMODE(target.stat().st_mode) == 0o600
-    assert target.stat().st_uid == os.getuid()
-    content = target.read_text()
-    assert 0 < len(content.encode()) <= 2048
-    assert content.endswith("\n")
-    records = [json.loads(line) for line in content.splitlines()]
-    assert 0 < len(records) < 20
-    assert all(record["edit_count"] == 1 for record in records)
-    assert private not in content
-
-
-@pytest.mark.parametrize(
-    "unsafe",
-    [
-        "root_symlink",
-        "directory_symlink",
-        "file_symlink",
-        "hardlink",
-        "permissions",
-        "directory_permissions",
-        "root_permissions",
-        "fifo",
-    ],
-)
-def test_preview_sink_refuses_unsafe_targets(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unsafe: str
-) -> None:
-    monkeypatch.setattr(trace_module, "_FLOW_TRACE_ROOT", tmp_path)
-    directory = tmp_path / "servicenow-flow-preview-trace"
-    directory.mkdir(mode=0o700)
-    target = directory / "boundaries.jsonl"
-    other = tmp_path / "untouched"
-    other.write_text("untouched")
-    if unsafe == "root_symlink":
-        root_link = tmp_path / "root_link"
-        root_link.symlink_to(tmp_path, target_is_directory=True)
-        monkeypatch.setattr(trace_module, "_FLOW_TRACE_ROOT", root_link)
-    elif unsafe == "directory_symlink":
-        directory.rmdir()
-        directory.symlink_to(tmp_path, target_is_directory=True)
-    elif unsafe == "file_symlink":
-        target.symlink_to(other)
-    elif unsafe == "hardlink":
-        other.chmod(0o600)
-        os.link(other, target)
-    elif unsafe == "permissions":
-        target.write_text("untouched")
-        target.chmod(0o644)
-    elif unsafe == "directory_permissions":
-        directory.chmod(0o755)
-    elif unsafe == "root_permissions":
-        tmp_path.chmod(0o777)
-    else:
-        os.mkfifo(target, mode=0o600)
-    with trace_flow_preview():
-        trace_flow_preview_boundary("protocol", action="edit", edits=[])
-    assert other.read_text() == "untouched"
-    if unsafe == "permissions":
-        assert target.read_text() == "untouched"
-    assert not (tmp_path / "boundaries.jsonl").exists()
-
-
-def test_preview_sink_rejects_wrong_owner(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(trace_module, "_FLOW_TRACE_ROOT", tmp_path)
-    monkeypatch.setattr(os, "getuid", lambda: tmp_path.stat().st_uid + 1)
-    with trace_flow_preview():
-        trace_flow_preview_boundary("protocol", action="edit", edits=[])
-    assert not (tmp_path / "servicenow-flow-preview-trace").exists()
-
-
-@pytest.mark.parametrize("failure", ["open", "lock", "write"])
-def test_preview_sink_failure_does_not_fail_trace_or_stderr(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
-    failure: str,
-) -> None:
-    import fcntl
-
-    monkeypatch.setattr(trace_module, "_FLOW_TRACE_ROOT", tmp_path)
-    caplog.set_level(logging.INFO, logger="servicenow_mcp.telemetry")
-
-    def fail(*_args: Any, **_kwargs: Any) -> None:
-        raise OSError("private-sensitive-marker")
-
-    module, attribute = (fcntl, "flock") if failure == "lock" else (os, failure)
-    monkeypatch.setattr(module, attribute, fail)
-    with trace_flow_preview():
-        trace_flow_preview_boundary("protocol", action="edit", edits=[])
-    assert "Flow preview boundary " in caplog.text
-    assert "private-sensitive-marker" not in caplog.text

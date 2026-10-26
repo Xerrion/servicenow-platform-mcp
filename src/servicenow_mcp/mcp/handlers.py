@@ -11,7 +11,6 @@ from servicenow_mcp.mcp.outputs import ToolResult
 from servicenow_mcp.sentry import sentry_tool_scope, set_sentry_context, set_sentry_tag
 from servicenow_mcp.telemetry import (
     current_tool_trace,
-    trace_flow_preview_boundary,
     trace_tool_call,
 )
 
@@ -116,11 +115,6 @@ def tool_handler(
     @functools.wraps(fn)
     async def wrapper(*args: Any, **kwargs: Any) -> CapabilityResult | CallToolResult:
         with sentry_tool_scope(fn.__name__), trace_tool_call(fn.__name__):
-            if fn.__name__ == "flow_preview":
-                trace_flow_preview_boundary(
-                    "handler",
-                    arguments=dict(input_signature.bind(*args, **kwargs).arguments),
-                )
             started = perf_counter()
             set_sentry_tag("tool.name", fn.__name__)
 
@@ -134,13 +128,6 @@ def tool_handler(
                         },
                     )
                     result = await fn(*args, **kwargs)
-                    if fn.__name__ == "flow_preview":
-                        trace_flow_preview_boundary(
-                            "handler.out",
-                            summary=result.data.get("summary")
-                            if isinstance(result.data, dict)
-                            else None,
-                        )
                     return result
                 finally:
                     trace = current_tool_trace()

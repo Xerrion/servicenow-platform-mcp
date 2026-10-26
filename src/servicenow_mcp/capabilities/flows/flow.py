@@ -1,6 +1,6 @@
 """Unified ``flow`` tool: read-only Flow Designer inspection.
 
-Six actions:
+Eight actions:
 
 * ``contract``       - declared fields, configured stages, ordered V2 actions/logic/subflows, and bindings.
 * ``inspect``        - assemble one flow by sys_id or name: header, triggers,
@@ -10,10 +10,12 @@ Six actions:
 * ``decode_values``  - stateless decode of a gzip+base64+JSON ``values`` blob.
 * ``list_triggers``  - list V1 and V2 trigger rows with optional filters.
 * ``describe``       - return the action registry without platform I/O.
+* ``validate``       - check the saved V2 structure locally.
+* ``status``         - read current lifecycle fields and a known execution context.
 
 The decoder lives in :mod:`servicenow_mcp.capabilities.flows._flow_values`; canvas-tree
-assembly stays inline. We deliberately do not touch ``/api/now/processflow/*``
-endpoints (undocumented) or ``sys_hub_flow_snapshot`` (opaque cache).
+assembly stays inline. Inspection uses table reads. Execution status can also read
+one exact ancestor definition through Studio; it never sends an effect request.
 """
 
 from __future__ import annotations
@@ -26,13 +28,7 @@ from typing import TYPE_CHECKING, Any, Final, Literal, NoReturn
 
 from servicenow_mcp.capabilities.contracts import CapabilityError, CapabilityResult
 from servicenow_mcp.capabilities.contracts import result as operation_result
-from servicenow_mcp.capabilities.flows import (
-    handlers,
-    lifecycle,
-    semantics,
-    support,
-    tree,
-)
+from servicenow_mcp.capabilities.flows import inspection, lifecycle
 from servicenow_mcp.capabilities.flows._flow_models import (
     ActionTypeRef,
     ContractBinding,
@@ -150,7 +146,7 @@ _DEFAULT_FLOW_SECTIONS: Final[tuple[str, ...]] = (
 _ACTION_REGISTRY: Final[dict[str, dict[str, Any]]] = {
     "validate": {
         "description": (
-            "Read a saved draft and validate supported semantics locally. No remote compile, save, or execution."
+            "Check saved V2 identities, parent links, orders, bindings, and trigger metadata locally. Input types and runtime behavior are not validated."
         ),
         "params": {"sys_id": "str (32-char)"},
     },
@@ -433,7 +429,7 @@ def _build_v2_node(
         node["logic_type"] = logic_type
     try:
         reference = action_type or logic_definition or subflow
-        semantics.table_step(
+        inspection.table_step(
             kind="flowlogic" if kind == "logic" else kind,
             identity=node["sys_id"],
             ui_id=node["ui_uuid"],
@@ -1122,7 +1118,7 @@ def _build_inspect_warnings(
         )
     if logic_v1:
         warnings.append(
-            f"{len(logic_v1)} V1 logic instance(s) present; their semantics are not reflected in the canvas tree.",
+            f"{len(logic_v1)} V1 logic instance(s) present; their semantics are not reflected in the canvas inspection.",
         )
     spoke_actions = [
         meta
@@ -2072,7 +2068,7 @@ def assemble_inspection(
             + [("subflow", row) for row in snapshot.node_subflows_v2]
         )
         handler_main = (
-            handlers.table_main(native_rows)
+            inspection.table_main(native_rows)
             if not truncation.get(selected_node_section)
             and not _saturated_datasets(
                 datasets,
@@ -2269,7 +2265,9 @@ def _canvas_issues(
     def logic_type(node: dict[str, Any]) -> Any:
         kind = node.get("logic_type")
         return (
-            handlers.TRY if kind == "TRY" and node["ui_uuid"] == handler_main else kind
+            inspection.TRY
+            if kind == "TRY" and node["ui_uuid"] == handler_main
+            else kind
         )
 
     issues: list[str] = []
@@ -2289,14 +2287,14 @@ def _canvas_issues(
     for node in nodes:
         first_child_by_parent.setdefault(node["parent_ui_id"], node)
         try:
-            order = tree.order_key(node["order"])
+            order = inspection.order_key(node["order"])
         except CapabilityError:
             issues.append("Invalid or duplicate persisted step orders.")
             continue
         top_try = (
             node["kind"] == "logic"
             and not node["parent_ui_id"]
-            and logic_type(node) == handlers.TRY
+            and logic_type(node) == inspection.TRY
         )
         if order < (0 if top_try else 1):
             issues.append("Invalid or duplicate persisted step orders.")
@@ -2307,13 +2305,13 @@ def _canvas_issues(
     wrappers = [
         node
         for node in nodes
-        if node["kind"] == "logic" and logic_type(node) in handlers.TYPES
+        if node["kind"] == "logic" and logic_type(node) in inspection.TYPES
     ]
     roots = [node for node in nodes if not node["parent_ui_id"]]
     if wrappers and (
         len(wrappers) != 2
         or len(roots) != 2
-        or [logic_type(node) for node in roots] != [handlers.TRY, handlers.CATCH]
+        or [logic_type(node) for node in roots] != [inspection.TRY, inspection.CATCH]
     ):
         issues.append(
             "Top-level handler wrappers do not form one owned root Try/Catch pair."
@@ -2389,10 +2387,126 @@ async def _action_inspect(
     return assemble_inspection(snapshot, max_row_limit=settings.max_row_limit)
 
 
+async def _action_validate(
+    *, sys_id: str, settings: Settings, client_factory: ServiceNowClientProvider
+) -> CapabilityResult:
+    """Check saved V2 structure; do not claim authoring-schema or engine validation."""
+    validate_sys_id(sys_id)
+    before: dict[str, Any] | None = None
+    diagnostics: list[dict[str, Any]] = []
+    issues: list[str] = []
+    try:
+        async with client_factory() as client:
+            before = await client.get_flow_by_sys_id(sys_id)
+        if not before or _v(before.get("sys_id")) != sys_id:
+            raise ValueError("Unreadable flow identity")
+        snapshot = await _load_inspection(
+            sys_id=sys_id,
+            name="",
+            settings=settings,
+            client_factory=client_factory,
+            sections=["flow", "structural_summary", "canvas", "triggers"],
+            section_limit=settings.max_row_limit,
+        )
+        assemble_inspection(snapshot, max_row_limit=settings.max_row_limit)
+        issues = snapshot.truncation.get("canvas", {}).get("incomplete_semantics", [])
+        for issue in issues:
+            diagnostics.append(
+                lifecycle.diagnostic("INVALID_STRUCTURE", "canvas", issue)
+            )
+        for section, detail in snapshot.truncation.items():
+            if set(detail) == {"incomplete_semantics"}:
+                continue
+            diagnostics.append(
+                lifecycle.diagnostic(
+                    "INCOMPLETE_READ",
+                    section,
+                    "Saved structure or metadata could not be read completely.",
+                    incomplete=True,
+                )
+            )
+        if (
+            snapshot.datasets.get("actions_v1")
+            or snapshot.datasets.get("logic_v1")
+            or snapshot.datasets.get("triggers_v1")
+        ):
+            diagnostics.append(
+                lifecycle.diagnostic(
+                    "UNSUPPORTED_V1_VALIDATION",
+                    "flow",
+                    "V1 definitions can be inspected but are not validated.",
+                    incomplete=True,
+                )
+            )
+        async with client_factory() as client:
+            after = await client.get_flow_by_sys_id(sys_id)
+        revision_fields = (
+            "sys_id",
+            "sys_mod_count",
+            "sys_updated_on",
+            "master_snapshot",
+            "latest_snapshot",
+        )
+        revision = _v(before.get("sys_mod_count"))
+        if (
+            not revision.isascii()
+            or not revision.isdecimal()
+            or not _v(before.get("sys_updated_on"))
+            or any(
+                key not in before
+                or key not in snapshot.header
+                or not after
+                or key not in after
+                for key in revision_fields
+            )
+            or any(
+                _v(before.get(key)) != _v(snapshot.header.get(key))
+                or _v(before.get(key)) != _v((after or {}).get(key))
+                for key in revision_fields
+            )
+        ):
+            diagnostics.append(
+                lifecycle.diagnostic(
+                    "READ_RACE",
+                    "flow",
+                    "The flow revision changed or could not be rechecked during validation.",
+                    incomplete=True,
+                )
+            )
+    except Exception:  # noqa: BLE001 - unavailable data cannot establish validity
+        diagnostics.append(
+            lifecycle.diagnostic(
+                "UNREADABLE_DEFINITION",
+                "flow",
+                "The saved structure could not be read completely.",
+                incomplete=True,
+            )
+        )
+    incomplete = any(item["incomplete"] for item in diagnostics)
+    return operation_result(
+        data={
+            "sys_id": sys_id,
+            "mode": "local",
+            "remote_compile": "not_performed",
+            "completeness_scope": "saved_v2_structure_only",
+            "semantic_validation": "not_performed",
+            "runtime_validation": "not_performed",
+            "revision": {
+                key: _v(before.get(key)) for key in ("sys_updated_on", "sys_mod_count")
+            }
+            if before
+            else None,
+            "valid": None if incomplete else not diagnostics,
+            "complete": not incomplete,
+            "diagnostics": diagnostics,
+        }
+    )
+
+
 def _canvas_order_key(value: str) -> tuple[bool, int]:
     """Keep unreadable labels last without inventing a valid persisted order."""
     try:
-        return False, tree.order_key(value)
+        return False, inspection.order_key(value)
     except CapabilityError:
         return True, 0
 
@@ -2647,7 +2761,7 @@ def _trigger_with_flow(
 def _action_describe() -> CapabilityResult:
     """Return the action registry without making any platform calls."""
     return operation_result(
-        data={"actions": _ACTION_REGISTRY, "authoring": support.ledger()},
+        data={"actions": _ACTION_REGISTRY},
     )
 
 
@@ -2711,12 +2825,14 @@ class FlowCapability:
         if action in {"validate", "status"}:
             if not sys_id:
                 raise CapabilityError("validate and status require sys_id.")
-            async with self.client_factory() as client:
-                return (
-                    await lifecycle.validate(sys_id, client)
-                    if action == "validate"
-                    else await lifecycle.status(sys_id, execution_sys_id, client)
+            if action == "validate":
+                return await _action_validate(
+                    sys_id=sys_id,
+                    settings=self.settings,
+                    client_factory=self.client_factory,
                 )
+            async with self.client_factory() as client:
+                return await lifecycle.status(sys_id, execution_sys_id, client)
 
         if action in {"contract", "inspect"}:
             return await _action_inspect(

@@ -1,9 +1,9 @@
 """Native preview and apply tools for every mutating capability."""
 
-from typing import TYPE_CHECKING, Annotated, Literal
+from typing import TYPE_CHECKING, Literal
 
 from mcp.types import ToolAnnotations
-from pydantic import Field, JsonValue
+from pydantic import JsonValue
 
 from servicenow_mcp.capabilities.attachments.common import (
     MAX_ATTACHMENT_BYTES,
@@ -18,7 +18,6 @@ from servicenow_mcp.capabilities.contracts import CapabilityResult
 from servicenow_mcp.capabilities.mutations.models import (
     AttachmentCommand,
     CatalogCommand,
-    FlowCommand,
     RecordCommand,
 )
 from servicenow_mcp.mcp.handlers import tool_handler
@@ -166,85 +165,6 @@ def register_tools(mcp: MCPServer, coordinator: MutationCoordinator) -> None:
                     items=items,
                     view=view,
                     api_version=api_version,
-                ),
-            )
-
-    if "flows" in coordinator.families:
-
-        @mcp.tool(annotations=PREVIEW_ANNOTATIONS)
-        @describe_tool_parameters(
-            {
-                "action": "Choose create, edit, add_action, add_subflow, resolve_schema, or a lifecycle effect.",
-                "sys_id": "Canonical target flow/subflow sys_id for edits and effects.",
-                "name": "New flow/subflow name for create.",
-                "scope": "Application scope sys_id, or global, for create.",
-                "description": "Optional description for a new flow.",
-                "flow_type": "Create a flow or triggerless subflow; defaults to flow.",
-                "action_type_sys_id": "Published action sys_id for add_action or resolve_schema.",
-                "subflow_sys_id": "Published subflow sys_id for add_subflow.",
-                "input_name": "Declared action input name for resolve_schema.",
-                "inputs": "Native input values for calls, schema resolution, or flow tests.",
-                "connection_overrides": "Declared source-to-child connection alias mapping.",
-                "edits": "Ordered native operations for create/edit; use ref aliases for later steps.",
-                "schema_tokens": "Single-use resolve_schema tokens for a new create/edit preview.",
-                "expected_scope": "Expected target scope for revision-bound edits/lifecycle effects.",
-                "expected_revision": "Expected sys_mod_count for revision-bound edits/lifecycle effects.",
-            }
-        )
-        @tool_handler
-        async def flow_preview(
-            action: Literal[
-                "create",
-                "add_action",
-                "add_subflow",
-                "edit",
-                "activate",
-                "publish",
-                "deactivate",
-                "test",
-                "resolve_schema",
-            ],
-            sys_id: str | None = None,
-            name: str | None = None,
-            scope: str | None = None,
-            description: str | None = None,
-            flow_type: Literal["flow", "subflow"] | None = None,
-            action_type_sys_id: str | None = None,
-            subflow_sys_id: str | None = None,
-            input_name: str | None = None,
-            inputs: dict[str, JsonValue] | None = None,
-            connection_overrides: dict[str, str | None] | None = None,
-            edits: Annotated[
-                list[dict[str, JsonValue]],
-                Field(
-                    min_length=1,
-                    max_length=200,
-                    description="Ordered operations for complete create or incremental edit. New steps use request-local ref aliases.",
-                ),
-            ]
-            | None = None,
-            schema_tokens: Annotated[list[str], Field(max_length=200)] | None = None,
-            expected_scope: str | None = None,
-            expected_revision: str | None = None,
-        ) -> CapabilityResult:
-            """Preview Flow Designer authoring, schema resolution, or a lifecycle effect without applying it. Use flow describe/inspect for supported operations and target details, then pass a reviewed preview_token to mutation_apply."""
-            return await coordinator.preview(
-                FlowCommand(
-                    action=action,
-                    sys_id=sys_id,
-                    name=name,
-                    scope=scope,
-                    description=description,
-                    flow_type=flow_type,
-                    action_type_sys_id=action_type_sys_id,
-                    subflow_sys_id=subflow_sys_id,
-                    input_name=input_name,
-                    inputs=inputs,
-                    connection_overrides=connection_overrides,
-                    edits=edits,
-                    schema_tokens=schema_tokens,
-                    expected_scope=expected_scope,
-                    expected_revision=expected_revision,
                 ),
             )
 

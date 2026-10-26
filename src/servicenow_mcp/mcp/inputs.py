@@ -25,7 +25,6 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model
 
 from servicenow_mcp.capabilities.contracts import CapabilityError
 from servicenow_mcp.mcp.outputs import error_result
-from servicenow_mcp.telemetry import trace_flow_preview, trace_flow_preview_boundary
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable
@@ -188,51 +187,6 @@ class RawInputMiddleware:
     async def __call__(
         self, ctx: ServerRequestContext[Any, Any], call_next: CallNext
     ) -> HandlerResult:
-        if (
-            ctx.method == "tools/call"
-            and isinstance(ctx.params, dict)
-            and ctx.params.get("name") == "flow_preview"
-        ):
-            with trace_flow_preview():
-                trace_flow_preview_boundary(
-                    "protocol", arguments=ctx.params.get("arguments")
-                )
-                result = await self._validated_call(ctx, call_next)
-                # MCP 2.3's runner serializes inside call_next, before middleware resumes.
-                wire = (
-                    result.model_dump(by_alias=True)
-                    if isinstance(result, CallToolResult)
-                    else result
-                )
-                if isinstance(wire, dict):
-                    structured = wire.get("structuredContent")
-                    data = (
-                        structured.get("data") if isinstance(structured, dict) else None
-                    )
-                    trace_flow_preview_boundary(
-                        "wire.structured",
-                        summary=data.get("summary") if isinstance(data, dict) else None,
-                    )
-                    blocks = wire.get("content")
-                    for block in blocks if isinstance(blocks, list) else []:
-                        if (
-                            isinstance(block, dict)
-                            and block.get("type") == "text"
-                            and isinstance(block.get("text"), str)
-                        ):
-                            try:
-                                text = json.loads(block["text"])
-                            except ValueError:
-                                text = None
-                            data = text.get("data") if isinstance(text, dict) else None
-                            trace_flow_preview_boundary(
-                                "wire.text",
-                                summary=data.get("summary")
-                                if isinstance(data, dict)
-                                else None,
-                            )
-                            break
-                return result
         return await self._validated_call(ctx, call_next)
 
     async def _validated_call(

@@ -435,18 +435,18 @@ Use `record_read` to read a matching record's complete script fields.
 
 The `flow` tool is read-only. It inspects stored configuration, validates locally, and reads status.
 It never edits, publishes, activates, or tests a flow. A configured step is not evidence of execution.
-Opt-in changes and execution use [`flow_preview`](#flow_preview) followed by `mutation_apply`.
+Flow creation, editing, and lifecycle effects are not exposed by the server.
 
-| Action          | Required inputs                   | Optional inputs and result                                                                            |
-| --------------- | --------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `contract`      | Exactly one of `sys_id` or `name` | `sections`, `section_limit`. Concise declared fields and configured V2 steps.                         |
-| `inspect`       | Exactly one of `sys_id` or `name` | `sections`, `section_limit`. Detailed flow metadata and configuration.                                |
-| `find_by_table` | `table`                           | Finds V1/V2 record-triggered flows for that table.                                                    |
-| `list_triggers` | None                              | `table`, `trigger_type`, `active`, `limit`. Lists V1/V2 record triggers.                              |
-| `decode_values` | `value`                           | Decodes a complete gzip, base64, and JSON `values` blob.                                              |
-| `validate`      | `sys_id`                          | Local semantic/schema/reference checks. No remote compilation or execution.                           |
-| `status`        | `sys_id`                          | Optional `execution_sys_id` reads one exact existing execution context.                               |
-| `describe`      | None                              | Returns action contracts and the versioned authoring capability ledger without contacting ServiceNow. |
+| Action          | Required inputs                   | Optional inputs and result                                                                                               |
+| --------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `contract`      | Exactly one of `sys_id` or `name` | `sections`, `section_limit`. Concise declared fields and configured V2 steps.                                            |
+| `inspect`       | Exactly one of `sys_id` or `name` | `sections`, `section_limit`. Detailed flow metadata and configuration.                                                   |
+| `find_by_table` | `table`                           | Finds V1/V2 record-triggered flows for that table.                                                                       |
+| `list_triggers` | None                              | `table`, `trigger_type`, `active`, `limit`. Lists V1/V2 record triggers.                                                 |
+| `decode_values` | `value`                           | Decodes a complete gzip, base64, and JSON `values` blob.                                                                 |
+| `validate`      | `sys_id`                          | Local semantic/schema/reference checks. No remote compilation or execution.                                              |
+| `status`        | `sys_id`                          | Optional `execution_sys_id` reads one exact existing execution context.                                                  |
+| `describe`      | None                              | Returns action contracts and internal validation coverage without contacting ServiceNow; this does not enable mutations. |
 
 `name` matches a flow's name or `internal_name` and must identify one flow.
 For `list_triggers`, `active` is the string `"true"` or `"false"`, not a JSON
@@ -493,7 +493,7 @@ See [execution evidence boundaries](../flow-authoring.md#validation-status-and-t
 A bounded read-only live check verified these ownership fields on a known terminal owned Log-subflow context without reading compiled payloads or causing effects.
 That evidence does not certify other context families, authored-version correlation, or content equality.
 Status does not read update sets, Customer Updates, or session selection.
-Unknown state never authorizes replay. Explicit lifecycle effects use `flow_preview` and `mutation_apply`, not this read-only tool.
+Unknown state never authorizes replay. The server exposes no Flow lifecycle effects.
 Explicit subflow publication, flow activation/deactivation, and saved-owner tests have bounded native Log-fixture live evidence and offline coverage.
 This does not certify every authoring family or business runtime. Execution-to-version correlation and independent published-content equality remain unverified.
 Independent remote validation and production run remain unavailable. Test is not a run alias.
@@ -707,83 +707,6 @@ See [Service Catalog API coverage](../service-catalog-api.md) for endpoint cover
 Every mutation requires a preview followed by `mutation_apply`.
 The intended non-production instance, local policy, enabled group, and ServiceNow permissions must permit the operation.
 The server does not enforce human approval.
-
-### `flow_preview`
-
-Use `create` and `edit` to author a flow or subflow without executing it. Configuring triggers does not trigger the authored flow.
-Experimental authoring uses the undocumented Workflow Studio `/api/now/processflow` API.
-Enable `flow_write` or `full` on a permitted non-production connection; ServiceNow roles, installed features/licensing, local policy, and OAuth API access remain prerequisites.
-Preview performs reads only. Review the complete plan, then apply its single-use `preview_token` with `mutation_apply` after authorization.
-
-| Action                                | Required inputs                                                               | Optional inputs                                                                                              |
-| ------------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `create`                              | `name`, explicit `scope` sys_id or `global`                                   | `description`, `flow_type`, `edits`, `expected_scope`, `schema_tokens`                                       |
-| `edit`                                | `sys_id`, native `edits` array of 1-200 objects                               | `expected_scope`, `expected_revision` (both required for supported active/published owners), `schema_tokens` |
-| `resolve_schema`                      | Published target snapshot `action_type_sys_id`, declared dynamic `input_name` | Native sibling `inputs`, `expected_scope`, provider `connection_overrides`                                   |
-| `add_action`                          | `sys_id`, published action snapshot `action_type_sys_id`                      | Native scalar `inputs` object                                                                                |
-| `add_subflow`                         | `sys_id`, published subflow definition `subflow_sys_id`                       | Native scalar `inputs` object                                                                                |
-| `activate` / `publish` / `deactivate` | `sys_id`, `expected_scope`, `expected_revision`                               | None                                                                                                         |
-| `test`                                | `sys_id`, `expected_scope`, `expected_revision`                               | `inputs` according to the saved-owner execution contract                                                     |
-
-`create` accepts the ordered edits for a complete inactive flow; `flow_type="subflow"` creates an inactive triggerless subflow.
-Omitting edits creates only an empty header. Complete creation validates before the native property POST and complete-definition PUT.
-Apply returns aliases mapped to persisted IDs and a fresh revision. Later edits reorder, insert, update, and delete without resubmitting the whole flow.
-`add_action` / `add_subflow` are constrained conveniences for inactive unpublished linear drafts, accepting static string/choice/boolean/integer inputs.
-They use the same insertion planner, native bindings, and independent readback as create/edit; advanced input modes and schema tokens use create/edit.
-Logical append-last and stable existing component IDs are preserved; a fresh preview's proposed numeric order is authoritative, including renumbering sparse orders.
-Subflow calls resolve the current published snapshot, wait for completion, and never invoke the subflow merely by being added.
-
-The canonical [native family routes](../flow-authoring.md#native-authoring-routes) distinguish direct blocks, generated companions, dedicated assignments, hidden read-only representations, and all installed trigger families.
-Use these edit groups:
-
-| Need                         | Edit route                                                                                                                                                                    |
-| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Calls and native logic       | `insert_action`, `insert_subflow`, `insert_logic`, `move_step`, `update_inputs`, `delete_step`                                                                                |
-| Decision inputs/branches     | `decision_inputs` native object; optional complete ordered `branches` for labels/aliases (otherwise generated); `children="delete"` before removing populated branch subtrees |
-| Trigger configuration        | `set_trigger` by catalog `type` or eligible saved `template_id`; `update_trigger`; `remove_trigger`; REST-only `interface_schemas`                                            |
-| Declarations and assignments | `create_field`, `update_field`, `delete_field`, `set_variables`, `assign_outputs`, `clear_output_assignment`                                                                  |
-| Handlers                     | `set_error_handler(enabled=boolean)`, `remove_error_handler`; `main` / `error_handler` parent regions                                                                         |
-| Stages                       | `create_stage`, `update_stage`, `attach_stage`, `detach_stage`, `delete_stage`, including supported conditional error stages                                                  |
-| Connection aliases           | Per-call `connection_overrides`; flow-global `set_connection_overrides`, limited to declared source/child aliases                                                             |
-
-See [structural edits](../flow-authoring.md#structural-edits) for exact per-edit fields and [typed input authoring](../flow-authoring.md#typed-input-modes-and-connection-overrides) for basic values, saved inline scripts, transforms, and connection aliases.
-Native Object/Array interfaces include Choice, Date/Time, Reference, and Array.Array forms with source-defined item schemas and save constraints.
-Whole complex pills require compatible declared schemas, independently bound producers, and valid branch/order visibility; they do not infer fields or mutate arbitrary target declarations.
-Used inputs, outputs, aliases, branches, stages, or declarations are never cleared implicitly. Destructive edits require explicit disposition and still reject dangling references.
-Moving Try moves its paired Catch and both subtrees; Catch cannot move independently. Native and strictly associated legacy/Rome root wrappers preserve raw saved types and identities.
-Disabled populated handlers retain read-only contents. Closing-order, handler-size, loop/Parallel, and stage-placement constraints remain native guards; see [handlers](../flow-authoring.md#error-handlers).
-
-**Schema-provider execution is a separate reviewed metadata operation.** `resolve_schema` preview reads only; its reviewed apply executes the catalog-declared provider action once, with potentially arbitrary side effects.
-It never executes the authored flow and never runs implicitly during create/edit. Its result is an opaque `schema_token`, not a mutation token.
-Start a new create/edit preview with `schema_tokens=[...]`; review retained schemas and then apply that authoring preview separately.
-Evidence expires after 300 seconds. At most 200 distinct tokens are accepted, bound to connection/authorization/provider/dependencies, and consumed atomically when an authoring command is accepted, even if later checks fail.
-Malformed public arguments rejected before acceptance leave evidence unconsumed. Applying a schema token as a mutation token is rejected.
-The authoring save rechecks bindings without rerunning the provider. Read the [schema-resolution workflow](../flow-authoring.md#reviewed-dynamic-schema-resolution) for exact errors, provider-version limits, and post-effect retention failure.
-
-**Active/published working drafts** require target `expected_scope` and `expected_revision`, the supported native release-27800/engine-2 owner profile, and explicitly disabled save-as-you-go.
-The save preserves selected runtime storage, activation, and executable references. Raw serialized snapshot/chunk content and complete native version-owned rows are checked, not a mutable GET facade.
-Immutable snapshots reject; no lock or lifecycle effect is introduced. See [working-draft requirements](../flow-authoring.md#editing-an-active-draft).
-For inactive draft authoring, scope/revision bindings are optional; creation still requires explicit scope and forbids an existing revision.
-The selected session application is not the target scope. `expected_update_set` is removed; omit it.
-Flow tools do not query or validate update sets, Customer Updates, or session selection. ServiceNow owns normal capture, with no capture claim in success results.
-
-**Existing lifecycle effects remain separate from authoring:**
-
-- `activate` publishes a flow snapshot and enables triggers; activation can start real work.
-- `publish` publishes a callable subflow and can affect parent flows. Flow publish-only is unavailable because native flow publication also activates triggers.
-- `deactivate` stops new trigger starts for an active flow owner; existing executions continue.
-- `test` executes the saved editable owner with real side effects and explicit supported inputs. It is not an independent production-run alias.
-
-All require their own reviewed preview/apply with `expected_scope` and `expected_revision`.
-No independent remote compiler/validation or production-run action is exposed; neither saving nor testing substitutes for those operations.
-Saved-owner tests use a distinct Test-modal input serializer and narrower input coverage than create/edit; see [lifecycle contracts](../flow-authoring.md#explicit-lifecycle-effects-and-remaining-contract-gaps).
-Follow an accepted test only through read-only `flow(action="status", sys_id=..., execution_sys_id=...)` with its exact context ID.
-A returned context does not prove completion or authored-version/content equality. No new execution capability is implied by authoring support.
-
-After saving, independent semantic readback checks topology, bindings, schemas, protected fields, identities, and opaque metadata.
-State checks and writes are not atomic. Partial writes or failed readback can return `UNKNOWN_OUTCOME` with known target IDs/outcome phases.
-Inspect the exact target and reconcile any possible effects before another preview. Never automatically replay, recreate, or compensate for an uncertain operation.
-Browser success does not prove OAuth access, and source/offline coverage does not certify every live release or business runtime.
 
 ### `record_preview`
 

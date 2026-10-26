@@ -24,6 +24,8 @@ def test_presets_have_complete_disjoint_write_selection() -> None:
     assert set(PACKAGE_REGISTRY["core_readonly"]) == {"query", "describe", "attachment"}
     assert PACKAGE_REGISTRY["none"] == []
     assert "service_catalog" in PACKAGE_REGISTRY["readonly"]
+    assert "flow" in PACKAGE_REGISTRY["readonly"]
+    assert "flow_write" not in TOOL_GROUPS
 
 
 @pytest.mark.parametrize("name", list(PACKAGE_REGISTRY))
@@ -50,6 +52,8 @@ def test_custom_groups_preserve_order_and_deduplicate() -> None:
         "unknown",
         "full,query",
         "readonly,query",
+        "flow_write",
+        "flow,flow_write",
     ],
 )
 def test_invalid_package_is_explicit(name: str) -> None:
@@ -67,7 +71,6 @@ async def test_selected_group_is_constructible(settings: Settings, group: str) -
         "record_write": "record_preview",
         "attachment_write": "attachment_preview",
         "service_catalog_write": "service_catalog_preview",
-        "flow_write": "flow_preview",
     }.get(group, group)
     assert names == {"list_tool_packages", expected} | (
         {"mutation_apply"} if group in MUTATION_GROUPS else set()

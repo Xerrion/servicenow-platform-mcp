@@ -15,13 +15,12 @@ TOOL_GROUPS = frozenset(
         "analysis",
         "audit",
         "flow",
-        "flow_write",
         "code_search",
         "cmdb",
     },
 )
 MUTATION_GROUPS = frozenset(
-    {"record_write", "attachment_write", "service_catalog_write", "flow_write"}
+    {"record_write", "attachment_write", "service_catalog_write"}
 )
 PACKAGE_REGISTRY: dict[str, list[str]] = {
     "full": [
@@ -38,7 +37,6 @@ PACKAGE_REGISTRY: dict[str, list[str]] = {
         "analysis",
         "audit",
         "flow",
-        "flow_write",
         "code_search",
         "cmdb",
     ],

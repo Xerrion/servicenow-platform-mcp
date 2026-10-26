@@ -1,8 +1,8 @@
 # Experimental Flow creation and editing
 
+This document describes retained internal implementation details. The server no longer exposes `flow_write` or `flow_preview`; the calls below are not available through its MCP packages. Shared validation and inspection code remains in use by read-only `flow`.
+
 The `flow` tool is read-only: inspect configuration, validate locally, or read lifecycle and exact execution status.
-Enable `flow_write` to register `flow_preview` and `mutation_apply`. The `full` package includes this group.
-Read-only packages do not include it. Select `flow,flow_write` when you need both inspection and mutation tools without `full`.
 Use a permitted development or test connection with `SERVICENOW_ENV=dev`, local mutation policy, and the required ServiceNow permissions.
 Production policy blocks both mutation previews and application. Restart the server after changing tool or environment settings.
 

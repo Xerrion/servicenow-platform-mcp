@@ -3,30 +3,21 @@
 import copy
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING
 
-import anyio
 import httpx2
 import pytest
-from mcp import ClientSession
-from mcp.shared.memory import create_client_server_memory_streams
 
 from servicenow_mcp.auth import OAuthPKCEProvider
 from servicenow_mcp.capabilities.contracts import CapabilityError
 from servicenow_mcp.capabilities.flows import editing, semantics, tree
 from servicenow_mcp.capabilities.mutations.models import FlowCommand
-from servicenow_mcp.mcp.inputs import NativeMCPServer
 from servicenow_mcp.platform.client import ServiceNowClient
 from tests._mock_transport import http_mock
-from tests.helpers import decode_response, register_mutations
+from tests.helpers import decode_response
 from tests.test_flow_children_readback import saved_branches
 from tests.test_flow_data_edits import family_definitions
 from tests.test_flow_editing import BASE, DEFS, FLOW, base_flow, fixtures, persist
 from tests.test_flow_lifecycle import capture_routes
-
-if TYPE_CHECKING:
-    from servicenow_mcp.config import Settings
-
 
 WIRE = json.loads(
     (Path(__file__).parent / "fixtures/flow_saved_subflow_deletion.json").read_text()
@@ -317,118 +308,6 @@ async def test_mirror_correction_never_clears_a_dangling_input(settings):
             )
     assert flow == before
     assert all(call.request.method == "GET" for call in http_mock.calls)
-
-
-@pytest.mark.parametrize(
-    "defect", [None, "retained", "wrong_call", "snapshot", "other_input", "opaque"]
-)
-async def test_saved_subflow_deletion_native_wire_and_independent_readback(
-    settings: Settings, defect
-):
-    flow = two_calls()
-    before = copy.deepcopy(flow)
-    fixtures(settings, flow)
-    saved = {}
-
-    def save(request):
-        payload = json.loads(request.content)
-        saved.update(copy.deepcopy(payload))
-        assert [call["id"] for call in payload["subFlowInstances"]] == WIRE["after_ids"]
-        remaining = payload["subFlowInstances"][0]
-        original = before["subFlowInstances"][1]
-        assert remaining["order"] == 4
-        for key in (
-            "id",
-            "uiUniqueIdentifier",
-            "subflowSysId",
-            "subFlow",
-            "inputs",
-            "waitForCompletion",
-        ):
-            assert remaining[key] == original[key]
-        assert all(not key.lower().startswith("deletedsub") for key in payload)
-        assert payload["deletedActions"] == payload["deletedFlowLogicInstances"] == []
-        assert "deleted" not in remaining
-        actual = copy.deepcopy(payload)
-        if defect == "retained":
-            actual = copy.deepcopy(before)
-        elif defect == "wrong_call":
-            actual["subFlowInstances"][0] = copy.deepcopy(before["subFlowInstances"][0])
-        elif defect == "snapshot":
-            actual["subFlowInstances"][0]["subflowSysId"] = "9" * 32
-            actual["subFlowInstances"][0]["subFlow"]["id"] = "9" * 32
-        elif defect == "other_input":
-            actual["subFlowInstances"][0]["inputs"][0]["value"] = "different"
-        elif defect == "opaque":
-            actual["vendorSetting"] = {"preserve": False}
-        persist(actual)
-        return httpx2.Response(200, json={"result": {"data": payload}})
-
-    write = http_mock.route(method="PUT", url=f"{BASE}/api/now/processflow/flow").mock(
-        side_effect=save
-    )
-    settings.mcp_tool_package = "flow,flow_write"
-    server = NativeMCPServer("subflow-deletion")
-    register_mutations(
-        server, settings, OAuthPKCEProvider(settings), frozenset({"flows"})
-    )
-    async with (
-        create_client_server_memory_streams() as (client_streams, server_streams),
-        anyio.create_task_group() as tasks,
-    ):
-        tasks.start_soon(
-            server._lowlevel_server.run,
-            *server_streams,
-            server._lowlevel_server.create_initialization_options(),
-        )
-        async with ClientSession(*client_streams) as session:
-            await session.initialize()
-            preview = await session.call_tool(
-                "flow_preview",
-                {
-                    "action": "edit",
-                    "sys_id": FLOW,
-                    "edits": [{"op": "delete_step", "step": CALL}],
-                },
-            )
-            assert not preview.is_error, preview
-            await session.validate_tool_result("flow_preview", preview)
-            summary = preview.structured_content["data"]["summary"]
-            assert summary["changes"] == [f"1. Delete step {CALL}"]
-            assert summary["deleted_instances"]["subFlowInstances"] == [
-                {"id": CALL, "uiUniqueIdentifier": "call-one"},
-            ]
-            assert (
-                summary["deletion_methods"]["subFlowInstances"]
-                == "omit_from_complete_list"
-            )
-            assert len(summary["before"]) - len(summary["after"]) == 1
-            assert not write.called
-            assert all(call.request.method == "GET" for call in http_mock.calls)
-            applied = await session.call_tool(
-                "mutation_apply",
-                {"preview_token": preview.structured_content["data"]["preview_token"]},
-            )
-            await session.validate_tool_result("mutation_apply", applied)
-            assert applied.is_error is bool(defect)
-            if defect:
-                assert applied.structured_content["error"]["code"] == "UNKNOWN_OUTCOME"
-            assert write.call_count == 1
-            assert http_mock.calls[-1].request.method == "GET"
-            assert (
-                http_mock.calls[-1].request.url.path
-                == f"/api/now/processflow/flow/{FLOW}"
-            )
-            assert {call.request.method for call in http_mock.calls} <= {"GET", "PUT"}
-            assert not any(
-                "snapshot" in call.request.url.path for call in http_mock.calls
-            )
-            assert flow == before
-            assert saved["inputs"] == before["inputs"]
-            assert saved["outputs"] == before["outputs"]
-            assert saved["flowVariables"] == before["flowVariables"]
-            assert saved["vendorSetting"] == before["vendorSetting"]
-        tasks.cancel_scope.cancel()
 
 
 @pytest.mark.parametrize(

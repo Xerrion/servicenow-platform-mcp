@@ -256,5 +256,5 @@ def register_tools(mcp: MCPServer, coordinator: MutationCoordinator) -> None:
     )
     @tool_handler
     async def mutation_apply(preview_token: str) -> CapabilityResult:
-        """Apply a reviewed change using its exact preview_token. Tokens expire after 300 seconds and are single-use, including after failure; schema_tokens belong in a new flow_preview create/edit call."""
+        """Apply a reviewed record, attachment, or catalog change using its exact preview_token. Tokens expire after 300 seconds and are single-use, including after failure."""
         return await coordinator.apply(preview_token)

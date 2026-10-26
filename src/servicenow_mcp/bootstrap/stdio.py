@@ -69,7 +69,6 @@ def create_mcp_server(settings: Settings | None = None) -> NativeMCPServer:
         "record_write": "records",
         "attachment_write": "attachments",
         "service_catalog_write": "catalog",
-        "flow_write": "flows",
     }
     coordinator = MutationCoordinator(
         settings,

@@ -39,7 +39,6 @@ REQUIRED = {
     "analysis": ["action"],
     "audit": ["action"],
     "flow": ["action"],
-    "flow_preview": ["action"],
     "code_search": [],
     "cmdb": ["action"],
 }

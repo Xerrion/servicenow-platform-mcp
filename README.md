@@ -71,12 +71,6 @@ Diagnostic findings help you investigate a cause. They do not establish a root
 cause or automatically repair the instance. The `flow` tool reads stored
 configuration, performs local validation, and reads status. It never changes or executes a flow.
 
-Use opt-in `flow_write` tools to create complete inactive flows and triggerless subflows, then edit them with supported native block families. The [Flow authoring guide](docs/flow-authoring.md) defines the supported operations and compatibility limits. Configuring a trigger does not trigger the authored flow; creation and editing never execute it.
-
-Dynamic schema providers require separate reviewed authoring-metadata execution with `flow_preview(action="resolve_schema", ...)` followed by `mutation_apply`; a provider can have arbitrary side effects. This is never implicit in create/edit and does not execute the authored flow.
-
-Native lifecycle actions remain separate from authoring: activation publishes a flow and enables its triggers, subflow publication makes it callable, deactivation stops new trigger starts, and testing executes actions with real side effects. See the guide for lifecycle boundaries.
-
 With write tools enabled, you can create or update configuration records,
 including script fields. Follow the [change workflow](#making-changes) before
 applying a script change.
@@ -234,7 +228,7 @@ For a script update:
 > explain it. Show a preview with the complete replacement script. Wait for my
 > approval before applying it.
 
-`record_preview`, `attachment_preview`, `service_catalog_preview`, and `flow_preview` return single-use tokens.
+`record_preview`, `attachment_preview`, and `service_catalog_preview` return single-use tokens.
 `mutation_apply` consumes a reviewed token and checks policy, authorization, and detectable state changes.
 Tokens expire after 300 seconds and disappear on restart.
 If a remote outcome is `UNKNOWN_OUTCOME`, read the target state before another preview. Never automatically replay the operation.

@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 @pytest.mark.parametrize(
     ("package", "count"),
-    [("none", 1), ("core_readonly", 4), ("readonly", 13), ("full", 18)],
+    [("none", 1), ("core_readonly", 4), ("readonly", 13), ("full", 17)],
 )
 async def test_presets_register_expected_surface(
     settings: Settings, package: str, count: int

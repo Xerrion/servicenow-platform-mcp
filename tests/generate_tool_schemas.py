@@ -30,17 +30,9 @@ async def generate() -> None:
         }
         for tool in tools
     }
-    flow = schemas.pop("flow_preview")
     destination = Path(__file__).parent / "fixtures"
     (destination / "native_tool_schemas.json").write_text(
         json.dumps(schemas, indent=2) + "\n"
-    )
-    (destination / "flow_preview_schema.json").write_text(
-        json.dumps(
-            {"input": flow["input"], "shared_output_and_annotations": "record_preview"},
-            indent=2,
-        )
-        + "\n",
     )
 
 

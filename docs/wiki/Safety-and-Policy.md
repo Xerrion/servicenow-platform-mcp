@@ -64,7 +64,7 @@ The server does not enforce human approval.
 4. Apply its token only after the required approval.
 5. Check the saved result in ServiceNow.
 
-`record_preview`, `attachment_preview`, `service_catalog_preview`, and `flow_preview` make no upstream mutation.
+`record_preview`, `attachment_preview`, and `service_catalog_preview` make no upstream mutation.
 They return a summary, `preview_token`, expiry, and limitations.
 `mutation_apply` atomically consumes the token before execution.
 It checks the enabled family, environment, instance, authorization generation, policy, and detectable state changes.

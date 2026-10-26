@@ -28,7 +28,7 @@ async def test_all_tool_annotations_resolve_at_registration_and_schema_generatio
     server = create_mcp_server(settings)
     functions = {name: tool.fn for name, tool in _get_registered_tools(server).items()}
     tools = {tool.name: tool for tool in await server.list_tools()}
-    assert len(functions) == len(tools) == 18
+    assert len(functions) == len(tools) == 17
     for name, function in functions.items():
         original = inspect.unwrap(function)
         signature = inspect.signature(original)
@@ -64,11 +64,11 @@ async def test_full_mcp_initialize_list_tools_and_shutdown_without_network(
             initialized = await session.initialize()
             assert initialized.server_info.name == "servicenow-platform-mcp"
             tools = (await session.list_tools()).tools
-            assert len(tools) == 18
+            assert len(tools) == 17
+            assert "flow_preview" not in {tool.name for tool in tools}
             assert {
                 "query",
                 "flow",
-                "flow_preview",
                 "service_catalog_preview",
                 "mutation_apply",
             } <= {tool.name for tool in tools}

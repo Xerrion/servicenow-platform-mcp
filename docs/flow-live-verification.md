@@ -1,5 +1,7 @@
 # EUC-2389 LogView acceptance assessment
 
+These are historical verification results for the retained internal implementation. Flow authoring and lifecycle mutations are no longer exposed by the server.
+
 This is a chronological evidence record. Earlier limits and UNKNOWN outcomes remain historical.
 The current isolated authoring/lifecycle result is in [native working-draft completion](#native-working-drafts-and-safe-lifecycle-completion-2026-10-23).
 That result does not establish EUC-2389 business acceptance or authorize changes to LogView/AD.

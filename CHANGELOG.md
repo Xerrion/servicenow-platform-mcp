@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Removed
+
+- Remove the public `flow_write` group and `flow_preview` from server packages. Read-only Flow inspection, validation, and status remain available. Internal Flow adapters are retained because they share validation code with reads.
+
 ### Features
 
 - Experimental `flow_write` creation/editing configures complete inactive flows

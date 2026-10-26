@@ -37,29 +37,16 @@ Use the AI app's tool list to check the actual registered surface.
 
 ## Mutation groups
 
-| Group                   | Preview tool                                                                                                                                   |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `record_write`          | `record_preview` for create, update, and delete.                                                                                               |
-| `attachment_write`      | `attachment_preview` for upload and delete.                                                                                                    |
-| `service_catalog_write` | `service_catalog_preview` for orders, record producers, order guides, wish lists, and cart changes.                                            |
-| `flow_write`            | `flow_preview` for experimental Flow creation/editing, separately reviewed schema-provider metadata execution, and explicit lifecycle effects. |
+| Group                   | Preview tool                                                                                        |
+| ----------------------- | --------------------------------------------------------------------------------------------------- |
+| `record_write`          | `record_preview` for create, update, and delete.                                                    |
+| `attachment_write`      | `attachment_preview` for upload and delete.                                                         |
+| `service_catalog_write` | `service_catalog_preview` for orders, record producers, order guides, wish lists, and cart changes. |
 
 Selecting any mutation group registers `mutation_apply` exactly once.
 Application rejects commands from families that are not enabled.
 Every mutation requires preview followed by apply.
 A preview token does not prove human approval.
-
-`flow_write` is included in `full`, not in read-only packages. It uses the undocumented Workflow Studio API.
-It supports complete inactive flow/subflow creation, native block and trigger configuration, and bounded active/published working-draft editing.
-Creating or editing a draft, including its trigger configuration, never executes the authored flow.
-Dynamic input metadata can require a separate `resolve_schema` preview and reviewed apply that executes the catalog-declared schema-provider action.
-That provider can have side effects; it is never run implicitly during create/edit.
-Existing lifecycle actions remain separate: activate flows, publish callable subflows, deactivate flows, or execute saved-owner tests.
-Activation and tests can cause real work. Publication can affect parent flows that call the subflow.
-Every effect requires preview and `mutation_apply` on a permitted non-production connection.
-Scope/revision binding is mandatory for lifecycle effects and supported active/published working-draft edits.
-Independent remote validation, independent production run, and flow publish-only are not authoring requirements and remain unavailable.
-See [Flow authoring](../flow-authoring.md) for native family routes, metadata-provider review, compatibility limits, and uncertain-outcome recovery.
 
 For a development instance:
 

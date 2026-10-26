@@ -157,7 +157,7 @@ async def test_sequential_stdio_servers_reuse_refresh_grant_without_browser(tmp_
                     tools = {
                         tool.name: tool for tool in (await session.list_tools()).tools
                     }
-                    assert len(tools) == 18
+                    assert len(tools) == 17
                     args = {
                         "table": "sys_hub_flow",
                         "sys_id": "a" * 32,

@@ -31,6 +31,36 @@
 - Execution status verifies ownership of the exact compiled snapshot while
   keeping snapshot-content and authored-version verification separate.
 
+## [3.0.0](https://github.com/Xerrion/servicenow-platform-mcp/compare/v3.0.0...v3.0.0) (2026-10-26)
+
+
+### ⚠ BREAKING CHANGES
+
+* rename change tool and simplify test workflow ([#225](https://github.com/Xerrion/servicenow-platform-mcp/issues/225))
+* Python 3.12 and 3.13 are no longer supported.
+
+### Features
+
+* extend staged Service Catalog API support ([#214](https://github.com/Xerrion/servicenow-platform-mcp/issues/214)) ([e5f4daa](https://github.com/Xerrion/servicenow-platform-mcp/commit/e5f4daa7b129f329e9444ad5572819f52c9eb16a))
+* improve MCP contracts, OAuth caching, and read-only Flow inspection ([#218](https://github.com/Xerrion/servicenow-platform-mcp/issues/218)) ([70ccd62](https://github.com/Xerrion/servicenow-platform-mcp/commit/70ccd6242abc8eb6c7c9bd35fcb34b231193d37d))
+* rename change tool and simplify test workflow ([#225](https://github.com/Xerrion/servicenow-platform-mcp/issues/225)) ([b6f078e](https://github.com/Xerrion/servicenow-platform-mcp/commit/b6f078ed051b9d18f61f153b134c93ae784d2d82))
+
+
+### Bug Fixes
+
+* improve query field metadata discovery ([#211](https://github.com/Xerrion/servicenow-platform-mcp/issues/211)) ([3604fb8](https://github.com/Xerrion/servicenow-platform-mcp/commit/3604fb8ab934446994dce3dd6be689ab5150110d))
+
+
+### Documentation
+
+* rebuild wiki for clear navigation and guidance ([14a2ad6](https://github.com/Xerrion/servicenow-platform-mcp/commit/14a2ad63bc453f1d677c64fc52f2c816ca53b205))
+* rebuild wiki with concise guidance ([#226](https://github.com/Xerrion/servicenow-platform-mcp/issues/226)) ([14a2ad6](https://github.com/Xerrion/servicenow-platform-mcp/commit/14a2ad63bc453f1d677c64fc52f2c816ca53b205))
+
+
+### Miscellaneous Chores
+
+* require Python 3.14 and use 3.15 locally ([#213](https://github.com/Xerrion/servicenow-platform-mcp/issues/213)) ([f6b0888](https://github.com/Xerrion/servicenow-platform-mcp/commit/f6b08881e6a49d9faae5beeee7a870e648ce0acd))
+
 ## [3.0.0](https://github.com/Xerrion/servicenow-platform-mcp/compare/v2.1.2...v3.0.0) (2026-10-13)
 
 

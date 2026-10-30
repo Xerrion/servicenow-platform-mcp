@@ -73,8 +73,8 @@ ServiceNow.
 
 - `MAX_ROW_LIMIT`: maximum records returned by a query. Default: 100. Range:
   1 to 10,000.
-- `LARGE_TABLE_NAMES_CSV`: tables that require a date filter. The default is
-  `syslog,sys_audit,syslog_transaction,sys_email_log`.
+- `DATE_FILTER_REQUIRED_TABLES`: comma-separated table names that require a date
+  filter. Default: `syslog,sys_audit,syslog_transaction,sys_email_log`.
 - `HTTPX_TIMEOUT_SECONDS`: time allowed for HTTP operations. Default: 30 seconds.
   Range: 1 to 600 seconds.
 - `METADATA_CACHE_TTL_SECONDS`: how long metadata stays cached. Default: 300

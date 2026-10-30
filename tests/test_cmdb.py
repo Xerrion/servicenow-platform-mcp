@@ -116,8 +116,8 @@ async def test_invalid_or_denied_inputs_fail_before_http(
     assert not http_mock.calls
 
 
-async def test_large_cmdb_classes_require_date_bounds(settings: Settings) -> None:
-    settings = settings.model_copy(update={"large_table_names_csv": "cmdb_ci"})
+async def test_configured_cmdb_classes_require_date_bounds(settings: Settings) -> None:
+    settings = settings.model_copy(update={"date_filter_required_tables": "cmdb_ci"})
     response = await _call(settings, action="query", class_name="cmdb_ci")
     assert response["status"] == "error"
     assert "date-bounded" in response["error"]["message"]

@@ -176,8 +176,8 @@ def enforce_query_safety(
     # Floor limit at 1 to prevent zero or negative values
     effective_limit = max(1, effective_limit)
 
-    # Large tables require date-bounded filters
-    if table in settings.large_table_names and not _has_date_filter(query):
+    # Configured tables require date-bounded filters.
+    if table in settings.date_filter_required_table_set and not _has_date_filter(query):
         raise QuerySafetyError(
             f"Table '{table}' is large and requires a date-bounded filter "
             f"(e.g., sys_created_on>=YYYY-MM-DD). "

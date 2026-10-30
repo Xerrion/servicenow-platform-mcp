@@ -9,7 +9,9 @@ from urllib.parse import urlsplit
 from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-_DEFAULT_LARGE_TABLES = "syslog,sys_audit,syslog_transaction,sys_email_log"
+_DEFAULT_DATE_FILTER_REQUIRED_TABLES = (
+    "syslog,sys_audit,syslog_transaction,sys_email_log"
+)
 
 
 class Settings(BaseSettings):
@@ -27,7 +29,7 @@ class Settings(BaseSettings):
     mcp_tool_package: str = "readonly"
     servicenow_env: str = "prod"
     max_row_limit: int = 100
-    large_table_names_csv: str = _DEFAULT_LARGE_TABLES
+    date_filter_required_tables: str = _DEFAULT_DATE_FILTER_REQUIRED_TABLES
     httpx_timeout_seconds: float = 30.0
     metadata_cache_ttl_seconds: int = 300
 
@@ -179,10 +181,10 @@ class Settings(BaseSettings):
         return "prod" if normalized == "production" else normalized
 
     @cached_property
-    def large_table_names(self) -> frozenset[str]:
-        """Parse comma-separated large table names into a frozenset."""
+    def date_filter_required_table_set(self) -> frozenset[str]:
+        """Parse the configured tables that require date-bounded query filters."""
         return frozenset(
-            t.strip() for t in self.large_table_names_csv.split(",") if t.strip()
+            t.strip() for t in self.date_filter_required_tables.split(",") if t.strip()
         )
 
     @property

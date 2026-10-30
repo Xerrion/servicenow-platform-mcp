@@ -263,29 +263,49 @@ class TestSettings:
 
         assert settings.max_row_limit == 50
 
-    def test_large_table_names_default(self) -> None:
-        """LARGE_TABLE_NAMES_CSV has sensible defaults."""
+    def test_date_filter_required_tables_default(self) -> None:
+        """DATE_FILTER_REQUIRED_TABLES preserves the default date-filter policy."""
         from servicenow_mcp.config import Settings
 
         env = self._make_env()
         with patch.dict("os.environ", env, clear=True):
             settings = Settings(_env_file=None)
 
-        assert "syslog" in settings.large_table_names
-        assert "sys_audit" in settings.large_table_names
-        assert "syslog_transaction" in settings.large_table_names
+        assert settings.date_filter_required_tables == (
+            "syslog,sys_audit,syslog_transaction,sys_email_log"
+        )
+        assert settings.date_filter_required_table_set == frozenset(
+            {"syslog", "sys_audit", "syslog_transaction", "sys_email_log"}
+        )
 
-    def test_large_table_names_from_csv(self) -> None:
-        """LARGE_TABLE_NAMES_CSV parses comma-separated string."""
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            pytest.param(
+                "table_a,table_b,table_c",
+                frozenset({"table_a", "table_b", "table_c"}),
+                id="comma-separated",
+            ),
+            pytest.param(
+                " table_a , ,table_b,table_a, ",
+                frozenset({"table_a", "table_b"}),
+                id="whitespace-empty-and-duplicate-entries",
+            ),
+            pytest.param("", frozenset(), id="empty"),
+        ],
+    )
+    def test_date_filter_required_tables_from_env(
+        self, raw: str, expected: frozenset[str]
+    ) -> None:
+        """The environment value stays a string and parses into a table set."""
         from servicenow_mcp.config import Settings
 
-        env = self._make_env(LARGE_TABLE_NAMES_CSV="table_a,table_b,table_c")
+        env = self._make_env(DATE_FILTER_REQUIRED_TABLES=raw)
         with patch.dict("os.environ", env, clear=True):
             settings = Settings(_env_file=None)
 
-        assert settings.large_table_names == frozenset(
-            {"table_a", "table_b", "table_c"}
-        )
+        assert settings.date_filter_required_tables == raw
+        assert settings.date_filter_required_table_set == expected
 
     def test_instance_url_trailing_slash_stripped(self) -> None:
         """Trailing slash is stripped from instance URL."""
@@ -381,26 +401,26 @@ class TestSettings:
         ):
             Settings(_env_file=None)
 
-    def test_large_table_names_is_frozenset(self) -> None:
-        """large_table_names returns a frozenset."""
+    def test_date_filter_required_table_set_is_frozenset(self) -> None:
+        """The parsed date-filter policy is immutable."""
         from servicenow_mcp.config import Settings
 
         env = self._make_env()
         with patch.dict("os.environ", env, clear=True):
             settings = Settings(_env_file=None)
 
-        assert isinstance(settings.large_table_names, frozenset)
+        assert isinstance(settings.date_filter_required_table_set, frozenset)
 
-    def test_large_table_names_cached(self) -> None:
-        """large_table_names returns the same cached object on repeated access."""
+    def test_date_filter_required_table_set_cached(self) -> None:
+        """Repeated access reuses the parsed date-filter policy."""
         from servicenow_mcp.config import Settings
 
         env = self._make_env()
         with patch.dict("os.environ", env, clear=True):
             settings = Settings(_env_file=None)
 
-        first = settings.large_table_names
-        second = settings.large_table_names
+        first = settings.date_filter_required_table_set
+        second = settings.date_filter_required_table_set
         assert first is second
 
     def test_default_httpx_timeout(self) -> None:

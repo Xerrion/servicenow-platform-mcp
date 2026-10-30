@@ -155,34 +155,67 @@ class TestQuerySafety:
         )
         assert result["limit"] == settings.max_row_limit
 
-    def test_large_table_requires_date_filter(self, settings: Settings) -> None:
-        """Large tables require a date-bounded filter."""
+    @pytest.mark.parametrize(
+        ("tables", "table"),
+        [
+            pytest.param(None, "syslog", id="default"),
+            pytest.param("incident", "incident", id="configured"),
+        ],
+    )
+    def test_configured_table_requires_date_filter(
+        self, settings: Settings, tables: str | None, table: str
+    ) -> None:
+        """Default and explicitly configured tables require a date-bounded filter."""
         from servicenow_mcp.policy import enforce_query_safety
+
+        if tables is not None:
+            settings.date_filter_required_tables = tables
 
         with pytest.raises(QuerySafetyError, match="date"):
-            enforce_query_safety("syslog", "level=error", limit=50, settings=settings)
+            enforce_query_safety(table, "active=true", limit=50, settings=settings)
 
-    def test_large_table_with_date_filter_passes(self, settings: Settings) -> None:
-        """Large tables with date filter pass."""
+    @pytest.mark.parametrize(
+        ("tables", "table"),
+        [
+            pytest.param(None, "syslog", id="default"),
+            pytest.param("incident", "incident", id="configured"),
+        ],
+    )
+    def test_configured_table_with_date_filter_passes(
+        self, settings: Settings, tables: str | None, table: str
+    ) -> None:
+        """Date-bounded queries satisfy both default and configured table policy."""
         from servicenow_mcp.policy import enforce_query_safety
 
-        # Should not raise
+        if tables is not None:
+            settings.date_filter_required_tables = tables
+
         result = enforce_query_safety(
-            "syslog",
-            "sys_created_on>=2024-01-01^level=error",
+            table,
+            "sys_created_on>=2024-01-01^active=true",
             limit=50,
             settings=settings,
         )
         assert result["limit"] == 50
 
-    def test_normal_table_no_date_required(self, settings: Settings) -> None:
-        """Normal tables do not require date filters."""
+    @pytest.mark.parametrize(
+        ("tables", "table"),
+        [
+            pytest.param(None, "incident", id="default"),
+            pytest.param("incident", "syslog", id="configured-replaces-default"),
+            pytest.param("", "syslog", id="empty"),
+        ],
+    )
+    def test_unlisted_table_no_date_required(
+        self, settings: Settings, tables: str | None, table: str
+    ) -> None:
+        """Only listed tables require date filters; an empty list disables the rule."""
         from servicenow_mcp.policy import enforce_query_safety
 
-        # Should not raise
-        result = enforce_query_safety(
-            "incident", "active=true", limit=50, settings=settings
-        )
+        if tables is not None:
+            settings.date_filter_required_tables = tables
+
+        result = enforce_query_safety(table, "active=true", limit=50, settings=settings)
         assert result["limit"] == 50
 
     def test_date_filter_bypass_substring_in_value(self, settings: Settings) -> None:

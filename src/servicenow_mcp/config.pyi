@@ -4,7 +4,7 @@ from typing import Literal
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings
 
-_DEFAULT_LARGE_TABLES: str
+_DEFAULT_DATE_FILTER_REQUIRED_TABLES: str
 
 type EnvFilePath = str | PathLike[str]
 type EnvFileValue = EnvFilePath | list[EnvFilePath] | tuple[EnvFilePath, ...] | None
@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     mcp_tool_package: str
     servicenow_env: str
     max_row_limit: int
-    large_table_names_csv: str
+    date_filter_required_tables: str
     httpx_timeout_seconds: float
     metadata_cache_ttl_seconds: int
     sentry_dsn: str
@@ -42,7 +42,7 @@ class Settings(BaseSettings):
         mcp_tool_package: str = ...,
         servicenow_env: str = ...,
         max_row_limit: int = ...,
-        large_table_names_csv: str = ...,
+        date_filter_required_tables: str = ...,
         httpx_timeout_seconds: float = ...,
         metadata_cache_ttl_seconds: int = ...,
         sentry_dsn: str = ...,
@@ -71,6 +71,6 @@ class Settings(BaseSettings):
     @classmethod
     def validate_environment(cls, value: str) -> str: ...
     @property
-    def large_table_names(self) -> frozenset[str]: ...
+    def date_filter_required_table_set(self) -> frozenset[str]: ...
     @property
     def is_production(self) -> bool: ...

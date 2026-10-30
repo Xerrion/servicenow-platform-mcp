@@ -327,17 +327,17 @@ class TestQueryMode:
         assert "denied" in result["error"]["message"].lower()
 
     @pytest.mark.asyncio()
-    async def test_large_table_without_date_filter_returns_error(
+    async def test_configured_table_without_date_filter_returns_error(
         self,
         settings: Settings,
         auth_provider: OAuthPKCEProvider,
     ) -> None:
-        """enforce_query_safety still gates large tables in unified query mode."""
-        settings.large_table_names_csv = "syslog,sys_audit"
+        """Configured tables require date filters before query metadata is loaded."""
+        settings.date_filter_required_tables = "incident"
         dictionary = AsyncMock()
         tools = _register_and_get_tools(settings, auth_provider, dictionary=dictionary)
         raw = await tools["query"](
-            table="syslog", encoded_query="level=error", fields=["message"]
+            table="incident", encoded_query="priority=1", fields=["short_description"]
         )
         result = decode_response(raw)
 
@@ -388,7 +388,7 @@ class TestQueryMode:
         )
 
         tools = _register_and_get_tools(settings, auth_provider)
-        # sys_audit is in default large_table_names; supply a real date filter.
+        # sys_audit requires a date-bounded filter by default.
         raw = await tools["query"](
             table="sys_audit",
             encoded_query="sys_created_on>=javascript:gs.daysAgoStart(7)",
